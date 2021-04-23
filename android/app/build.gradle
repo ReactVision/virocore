@@ -1,5 +1,4 @@
 apply plugin: 'com.android.library'
-apply from: 'maven-push.gradle'
 
 // This module is not used to build ViroReact or ViroCore, nor is it used as any dependency.
 // It is only here to make Android Studio's internal compiler work so we get code-completion,
