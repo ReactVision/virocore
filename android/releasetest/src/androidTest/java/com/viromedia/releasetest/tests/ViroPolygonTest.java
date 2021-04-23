@@ -25,7 +25,7 @@ package com.viromedia.releasetest.tests;
 
 import android.graphics.Color;
 import android.os.Handler;
-import android.support.test.espresso.core.deps.guava.collect.Iterables;
+import androidx.test.espresso.core.deps.guava.collect.Iterables;
 
 import com.viro.core.Material;
 import com.viro.core.Node;
@@ -36,7 +36,6 @@ import org.junit.Test;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Iterator;
 import java.util.List;
 
 public class ViroPolygonTest extends ViroBaseTest {

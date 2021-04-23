@@ -25,7 +25,7 @@ package com.viromedia.releasetest.tests;
 
 import android.graphics.Color;
 import android.net.Uri;
-import android.support.test.espresso.core.deps.guava.collect.Iterables;
+import androidx.test.espresso.core.deps.guava.collect.Iterables;
 import com.viro.core.AnimatedTexture;
 import com.viro.core.DirectionalLight;
 import com.viro.core.Material;

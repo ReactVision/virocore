@@ -24,9 +24,8 @@
 package com.viromedia.releasetest.tests;
 
 import android.graphics.Color;
-import android.support.test.espresso.core.deps.guava.collect.Iterables;
-import android.support.test.runner.AndroidJUnit4;
-import android.view.animation.Animation;
+import androidx.test.espresso.core.deps.guava.collect.Iterables;
+import androidx.test.ext.junit.runners.AndroidJUnit4;
 
 import com.viro.core.AmbientLight;
 import com.viro.core.AnimationTransaction;
@@ -35,7 +34,6 @@ import com.viro.core.Node;
 import com.viro.core.Quad;
 import com.viro.core.Sphere;
 import com.viro.core.Spotlight;
-import com.viro.core.Surface;
 import com.viro.core.Vector;
 
 import org.junit.Test;

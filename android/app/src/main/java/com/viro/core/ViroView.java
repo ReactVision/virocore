@@ -27,23 +27,16 @@ package com.viro.core;
 import android.app.Activity;
 import android.app.Application;
 import android.content.Context;
-import android.content.pm.ApplicationInfo;
-import android.content.pm.PackageManager;
 import android.graphics.Point;
-import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.support.annotation.AttrRes;
-import android.support.annotation.Keep;
-import android.support.annotation.NonNull;
-import android.support.annotation.Nullable;
+import androidx.annotation.AttrRes;
+import androidx.annotation.Keep;
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import android.util.AttributeSet;
-import android.util.Log;
 import android.view.View;
 import android.widget.FrameLayout;
-import android.widget.Toast;
-
-import com.viro.core.internal.BuildInfo;
 
 import java.lang.ref.WeakReference;
 

@@ -25,7 +25,7 @@ package com.viromedia.releasetest.tests;
 
 import android.graphics.Bitmap;
 import android.graphics.Color;
-import android.support.test.espresso.core.deps.guava.collect.Iterables;
+import androidx.test.espresso.core.deps.guava.collect.Iterables;
 import android.util.Log;
 
 import com.viro.core.ARAnchor;
@@ -38,7 +38,6 @@ import com.viro.core.Material;
 import com.viro.core.Node;
 import com.viro.core.PointCloudUpdateListener;
 import com.viro.core.Quad;
-import com.viro.core.Surface;
 import com.viro.core.Text;
 import com.viro.core.Texture;
 import com.viro.core.Vector;

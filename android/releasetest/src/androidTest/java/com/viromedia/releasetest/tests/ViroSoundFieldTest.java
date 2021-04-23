@@ -25,7 +25,7 @@ package com.viromedia.releasetest.tests;
 
 import android.graphics.Color;
 import android.net.Uri;
-import android.support.test.espresso.core.deps.guava.collect.Iterables;
+import androidx.test.espresso.core.deps.guava.collect.Iterables;
 
 import com.viro.core.Node;
 import com.viro.core.SoundField;
@@ -38,7 +38,6 @@ import org.junit.Test;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Random;
 
 /**
  * Created by manish on 11/6/17.

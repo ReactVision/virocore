@@ -25,13 +25,12 @@ package com.viromedia.releasetest.tests;
 
 import android.graphics.Bitmap;
 import android.graphics.Color;
-import android.support.test.espresso.core.deps.guava.collect.Iterables;
+import androidx.test.espresso.core.deps.guava.collect.Iterables;
 
 import com.viro.core.AmbientLight;
 import com.viro.core.Material;
 import com.viro.core.Node;
 import com.viro.core.Quad;
-import com.viro.core.Surface;
 import com.viro.core.Texture;
 import com.viro.core.Vector;
 

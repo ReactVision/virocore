@@ -10,7 +10,7 @@ android {
         targetSdkVersion 30
         versionCode 1
         versionName "1.0"
-        testInstrumentationRunner "android.support.test.runner.AndroidJUnitRunner"
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
         ndk {
             abiFilters "armeabi-v7a", "x86", "armeabi", "mips"
         }
@@ -25,12 +25,12 @@ android {
 
 dependencies {
     compile fileTree(dir: 'libs', include: ['*.jar'])
-    compile 'com.android.support:appcompat-v7:28.0.0'
+    compile 'androidx.appcompat:appcompat:1.3.1'
     compile 'com.google.android.exoplayer:exoplayer:2.7.1'
-    androidTestCompile('com.android.support.test.espresso:espresso-core:2.2.2', {
+    androidTestCompile('androidx.test.espresso:espresso-core:3.1.0', {
         exclude group: 'com.android.support', module: 'support-annotations'
     })
-    compile 'com.android.support.constraint:constraint-layout:1.0.2'
+    compile 'androidx.constraintlayout:constraintlayout:2.1.0'
     testCompile 'junit:junit:4.12'
     compile project(':gvr_common')
     compile project(':arcore_client')

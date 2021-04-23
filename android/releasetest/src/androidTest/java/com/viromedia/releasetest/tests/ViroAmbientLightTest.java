@@ -24,8 +24,8 @@
 package com.viromedia.releasetest.tests;
 
 import android.graphics.Color;
-import android.support.test.espresso.core.deps.guava.collect.Iterables;
-import android.support.test.runner.AndroidJUnit4;
+import androidx.test.espresso.core.deps.guava.collect.Iterables;
+import androidx.test.ext.junit.runners.AndroidJUnit4;
 
 import com.viro.core.AmbientLight;
 import com.viro.core.DirectionalLight;

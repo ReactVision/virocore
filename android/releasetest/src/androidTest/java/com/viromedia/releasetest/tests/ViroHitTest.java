@@ -24,8 +24,8 @@
 package com.viromedia.releasetest.tests;
 
 import android.graphics.Color;
-import android.support.test.espresso.core.deps.guava.collect.Iterables;
-import android.util.Log;
+import androidx.test.espresso.core.deps.guava.collect.Iterables;
+
 import android.graphics.Point;
 
 

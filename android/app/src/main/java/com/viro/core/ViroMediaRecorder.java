@@ -31,13 +31,12 @@ import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.media.MediaRecorder;
 import android.net.Uri;
-import android.net.rtp.AudioCodec;
 import android.opengl.GLES20;
 import android.os.AsyncTask;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
-import android.support.v4.content.ContextCompat;
+import androidx.core.content.ContextCompat;
 import android.util.Log;
 
 import com.viro.core.internal.MediaRecorderSurface;

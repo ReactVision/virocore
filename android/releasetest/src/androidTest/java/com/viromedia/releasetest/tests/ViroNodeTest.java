@@ -24,8 +24,7 @@
 package com.viromedia.releasetest.tests;
 
 import android.graphics.Color;
-import android.support.test.annotation.UiThreadTest;
-import android.util.Log;
+import androidx.test.annotation.UiThreadTest;
 
 import com.viro.core.Box;
 import com.viro.core.DirectionalLight;

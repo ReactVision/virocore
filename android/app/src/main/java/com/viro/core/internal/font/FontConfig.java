@@ -18,9 +18,9 @@ package com.viro.core.internal.font;
 
 import static java.lang.annotation.RetentionPolicy.SOURCE;
 
-import android.support.annotation.IntDef;
-import android.support.annotation.NonNull;
-import android.support.annotation.Nullable;
+import androidx.annotation.IntDef;
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import android.net.Uri;
 
 import java.lang.annotation.Retention;

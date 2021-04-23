@@ -24,7 +24,7 @@
 package com.viromedia.releasetest.tests;
 
 import android.app.Activity;
-import android.support.test.rule.ActivityTestRule;
+import androidx.test.rule.ActivityTestRule;
 import android.util.Log;
 
 import com.viro.core.ViroView;
