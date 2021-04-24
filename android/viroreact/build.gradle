@@ -67,6 +67,23 @@ android {
         // viro_renderer and viro_arcore, but we also have to stop gradle from copying all of our
         // arm64-v8a and x86 dependencies. We do that through these packaging options.
         exclude '**/x86/**'
+
+        pickFirst 'lib/armeabi-v7a/libBulletDynamics.so'
+        pickFirst 'lib/armeabi-v7a/libgvr.so'
+        pickFirst 'lib/armeabi-v7a/libgvr_audio.so'
+        pickFirst 'lib/armeabi-v7a/libfreetyped.so'
+        pickFirst 'lib/armeabi-v7a/libBulletCollision.so'
+        pickFirst 'lib/armeabi-v7a/libLinearMath.so'
+        pickFirst 'lib/armeabi-v7a/libvrapi.so'
+        pickFirst 'lib/armeabi-v7a/libBulletSoftBody.so'
+        pickFirst 'lib/arm64-v8a/libBulletDynamics.so'
+        pickFirst 'lib/arm64-v8a/libgvr.so'
+        pickFirst 'lib/arm64-v8a/libgvr_audio.so'
+        pickFirst 'lib/arm64-v8a/libfreetyped.so'
+        pickFirst 'lib/arm64-v8a/libBulletCollision.so'
+        pickFirst 'lib/arm64-v8a/libLinearMath.so'
+        pickFirst 'lib/arm64-v8a/libvrapi.so'
+        pickFirst 'lib/arm64-v8a/libBulletSoftBody.so'
     }
 }
 
