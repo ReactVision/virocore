@@ -56,10 +56,6 @@ android {
         }
     }
 
-    dexOptions {
-        preDexLibraries true
-    }
-
     packagingOptions {
         // x86 is currently not supported, so do not copy over these resources
         exclude '**/x86/**'
