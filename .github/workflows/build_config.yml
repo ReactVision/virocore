@@ -5,19 +5,17 @@ on:
     branches:
       - main
   pull_request:
-    branches:
-      - main
 
 jobs:
   android_virocore_build:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2.3.4
-    - name: set up JDK 1.8
+    - name: set up JDK
       uses: actions/setup-java@v2
       with:
         distribution: 'adopt'
-        java-version: 8
+        java-version: 11
     - name: assmble release ViroCore
       run: ./gradlew :virocore:assembleRelease
       working-directory: ./android
@@ -31,10 +29,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v1
-    - name: set up JDK 1.8
+    - name: set up JDK
       uses: actions/setup-java@v1
       with:
-        java-version: 1.8
+        java-version: 11
     - name: assmble release ViroReact
       run: bash ./gradlew :viroreact:assembleRelease
       working-directory: ./android
@@ -71,4 +69,3 @@ jobs:
         with: 
           name: ios_dist.tgz
           path: ../viro/ios/dist/
-
