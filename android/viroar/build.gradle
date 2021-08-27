@@ -1,4 +1,5 @@
 apply plugin: 'com.android.library'
+apply plugin: 'maven-publish'
 
 android {
     compileSdkVersion 28
@@ -61,5 +62,13 @@ task extractNativeLibraries() {
 tasks.whenTaskAdded { task ->
     if (task.name == 'assembleRelease') {
         task.finalizedBy 'extractNativeLibraries'
+    }
+}
+
+publishing {
+    publications {
+        maven(MavenPublication) {
+            from components.all {}
+        }
     }
 }

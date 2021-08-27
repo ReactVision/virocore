@@ -1,4 +1,5 @@
 apply plugin: 'com.android.library'
+apply plugin: 'maven-publish'
 
 // This module is not used to build ViroReact or ViroCore, nor is it used as any dependency.
 // It is only here to make Android Studio's internal compiler work so we get code-completion,
@@ -44,4 +45,12 @@ dependencies {
     implementation project(':libs:gvr')
     implementation project(':libs:arcore')
     implementation 'com.google.protobuf.nano:protobuf-javanano:3.0.0-alpha-7'
+}
+
+publishing {
+    publications {
+        maven(MavenPublication) {
+            from components.all {}
+        }
+    }
 }
