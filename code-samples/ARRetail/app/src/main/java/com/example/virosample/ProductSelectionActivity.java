@@ -16,10 +16,12 @@
  */
 package com.example.virosample;
 
+import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
+import android.support.annotation.NonNull;
 import android.support.v4.content.ContextCompat;
 import android.support.v7.widget.LinearLayoutManager;
 import android.support.v7.widget.RecyclerView;
@@ -129,8 +131,9 @@ public class ProductSelectionActivity extends Activity {
             return new MyViewHolder(itemView);
         }
 
+        // TODO suppress is potential wrong, it needs a AndroidX migration on a later step
         @Override
-        public void onBindViewHolder(CategoryAdapter.MyViewHolder holder, final int position) {
+        public void onBindViewHolder(@NonNull MyViewHolder holder, @SuppressLint("RecyclerView") final int position) {
             Category cat = mCatList.get(position);
             holder.imageView.setImageDrawable(ContextCompat.getDrawable(mContext, cat.mImage));
             holder.txtview.setText(cat.mName);
