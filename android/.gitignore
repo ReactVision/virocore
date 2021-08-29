@@ -9,3 +9,4 @@ app/gradlew.bat
 *build/
 /captures
 .externalNativeBuild
+.cxx

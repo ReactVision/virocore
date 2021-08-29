@@ -1,5 +1,6 @@
 apply plugin: 'com.android.library'
 apply from: 'preprocessor.gradle'
+apply plugin: 'maven-publish'
 
 android {
     flavorDimensions  "product"
@@ -49,16 +50,6 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
-            libraryVariants.all { variant ->
-                variant.outputs.all { output ->
-                    //TODO This variable will come from maven-push.gradle when we integrate pushing
-                    // maven in our builds. This is temporary.
-                    def version = '-v_1_17_0'
-                    def newName = output.outputFile.name
-                    outputFileName = newName.replace("-release", "-release" + version)
-                    //outputFileName = new File(output.outputFile.parent, newName)
-                }
-            }
         }
         debug {
             minifyEnabled false
@@ -72,6 +63,23 @@ android {
     packagingOptions {
         // x86 is currently not supported, so do not copy over these resources
         exclude '**/x86/**'
+
+        pickFirst 'lib/armeabi-v7a/libBulletDynamics.so'
+        pickFirst 'lib/armeabi-v7a/libgvr.so'
+        pickFirst 'lib/armeabi-v7a/libgvr_audio.so'
+        pickFirst 'lib/armeabi-v7a/libfreetyped.so'
+        pickFirst 'lib/armeabi-v7a/libBulletCollision.so'
+        pickFirst 'lib/armeabi-v7a/libLinearMath.so'
+        pickFirst 'lib/armeabi-v7a/libvrapi.so'
+        pickFirst 'lib/armeabi-v7a/libBulletSoftBody.so'
+        pickFirst 'lib/arm64-v8a/libBulletDynamics.so'
+        pickFirst 'lib/arm64-v8a/libgvr.so'
+        pickFirst 'lib/arm64-v8a/libgvr_audio.so'
+        pickFirst 'lib/arm64-v8a/libfreetyped.so'
+        pickFirst 'lib/arm64-v8a/libBulletCollision.so'
+        pickFirst 'lib/arm64-v8a/libLinearMath.so'
+        pickFirst 'lib/arm64-v8a/libvrapi.so'
+        pickFirst 'lib/arm64-v8a/libBulletSoftBody.so'
     }
 }
 
@@ -93,5 +101,13 @@ dependencies {
 tasks.whenTaskAdded {
     task-> if (task.name.contains("external") && !task.name.contains("Clean")) {
         task.dependsOn ':viroar:assembleRelease'
+    }
+}
+
+publishing {
+    publications {
+        maven(MavenPublication) {
+            from components.all {}
+        }
     }
 }

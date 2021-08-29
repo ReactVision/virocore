@@ -1,4 +1,5 @@
 apply plugin: 'com.android.library'
+apply plugin: 'maven-publish'
 
 android {
     compileSdkVersion 28
@@ -17,6 +18,11 @@ android {
                 targets "viro_arcore"
                 cppFlags "-std=c++14 -frtti -fcxx-exceptions"
             }
+        }
+
+        packagingOptions {
+            pickFirst 'lib/armeabi-v7a/libarcore_sdk_c.so'
+            pickFirst 'lib/arm64-v8a/libarcore_sdk_c.so'
         }
     }
 
@@ -56,5 +62,13 @@ task extractNativeLibraries() {
 tasks.whenTaskAdded { task ->
     if (task.name == 'assembleRelease') {
         task.finalizedBy 'extractNativeLibraries'
+    }
+}
+
+publishing {
+    publications {
+        maven(MavenPublication) {
+            from components.all {}
+        }
     }
 }
