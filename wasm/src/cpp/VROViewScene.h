@@ -33,7 +33,6 @@ private:
     
     int _frame;
     int _width, _height;
-    float _suspendedNotificationTime;
     
     float _angle;
     

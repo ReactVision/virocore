@@ -37,7 +37,6 @@ static VROVector3f const kZeroVector = VROVector3f();
     std::queue<std::function<void()>> _taskQueue;
     
     int _frame;
-    double _suspendedNotificationTime;
 }
 
 @end
@@ -113,7 +112,6 @@ static CVReturn VRODisplayLinkCallback(CVDisplayLinkRef displayLink, const CVTim
     
     _driver = std::make_shared<VRODriverOpenGLMacOS>(_openGLContext, _pixelFormat);
     _frame = 0;
-    _suspendedNotificationTime = VROTimeCurrentSeconds();
     _inputController = std::make_shared<VROInputControllerAR>(self.frame.size.width,
                                                               self.frame.size.height,
                                                               _driver);

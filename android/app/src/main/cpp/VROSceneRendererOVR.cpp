@@ -899,8 +899,6 @@ typedef struct
     // Viro parameters
     std::shared_ptr<VRORenderer> vroRenderer;
     std::shared_ptr<VRODriverOpenGLAndroid> driver;
-    bool                suspended;
-    double              suspendedNotificationTime;
 } ovrApp;
 
 static void ovrApp_Clear( ovrApp * app )
@@ -916,8 +914,6 @@ static void ovrApp_Clear( ovrApp * app )
     app->BackButtonDown = false;
     app->BackButtonDownStartTime = 0.0;
     app->UseMultiview = true;
-    app->suspended = false;
-    app->suspendedNotificationTime = VROTimeCurrentSeconds();
     ovrEgl_Clear( &app->Egl );
     ovrRenderer_Clear( &app->Renderer );
 }
@@ -1265,7 +1261,6 @@ enum
     MESSAGE_ON_SURFACE_DESTROYED,
     MESSAGE_ON_KEY_EVENT,
     MESSAGE_ON_TOUCH_EVENT,
-    MESSAGE_SUSPEND,
     MESSAGE_RECENTER_TRACKING
 };
 
@@ -1358,7 +1353,6 @@ void * AppThreadFunction( void * parm )
                                                                                ovrMessage_GetIntegerParm( &message, 0 ),
                                                                                ovrMessage_GetFloatParm( &message, 1 ),
                                                                                ovrMessage_GetFloatParm( &message, 2 ) ); break; }
-                case MESSAGE_SUSPEND:               {appState.suspended = ovrMessage_GetIntegerParm( &message, 0); break; }
                 case MESSAGE_RECENTER_TRACKING:     {if (appState.Ovr) vrapi_RecenterPose(appState.Ovr); break;}
             }
 
@@ -1373,16 +1367,6 @@ void * AppThreadFunction( void * parm )
 
         if ( appState.Ovr == NULL )
         {
-            continue;
-        }
-
-        if ( appState.suspended ) {
-            double newTime = VROTimeCurrentSeconds();
-            // notify the user about bad keys 5 times a second (every 200ms/.2s)
-            if (newTime - appState.suspendedNotificationTime > .2) {
-                perr("Renderer suspended! Do you have a valid key?");
-                appState.suspendedNotificationTime = newTime;
-            }
             continue;
         }
 
