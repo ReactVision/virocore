@@ -109,7 +109,7 @@ task copyReleaseAAR(type: Copy) {
 // We have to add dependencies to Android tasks in this deferred way because these tasks
 // are dynamically generated.
 //
-// Before assembling release, compile :viroar:assembleRelease, which will place its .so
+// Before assembling release, implementation :viroar:assembleRelease, which will place its .so
 // products in its build/natives folder. The jniLibs source set above will ensure these
 // .so files are included in our final AAR.
 tasks.whenTaskAdded { task ->
