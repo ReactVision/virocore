@@ -27,6 +27,7 @@ import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.Toast;
 
 import com.viro.core.ARAnchor;
 import com.viro.core.ARNode;
@@ -46,7 +47,6 @@ import com.viro.core.Texture;
 import com.viro.core.Vector;
 import com.viro.core.ViroView;
 import com.viro.core.ViroViewARCore;
-import com.viro.core.ViroViewScene;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -84,6 +84,10 @@ public class ViroActivity extends Activity {
             }
         });
         setContentView(mViroView);
+    }
+
+    public void showPopup(View view) {
+        Toast.makeText(this, "Clicked", Toast.LENGTH_SHORT).show();
     }
 
     /**
