@@ -95,34 +95,10 @@ public class AVPlayer {
         mState = State.IDLE;
         mMute = false;
 
-        TrackSelection.Factory trackSelectionFactory = new AdaptiveTrackSelection.Factory(new DefaultBandwidthMeter());
+        AdaptiveTrackSelection.Factory trackSelectionFactory = new AdaptiveTrackSelection.Factory();
         DefaultTrackSelector trackSelector = new DefaultTrackSelector(trackSelectionFactory);
         mExoPlayer = ExoPlayerFactory.newSimpleInstance(context, trackSelector);
 
-        mExoPlayer.addAudioDebugListener(new AudioRendererEventListener() {
-            @Override
-            public void onAudioEnabled(DecoderCounters counters) {
-            }
-            @Override
-            public void onAudioSessionId(int audioSessionId) {
-            }
-            @Override
-            public void onAudioDecoderInitialized(String decoderName, long initializedTimestampMs, long initializationDurationMs) {
-                Log.i(TAG, "AVPlayer audio decoder initialized " + decoderName);
-            }
-            @Override
-            public void onAudioInputFormatChanged(Format format) {
-                Log.i(TAG, "AVPlayer audio input format changed to " + format);
-            }
-
-            @Override
-            public void onAudioSinkUnderrun(int bufferSize, long bufferSizeMs, long elapsedSinceLastFeedMs) {
-            }
-
-            @Override
-            public void onAudioDisabled(DecoderCounters counters) {
-            }
-        });
         mExoPlayer.addListener(new Player.EventListener() {
 
             @Override
@@ -226,7 +202,7 @@ public class AVPlayer {
                 dataSourceFactory = new DataSource.Factory() {
                     @Override
                     public DataSource createDataSource() {
-                        return new RawResourceDataSource(context, null);
+                        return new RawResourceDataSource(context);
                     }
                 };
             } else {
@@ -258,13 +234,11 @@ public class AVPlayer {
         int type = inferContentType(uri);
         switch (type) {
             case C.TYPE_SS:
-                return new SsMediaSource(uri, mediaDataSourceFactory,
-                        new DefaultSsChunkSource.Factory(mediaDataSourceFactory), null, null);
+                return new SsMediaSource.Factory(mediaDataSourceFactory).createMediaSource(uri);
             case C.TYPE_DASH:
-                return new DashMediaSource(uri, mediaDataSourceFactory,
-                        new DefaultDashChunkSource.Factory(mediaDataSourceFactory), null, null);
+                return new DashMediaSource.Factory(mediaDataSourceFactory).createMediaSource(uri);
             case C.TYPE_HLS:
-                return new HlsMediaSource(uri, mediaDataSourceFactory, null, null);
+                return new HlsMediaSource.Factory(mediaDataSourceFactory).createMediaSource(uri);
             default:
                 // Return an ExtraMediaSource as default.
                 return new ExtractorMediaSource(uri, mediaDataSourceFactory, extractorsFactory,

@@ -11,7 +11,7 @@ android {
     compileSdkVersion 30
 
     defaultConfig {
-        minSdkVersion 21
+        minSdkVersion 24
         targetSdkVersion 30
         versionCode 1
         versionName "1.0"
@@ -41,7 +41,7 @@ android {
 dependencies {
     implementation fileTree(dir: 'libs', include: ['*.jar'])
     implementation "androidx.appcompat:appcompat:1.2.0"
-    implementation 'com.google.android.exoplayer:exoplayer:2.7.1'
+    implementation 'com.google.android.exoplayer:exoplayer:2.13.3'
     implementation project(':libs:gvr')
     implementation project(':libs:arcore')
     implementation 'com.google.protobuf.nano:protobuf-javanano:3.0.0-alpha-7'

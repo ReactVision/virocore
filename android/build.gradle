@@ -1,6 +1,6 @@
 buildscript {
     repositories {
-        jcenter()
+        mavenCentral()
         google()
     }
     dependencies {
@@ -13,7 +13,7 @@ allprojects {
     group = 'com.viroCommunity'
     version = getTagVersion()
     repositories {
-        jcenter()
+        mavenCentral()
         google()
     }
 }
