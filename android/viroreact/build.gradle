@@ -2,11 +2,11 @@ apply plugin: 'com.android.library'
 apply plugin: 'maven-publish'
 
 android {
-    compileSdkVersion 28
+    compileSdkVersion 30
 
     defaultConfig {
         minSdkVersion 21
-        targetSdkVersion 28
+        targetSdkVersion 30
         versionCode 1
         versionName "1.0"
 
@@ -90,7 +90,7 @@ android {
 
 dependencies {
     implementation fileTree(dir: 'libs', include: ['*.jar'])
-    implementation 'com.android.support:appcompat-v7:28.0.0'
+    implementation "androidx.appcompat:appcompat:1.2.0"
     implementation 'com.google.android.exoplayer:exoplayer:2.7.1'
     implementation project(':libs:gvr')
     implementation project(':libs:arcore')
@@ -109,7 +109,7 @@ task copyReleaseAAR(type: Copy) {
 // We have to add dependencies to Android tasks in this deferred way because these tasks
 // are dynamically generated.
 //
-// Before assembling release, compile :viroar:assembleRelease, which will place its .so
+// Before assembling release, implementation :viroar:assembleRelease, which will place its .so
 // products in its build/natives folder. The jniLibs source set above will ensure these
 // .so files are included in our final AAR.
 tasks.whenTaskAdded { task ->
