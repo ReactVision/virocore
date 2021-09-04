@@ -13,8 +13,6 @@ android {
     defaultConfig {
         minSdkVersion 21
         targetSdkVersion 30
-        versionCode 1
-        versionName "1.0"
 
         ndk {
             // Specifies the ABI configurations of your native
@@ -31,10 +29,6 @@ android {
         debug {
             minifyEnabled false
         }
-    }
-
-    dexOptions {
-        preDexLibraries true
     }
 }
 
