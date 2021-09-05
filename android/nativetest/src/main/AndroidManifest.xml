@@ -2,6 +2,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
           package="com.viromedia.nativetest">
 
+    <queries>
+        <package android:name="com.google.ar.core"/>
+    </queries>
+
     <!-- Required to read the paired viewer's distortion parameters -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
 

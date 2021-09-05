@@ -2,6 +2,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
           package="com.example.memoryleaktest">
 
+    <queries>
+        <package android:name="com.google.ar.core"/>
+    </queries>
+
     <!-- Required for AR -->
     <uses-permission android:name="android.permission.CAMERA"/>
 
@@ -11,8 +15,6 @@
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
-        <meta-data android:name="com.viromedia.API_KEY"
-        android:value="7EEDCB99-2C3B-4681-AE17-17BC165BF792" />
 
         <activity android:name=".MainActivity">
             <intent-filter>
