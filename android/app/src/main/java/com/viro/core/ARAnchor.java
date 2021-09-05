@@ -92,9 +92,8 @@ public class ARAnchor {
 
     /**
      * Invoked from JNI
-     * @hide
      */
-    ARAnchor(String anchorId, String cloudAnchorId, String type,
+    public ARAnchor(String anchorId, String cloudAnchorId, String type,
              float[] position, float[] rotation, float[] scale) {
         mAnchorId = anchorId;
         mType = Type.valueFromString(type);
