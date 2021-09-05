@@ -2,6 +2,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.example.virosample">
 
+    <queries>
+        <package android:name="com.google.ar.core"/>
+    </queries>
+
     <!-- Required for AR -->
     <uses-permission android:name="android.permission.CAMERA"/>
 
@@ -15,10 +19,6 @@
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
-
-        <meta-data
-            android:name="com.viromedia.API_KEY"
-            android:value="API-KEY-HERE" />
 
         <activity
             android:name="com.example.virosample.ViroActivityAR"
