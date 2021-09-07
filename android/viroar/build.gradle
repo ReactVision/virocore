@@ -63,10 +63,12 @@ tasks.whenTaskAdded { task ->
     }
 }
 
-publishing {
-    publications {
-        maven(MavenPublication) {
-            from components.all {}
+project.afterEvaluate {
+    publishing {
+        publications {
+            release(MavenPublication) {
+                from components.release
+            }
         }
     }
 }
