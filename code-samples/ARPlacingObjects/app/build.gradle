@@ -44,5 +44,5 @@ dependencies {
     implementation project(':gvr_common')
     implementation project(':arcore_client')
     implementation project(':viro_core')
-    implementation 'com.google.protobuf.nano:protobuf-javanano:3.0.0-alpha-7'
+    implementation 'com.google.protobuf.nano:protobuf-javanano:3.2.0rc2'
 }
