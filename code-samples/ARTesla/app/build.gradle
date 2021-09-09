@@ -21,6 +21,17 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }
+
+    packagingOptions {
+        // x86 is currently not supported, so do not copy over these resources
+        exclude '**/x86/**'
+        exclude '**/x86_64/**'
+
+        pickFirst 'lib/arm64-v8a/libarcore_sdk_c.so'
+        pickFirst 'lib/arm64-v8a/libviro_arcore.so'
+        pickFirst 'lib/armeabi-v7a/libarcore_sdk_c.so'
+        pickFirst 'lib/armeabi-v7a/libviro_arcore.so'
+    }
 }
 
 dependencies {
@@ -32,6 +43,8 @@ dependencies {
     testImplementation 'junit:junit:4.13.2'
     implementation project(':gvr_common')
     implementation project(':arcore_client')
-    implementation project(':viro_core')
+    implementation('com.github.ViroCommunity.virocore:virocore:rc-1.20.2') {
+        transitive = false
+    }
     implementation 'com.google.protobuf.nano:protobuf-javanano:3.2.0rc2'
 }
