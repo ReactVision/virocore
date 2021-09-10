@@ -76,14 +76,12 @@ android {
 
 dependencies {
     implementation fileTree(include: ['*.jar'], dir: 'libs')
-    androidTestImplementation('androidx.test.espresso:espresso-core:3.1.0', {
-        exclude group: 'com.android.support', module: 'support-annotations'
-    })
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.4.0'
     implementation project(':virocore')
     implementation project(':libs:arcore')
     implementation project(':libs:gvr')
     implementation "androidx.appcompat:appcompat:1.2.0"
     // testing dependencies
-    androidTestImplementation 'junit:junit:4.12'
+    androidTestImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'org.awaitility:awaitility:3.0.0'
 }
