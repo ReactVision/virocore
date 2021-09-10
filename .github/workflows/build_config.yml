@@ -1,4 +1,4 @@
-name: Viro Renderer CI Pipeline
+name: Renderer
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
   pull_request:
 
 jobs:
-  android_virocore_build:
+  androidBuild:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2.3.4
@@ -16,31 +16,20 @@ jobs:
       with:
         distribution: 'adopt'
         java-version: 11
-    - name: assmble release ViroCore
-      run: ./gradlew :virocore:assembleRelease
+
+    - name: assemble ViroCore
+      run: |
+        ./gradlew assembleRelease
       working-directory: ./android
     - name: Upload result ViroCore
       uses: actions/upload-artifact@v2.2.3
       with: 
-        name: virocore.aar
-        path: ./android/virocore/build/outputs/aar/*-release*.aar
-        
-  android_viroreact_build:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v1
-    - name: set up JDK
-      uses: actions/setup-java@v1
-      with:
-        java-version: 11
-    - name: assmble release ViroReact
-      run: bash ./gradlew :viroreact:assembleRelease
-      working-directory: ./android
-    - name: Upload result ViroReact
-      uses: actions/upload-artifact@v2.2.3
-      with: 
-        name: viroreact.aar
-        path: ./android/viroreact/build/outputs/aar/*-release.aar
+        name: viroCore
+        path: |
+          ./android/virocore/build/outputs/aar/*-release*.aar
+          ./android/viroreact/build/outputs/aar/*-release*.aar
+          ./android/viroar/build/outputs/aar/*-release*.aar
+          ./android/app/build/outputs/aar/*-release*.aar
 
   AndroidCheck:
     name: Check
@@ -69,7 +58,7 @@ jobs:
             ./**/build/reports/lint-results.html
             ./**/**/build/reports/lint-results.html
 
-  ios_viroreact_build:
+  iosBuild:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v2.3.4
