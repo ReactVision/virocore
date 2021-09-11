@@ -22,7 +22,7 @@ jobs:
         ./gradlew assembleRelease
       working-directory: ./android
     - name: Upload result ViroCore
-      uses: actions/upload-artifact@v2.2.3
+      uses: actions/upload-artifact@v2.2.4
       with: 
         name: viroCore
         path: |
@@ -81,7 +81,7 @@ jobs:
             IPHONEOS_DEPLOYMENT_TARGET=9.0
             
       - name: Upload iOS Renderer artifact
-        uses: actions/upload-artifact@v1
+        uses: actions/upload-artifact@v2.2.4
         with: 
           name: ios_dist.tgz
-          path: ../viro/ios/dist/
+          path: ./ios/dist/
