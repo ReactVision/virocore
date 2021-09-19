@@ -34,8 +34,6 @@ jobs:
       - name: Build project
         run: ./gradlew assembleRelease
         working-directory: ./android
-        env:
-          VERSION: ${{ github.ref }}
 
       - name: Get the version
         id: tagger
@@ -48,7 +46,7 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ github.ref }}
+          tag_name: ${{steps.tagger.outputs.tag}}
           name: ${{steps.tagger.outputs.tag}}
           body: ${{steps.github_release.outputs.changelog}}
           files: |
