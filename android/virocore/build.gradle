@@ -81,8 +81,8 @@ dependencies {
     implementation fileTree(dir: 'libs', include: ['*.jar'])
     implementation "androidx.appcompat:appcompat:1.3.1"
     implementation 'com.google.android.exoplayer:exoplayer:2.13.3'
-    implementation project(':libs:gvr')
-    implementation project(':libs:arcore')
+    api project(':libs:gvr')
+    api project(':libs:arcore')
     implementation 'com.google.protobuf.nano:protobuf-javanano:3.2.0rc2'
 }
 
@@ -98,10 +98,26 @@ tasks.whenTaskAdded {
     }
 }
 
-publishing {
-    publications {
-        maven(MavenPublication) {
-            from components.all {}
+project.afterEvaluate {
+    publishing {
+        publications {
+            release(MavenPublication) {
+                from components.release
+                pom {
+                    name = "viroCore"
+                    description = "Community viroCore"
+                    url = "https://github.com/ViroCommunity/virocore"
+                    licenses {
+                        license {
+                            name = "MIT License"
+                            url = "https://github.com/ViroCommunity/virocore/blob/main/LICENSE"
+                        }
+                    }
+                    // TODO This fixes missing gvr dependency with Gradle 6.x but for Gradle 7.x it needs an other solution
+                    // configurations.api.getDependencies().each { dep -> addDependency(dep, "compile") }
+                    // configurations.implementation.getDependencies().each { dep -> addDependency(dep, "runtime") }
+                }
+            }
         }
     }
 }
