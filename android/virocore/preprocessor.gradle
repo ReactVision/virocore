@@ -7,13 +7,13 @@ FileTree javaFiles = fileTree(sourceDirectory) {
 // each matching java source file is edited in-place
 class Preprocessor {
 
-    public enum IfdefState {
+    enum IfdefState {
         NONE,
         IFDEF,
         ELSE
     }
 
-    public static void preprocessSourceCode (FileTree javaFiles, String buildType, String flavor) {
+    static void preprocessSourceCode(FileTree javaFiles, String buildType, String flavor) {
         buildType = buildType.toLowerCase()
         flavor = flavor.toLowerCase()
         println("Preprocessor: keeping BUILD_TYPE=" + buildType + ", FLAVOR=" + flavor)
@@ -33,7 +33,7 @@ class Preprocessor {
             String content = javaFile.getText()
             StringBuilder newContent = new StringBuilder()
             IfdefState match = IfdefState.NONE
-            boolean changed = false;
+            boolean changed = false
             String buildTypeAndOrFlavor = "<undefined>"
             content.eachLine { line, index ->
                 // process #IFDEF
@@ -43,20 +43,16 @@ class Preprocessor {
                     if (buildTypeAndOrFlavor.equals(buildType)) {
                         match = IfdefState.IFDEF
                         println("--> $buildTypeAndOrFlavor IS A MATCH FOR BUILD_TYPE $buildType")
-                    }
-                    else if (buildTypeAndOrFlavor.equals(flavor)) {
+                    } else if (buildTypeAndOrFlavor.equals(flavor)) {
                         match = IfdefState.IFDEF
                         println("--> $buildTypeAndOrFlavor IS A MATCH FOR FLAVOR $flavor")
-                    }
-                    else if (buildTypeAndOrFlavor.equals(buildTypeAndFlavor)) {
+                    } else if (buildTypeAndOrFlavor.equals(buildTypeAndFlavor)) {
                         match = IfdefState.IFDEF
                         println("--> $buildTypeAndOrFlavor IS A MATCH FOR COMBO BUILD_TYPE PLUS FLAVOR $buildTypeAndFlavor")
-                    }
-                    else if (buildTypeAndOrFlavor.equals(flavorAndBuildType)) {
+                    } else if (buildTypeAndOrFlavor.equals(flavorAndBuildType)) {
                         match = IfdefState.IFDEF
                         println("--> $buildTypeAndOrFlavor IS A MATCH FOR COMBO FLAVOR PLUS BUILD_TYPE $flavorAndBuildType")
-                    }
-                    else {
+                    } else {
                         match = IfdefState.ELSE
                         println("--> $buildTypeAndOrFlavor IS NOT A MATCH FOR BUILD_TYPE $buildType OR FLAVOR $flavor OR COMBO $buildTypeAndFlavor OR COMBO $flavorAndBuildType")
                     }
@@ -67,8 +63,7 @@ class Preprocessor {
                     if (match != IfdefState.ELSE) {
                         match = IfdefState.ELSE
                         println("--> $buildTypeAndOrFlavor IS NOT A MATCH FOR #ELSE")
-                    }
-                    else {
+                    } else {
                         match = IfdefState.IFDEF
                         println("--> $buildTypeAndOrFlavor IS A MATCH FOR #ELSE")
                     }
@@ -97,8 +92,7 @@ class Preprocessor {
                                 changed = true
                                 println(line)
                             }
-                        }
-                        else if (line.matches(singleCharLineRegex)) {
+                        } else if (line.matches(singleCharLineRegex)) {
                             def matcher = line =~ singleCharLineRegex
                             if (!matcher[0][2].equals(comment)) {
                                 line = matcher[0][1] + comment + matcher[0][2]
@@ -121,13 +115,13 @@ class Preprocessor {
 
 task preprocessSourceCodeRelease {
     Gradle gradle = getGradle()
-    String  tskReqStr = gradle.getStartParameter().getTaskRequests().toString()
+    String tskReqStr = gradle.getStartParameter().getTaskRequests().toString()
     if (tskReqStr.contains("virocore") && tskReqStr.contains("assembleRelease")) {
-        description("preprocess free code after //#IFDEF 'debug' to //#ENDIF");
-        println ("Preprocessor: running [release build]");
-        Preprocessor.preprocessSourceCode(javaFiles, "Release", "virocore");
+        description("preprocess free code after //#IFDEF 'debug' to //#ENDIF")
+        println("Preprocessor: running [release build]")
+        Preprocessor.preprocessSourceCode(javaFiles, "Release", "virocore")
     } else {
-        println ("Preprocessor: debug release detected, will not run preprocessor");
+        println("Preprocessor: debug, I will not run preprocessor")
     }
 }
 
