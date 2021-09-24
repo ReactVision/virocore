@@ -18,7 +18,7 @@ jobs:
         java-version: 11
     - name: ARBlackPanther
       run: ./gradlew build
-      working-directory: ./code-samples/ARBlackPanther
+      working-directory: ./android/code-samples/ARBlackPanther
         
   ARHelloWorldAndroid:
     runs-on: ubuntu-latest
@@ -31,7 +31,7 @@ jobs:
           java-version: 11
       - name: ARHelloWorldAndroid
         run: ./gradlew build
-        working-directory: ./code-samples/ARHelloWorldAndroid
+        working-directory: ./android/code-samples/ARHelloWorldAndroid
 
   ARPlacingObjects:
     runs-on: ubuntu-latest
@@ -44,7 +44,7 @@ jobs:
           java-version: 11
       - name: ARPlacingObjects
         run: ./gradlew build
-        working-directory: ./code-samples/ARPlacingObjects
+        working-directory: ./android/code-samples/ARPlacingObjects
 
   ARRetail:
     runs-on: ubuntu-latest
@@ -57,7 +57,7 @@ jobs:
           java-version: 11
       - name: ARRetail
         run: ./gradlew build
-        working-directory: ./code-samples/ARRetail
+        working-directory: ./android/code-samples/ARRetail
 
   ARTesla:
     runs-on: ubuntu-latest
@@ -70,4 +70,4 @@ jobs:
           java-version: 11
       - name: ARTesla
         run: ./gradlew build
-        working-directory: ./code-samples/ARTesla
+        working-directory: ./android/code-samples/ARTesla
