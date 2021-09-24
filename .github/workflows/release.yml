@@ -53,6 +53,6 @@ jobs:
             android/virocore/build/outputs/aar/virocore-release*.aar
             android/viroar/build/outputs/aar/viro*.aar
             android/viroreact/build/outputs/aar/viro*.aar
-            android/app/build/outputs/aar/*.aar
+            android/sharedCode/build/outputs/aar/*.aar
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -29,7 +29,7 @@ jobs:
           ./android/virocore/build/outputs/aar/*-release*.aar
           ./android/viroreact/build/outputs/aar/*-release*.aar
           ./android/viroar/build/outputs/aar/*-release*.aar
-          ./android/app/build/outputs/aar/*-release*.aar
+          ./android/sharedCode/build/outputs/aar/*-release*.aar
 
   AndroidCheck:
     name: Check

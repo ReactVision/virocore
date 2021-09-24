@@ -27,20 +27,20 @@ android {
 
     sourceSets {
         main {
-            // Use the /app directory for the source, resources, and assets
-            java.srcDirs = ['../app/src/main/java']
-            res.srcDirs = ['../app/src/main/res']
-            assets.srcDirs = ['../app/src/main/assets']
+            // Use the /sharedCode directory for the source, resources, and assets
+            java.srcDirs = ['../sharedCode/src/main/java']
+            res.srcDirs = ['../sharedCode/src/main/res']
+            assets.srcDirs = ['../sharedCode/src/main/assets']
 
-            // Package both the /app jniLibs viroar's build/natives libs into the AAR
-            jniLibs.srcDirs = ['../app/src/main/jniLibs', '../viroar/build/natives/jni']
-            manifest.srcFile '../app/src/main/AndroidManifest.xml'
+            // Package both the /sharedCode jniLibs viroar's build/natives libs into the AAR
+            jniLibs.srcDirs = ['../sharedCode/src/main/jniLibs', '../viroar/build/natives/jni']
+            manifest.srcFile '../sharedCode/src/main/AndroidManifest.xml'
         }
     }
 
     externalNativeBuild {
         cmake {
-            path "../app/CMakeLists.txt"
+            path "../sharedCode/CMakeLists.txt"
         }
     }
 

@@ -7,10 +7,10 @@ if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
 endif()
 
 set(VIRO_ANDROID_INCLUDES ${CMAKE_SOURCE_DIR}/../libs)
-set(VIRO_ANDROID_LIBS     ${CMAKE_SOURCE_DIR}/../app/src/main/jniLibs)
+set(VIRO_ANDROID_LIBS     ${CMAKE_SOURCE_DIR}/../sharedCode/src/main/jniLibs)
 set(VIRO_RENDERER_SRC     ${CMAKE_SOURCE_DIR}/../../ViroRenderer)
 set(VIRO_CAPI_SRC         ${CMAKE_SOURCE_DIR}/../../ViroRenderer/capi)
-set(VIRO_ANDROID_SRC      ${CMAKE_SOURCE_DIR}/../app/src/main/cpp)
+set(VIRO_ANDROID_SRC      ${CMAKE_SOURCE_DIR}/../sharedCode/src/main/cpp)
 
 include_directories(${VIRO_RENDERER_SRC}
                     ${VIRO_CAPI_SRC}

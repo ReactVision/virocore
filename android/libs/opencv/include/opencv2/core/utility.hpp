@@ -723,10 +723,10 @@ For the described keys:
 
 @code{.sh}
     # Good call (3 positional parameters: image1, image2 and repeat; N is 200, ts is true)
-    $ ./app -N=200 1.png 2.jpg 19 -ts
+    $ ./sharedCode -N=200 1.png 2.jpg 19 -ts
 
     # Bad call
-    $ ./app -fps=aaa
+    $ ./sharedCode -fps=aaa
     ERRORS:
     Parameter 'fps': can not convert: [aaa] to [double]
 @endcode

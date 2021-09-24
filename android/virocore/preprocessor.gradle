@@ -1,4 +1,4 @@
-String sourceDirectory = '../app/src'
+String sourceDirectory = '../sharedCode/src'
 FileTree javaFiles = fileTree(sourceDirectory) {
     include '**/*.java'
 }

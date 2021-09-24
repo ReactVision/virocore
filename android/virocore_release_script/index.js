@@ -44,7 +44,7 @@ console.log("going to delete files!!");
 console.log(__dirname);
 var pathIndex = __dirname.lastIndexOf("/");
 var path = __dirname.slice(0, pathIndex);
-var virocorePath = path + "/app/src/main/java/com/viro/core/"
+var virocorePath = path + "/sharedCode/src/main/java/com/viro/core/"
 console.log("virocore path: " + virocorePath);
 
 for(var i =0; i<filesToRemove.length; i++) {
