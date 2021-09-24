@@ -1,1 +1,1 @@
-include ':app', ':arcore_client', ':gvr_common', ':viro_core'
+include ':app', ':arcore_client', ':gvr_common'
