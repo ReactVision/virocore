@@ -37,6 +37,8 @@ dependencies {
     testImplementation 'junit:junit:4.13.2'
     implementation project(':code-samples:gvr_common')
     implementation project(':code-samples:arcore_client')
-    implementation project(':code-samples:viro_core')
+    implementation('com.github.ViroCommunity.virocore:virocore:rc-1.20.2') {
+        transitive = false
+    }
     implementation 'com.google.protobuf.nano:protobuf-javanano:3.2.0rc2'
 }

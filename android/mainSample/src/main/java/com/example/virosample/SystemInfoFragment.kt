@@ -2,7 +2,6 @@ package com.example.virosample
 
 import android.os.Build
 import android.os.Bundle
-import androidx.multidex.BuildConfig
 import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
 
