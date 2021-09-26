@@ -19,7 +19,7 @@ jobs:
 
     - name: assemble ViroCore
       run: |
-        ./gradlew assembleRelease
+        ./gradlew assembleDebug
       working-directory: ./android
     - name: Upload result ViroCore
       uses: actions/upload-artifact@v2.2.4
