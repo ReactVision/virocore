@@ -3,7 +3,6 @@ apply from: 'preprocessor.gradle'
 apply plugin: 'maven-publish'
 
 android {
-    flavorDimensions  "product"
     compileSdkVersion 30
 
     defaultConfig {
@@ -23,6 +22,7 @@ android {
 
         // Used to differentiate virocore from viroreact in code
         buildConfigField "String", "VIRO_PLATFORM", "\"VIRO_CORE\""
+        buildConfigField "String", "VIRO_VERSION", "\"" + getVersion() + "\""
     }
 
     sourceSets {
@@ -93,9 +93,10 @@ dependencies {
 // products in its build/natives folder. The jniLibs source set above will ensure these
 // .so files are included in our final AAR.
 tasks.whenTaskAdded {
-    task-> if (task.name.contains("external") && !task.name.contains("Clean")) {
-        task.dependsOn ':viroar:assembleRelease'
-    }
+    task ->
+        if (task.name.contains("external") && !task.name.contains("Clean")) {
+            task.dependsOn ':viroar:assembleRelease'
+        }
 }
 
 project.afterEvaluate {
