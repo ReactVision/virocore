@@ -25,9 +25,12 @@ import android.view.ViewGroup
 import android.graphics.Color
 import android.net.Uri
 import android.util.Log
+import android.view.Gravity
 import android.view.View
 import com.viro.core.ARScene.TrackingStateReason
 import android.widget.TextView
+import androidx.coordinatorlayout.widget.CoordinatorLayout
+import com.google.android.material.snackbar.Snackbar
 import com.viro.core.*
 import java.lang.ref.WeakReference
 import java.util.ArrayList
@@ -56,7 +59,8 @@ class ViroActivity : Activity() {
             }
 
             override fun onFailure(error: ViroViewARCore.StartupError, errorMessage: String) {
-                Log.e(TAG, "Error initializing AR [$errorMessage]")
+                Log.e(TAG, "Error initializing [$errorMessage]")
+                showSnackbar("Error initializing [$errorMessage]")
             }
         })
         setContentView(viroView)
@@ -228,6 +232,20 @@ class ViroActivity : Activity() {
         viroView.onActivityDestroyed(this)
     }
 
+    fun showSnackbar(text: String, lengthShow: Int = Snackbar.LENGTH_INDEFINITE) {
+        val viewPos: View? = findViewById(android.R.id.content)
+        val snackBar = Snackbar.make(viewPos!!, text, lengthShow)
+        val view = snackBar.view
+        val params = view.layoutParams
+        if (params is CoordinatorLayout.LayoutParams) {
+            val paramsC = view.layoutParams as CoordinatorLayout.LayoutParams
+            paramsC.gravity = Gravity.CENTER_VERTICAL
+            view.layoutParams = paramsC
+            snackBar.show()
+        } else {
+            snackBar.show()
+        }
+    }
     companion object {
         private val TAG = ViroActivity::class.java.simpleName
 
