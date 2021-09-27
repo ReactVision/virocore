@@ -28,6 +28,17 @@ android {
     packagingOptions {
         exclude "META-INF/*.kotlin_module"
     }
+
+    flavorDimensions "source"
+    productFlavors {
+        aar {
+            dimension "source"
+        }
+        code {
+            dimension "source"
+        }
+    }
+
 }
 
 dependencies {
