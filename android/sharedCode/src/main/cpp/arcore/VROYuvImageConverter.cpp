@@ -7,7 +7,7 @@
 //
 
 // This file is modified from Image_Reader.cpp from
-// https://github.com/sjfricke/OpenCV-NDK/blob/master/OpenCV-NDK/app/src/main/cpp/Image_Reader.cpp
+// https://github.com/sjfricke/OpenCV-NDK/blob/master/OpenCV-NDK/sharedCode/src/main/cpp/Image_Reader.cpp
 
 /*
  * Copyright (C) 2017 The Android Open Source Project

@@ -2253,7 +2253,7 @@ void ArSession_getConfig(ArSession *session, ArConfig *out_config);
 /// Starts or resumes the ARCore Session.
 ///
 /// Typically this should be called from <a
-/// href="https://developer.android.com/reference/android/app/Activity.html#onResume()"
+/// href="https://developer.android.com/reference/android/sharedCode/Activity.html#onResume()"
 /// >@c Activity.onResume() </a>.
 ///
 /// Note that if the camera configuration has been changed by
@@ -2276,7 +2276,7 @@ ArStatus ArSession_resume(ArSession *session);
 /// @c ::ArSession_resume.
 ///
 /// Typically this should be called from <a
-/// href="https://developer.android.com/reference/android/app/Activity.html#onPause()"
+/// href="https://developer.android.com/reference/android/sharedCode/Activity.html#onPause()"
 /// >@c Activity.onPause() </a>.
 ///
 /// Note that ARCore might continue consuming substantial computing resources
