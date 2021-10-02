@@ -6,10 +6,32 @@
 version: 2
 updates:
   - package-ecosystem: "gradle"
-    strategy:
-      matrix:
-        example: [ android, code-samples/ARBlackPanther, code-samples/ARHelloWorldAndroid, code-samples/ARPlacingObjects, code-samples/ARRetail, code-samples/ARTesla ]
-    directory: ${{ matrix.example }}
+    directory: android
+    target-branch: "main"
+    schedule:
+      interval: "daily"
+  - package-ecosystem: "gradle"
+    directory: code-samples/ARBlackPanther
+    target-branch: "main"
+    schedule:
+      interval: "daily"
+  - package-ecosystem: "gradle"
+    directory: code-samples/ARHelloWorldAndroid
+    target-branch: "main"
+    schedule:
+      interval: "daily"
+  - package-ecosystem: "gradle"
+    directory: code-samples/ARPlacingObjects
+    target-branch: "main"
+    schedule:
+      interval: "daily"
+  - package-ecosystem: "gradle"
+    directory: code-samples/ARRetail
+    target-branch: "main"
+    schedule:
+      interval: "daily"
+  - package-ecosystem: "gradle"
+    directory: code-samples/ARTesla
     target-branch: "main"
     schedule:
       interval: "daily"
