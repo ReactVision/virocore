@@ -1,4 +1,4 @@
-name: Renderer
+name: Viro
 
 on:
   push:
@@ -26,12 +26,11 @@ jobs:
       with: 
         name: viroCore
         path: |
-          ./android/virocore/build/outputs/aar/*-release*.aar
-          ./android/viroreact/build/outputs/aar/*-release*.aar
-          ./android/viroar/build/outputs/aar/*-release*.aar
-          ./android/sharedCode/build/outputs/aar/*-release*.aar
+          ./android/virocore/build/outputs/aar/*.aar
+          ./android/viroreact/build/outputs/aar/*.aar
+          ./android/viroar/build/outputs/aar/*.aar
 
-  AndroidCheck:
+  androidCheck:
     name: Check
     runs-on: ubuntu-latest
     defaults:
