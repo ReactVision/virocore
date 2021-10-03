@@ -38,10 +38,8 @@ import com.viro.core.Vector;
 import org.junit.Test;
 
 import java.util.Arrays;
+import java.util.Collections;
 
-/**
- * Created by vadvani on 11/7/17.
- */
 
 public class ViroAREventsTest extends ViroBaseTest {
 
@@ -60,7 +58,7 @@ public class ViroAREventsTest extends ViroBaseTest {
         Material boxOneMaterial = new Material();
         boxOneMaterial.setDiffuseColor(Color.RED);
         boxOneMaterial.setLightingModel(Material.LightingModel.BLINN);
-        box.setMaterials(Arrays.asList(boxOneMaterial));
+        box.setMaterials(Collections.singletonList(boxOneMaterial));
         boxNode = new Node();
         boxNode.setPosition(new Vector(-1.5f, 1f, -4f));
         boxNode.setGeometry(box);
@@ -76,7 +74,7 @@ public class ViroAREventsTest extends ViroBaseTest {
         Material sphereMaterial = new Material();
         sphereMaterial.setDiffuseColor(Color.YELLOW);
         sphereMaterial.setLightingModel(Material.LightingModel.BLINN);
-        sphere.setMaterials(Arrays.asList(boxOneMaterial));
+        sphere.setMaterials(Collections.singletonList(boxOneMaterial));
         sphereNode = new Node();
         sphereNode.setGeometry(sphere);
         sphereNode.setPosition(new Vector(1.5f, 1.0f, -4f));
@@ -98,7 +96,7 @@ public class ViroAREventsTest extends ViroBaseTest {
 
     @Test
     public void testAREvents() {
-        runUITest(()->  testEventsDragOnPlaneListenerPlane());
+        runUITest(() -> testEventsDragOnPlaneListenerPlane());
         runUITest(() -> testEventsARDragListener());
         runUITest(() -> testEventsDragListener());
         runUITest(() -> testEventsGesturePinchListener());
@@ -174,17 +172,17 @@ public class ViroAREventsTest extends ViroBaseTest {
 
     private void testEventsGesturePinchListener() {
         boxNode.setGesturePinchListener((source, node, scaleFactor, pinchState) -> {
-            eventText.setText("Pinch scale on box, scaleFactor "  + scaleFactor + ", pinchState: " + pinchState.toString());
+            eventText.setText("Pinch scale on box, scaleFactor " + scaleFactor + ", pinchState: " + pinchState.toString());
             boxNode.setScale(new Vector(scaleFactor, scaleFactor, scaleFactor));
         });
 
         objectNode.setGesturePinchListener((source, node, scaleFactor, pinchState) -> {
-            eventText.setText("Pinch scale on Obj, scaleFactor "  + scaleFactor + ", pinchState: " + pinchState.toString());
+            eventText.setText("Pinch scale on Obj, scaleFactor " + scaleFactor + ", pinchState: " + pinchState.toString());
             objectNode.setScale(new Vector(scaleFactor, scaleFactor, scaleFactor));
         });
 
         sphereNode.setGesturePinchListener((source, node, scaleFactor, pinchState) -> {
-            eventText.setText("Pinch scale on Sphere, scaleFactor "  + scaleFactor + ", pinchState: " + pinchState.toString());
+            eventText.setText("Pinch scale on Sphere, scaleFactor " + scaleFactor + ", pinchState: " + pinchState.toString());
             sphereNode.setScale(new Vector(scaleFactor, scaleFactor, scaleFactor));
         });
 
@@ -194,17 +192,17 @@ public class ViroAREventsTest extends ViroBaseTest {
 
     private void testEventsGestureRotateListener() {
         boxNode.setGestureRotateListener((source, node, rotation, rotateState) -> {
-            eventText.setText("Rotate gesture on box, rotation: "  + rotation + ", rotateState: " + rotateState.toString());
+            eventText.setText("Rotate gesture on box, rotation: " + rotation + ", rotateState: " + rotateState.toString());
             boxNode.setRotation(new Vector(0, rotation, 0));
         });
 
         objectNode.setGestureRotateListener((source, node, rotation, rotateState) -> {
-            eventText.setText("Rotate gesture on box, rotation: "  + rotation + ", rotateState: " + rotateState.toString());
+            eventText.setText("Rotate gesture on box, rotation: " + rotation + ", rotateState: " + rotateState.toString());
             objectNode.setRotation(new Vector(0, rotation, 0));
         });
 
         sphereNode.setGestureRotateListener((source, node, rotation, rotateState) -> {
-            eventText.setText("Rotate gesture on box, rotation: "  + rotation + ", rotateState: " + rotateState.toString());
+            eventText.setText("Rotate gesture on box, rotation: " + rotation + ", rotateState: " + rotateState.toString());
             sphereNode.setRotation(new Vector(0, rotation, 0));
         });
 

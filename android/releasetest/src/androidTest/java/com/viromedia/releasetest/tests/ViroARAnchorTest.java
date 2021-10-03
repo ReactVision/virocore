@@ -27,8 +27,6 @@ import android.graphics.Color;
 import android.graphics.Point;
 import android.net.Uri;
 import android.util.Log;
-import android.view.MotionEvent;
-import android.view.View;
 
 import com.viro.core.ARAnchor;
 import com.viro.core.ARHitTestListener;
@@ -36,26 +34,18 @@ import com.viro.core.ARHitTestResult;
 import com.viro.core.ARNode;
 import com.viro.core.ARScene;
 import com.viro.core.AmbientLight;
-import com.viro.core.Animation;
 import com.viro.core.AsyncObject3DListener;
 import com.viro.core.DirectionalLight;
-import com.viro.core.Material;
-import com.viro.core.Node;
 import com.viro.core.Object3D;
 import com.viro.core.Quaternion;
-import com.viro.core.Sphere;
 import com.viro.core.Vector;
 import com.viro.core.ViroViewARCore;
 
 import org.junit.Test;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
-/**
- * Created by radvani on 5/22/18.
- */
 
 public class ViroARAnchorTest extends ViroBaseTest {
 
@@ -71,9 +61,9 @@ public class ViroARAnchorTest extends ViroBaseTest {
         DirectionalLight light = new DirectionalLight(Color.WHITE, 500.0f, new Vector(0, -1, 0));
         mScene.getRootNode().addLight(light);
 
-        mViewARCore = (ViroViewARCore)mViroView;
+        mViewARCore = (ViroViewARCore) mViroView;
 
-        ((ARScene)mScene).setListener(new ARScene.Listener() {
+        ((ARScene) mScene).setListener(new ARScene.Listener() {
             @Override
             public void onTrackingInitialized() {
 

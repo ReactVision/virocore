@@ -42,10 +42,6 @@ import org.junit.Test;
 
 import java.util.Arrays;
 
-/**
- * Created by radvani on 4/11/18.
- */
-
 public class ViroRenderOrderTest extends ViroBaseTest {
 
     private Surface mBackRedSurface;
@@ -225,7 +221,7 @@ public class ViroRenderOrderTest extends ViroBaseTest {
         lamborghini.setPosition(new Vector(0, -2.5, -6));
         lamborghini.setScale(new Vector(0.015f, 0.015f, 0.015f));
         lamborghini.setRotation(new Vector(0, Math.PI / 2.0f, 0));
-        lamborghini.loadModel(mViroView.getViroContext(), (Uri.parse("file:///android_asset/lamborghini_v2.vrx")), Object3D.Type.FBX,  new AsyncObject3DListener() {
+        lamborghini.loadModel(mViroView.getViroContext(), (Uri.parse("file:///android_asset/lamborghini_v2.vrx")), Object3D.Type.FBX, new AsyncObject3DListener() {
             @Override
             public void onObject3DLoaded(final Object3D object, final Object3D.Type type) {
 

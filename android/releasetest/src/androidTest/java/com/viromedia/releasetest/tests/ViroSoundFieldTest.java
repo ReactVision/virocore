@@ -25,8 +25,8 @@ package com.viromedia.releasetest.tests;
 
 import android.graphics.Color;
 import android.net.Uri;
-import androidx.test.espresso.core.deps.guava.collect.Iterables;
 
+import com.google.common.collect.Iterables;
 import com.viro.core.Node;
 import com.viro.core.SoundField;
 import com.viro.core.Text;
@@ -126,22 +126,23 @@ public class ViroSoundFieldTest extends ViroBaseTest {
 
         assertPass("Looping == false, confirm it does not loop after it finishes");
     }
-/*
-    NOTE: GVR Sound field does not currently support seek to time.
-    private void testSeekToTime() {
-        final List<Double> seekTimes = Arrays.asList(10.0, 15.0, 20.0, 25.0);
 
-        mMutableTestMethod = () -> {
-            final Random rand = new Random();
-            final Double seekToTime = seekTimes.get(rand.nextInt(seekTimes.size()));
-            mDelegateText.setText("Sound seekToTime: " + seekToTime);
-            mSound.seekToTime(seekToTime.floatValue());
-        };
-        assertPass("Seek to random times", () -> {
-            mSound.seekToTime(0);
-        });
-    }
-*/
+    /*
+        NOTE: GVR Sound field does not currently support seek to time.
+        private void testSeekToTime() {
+            final List<Double> seekTimes = Arrays.asList(10.0, 15.0, 20.0, 25.0);
+
+            mMutableTestMethod = () -> {
+                final Random rand = new Random();
+                final Double seekToTime = seekTimes.get(rand.nextInt(seekTimes.size()));
+                mDelegateText.setText("Sound seekToTime: " + seekToTime);
+                mSound.seekToTime(seekToTime.floatValue());
+            };
+            assertPass("Seek to random times", () -> {
+                mSound.seekToTime(0);
+            });
+        }
+    */
     // TODO VIRO-2181 setting null delegate will cause an NPE
     private void testSetDelegate() {
         final SoundField.PlaybackListener delegate1 = new SoundField.PlaybackListener() {

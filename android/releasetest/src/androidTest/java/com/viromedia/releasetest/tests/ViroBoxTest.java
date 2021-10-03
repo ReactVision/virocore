@@ -33,11 +33,7 @@ import com.viro.core.Vector;
 
 import org.junit.Test;
 
-import java.util.Arrays;
-
-/**
- * Created by vadvani on 10/26/17.
- */
+import java.util.Collections;
 
 
 public class ViroBoxTest extends ViroBaseTest {
@@ -65,7 +61,7 @@ public class ViroBoxTest extends ViroBaseTest {
         node.setGeometry(mBox);
         final float[] boxPosition = {0, -0.5f, -5};
         node.setPosition(new Vector(boxPosition));
-        mBox.setMaterials(Arrays.asList(material));
+        mBox.setMaterials(Collections.singletonList(material));
         mScene.getRootNode().addChildNode(node);
     }
 

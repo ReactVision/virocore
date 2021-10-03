@@ -26,7 +26,6 @@ package com.viromedia.releasetest.tests;
 import android.content.Context;
 import android.graphics.Color;
 import android.graphics.drawable.Drawable;
-import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.FrameLayout;
@@ -41,7 +40,7 @@ import com.viro.core.Material;
 import com.viro.core.Node;
 import com.viro.core.Quad;
 import com.viro.core.Vector;
-import com.viromedia.releasetest.R;
+
 import org.junit.Test;
 
 import java.io.IOException;
@@ -75,7 +74,7 @@ public class ViroAndroidViewTest extends ViroBaseTest {
 
         // Construct our renderAndroidView texture to be tested.
         mAttachedView = createLayoutDynamically();
-        mRenderTexture = new AndroidViewTexture(mViroView,width, height, isAccelerated);
+        mRenderTexture = new AndroidViewTexture(mViroView, width, height, isAccelerated);
         mRenderTexture.attachView(mAttachedView);
 
         // Set the texture on the material and then the quad
@@ -93,7 +92,7 @@ public class ViroAndroidViewTest extends ViroBaseTest {
         mScene.getRootNode().addChildNode(mNode);
     }
 
-    private Node createMoreSurfaces(){
+    private Node createMoreSurfaces() {
         Node n = new Node();
         View v = createLayoutDynamically();
         AndroidViewTexture a = new AndroidViewTexture(mViroView, 1000, 1000, false);
@@ -101,7 +100,7 @@ public class ViroAndroidViewTest extends ViroBaseTest {
         Material m = new Material();
         m.setDiffuseTexture(a);
 
-        Quad q = new Quad(1,1);
+        Quad q = new Quad(1, 1);
         q.setMaterials(Arrays.asList(m));
         n.setGeometry(q);
 
@@ -134,7 +133,7 @@ public class ViroAndroidViewTest extends ViroBaseTest {
 
         Button btn2 = new Button(c);
         btn2.setText("Manual Add 2");
-        btn2.setLayoutParams(new LinearLayout.LayoutParams(500,500));
+        btn2.setLayoutParams(new LinearLayout.LayoutParams(500, 500));
         frame.addView(btn2);
         btn2.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -173,7 +172,7 @@ public class ViroAndroidViewTest extends ViroBaseTest {
     }
 
     public void verifyRotatedLayout() {
-        mNode.setRotation(new Vector(0,0,Math.toRadians(120)));
+        mNode.setRotation(new Vector(0, 0, Math.toRadians(120)));
         assertPass("You should the same layout, but rotated. Buttons should be " +
                 "clickable, even when rotated.");
     }
@@ -205,10 +204,10 @@ public class ViroAndroidViewTest extends ViroBaseTest {
         Node n2 = createMoreSurfaces();
         Node n3 = createMoreSurfaces();
 
-        n1.setPosition(new Vector(0,1.5,-1.75f));
-        n2.setPosition(new Vector(-1.5,0,-1.75f));
+        n1.setPosition(new Vector(0, 1.5, -1.75f));
+        n2.setPosition(new Vector(-1.5, 0, -1.75f));
         n2.setTransformBehaviors((EnumSet.of(Node.TransformBehavior.BILLBOARD)));
-        n3.setPosition(new Vector(1.5,0,-1.75f));
+        n3.setPosition(new Vector(1.5, 0, -1.75f));
         n3.setTransformBehaviors((EnumSet.of(Node.TransformBehavior.BILLBOARD)));
         assertPass("You should see multiple interactible surfaces - left, center, " +
                 "right, top. Click all the buttons, they should all be clickable.");

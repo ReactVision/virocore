@@ -24,23 +24,18 @@
 package com.viromedia.releasetest.tests;
 
 import android.graphics.Color;
-import android.net.Uri;
 
-import com.viro.core.ARScene;
-import com.viro.core.AmbientLight;
 import com.viro.core.Box;
 import com.viro.core.Material;
 import com.viro.core.Node;
-import com.viro.core.Object3D;
 import com.viro.core.OmniLight;
 import com.viro.core.Text;
-import com.viro.core.Texture;
 import com.viro.core.Vector;
 
 import org.junit.Test;
 
 import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 public class ViroBoundingBoxTest extends ViroBaseTest {
@@ -51,14 +46,13 @@ public class ViroBoundingBoxTest extends ViroBaseTest {
 
     public ViroBoundingBoxTest() {
         super();
-
     }
 
     @Override
     void configureTestScene() {
         // Add some lights to the scene; this will give the Android's some nice illumination.
         Node rootNode = mScene.getRootNode();
-        List<Vector> lightPositions = new ArrayList<Vector>();
+        List<Vector> lightPositions = new ArrayList<>();
         lightPositions.add(new Vector(-10, 10, 1));
         lightPositions.add(new Vector(10, 10, 1));
 
@@ -113,7 +107,7 @@ public class ViroBoundingBoxTest extends ViroBaseTest {
         Box box = new Box(1.0f, 1.0f, 1.0f);
         Material material = new Material();
         material.setDiffuseColor(Color.argb(100, 255, 0, 0));
-        box.setMaterials(Arrays.asList(material));
+        box.setMaterials(Collections.singletonList(material));
         mModelNode.setScale(new Vector(0.5f, 0.5f, 0.5f));
         mModelNode.setGeometry(box);
     }
@@ -157,7 +151,7 @@ public class ViroBoundingBoxTest extends ViroBaseTest {
         Box box = new Box(2.0f, 2.0f, 2.0f);
         Material material = new Material();
         material.setDiffuseColor(Color.argb(100, 255, 0, 0));
-        box.setMaterials(Arrays.asList(material));
+        box.setMaterials(Collections.singletonList(material));
 
         Node secondModelNode = new Node();
         secondModelNode.setGeometry(box);

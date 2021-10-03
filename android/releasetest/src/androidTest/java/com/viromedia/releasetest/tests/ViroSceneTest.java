@@ -26,8 +26,8 @@ package com.viromedia.releasetest.tests;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.net.Uri;
-import androidx.test.espresso.core.deps.guava.collect.Iterables;
 
+import com.google.common.collect.Iterables;
 import com.viro.core.ARScene;
 import com.viro.core.AmbientLight;
 import com.viro.core.Box;
@@ -49,7 +49,7 @@ import java.util.List;
 
 /**
  * Created by vadvani on 11/6/17.
- *
+ * <p>
  * Tests all scene methods except setSoundRoom, addParticleEmitter, and removeParticleEmitter.
  */
 

@@ -25,9 +25,9 @@ package com.viromedia.releasetest.tests;
 
 import android.graphics.Color;
 import android.net.Uri;
-import androidx.test.espresso.core.deps.guava.collect.Iterables;
 import android.util.Log;
 
+import com.google.common.collect.Iterables;
 import com.viro.core.AmbientLight;
 import com.viro.core.AnimationTimingFunction;
 import com.viro.core.AnimationTransaction;

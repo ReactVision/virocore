@@ -24,21 +24,18 @@
 package com.viromedia.releasetest.tests;
 
 import android.app.Activity;
-import androidx.test.rule.ActivityTestRule;
 import android.util.Log;
+
+import androidx.test.rule.ActivityTestRule;
 
 import com.viro.core.ViroView;
 import com.viromedia.releasetest.ViroReleaseTestActivity;
 
-/**
- * Created by manish on 11/2/17.
- */
 
 public class ViroActivityTestRule<T extends Activity> extends ActivityTestRule {
     private static final String TAG = ViroActivityTestRule.class.getSimpleName();
 
-    public ViroActivityTestRule(final Class activityClass, final boolean initialTouchMode,
-                                final boolean launchActivity) {
+    public ViroActivityTestRule(final Class activityClass, final boolean initialTouchMode, final boolean launchActivity) {
         super(activityClass, initialTouchMode, launchActivity);
     }
 

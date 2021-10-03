@@ -24,8 +24,8 @@
 package com.viromedia.releasetest.tests;
 
 import android.graphics.Color;
-import androidx.test.espresso.core.deps.guava.collect.Iterables;
 
+import com.google.common.collect.Iterables;
 import com.viro.core.AmbientLight;
 import com.viro.core.AnimationTimingFunction;
 import com.viro.core.AnimationTransaction;
@@ -37,20 +37,17 @@ import com.viro.core.Vector;
 import org.junit.Test;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 
-
-/**
- * Created by vadvani on 11/6/17.
- */
 
 public class ViroAnimationTransactionTest extends ViroBaseTest {
 
     private Node boxNode;
     private Box mBox;
     private Material mMaterial;
-    private AnimationTransaction mTransaction;
+
     @Override
     void configureTestScene() {
         final AmbientLight light = new AmbientLight(Color.WHITE, 1000.0f);
@@ -60,7 +57,7 @@ public class ViroAnimationTransactionTest extends ViroBaseTest {
         mMaterial = new Material();
         mMaterial.setLightingModel(Material.LightingModel.BLINN);
         mMaterial.setDiffuseColor(Color.BLUE);
-        mBox.setMaterials(Arrays.asList(mMaterial));
+        mBox.setMaterials(Collections.singletonList(mMaterial));
         boxNode.setGeometry(mBox);
         boxNode.setPosition(new Vector(0,0, -3));
         boxNode.setRotation(new Vector(0, 0, 0));
@@ -152,9 +149,9 @@ public class ViroAnimationTransactionTest extends ViroBaseTest {
         final Iterator<Integer> itr = Iterables.cycle(colors).iterator();
         AnimationTransaction.setListener(transaction -> {
             mMaterial.setDiffuseColor(itr.next());
-            mBox.setMaterials(Arrays.asList(mMaterial));
+            mBox.setMaterials(Collections.singletonList(mMaterial));
         });
-        mTransaction = AnimationTransaction.commit();
+        AnimationTransaction mTransaction = AnimationTransaction.commit();
         assertPass("Loop Animate rotation to 45 degrees on y and z axis," +
                 " should change color every second");
     }

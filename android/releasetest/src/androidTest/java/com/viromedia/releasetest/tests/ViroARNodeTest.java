@@ -35,7 +35,6 @@ import com.viro.core.AmbientLight;
 import com.viro.core.Box;
 import com.viro.core.Material;
 import com.viro.core.Node;
-
 import com.viro.core.Surface;
 import com.viro.core.Text;
 import com.viro.core.Texture;
@@ -66,7 +65,7 @@ public class ViroARNodeTest extends ViroBaseTest {
     void configureTestScene() {
         mAmbientLight = new AmbientLight(Color.WHITE, 1000.0f);
         mScene.getRootNode().addLight(mAmbientLight);
-        mARScene = (ARScene)mScene;
+        mARScene = (ARScene) mScene;
 
         final Bitmap bobaBitmap = getBitmapFromAssets(mActivity, "boba.png");
         final Texture bobaTexture = new Texture(bobaBitmap, Texture.Format.RGBA8, true, true);
@@ -106,7 +105,7 @@ public class ViroARNodeTest extends ViroBaseTest {
             public void onAnchorFound(ARAnchor anchor, ARNode arNode) {
                 Log.i("Viro", "Anchor found for node " + arNode.getNativeRef());
                 if (mAnchorFoundTestStarted) {
-                    Text text  = new Text(mViroView.getViroContext(),
+                    Text text = new Text(mViroView.getViroContext(),
                             "Text attached to ARNODE!", "Roboto", 12,
                             Color.WHITE, 1f, 1f, Text.HorizontalAlignment.LEFT,
                             Text.VerticalAlignment.TOP, Text.LineBreakMode.WORD_WRAP, Text.ClipMode.NONE, 0);
@@ -119,7 +118,7 @@ public class ViroARNodeTest extends ViroBaseTest {
                     material.setLightingModel(Material.LightingModel.BLINN);
 
                     if (anchor instanceof ARPlaneAnchor) {
-                        ARPlaneAnchor arPlaneAnchor  = (ARPlaneAnchor)anchor;
+                        ARPlaneAnchor arPlaneAnchor = (ARPlaneAnchor) anchor;
                         Surface surface = new Surface(arPlaneAnchor.getExtent().x, arPlaneAnchor.getExtent().z);
                         surface.setMaterials(Arrays.asList(material));
 
@@ -160,8 +159,8 @@ public class ViroARNodeTest extends ViroBaseTest {
                         if (childNode.getGeometry() instanceof Surface) {
                             Log.i("Viro", "Found surface");
 
-                            ARPlaneAnchor planeAnchor = (ARPlaneAnchor)anchor;
-                            Surface surface = (Surface)childNode.getGeometry();
+                            ARPlaneAnchor planeAnchor = (ARPlaneAnchor) anchor;
+                            Surface surface = (Surface) childNode.getGeometry();
                             surface.setWidth(planeAnchor.getExtent().x);
                             surface.setHeight(planeAnchor.getExtent().z);
                             childNode.setScale(planeAnchor.getScale());
@@ -169,14 +168,14 @@ public class ViroARNodeTest extends ViroBaseTest {
                     }
                 }
 
-                if(mNodePauseUpdatesTestStarted) {
+                if (mNodePauseUpdatesTestStarted) {
                     arNode.setPauseUpdates(true);
                 }
             }
 
             @Override
             public void onAnchorRemoved(ARAnchor anchor, ARNode arNode) {
-               mTestText.setText("An anchor has been removed!");
+                mTestText.setText("An anchor has been removed!");
             }
 
             @Override

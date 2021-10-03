@@ -25,7 +25,6 @@ package com.viromedia.releasetest.tests;
 
 import android.graphics.Color;
 import android.graphics.Point;
-import android.util.Log;
 import android.view.MotionEvent;
 import android.view.View;
 
@@ -42,9 +41,6 @@ import org.junit.Test;
 
 import java.util.Arrays;
 
-/**
- * Created by vadvani on 11/8/17.
- */
 
 public class ViroARHitTest extends ViroBaseTest {
 
@@ -54,7 +50,7 @@ public class ViroARHitTest extends ViroBaseTest {
     void configureTestScene() {
         AmbientLight light = new AmbientLight(Color.WHITE, 1000.0f);
         mScene.getRootNode().addLight(light);
-        mViewARCore = (ViroViewARCore)mViroView;
+        mViewARCore = (ViroViewARCore) mViroView;
     }
 
     @Test
@@ -94,7 +90,7 @@ public class ViroARHitTest extends ViroBaseTest {
         mViewARCore.setCameraARHitTestListener(new ARHitTestListener() {
             @Override
             public void onHitTestFinished(ARHitTestResult[] results) {
-                for(ARHitTestResult result: results) {
+                for (ARHitTestResult result : results) {
                     Sphere sphere = new Sphere(.1f);
                     Material material = new Material();
                     material.setLightingModel(Material.LightingModel.BLINN);
@@ -108,7 +104,7 @@ public class ViroARHitTest extends ViroBaseTest {
             }
         });
 
-        assertPass("Should see *continuous* rendered results from Camera AR HIT Test in red", ()->{
+        assertPass("Should see *continuous* rendered results from Camera AR HIT Test in red", () -> {
             mViewARCore.setCameraARHitTestListener(null);
         });
 
@@ -118,7 +114,7 @@ public class ViroARHitTest extends ViroBaseTest {
         mViewARCore.performARHitTestWithPosition(new Vector(0, 0, -3), new ARHitTestListener() {
             @Override
             public void onHitTestFinished(ARHitTestResult[] results) {
-                for(ARHitTestResult result: results) {
+                for (ARHitTestResult result : results) {
                     Sphere sphere = new Sphere(.1f);
                     Material material = new Material();
                     material.setLightingModel(Material.LightingModel.BLINN);
@@ -132,7 +128,7 @@ public class ViroARHitTest extends ViroBaseTest {
             }
         });
 
-        assertPass("Should see a SINGLE rendered result (green ball) from an AR hit test fired toward (0, 0, -3)", ()->{
+        assertPass("Should see a SINGLE rendered result (green ball) from an AR hit test fired toward (0, 0, -3)", () -> {
 
         });
     }
@@ -141,13 +137,13 @@ public class ViroARHitTest extends ViroBaseTest {
         mViewARCore.setOnTouchListener(new View.OnTouchListener() {
             @Override
             public boolean onTouch(View v, MotionEvent event) {
-                if(event.getAction() == MotionEvent.ACTION_DOWN) {
+                if (event.getAction() == MotionEvent.ACTION_DOWN) {
                     event.getX();
                     event.getY();
-                    mViewARCore.performARHitTest(new Point((int)event.getX(), (int)event.getY()), new ARHitTestListener() {
+                    mViewARCore.performARHitTest(new Point((int) event.getX(), (int) event.getY()), new ARHitTestListener() {
                         @Override
                         public void onHitTestFinished(ARHitTestResult[] results) {
-                            for(ARHitTestResult result: results) {
+                            for (ARHitTestResult result : results) {
                                 Sphere sphere = new Sphere(.1f);
                                 Material material = new Material();
                                 material.setLightingModel(Material.LightingModel.BLINN);

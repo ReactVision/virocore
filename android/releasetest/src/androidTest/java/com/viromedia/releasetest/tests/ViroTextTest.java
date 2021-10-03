@@ -24,8 +24,8 @@
 package com.viromedia.releasetest.tests;
 
 import android.graphics.Color;
-import androidx.test.espresso.core.deps.guava.collect.Iterables;
 
+import com.google.common.collect.Iterables;
 import com.viro.core.AmbientLight;
 import com.viro.core.Material;
 import com.viro.core.Node;
@@ -275,7 +275,7 @@ public class ViroTextTest extends ViroBaseTest {
 
         Material frontMaterial = new Material();
         frontMaterial.setDiffuseColor(Color.WHITE);
-        Material  backMaterial = new Material();
+        Material backMaterial = new Material();
         backMaterial.setDiffuseColor(Color.BLUE);
         Material sideMaterial = new Material();
         sideMaterial.setDiffuseColor(Color.RED);

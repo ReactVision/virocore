@@ -25,7 +25,6 @@ package com.viromedia.releasetest.tests;
 
 import android.graphics.Color;
 import android.os.Handler;
-import androidx.test.espresso.core.deps.guava.collect.Iterables;
 
 import com.viro.core.Material;
 import com.viro.core.Node;
@@ -78,14 +77,14 @@ public class ViroPolygonTest extends ViroBaseTest {
 
     private void testConcave() {
         List<Vector> path = new ArrayList<Vector>();
-        path.add(new Vector( -1,      -1, 0 ));
-        path.add(new Vector( -1,       1, 0 ));
-        path.add(new Vector(  1,       1, 0 ));
-        path.add(new Vector(  1,     0.5, 0 ));
-        path.add(new Vector(  0.5,   0.5, 0 ));
-        path.add(new Vector(  0.5,  0.25, 0 ));
-        path.add(new Vector(  1,    0.25, 0 ));
-        path.add(new Vector(  1,      -1, 0 ));
+        path.add(new Vector(-1, -1, 0));
+        path.add(new Vector(-1, 1, 0));
+        path.add(new Vector(1, 1, 0));
+        path.add(new Vector(1, 0.5, 0));
+        path.add(new Vector(0.5, 0.5, 0));
+        path.add(new Vector(0.5, 0.25, 0));
+        path.add(new Vector(1, 0.25, 0));
+        path.add(new Vector(1, -1, 0));
 
         Polygon polygon = new Polygon(path, 0, 0, 1, 1);
         polygon.setMaterials(Arrays.asList(mMaterial));
@@ -96,26 +95,26 @@ public class ViroPolygonTest extends ViroBaseTest {
 
     private void testHoles() {
         List<Vector> path = new ArrayList<Vector>();
-        path.add(new Vector( -1,      -1, 0 ));
-        path.add(new Vector( -1,       1, 0 ));
-        path.add(new Vector(  1,       1, 0 ));
-        path.add(new Vector(  1,     0.5, 0 ));
-        path.add(new Vector(  0.5,   0.5, 0 ));
-        path.add(new Vector(  0.5,  0.25, 0 ));
-        path.add(new Vector(  1,    0.25, 0 ));
-        path.add(new Vector(  1,      -1, 0 ));
+        path.add(new Vector(-1, -1, 0));
+        path.add(new Vector(-1, 1, 0));
+        path.add(new Vector(1, 1, 0));
+        path.add(new Vector(1, 0.5, 0));
+        path.add(new Vector(0.5, 0.5, 0));
+        path.add(new Vector(0.5, 0.25, 0));
+        path.add(new Vector(1, 0.25, 0));
+        path.add(new Vector(1, -1, 0));
 
         List<Vector> holeA = new ArrayList<Vector>();
-        holeA.add(new Vector( -0.75, -0.75, 0 ));
-        holeA.add(new Vector( -0.75, -0.50, 0 ));
-        holeA.add(new Vector( -0.50, -0.50, 0 ));
-        holeA.add(new Vector( -0.50, -0.75, 0 ));
+        holeA.add(new Vector(-0.75, -0.75, 0));
+        holeA.add(new Vector(-0.75, -0.50, 0));
+        holeA.add(new Vector(-0.50, -0.50, 0));
+        holeA.add(new Vector(-0.50, -0.75, 0));
 
         List<Vector> holeB = new ArrayList<Vector>();
-        holeB.add(new Vector( 0.75, -0.75, 0 ));
-        holeB.add(new Vector( 0.75, -0.50, 0 ));
-        holeB.add(new Vector( 0.50, -0.50, 0 ));
-        holeB.add(new Vector( 0.50, -0.75, 0 ));
+        holeB.add(new Vector(0.75, -0.75, 0));
+        holeB.add(new Vector(0.75, -0.50, 0));
+        holeB.add(new Vector(0.50, -0.50, 0));
+        holeB.add(new Vector(0.50, -0.75, 0));
 
         List<List<Vector>> holes = new ArrayList<List<Vector>>();
         holes.add(holeA);
