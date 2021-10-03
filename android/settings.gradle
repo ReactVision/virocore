@@ -1,3 +1,12 @@
 rootProject.name = 'ViroCORE'
 
 include ':sharedCode', ':libs:gvr', ':libs:arcore', ':renderertest', ':memoryleaktest', ':virocore', ':viroreact', ':viroar', ':releasetest', ':nativetest'
+
+include ':code-samples:gvr_common'
+include ':code-samples:arcore_client'
+include ':code-samples:ARBlackPanther'
+include ':code-samples:ARHelloWorldAndroid'
+include ':code-samples:ARPlacingObjects'
+include ':code-samples:ARRetail'
+include ':code-samples:ARTesla'
+include ':mainSample'
