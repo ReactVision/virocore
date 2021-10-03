@@ -26,6 +26,8 @@ package com.viromedia.releasetest;
 import android.content.Context;
 import android.content.res.Configuration;
 import android.os.Bundle;
+
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import android.util.Log;
 import android.view.Display;
@@ -38,10 +40,6 @@ import com.viro.core.ViroView;
 import com.viro.core.ViroViewARCore;
 import com.viro.core.ViroViewGVR;
 import com.viro.core.ViroViewScene;
-
-/**
- * Created by manish on 10/25/17.
- */
 
 public class ViroReleaseTestActivity extends AppCompatActivity implements RendererCloseListener {
     private static final String TAG = ViroReleaseTestActivity.class.getSimpleName();
@@ -151,7 +149,7 @@ public class ViroReleaseTestActivity extends AppCompatActivity implements Render
     }
 
     @Override
-    public void onConfigurationChanged(Configuration newConfig) {
+    public void onConfigurationChanged(@NonNull Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
 
         if (mViroView instanceof ViroViewARCore) {

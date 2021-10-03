@@ -66,6 +66,7 @@ import com.viro.core.ViroViewScene;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
 
@@ -286,7 +287,7 @@ public class MemoryLeakTest extends AppCompatActivity {
         node1.setGeometry(boxGeometry);
         final Vector boxPosition = new Vector(5, 0, -3);
         node1.setPosition(boxPosition);
-        boxGeometry.setMaterials(Arrays.asList(material));
+        boxGeometry.setMaterials(Collections.singletonList(material));
         final EnumSet<Node.TransformBehavior> behaviors = EnumSet.of(Node.TransformBehavior.BILLBOARD);
         //node1.setTransformBehaviors(behaviors);
         //node1.setEventDelegate(getGenericDelegate("Box"));
@@ -295,7 +296,7 @@ public class MemoryLeakTest extends AppCompatActivity {
         node2.setGeometry(boxGeometry2);
         final Vector boxPosition2 = new Vector(-2, 0, -3);
         node2.setPosition(boxPosition2);
-        boxGeometry2.setMaterials(Arrays.asList(material));
+        boxGeometry2.setMaterials(Collections.singletonList(material));
         node2.setClickListener(new ClickListener() {
             @Override
             public void onClick(int source, Node node, Vector location) {
