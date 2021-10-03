@@ -16,24 +16,27 @@
  */
 package com.example.virosample.placingObjects
 
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.AlertDialog
 import android.app.Dialog
-import android.os.Bundle
-import android.widget.Toast
-import android.view.ViewGroup
 import android.graphics.Color
 import android.net.Uri
+import android.os.Bundle
 import android.util.Log
 import android.view.Gravity
 import android.view.View
-import com.viro.core.ARScene.TrackingStateReason
+import android.view.ViewGroup
+import android.widget.ImageButton
 import android.widget.TextView
+import android.widget.Toast
 import androidx.coordinatorlayout.widget.CoordinatorLayout
 import com.google.android.material.snackbar.Snackbar
 import com.viro.core.*
+import com.viro.core.ARScene.TrackingStateReason
+import com.viro.core.Vector
 import java.lang.ref.WeakReference
-import java.util.ArrayList
+import java.util.*
 
 /**
  * Activity that initializes Viro and ARCore. This activity builds an AR scene that lets the user
@@ -64,6 +67,8 @@ class ViroActivity : Activity() {
             }
         })
         setContentView(viroView)
+
+        (findViewById<View>(R.id.imageButton) as ImageButton).setOnClickListener { showPopup() }
     }
 
     /**
@@ -77,30 +82,27 @@ class ViroActivity : Activity() {
             object3D.setPosition(position)
             // Shrink the objects as the original size is too large.
             object3D.setScale(Vector(.2f, .2f, .2f))
-            object3D.gestureRotateListener = GestureRotateListener { i, node, rotation, rotateState ->
+            object3D.gestureRotateListener = GestureRotateListener { _, _, rotation, rotateState ->
                 if (rotateState == RotateState.ROTATE_START) {
                     rotateStart = object3D.rotationEulerRealtime.y
                 }
                 val totalRotationY = rotateStart + rotation
                 object3D.setRotation(Vector(0.0, totalRotationY.toDouble(), 0.0))
             }
-            object3D.gesturePinchListener = GesturePinchListener { i, node, scale, pinchState ->
+            object3D.gesturePinchListener = GesturePinchListener { _, _, scale, pinchState ->
                 if (pinchState == PinchState.PINCH_START) {
                     scaleStart = object3D.scaleRealtime.x
                 } else {
                     object3D.setScale(Vector(scaleStart * scale, scaleStart * scale, scaleStart * scale))
                 }
             }
-            object3D.dragListener = DragListener { i, node, vector, vector1 -> }
+            object3D.dragListener = DragListener { _, _, _, _ -> }
 
             // Load the Android model asynchronously.
             object3D.loadModel(viroView.viroContext, Uri.parse(mFileName), Object3D.Type.FBX, object : AsyncObject3DListener {
                 override fun onObject3DLoaded(`object`: Object3D, type: Object3D.Type) {}
                 override fun onObject3DFailed(s: String) {
-                    Toast.makeText(
-                        this@ViroActivity, "An error occured when loading the 3D Object!",
-                        Toast.LENGTH_LONG
-                    ).show()
+                    Toast.makeText(this@ViroActivity, "An error occurred when loading the 3D Object!", Toast.LENGTH_LONG).show()
                 }
             })
 
@@ -130,7 +132,7 @@ class ViroActivity : Activity() {
         val viewARView = viroView as ViroViewARCore?
         val cameraPos = viewARView!!.lastCameraPositionRealtime
         viewARView.performARHitTestWithRay(viewARView.lastCameraForwardRealtime, ARHitTestListener { arHitTestResults ->
-            if (arHitTestResults != null && arHitTestResults.size > 0) {
+            if (arHitTestResults != null && arHitTestResults.isNotEmpty()) {
                 for (i in arHitTestResults.indices) {
                     val result = arHitTestResults[i]
                     val distance = result.position.distance(cameraPos)
@@ -161,11 +163,11 @@ class ViroActivity : Activity() {
     /**
      * Dialog menu displaying the virtual objects we can place in the real world.
      */
-    fun showPopup(v: View?) {
+    private fun showPopup() {
         val builder = AlertDialog.Builder(this)
         val itemsList = arrayOf<CharSequence>("Coffee mug", "Flowers", "Smile Emoji")
         builder.setTitle("Choose an object")
-            .setItems(itemsList) { dialog, which ->
+            .setItems(itemsList) { _, which ->
                 when (which) {
                     0 -> placeObject("file:///android_asset/object_coffee_mug.vrx")
                     1 -> placeObject("file:///android_asset/object_flowers.vrx")
@@ -185,6 +187,7 @@ class ViroActivity : Activity() {
         private val currentActivityWeak: WeakReference<Activity> = WeakReference(activity)
         private var initialized: Boolean = false
 
+        @SuppressLint("SetTextI18n")
         override fun onTrackingUpdated(
             trackingState: ARScene.TrackingState,
             trackingStateReason: TrackingStateReason
@@ -246,6 +249,7 @@ class ViroActivity : Activity() {
             snackBar.show()
         }
     }
+
     companion object {
         private val TAG = ViroActivity::class.java.simpleName
 

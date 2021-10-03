@@ -108,6 +108,7 @@ import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
@@ -119,7 +120,6 @@ public class ViroActivity extends AppCompatActivity {
     private final Map<String, Sound> mSoundMap = new HashMap<>();
     private final Map<String, SoundField> mSoundFieldMap = new HashMap();
     private final Map<String, SpatialSound> mSpatialSoundMap = new HashMap<>();
-    private ARDeclarativeNode.Delegate mARNodeDelegate;
     private ViroView mViroView = null;
     private Handler mHandler;
 
@@ -288,7 +288,7 @@ public class ViroActivity extends AppCompatActivity {
         // Creation of SceneControllerJni within scene navigator
         final Scene scene = new Scene();
         final Node rootNode = scene.getRootNode();
-        List<Node> nodes = new ArrayList<>();
+        List<Node> nodes;
         nodes = testBox(getApplicationContext());
         //testBackgroundVideo(scene);
 
@@ -321,8 +321,6 @@ public class ViroActivity extends AppCompatActivity {
 
         // Updating the scene.
         mViroView.setScene(scene);
-        final Controller nativeController = mViroView.getController();
-        //nativeController.setReticleVisibility(false);
     }
 
     /*
@@ -502,7 +500,7 @@ public class ViroActivity extends AppCompatActivity {
 
     private Bitmap getBitmapFromAssets(final String assetName) {
         final InputStream istr;
-        Bitmap bitmap = null;
+        Bitmap bitmap;
         try {
             istr = getAssets().open(assetName);
             bitmap = BitmapFactory.decodeStream(istr);
@@ -528,7 +526,7 @@ public class ViroActivity extends AppCompatActivity {
         pointOfView.setCamera(camera);
         mViroView.setPointOfView(pointOfView);
 
-        return Arrays.asList(node);
+        return Collections.singletonList(node);
     }
 
     private void testSceneLighting(final Node node) {
@@ -546,7 +544,7 @@ public class ViroActivity extends AppCompatActivity {
         node.addLight(omni);
     }
 
-    private List<Node> testSurfaceVideo(final Context context) {
+    private List<Node> testSurfaceVideo() {
         final Node node = new Node();
         final Surface surface = new Surface(4, 4, 0, 0, 1, 1);
         final float[] position = {0, 0, -3};
@@ -554,29 +552,29 @@ public class ViroActivity extends AppCompatActivity {
         final VideoTexture videoTexture = new VideoTexture(mViroView.getViroContext(), Uri.parse("https://s3.amazonaws.com/viro.video/Climber2Top.mp4"));
         final Material material = new Material();
         material.setDiffuseTexture(videoTexture);
-        surface.setMaterials(Arrays.asList(material));
+        surface.setMaterials(Collections.singletonList(material));
         videoTexture.setVolume(0.1f);
         videoTexture.setLoop(true);
         videoTexture.play();
 
         node.setGeometry(surface);
-        return Arrays.asList(node);
+        return Collections.singletonList(node);
     }
 
-    private List<Node> testSphereVideo(final Context context) {
+    private List<Node> testSphereVideo() {
         final Node node = new Node();
         final Sphere sphere = new Sphere(2, 20, 20, false);
         final VideoTexture videoTexture = new VideoTexture(mViroView.getViroContext(),
                 Uri.parse("https://s3.amazonaws.com/viro.video/Climber2Top.mp4"));
         final Material material = new Material();
         material.setDiffuseTexture(videoTexture);
-        sphere.setMaterials(Arrays.asList(material));
+        sphere.setMaterials(Collections.singletonList(material));
         videoTexture.setVolume(0.1f);
         videoTexture.setLoop(false);
         videoTexture.play();
 
         node.setGeometry(sphere);
-        return Arrays.asList(node);
+        return Collections.singletonList(node);
     }
 
     private void testBackgroundVideo(final Scene scene) {
@@ -638,7 +636,6 @@ public class ViroActivity extends AppCompatActivity {
 
     private List<Node> testParticles() {
         final Bitmap bobaBitmap = getBitmapFromAssets("boba.png");
-        final Bitmap specBitmap = getBitmapFromAssets("specular.png");
         final Texture bobaTexture = new Texture(bobaBitmap, Format.RGBA8, true, true);
 
         final Node particleNode = new Node();
@@ -651,7 +648,7 @@ public class ViroActivity extends AppCompatActivity {
         material.setLightingModel(Material.LightingModel.LAMBERT);
 
         final Surface surface = new Surface(1, 1);
-        surface.setMaterials(Arrays.asList(material));
+        surface.setMaterials(Collections.singletonList(material));
 
         final ParticleEmitter particleEmitter = new ParticleEmitter(mViroView.getViroContext(), surface);
 
@@ -663,7 +660,7 @@ public class ViroActivity extends AppCompatActivity {
         particleEmitter.setScaleModifier(modifier);
         particleNode.setParticleEmitter(particleEmitter);
         particleEmitter.run();
-        return Arrays.asList(particleNode);
+        return Collections.singletonList(particleNode);
     }
 
     private ByteBuffer getRBGAFromBitmap(Bitmap bitmap) {
@@ -682,7 +679,7 @@ public class ViroActivity extends AppCompatActivity {
             int green = Color.green(argbPixel);
             int blue = Color.blue(argbPixel);
             int alpha = Color.alpha(argbPixel);
-            rgbValues[i * componentsPerPixel + 0] = (byte) red;
+            rgbValues[i * componentsPerPixel] = (byte) red;
             rgbValues[i * componentsPerPixel + 1] = (byte) green;
             rgbValues[i * componentsPerPixel + 2] = (byte) blue;
             rgbValues[i * componentsPerPixel + 3] = (byte) alpha;
@@ -727,7 +724,7 @@ public class ViroActivity extends AppCompatActivity {
         node1.setGeometry(boxGeometry);
         final Vector boxPosition = new Vector(5, 0, -3);
         node1.setPosition(boxPosition);
-        boxGeometry.setMaterials(Arrays.asList(material));
+        boxGeometry.setMaterials(Collections.singletonList(material));
         final EnumSet<Node.TransformBehavior> behaviors = EnumSet.of(Node.TransformBehavior.BILLBOARD);
         //node1.setTransformBehaviors(behaviors);
         node1.setEventDelegate(getGenericDelegate("Box"));
@@ -736,7 +733,7 @@ public class ViroActivity extends AppCompatActivity {
         node2.setGeometry(boxGeometry2);
         final Vector boxPosition2 = new Vector(-2, 0, -3);
         node2.setPosition(boxPosition2);
-        boxGeometry2.setMaterials(Arrays.asList(material));
+        boxGeometry2.setMaterials(Collections.singletonList(material));
         node2.setClickListener(new ClickListener() {
             @Override
             public void onClick(int source, Node node, Vector location) {
@@ -807,7 +804,7 @@ public class ViroActivity extends AppCompatActivity {
             }
         });
         node1.addChildNode(objectJni);
-        return Arrays.asList(node1);
+        return Collections.singletonList(node1);
     }
 
     private List<Node> testImageSurface(final Context context) {
@@ -824,7 +821,7 @@ public class ViroActivity extends AppCompatActivity {
         node.setGeometry(surface);
         final float[] position = {0, 0, -2};
         node.setPosition(new Vector(position));
-        return Arrays.asList(node);
+        return Collections.singletonList(node);
     }
 
     private List<Node> testStereoImageSurface(final Context context) {
@@ -872,7 +869,7 @@ public class ViroActivity extends AppCompatActivity {
         videoTexture.play();
 
         node.setGeometry(surface);
-        return Arrays.asList(node);
+        return Collections.singletonList(node);
     }
 
     private void testStereoBackgroundVideo(final Scene scene) {
@@ -920,7 +917,7 @@ public class ViroActivity extends AppCompatActivity {
         final float[] rotation = { (float) -Math.PI / 2, 0, 0};
         node.setRotation(new Vector(rotation));
 
-        mARNodeDelegate = new ARDeclarativeNode.Delegate() {
+        ARDeclarativeNode.Delegate mARNodeDelegate = new ARDeclarativeNode.Delegate() {
             @Override
             public void onAnchorFound(final ARAnchor anchor) {
                 Log.i("ViroActivity", "onAnchorFound");
@@ -1606,8 +1603,7 @@ public class ViroActivity extends AppCompatActivity {
         public void onPinch(final int source, final Node node, final float scaleFactor, final PinchState pinchState) {
             if (pinchState == PinchState.PINCH_START) {
                 if (mStartScale == null) {
-                    final float[] scale = {1, 1, 1};
-                    mStartScale = scale;
+                    mStartScale = new float[]{1, 1, 1};
                 }
             } else if (pinchState == PinchState.PINCH_END) {
                 for (int i = 0; i < 3; i++) {
@@ -1633,7 +1629,7 @@ public class ViroActivity extends AppCompatActivity {
         }
     }
 
-    private class GenericEventCallback implements EventDelegate.EventDelegateCallback {
+    private static class GenericEventCallback implements EventDelegate.EventDelegateCallback {
         protected final String delegateTag;
 
         public GenericEventCallback(final String tag) {
