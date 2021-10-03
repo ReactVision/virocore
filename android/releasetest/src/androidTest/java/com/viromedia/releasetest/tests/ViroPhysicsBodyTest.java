@@ -218,7 +218,7 @@ public class ViroPhysicsBodyTest extends ViroBaseTest {
         mCueBall = new Sphere(scaleSize(BALL_RADIUS));
         mCueBall.setMaterials(Arrays.asList(cueBallMaterial));
         final Node cueBallNode = ballNodeBuilder.geometry(mCueBall)
-                .position(new Vector(0, 5,-30))
+                .position(new Vector(0, 5, -30))
                 .lightReceivingBitMask(3)
                 .shadowCastingBitMask(3)
                 .physicsBody(PhysicsBody.RigidBodyType.DYNAMIC, 0.170f, physicsShapeSphere)

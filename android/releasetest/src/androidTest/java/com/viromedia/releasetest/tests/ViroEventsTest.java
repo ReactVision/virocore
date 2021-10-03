@@ -28,6 +28,7 @@ import android.net.Uri;
 import android.util.Log;
 
 import com.viro.core.Box;
+import com.viro.core.ClickListener;
 import com.viro.core.ClickState;
 import com.viro.core.DirectionalLight;
 import com.viro.core.Material;
@@ -36,15 +37,11 @@ import com.viro.core.Object3D;
 import com.viro.core.Sphere;
 import com.viro.core.Text;
 import com.viro.core.Vector;
-import com.viro.core.ClickListener;
 
 import org.junit.Test;
 
-import java.util.Arrays;
+import java.util.Collections;
 
-/**
- * Created by vadvani on 11/3/17.
- */
 
 public class ViroEventsTest extends ViroBaseTest {
     ClickListener boxClickListener;
@@ -64,7 +61,7 @@ public class ViroEventsTest extends ViroBaseTest {
         Material boxOneMaterial = new Material();
         boxOneMaterial.setDiffuseColor(Color.RED);
         boxOneMaterial.setLightingModel(Material.LightingModel.BLINN);
-        box.setMaterials(Arrays.asList(boxOneMaterial));
+        box.setMaterials(Collections.singletonList(boxOneMaterial));
         boxNode = new Node();
         boxNode.setPosition(new Vector(-1.5f, 1f, -3f));
         boxNode.setGeometry(box);
@@ -80,7 +77,7 @@ public class ViroEventsTest extends ViroBaseTest {
         Material sphereMaterial = new Material();
         sphereMaterial.setDiffuseColor(Color.YELLOW);
         sphereMaterial.setLightingModel(Material.LightingModel.BLINN);
-        sphere.setMaterials(Arrays.asList(boxOneMaterial));
+        sphere.setMaterials(Collections.singletonList(boxOneMaterial));
         sphereNode = new Node();
         sphereNode.setGeometry(sphere);
         sphereNode.setPosition(new Vector(1.5f, 1.0f, -3f));
@@ -194,7 +191,7 @@ public class ViroEventsTest extends ViroBaseTest {
 
     private void testEventsHoverListener() {
         boxNode.setHoverListener((source, node, isHovering, location) -> {
-            if (isHovering){
+            if (isHovering) {
                 eventText.setText("Hovered over box.");
             }
         });
@@ -220,29 +217,19 @@ public class ViroEventsTest extends ViroBaseTest {
             eventText.setText("Set fuse on box.");
         });
 
-        objectNode.setFuseListener((source, node) -> {
-            eventText.setText("Set fuse on 3d object");
-        });
+        objectNode.setFuseListener((source, node) -> eventText.setText("Set fuse on 3d object"));
 
-        sphereNode.setFuseListener((source, node) -> {
-            eventText.setText("Set fuse on Sphere.");
-        });
+        sphereNode.setFuseListener((source, node) -> eventText.setText("Set fuse on Sphere."));
 
         assertPass("All nodes respond to onFuse.");
     }
 
     private void testEventsDragListener() {
-        boxNode.setDragListener((source, node, worldLocation, localLocation) -> {
-            eventText.setText("Dragging the box. WorldLoc:" + ViroEventsTest.vectorString(worldLocation) + ", LocalLoc:" + ViroEventsTest.vectorString(localLocation));
-        });
+        boxNode.setDragListener((source, node, worldLocation, localLocation) -> eventText.setText("Dragging the box. WorldLoc:" + ViroEventsTest.vectorString(worldLocation) + ", LocalLoc:" + ViroEventsTest.vectorString(localLocation)));
 
-        objectNode.setDragListener((source, node, worldLocation, localLocation) -> {
-            eventText.setText("Dragging the object. WorldLoc:" + ViroEventsTest.vectorString(worldLocation) + ", LocalLoc:" + ViroEventsTest.vectorString(localLocation));
-        });
+        objectNode.setDragListener((source, node, worldLocation, localLocation) -> eventText.setText("Dragging the object. WorldLoc:" + ViroEventsTest.vectorString(worldLocation) + ", LocalLoc:" + ViroEventsTest.vectorString(localLocation)));
 
-        sphereNode.setDragListener((source, node, worldLocation, localLocation) -> {
-            eventText.setText("Dragging the sphere. WorldLoc:" + ViroEventsTest.vectorString(worldLocation) + ", LocalLoc:" + ViroEventsTest.vectorString(localLocation));
-        });
+        sphereNode.setDragListener((source, node, worldLocation, localLocation) -> eventText.setText("Dragging the sphere. WorldLoc:" + ViroEventsTest.vectorString(worldLocation) + ", LocalLoc:" + ViroEventsTest.vectorString(localLocation)));
 
         assertPass("All objects respond to drag events with world loc. and local loc.");
     }
@@ -268,72 +255,47 @@ public class ViroEventsTest extends ViroBaseTest {
 
     private void testEventsGestureRotateListener() {
 
-        boxNode.setGestureRotateListener((source, node, rotateRadians, rotateState) -> {
-            eventText.setText("Rotating on Box.");
-        });
+        boxNode.setGestureRotateListener((source, node, rotateRadians, rotateState) -> eventText.setText("Rotating on Box."));
 
-        objectNode.setGestureRotateListener((source, node, rotateRadians, rotateState) -> {
-            eventText.setText("Rotating on 3d Object.");
-        });
+        objectNode.setGestureRotateListener((source, node, rotateRadians, rotateState) -> eventText.setText("Rotating on 3d Object."));
 
-        sphereNode.setGestureRotateListener((source, node, rotateRadians, rotateState) -> {
-            eventText.setText("Rotating on Sphere.");
-        });
+        sphereNode.setGestureRotateListener((source, node, rotateRadians, rotateState) -> eventText.setText("Rotating on Sphere."));
 
         assertPass("All nodes respond to rotate.");
     }
 
     private void testEventsTouchpadTouchListener() {
-        boxNode.setTouchpadTouchListener((source, node, touchState, x, y) -> {
-            eventText.setText("Touch registered on Box. TouchState: " + touchState.toString());
-        });
+        boxNode.setTouchpadTouchListener((source, node, touchState, x, y) -> eventText.setText("Touch registered on Box. TouchState: " + touchState.toString()));
 
-        objectNode.setTouchpadTouchListener((source, node, touchState, x, y) -> {
-            eventText.setText("Touch registered on 3d Object. TouchState: " + touchState.toString());
-        });
+        objectNode.setTouchpadTouchListener((source, node, touchState, x, y) -> eventText.setText("Touch registered on 3d Object. TouchState: " + touchState.toString()));
 
-        sphereNode.setTouchpadTouchListener((source, node, touchState, x, y) -> {
-            eventText.setText("Touch registered on Sphere. TouchState: " + touchState.toString());
-        });
+        sphereNode.setTouchpadTouchListener((source, node, touchState, x, y) -> eventText.setText("Touch registered on Sphere. TouchState: " + touchState.toString()));
 
         assertPass("For GearVR: All objects can be touched with touch pad, Touch state changes.");
     }
 
     private void testEventsTouchpadSwipeListener() {
-        boxNode.setTouchpadSwipeListener((source, node, swipeState) -> {
-            eventText.setText("Touchpad listener registered on Box. SwipeState: " + swipeState.toString());
-        });
+        boxNode.setTouchpadSwipeListener((source, node, swipeState) -> eventText.setText("Touchpad listener registered on Box. SwipeState: " + swipeState.toString()));
 
-        objectNode.setTouchpadSwipeListener((source, node, swipeState) -> {
-            eventText.setText("Touchpad listener registered on 3d Object. SwipeState: " + swipeState.toString());
-        });
+        objectNode.setTouchpadSwipeListener((source, node, swipeState) -> eventText.setText("Touchpad listener registered on 3d Object. SwipeState: " + swipeState.toString()));
 
-        sphereNode.setTouchpadSwipeListener((source, node, swipeState) -> {
-            eventText.setText("Touchpad listener registered on Sphere. SwipeState: " + swipeState.toString());
-        });
+        sphereNode.setTouchpadSwipeListener((source, node, swipeState) -> eventText.setText("Touchpad listener registered on Sphere. SwipeState: " + swipeState.toString()));
 
         assertPass("For GearVR: All objects register swipe event with touch pad.");
     }
 
     private void testEventsTouchpadScrollListener() {
-        boxNode.setTouchpadScrollListener((source, node, x, y) -> {
-            eventText.setText("Scroll listener registered on box. (x,y):" + "[" + x + "," + y + "]");
-        });
+        boxNode.setTouchpadScrollListener((source, node, x, y) -> eventText.setText("Scroll listener registered on box. (x,y):" + "[" + x + "," + y + "]"));
 
-        objectNode.setTouchpadScrollListener((source, node, x, y) -> {
-            eventText.setText("Scroll listener registered on object. (x,y):" + "[" + x + "," + y + "]");
-        });
+        objectNode.setTouchpadScrollListener((source, node, x, y) -> eventText.setText("Scroll listener registered on object. (x,y):" + "[" + x + "," + y + "]"));
 
-        sphereNode.setTouchpadScrollListener((source, node, x, y) -> {
-            eventText.setText("Scroll listener registered on sphere. (x,y):" + "[" + x + "," + y + "]");
-        });
+        sphereNode.setTouchpadScrollListener((source, node, x, y) -> eventText.setText("Scroll listener registered on sphere. (x,y):" + "[" + x + "," + y + "]"));
 
         assertPass("For GearVR: All objects register scroll event with touch pad.");
     }
 
     public static String vectorString(Vector vec) {
-        String vectorString = "[" + vec.x + "," + vec.y + "," + vec.x + "]";
-        return vectorString;
+        return "[" + vec.x + "," + vec.y + "," + vec.x + "]";
     }
 
 

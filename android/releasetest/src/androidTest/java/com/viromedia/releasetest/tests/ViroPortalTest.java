@@ -26,8 +26,8 @@ package com.viromedia.releasetest.tests;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.net.Uri;
-import androidx.test.espresso.core.deps.guava.collect.Iterables;
 
+import com.google.common.collect.Iterables;
 import com.viro.core.AmbientLight;
 import com.viro.core.Camera;
 import com.viro.core.Node;
@@ -47,7 +47,7 @@ import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
 
-public class ViroPortalTest extends ViroBaseTest  {
+public class ViroPortalTest extends ViroBaseTest {
 
     private PortalScene mPortalScene;
     private Portal mPortal;
@@ -68,7 +68,7 @@ public class ViroPortalTest extends ViroBaseTest  {
         mPortal.addChildNode(object3DArchway);
         mPortalScene.setPortalEntrance(mPortal);
 
-        ViroReleaseTestActivity activity = (ViroReleaseTestActivity)mActivity;
+        ViroReleaseTestActivity activity = (ViroReleaseTestActivity) mActivity;
         Renderer renderer = activity.getViroView().getRenderer();
         renderer.setPointOfView(mScene.getRootNode());
         mMutableTestMethod = null;
@@ -100,7 +100,7 @@ public class ViroPortalTest extends ViroBaseTest  {
         mPortal.addChildNode(object3DArchway);
         mPortalScene.setPortalEntrance(mPortal);
         mMutableTestMethod = () -> {
-            if(mPortal.getChildNodes().get(0) == object3DShip) {
+            if (mPortal.getChildNodes().get(0) == object3DShip) {
                 mPortal.removeAllChildNodes();
                 mPortal.addChildNode(object3DArchway);
                 object3DArchway.setIgnoreEventHandling(true);
@@ -157,9 +157,9 @@ public class ViroPortalTest extends ViroBaseTest  {
 
     private void testPortalSceneBackgroundCube() {
         mMutableTestMethod = null;
-        final Bitmap px = this.getBitmapFromAssets(mActivity,"px.png");
+        final Bitmap px = this.getBitmapFromAssets(mActivity, "px.png");
         final Bitmap nx = this.getBitmapFromAssets(mActivity, "nx.png");
-        final Bitmap py = this.getBitmapFromAssets(mActivity,"py.png");
+        final Bitmap py = this.getBitmapFromAssets(mActivity, "py.png");
         final Bitmap ny = this.getBitmapFromAssets(mActivity, "ny.png");
         final Bitmap pz = this.getBitmapFromAssets(mActivity, "pz.png");
         final Bitmap nz = this.getBitmapFromAssets(mActivity, "nz.png");
@@ -181,7 +181,7 @@ public class ViroPortalTest extends ViroBaseTest  {
         final Texture backgroundTexture = new Texture(background, Texture.Format.RGBA8, true, true);
         mPortalScene.setBackgroundTexture(backgroundTexture);
 
-        final List<Float> rotations = Arrays.asList(-4.8f, -5.2f,  -5.9f, -6.1f, -6.8f);
+        final List<Float> rotations = Arrays.asList(-4.8f, -5.2f, -5.9f, -6.1f, -6.8f);
         final Iterator<Float> itr = Iterables.cycle(rotations).iterator();
         mMutableTestMethod = () -> {
             mCamera.setPosition(new Vector(0, 0, itr.next()));
@@ -222,7 +222,7 @@ public class ViroPortalTest extends ViroBaseTest  {
         });
 
         mCamera.setPosition(new Vector(0, 0, -4));
-        final List<Float> rotations = Arrays.asList(-4.8f, -5.2f,  -5.9f, -6.1f, -6.8f);
+        final List<Float> rotations = Arrays.asList(-4.8f, -5.2f, -5.9f, -6.1f, -6.8f);
         final Iterator<Float> itr = Iterables.cycle(rotations).iterator();
         mMutableTestMethod = () -> {
             mCamera.setPosition(new Vector(0, 0, itr.next()));
@@ -241,7 +241,7 @@ public class ViroPortalTest extends ViroBaseTest  {
         mCamera = new Camera();
         mScene.getRootNode().setCamera(mCamera);
         mCamera.setPosition(new Vector(0, 0, -4));
-        final List<Float> rotations = Arrays.asList(-4.8f, -5.2f,  -5.9f, -6.1f, -6.8f);
+        final List<Float> rotations = Arrays.asList(-4.8f, -5.2f, -5.9f, -6.1f, -6.8f);
         final Iterator<Float> itr = Iterables.cycle(rotations).iterator();
         mMutableTestMethod = () -> {
             mCamera.setPosition(new Vector(0, 0, itr.next()));

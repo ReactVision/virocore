@@ -25,9 +25,9 @@ package com.viromedia.releasetest.tests;
 
 import android.graphics.Bitmap;
 import android.graphics.Color;
-import androidx.test.espresso.core.deps.guava.collect.Iterables;
 import android.util.Log;
 
+import com.google.common.collect.Iterables;
 import com.viro.core.ARAnchor;
 import com.viro.core.ARNode;
 import com.viro.core.ARPointCloud;
@@ -61,11 +61,12 @@ public class ViroARSceneTest extends ViroBaseTest {
     private Text mTestText;
 
     private boolean mAmbientLightUpdateTestStarted = false;
+
     @Override
     void configureTestScene() {
         mAmbientLight = new AmbientLight(Color.WHITE, 1000.0f);
         mScene.getRootNode().addLight(mAmbientLight);
-        mARScene = (ARScene)mScene;
+        mARScene = (ARScene) mScene;
 
         final Bitmap bobaBitmap = getBitmapFromAssets(mActivity, "boba.png");
         final Texture bobaTexture = new Texture(bobaBitmap, Texture.Format.RGBA8, true, true);
@@ -97,7 +98,7 @@ public class ViroARSceneTest extends ViroBaseTest {
 
             @Override
             public void onAmbientLightUpdate(float lightIntensity, Vector color) {
-                if(mAmbientLightUpdateTestStarted) {
+                if (mAmbientLightUpdateTestStarted) {
                     mTestText.setText("Ambient light intensity:" + lightIntensity + ", color: " + color);
                     mAmbientLight.setIntensity(lightIntensity);
                 }
@@ -183,16 +184,16 @@ public class ViroARSceneTest extends ViroBaseTest {
             @Override
             public void onUpdate(ARPointCloud pointCloud) {
                 Log.i("ViroARSceneTest", "Point cloud values: " + pointCloud.size());
-                float []pointCloudArray = pointCloud.getPoints();
-                long []ids =  pointCloud.getIds();
+                float[] pointCloudArray = pointCloud.getPoints();
+                long[] ids = pointCloud.getIds();
                 String pointCloudStr = "Point clouds: ";
-                for(int i =0; i< pointCloud.size(); i++) {
-                    float x= pointCloudArray[i*4+0];
-                    float y = pointCloudArray[i*4 + 1];
-                    float z = pointCloudArray[i*4 + 2];
+                for (int i = 0; i < pointCloud.size(); i++) {
+                    float x = pointCloudArray[i * 4 + 0];
+                    float y = pointCloudArray[i * 4 + 1];
+                    float z = pointCloudArray[i * 4 + 2];
                     long pointID = ids[i];
-                    pointCloudStr += "(" + x + "," + y + "," + z  + "), ";
-                    Log.i("ViroARSceneTest", "point i" + i + "(x,y,z) id ->" + "(" + x + "," + y + "," + z  + ") id:" + pointID);
+                    pointCloudStr += "(" + x + "," + y + "," + z + "), ";
+                    Log.i("ViroARSceneTest", "point i" + i + "(x,y,z) id ->" + "(" + x + "," + y + "," + z + ") id:" + pointID);
                 }
 
                 pointCloudText.setText(pointCloudStr);
@@ -219,7 +220,7 @@ public class ViroARSceneTest extends ViroBaseTest {
 
         final List<Quad> surfaces = Arrays.asList(quadOne, quadTwo);
         final Iterator<Quad> itr = Iterables.cycle(surfaces).iterator();
-        mMutableTestMethod = ()->{
+        mMutableTestMethod = () -> {
             Quad quad = itr.next();
             mARScene.setPointCloudQuad(quad);
         };
@@ -240,7 +241,7 @@ public class ViroARSceneTest extends ViroBaseTest {
         final List<Integer> maxPoints = Arrays.asList(50, 200);
         final Iterator<Integer> itr = Iterables.cycle(maxPoints).iterator();
 
-        mMutableTestMethod = ()->{
+        mMutableTestMethod = () -> {
             mARScene.setPointCloudMaxPoints(itr.next());
         };
 
@@ -250,7 +251,7 @@ public class ViroARSceneTest extends ViroBaseTest {
 
     private void testDisplayPointCloudOff() {
         mARScene.displayPointCloud(true);
-        mMutableTestMethod = ()->{
+        mMutableTestMethod = () -> {
             mARScene.displayPointCloud(false);
         };
         assertPass("Display point cloud turns OFF");

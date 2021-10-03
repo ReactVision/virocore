@@ -31,10 +31,10 @@ import com.viro.core.Material;
 import com.viro.core.Node;
 import com.viro.core.ParticleEmitter;
 import com.viro.core.Quad;
-import com.viro.core.Surface;
 import com.viro.core.Texture;
 import com.viro.core.Vector;
 import com.viro.core.ViroContext;
+
 import org.junit.Test;
 
 import java.util.Arrays;
@@ -47,13 +47,13 @@ public class ViroParticleEmitterTest extends ViroBaseTest {
         super();
     }
 
-    private ParticleEmitter createBaseEmitter(){
+    private ParticleEmitter createBaseEmitter() {
         final ViroContext context = mViroView.getViroContext();
         float width = 2;
         float height = 2;
 
         // Construct particle Geometry.
-        Quad quad = new Quad(1,1);
+        Quad quad = new Quad(1, 1);
         quad.setWidth(width);
         quad.setHeight(height);
 
@@ -137,8 +137,8 @@ public class ViroParticleEmitterTest extends ViroBaseTest {
     }
 
     public void emitterScaleTest() {
-        Vector startSize = new Vector(1,1,0);
-        Vector endSize = new Vector(3,3,0);
+        Vector startSize = new Vector(1, 1, 0);
+        Vector endSize = new Vector(3, 3, 0);
 
         ParticleEmitter.ParticleModifierVector mod
                 = new ParticleEmitter.ParticleModifierVector(startSize, startSize);
@@ -172,13 +172,13 @@ public class ViroParticleEmitterTest extends ViroBaseTest {
         assertPass("Particles should fade out.");
     }
 
-    public void randomizedPropertiesTest(){
+    public void randomizedPropertiesTest() {
         float opacityStart = 1.0f;
         float opacityEnd = 0.0f;
         float startRot = 0f;
         float endRot = 3.14f;
-        Vector startScale = new Vector(1,1,0);
-        Vector endScale = new Vector(3,3,0);
+        Vector startScale = new Vector(1, 1, 0);
+        Vector endScale = new Vector(3, 3, 0);
         int colorStart = Color.RED;
         int colorEnd = Color.BLUE;
 
@@ -256,7 +256,7 @@ public class ViroParticleEmitterTest extends ViroBaseTest {
         mEmitter.setOpacityModifier(opacity);
 
         // Velocity modifier
-        ParticleEmitter.ParticleModifierVector velocity = new ParticleEmitter.ParticleModifierVector(new Vector(0.05, 0.15, 0.01 ),
+        ParticleEmitter.ParticleModifierVector velocity = new ParticleEmitter.ParticleModifierVector(new Vector(0.05, 0.15, 0.01),
                 new Vector(-0.05, 0.15, 0.01));
         mEmitter.setVelocityModifier(velocity);
 
@@ -266,22 +266,20 @@ public class ViroParticleEmitterTest extends ViroBaseTest {
 
         if (blendMode == Material.BlendMode.ALPHA) {
             assertPass("Smoke should fade in, be dark and opaque, then fade out");
-        }
-        else if (blendMode == Material.BlendMode.ADD) {
+        } else if (blendMode == Material.BlendMode.ADD) {
             assertPass("Smoke should be white and should brighten the background");
-        }
-        else if (blendMode == Material.BlendMode.SCREEN) {
+        } else if (blendMode == Material.BlendMode.SCREEN) {
             assertPass("Smoke should be white and should diminish the background");
         }
     }
 
-    public void multipleIntervalTest(){
+    public void multipleIntervalTest() {
         int colorStart = Color.RED;
         int colorMid = Color.YELLOW;
         int ColorMid2 = Color.GREEN;
         int colorEnd = Color.BLUE;
 
-        mEmitter.setParticleLifetime(3000,3000);
+        mEmitter.setParticleLifetime(3000, 3000);
         ParticleEmitter.ParticleModifierColor mod
                 = new ParticleEmitter.ParticleModifierColor(colorStart, colorStart);
         mod.addInterval(400, colorMid);
@@ -293,11 +291,11 @@ public class ViroParticleEmitterTest extends ViroBaseTest {
         assertPass("Particles should turn into yellow, green, blue color.");
     }
 
-    public void emitterDistanceTest(){
+    public void emitterDistanceTest() {
         int colorStart = Color.RED;
         int colorEnd = Color.BLUE;
-        Vector startSize = new Vector(1,1,0);
-        Vector endSize = new Vector(0,0,0);
+        Vector startSize = new Vector(1, 1, 0);
+        Vector endSize = new Vector(0, 0, 0);
 
         ParticleEmitter.ParticleModifierVector modScale
                 = new ParticleEmitter.ParticleModifierVector(startSize, startSize);

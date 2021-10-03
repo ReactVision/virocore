@@ -25,8 +25,8 @@ package com.viromedia.releasetest.tests;
 
 import android.graphics.Color;
 import android.net.Uri;
-import androidx.test.espresso.core.deps.guava.collect.Iterables;
 
+import com.google.common.collect.Iterables;
 import com.viro.core.Node;
 import com.viro.core.SpatialSound;
 import com.viro.core.Text;

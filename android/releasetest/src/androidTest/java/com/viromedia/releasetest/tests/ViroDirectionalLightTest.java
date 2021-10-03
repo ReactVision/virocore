@@ -24,9 +24,10 @@
 package com.viromedia.releasetest.tests;
 
 import android.graphics.Color;
-import androidx.test.espresso.core.deps.guava.collect.Iterables;
+
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 
+import com.google.common.collect.Iterables;
 import com.viro.core.AmbientLight;
 import com.viro.core.DirectionalLight;
 import com.viro.core.Material;
@@ -39,16 +40,13 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 
-/**
- * Created by manish on 10/25/17.
- */
 
 @RunWith(AndroidJUnit4.class)
 public class ViroDirectionalLightTest extends ViroBaseTest {
-    private static final String TAG = ViroDirectionalLightTest.class.getName();
     private static final int INFLUENCE_BITMASK = 1;
     private DirectionalLight mDirectionalLight;
 
@@ -72,7 +70,7 @@ public class ViroDirectionalLightTest extends ViroBaseTest {
         final Material surfaceMaterial = new Material();
         surfaceMaterial.setDiffuseColor(Color.WHITE);
         surfaceMaterial.setLightingModel(Material.LightingModel.BLINN);
-        surface.setMaterials(Arrays.asList(surfaceMaterial));
+        surface.setMaterials(Collections.singletonList(surfaceMaterial));
         verticleSurfaceNode.setGeometry(surface);
         verticleSurfaceNode.setLightReceivingBitMask(INFLUENCE_BITMASK);
         mScene.getRootNode().addChildNode(verticleSurfaceNode);
@@ -85,7 +83,7 @@ public class ViroDirectionalLightTest extends ViroBaseTest {
         final Material hSurfaceMaterial = new Material();
         hSurfaceMaterial.setDiffuseColor(Color.WHITE);
         hSurfaceMaterial.setLightingModel(Material.LightingModel.BLINN);
-        hSurface.setMaterials(Arrays.asList(hSurfaceMaterial));
+        hSurface.setMaterials(Collections.singletonList(hSurfaceMaterial));
         horizontalSurfaceNode.setGeometry(hSurface);
         horizontalSurfaceNode.setRotation(new Vector(Math.toRadians(-90), 0, 0));
         horizontalSurfaceNode.setLightReceivingBitMask(INFLUENCE_BITMASK);
@@ -103,11 +101,9 @@ public class ViroDirectionalLightTest extends ViroBaseTest {
 
         final float[] spherePos = {0, 0, -2f};
         sphereNode.setPosition(new Vector(spherePos));
-        sphere.setMaterials(Arrays.asList(sphereMaterial));
+        sphere.setMaterials(Collections.singletonList(sphereMaterial));
 
         mScene.getRootNode().addChildNode(sphereNode);
-
-
 
 
     }
@@ -140,9 +136,7 @@ public class ViroDirectionalLightTest extends ViroBaseTest {
 
         final Iterator<Integer> itr = Iterables.cycle(colors).iterator();
 
-        mMutableTestMethod = () -> {
-            mDirectionalLight.setColor(itr.next());
-        };
+        mMutableTestMethod = () -> mDirectionalLight.setColor(itr.next());
         assertPass("Cycling colors through WHITE, RED, GREEN, BLUE, MAGENTA, CYAN");
 
     }
@@ -181,9 +175,7 @@ public class ViroDirectionalLightTest extends ViroBaseTest {
             }
         };
 
-        assertPass("Changing direction of light from -z to -y axis", () -> {
-            mDirectionalLight.setDirection(directions.get(0));
-        });
+        assertPass("Changing direction of light from -z to -y axis", () -> mDirectionalLight.setDirection(directions.get(0)));
     }
 
 

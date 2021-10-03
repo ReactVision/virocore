@@ -25,8 +25,8 @@ package com.viromedia.releasetest.tests;
 
 import android.graphics.Bitmap;
 import android.graphics.Color;
-import androidx.test.espresso.core.deps.guava.collect.Iterables;
 
+import com.google.common.collect.Iterables;
 import com.viro.core.AmbientLight;
 import com.viro.core.Material;
 import com.viro.core.Node;
@@ -107,7 +107,7 @@ public class ViroQuadTest extends ViroBaseTest {
 
         mMutableTestMethod = () -> {
             Float numTilesUV = itr.next();
-            mSurface = new Quad(5, 5, 0, 0, numTilesUV , numTilesUV);
+            mSurface = new Quad(5, 5, 0, 0, numTilesUV, numTilesUV);
             mSurface.setMaterials(Arrays.asList(material));
             mNode.setGeometry(mSurface);
         };

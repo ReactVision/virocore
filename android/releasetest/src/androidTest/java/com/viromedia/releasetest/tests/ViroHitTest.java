@@ -24,13 +24,10 @@
 package com.viromedia.releasetest.tests;
 
 import android.graphics.Color;
-import androidx.test.espresso.core.deps.guava.collect.Iterables;
-
 import android.graphics.Point;
 
-
+import com.google.common.collect.Iterables;
 import com.viro.core.AmbientLight;
-
 import com.viro.core.FuseListener;
 import com.viro.core.HitTestListener;
 import com.viro.core.HitTestResult;
@@ -40,7 +37,6 @@ import com.viro.core.Object3D;
 import com.viro.core.Sphere;
 import com.viro.core.Vector;
 
-
 import org.junit.Test;
 
 import java.util.Arrays;
@@ -48,20 +44,20 @@ import java.util.Iterator;
 import java.util.List;
 
 /**
- *
  * Created by vadvani on 10/15/18.
  */
 
-public class ViroHitTest extends ViroBaseTest  {
+public class ViroHitTest extends ViroBaseTest {
 
     private HitTestListener mHitTestListener;
+
     @Override
     void configureTestScene() {
         AmbientLight light = new AmbientLight(Color.WHITE, 2000.0f);
         mScene.getRootNode().addLight(light);
 
         final Object3D objectJni = new Object3D();
-        objectJni.setPosition(new Vector(0,0,-200));
+        objectJni.setPosition(new Vector(0, 0, -200));
 
         mViroView.setVRModeEnabled(true);
 
@@ -101,7 +97,7 @@ public class ViroHitTest extends ViroBaseTest  {
         mHitTestListener = new HitTestListener() {
             @Override
             public void onHitTestFinished(HitTestResult[] results) {
-                if(results != null && results.length > 0) {
+                if (results != null && results.length > 0) {
                     Sphere sphere = new Sphere(.1f);
                     Material material = new Material();
                     material.setLightingModel(Material.LightingModel.BLINN);
@@ -122,7 +118,7 @@ public class ViroHitTest extends ViroBaseTest  {
             mViroView.performSceneHitTestWithPoint(new Point(400, 500), true, mHitTestListener);
         };
 
-        assertPass("ViroHitTest: Intersected screen point(400, 500) where sphere should be GREEN. points should follow sphere geometry. ", ()->{
+        assertPass("ViroHitTest: Intersected screen point(400, 500) where sphere should be GREEN. points should follow sphere geometry. ", () -> {
 
         });
     }
@@ -133,7 +129,7 @@ public class ViroHitTest extends ViroBaseTest  {
         mHitTestListener = new HitTestListener() {
             @Override
             public void onHitTestFinished(HitTestResult[] results) {
-                if(results != null && results.length > 0) {
+                if (results != null && results.length > 0) {
                     Sphere sphere = new Sphere(.1f);
                     Material material = new Material();
                     material.setLightingModel(Material.LightingModel.BLINN);
@@ -154,7 +150,7 @@ public class ViroHitTest extends ViroBaseTest  {
             mViroView.performSceneHitTestWithPoint(new Point(400, 500), false, mHitTestListener);
         };
 
-        assertPass("ViroHitTest: Intersected screen point(400,500) on sphere bounding box. Should be BLUE.", ()->{
+        assertPass("ViroHitTest: Intersected screen point(400,500) on sphere bounding box. Should be BLUE.", () -> {
 
         });
     }
@@ -164,7 +160,7 @@ public class ViroHitTest extends ViroBaseTest  {
         mHitTestListener = new HitTestListener() {
             @Override
             public void onHitTestFinished(HitTestResult[] results) {
-                if(results != null && results.length > 0) {
+                if (results != null && results.length > 0) {
                     Sphere sphere = new Sphere(.1f);
                     Material material = new Material();
                     material.setLightingModel(Material.LightingModel.BLINN);
@@ -178,13 +174,13 @@ public class ViroHitTest extends ViroBaseTest  {
             }
         };
 
-        final List<Vector> points = Arrays.asList(new Vector(-3, 0, -10),new Vector(0, 0, -10) ,new Vector(3, 0, -10) );
+        final List<Vector> points = Arrays.asList(new Vector(-3, 0, -10), new Vector(0, 0, -10), new Vector(3, 0, -10));
         final Iterator<Vector> itr = Iterables.cycle(points).iterator();
         mMutableTestMethod = () -> {
-            mViroView.performSceneHitTestRay(new Vector(0,0,0),itr.next(), false, mHitTestListener);
+            mViroView.performSceneHitTestRay(new Vector(0, 0, 0), itr.next(), false, mHitTestListener);
         };
 
-        assertPass("ViroHitTest: Intersected points of Sphere Bounding Box. Should be BLACK.", ()->{
+        assertPass("ViroHitTest: Intersected points of Sphere Bounding Box. Should be BLACK.", () -> {
 
         });
     }
@@ -194,7 +190,7 @@ public class ViroHitTest extends ViroBaseTest  {
         mHitTestListener = new HitTestListener() {
             @Override
             public void onHitTestFinished(HitTestResult[] results) {
-                if(results != null && results.length > 0) {
+                if (results != null && results.length > 0) {
                     Sphere sphere = new Sphere(.1f);
                     Material material = new Material();
                     material.setLightingModel(Material.LightingModel.BLINN);
@@ -207,13 +203,13 @@ public class ViroHitTest extends ViroBaseTest  {
                 }
             }
         };
-        final List<Vector> points = Arrays.asList(new Vector(-3, 0, -10),new Vector(0, 0, -10) ,new Vector(3, 0, -10) );
+        final List<Vector> points = Arrays.asList(new Vector(-3, 0, -10), new Vector(0, 0, -10), new Vector(3, 0, -10));
         final Iterator<Vector> itr = Iterables.cycle(points).iterator();
         mMutableTestMethod = () -> {
-            mViroView.performSceneHitTestRay(new Vector(0,0,0), itr.next(), true, mHitTestListener);
+            mViroView.performSceneHitTestRay(new Vector(0, 0, 0), itr.next(), true, mHitTestListener);
         };
 
-        assertPass("ViroHitTest: Intersected points of sphere. Should be YELLOW.", ()->{
+        assertPass("ViroHitTest: Intersected points of sphere. Should be YELLOW.", () -> {
 
         });
     }

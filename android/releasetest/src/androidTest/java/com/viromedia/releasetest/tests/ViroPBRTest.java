@@ -28,9 +28,7 @@ import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.net.Uri;
 
-import com.viro.core.Box;
 import com.viro.core.Camera;
-import com.viro.core.DirectionalLight;
 import com.viro.core.Geometry;
 import com.viro.core.Material;
 import com.viro.core.Node;
@@ -58,10 +56,10 @@ public class ViroPBRTest extends ViroBaseTest {
         Node rootNode = mScene.getRootNode();
 
         List<Vector> lightPositions = new ArrayList<Vector>();
-        lightPositions.add(new Vector(-10,  10, 1));
-        lightPositions.add(new Vector(10,  10, 1));
+        lightPositions.add(new Vector(-10, 10, 1));
+        lightPositions.add(new Vector(10, 10, 1));
         lightPositions.add(new Vector(-10, -10, 1));
-        lightPositions.add(new Vector( 10, -10, 1));
+        lightPositions.add(new Vector(10, -10, 1));
 
         float intensity = 300;
         List<Integer> lightColors = new ArrayList<Integer>();
@@ -95,9 +93,9 @@ public class ViroPBRTest extends ViroBaseTest {
                 sphere.setMaterials(Arrays.asList(material));
 
                 Node sphereNode = new Node();
-                sphereNode.setPosition(new Vector((float)(col - (columns / 2)) * spacing,
-                                                  (float)(row - (rows    / 2)) * spacing,
-                                                  -9.0f));
+                sphereNode.setPosition(new Vector((float) (col - (columns / 2)) * spacing,
+                        (float) (row - (rows / 2)) * spacing,
+                        -9.0f));
                 sphereNode.setGeometry(sphere);
                 mSphereContainerNode.addChildNode(sphereNode);
             }

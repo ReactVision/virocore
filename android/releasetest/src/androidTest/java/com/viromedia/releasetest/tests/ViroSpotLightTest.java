@@ -24,9 +24,10 @@
 package com.viromedia.releasetest.tests;
 
 import android.graphics.Color;
-import androidx.test.espresso.core.deps.guava.collect.Iterables;
+
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 
+import com.google.common.collect.Iterables;
 import com.viro.core.AmbientLight;
 import com.viro.core.AnimationTransaction;
 import com.viro.core.Material;
@@ -191,7 +192,7 @@ public class ViroSpotLightTest extends ViroBaseTest {
     }
 
     private void testSetInnerAngle() {
-        final List<Float> innerAnglesList = Arrays.asList((float)Math.toRadians(20), (float)Math.toRadians(35), (float)Math.toRadians(55));
+        final List<Float> innerAnglesList = Arrays.asList((float) Math.toRadians(20), (float) Math.toRadians(35), (float) Math.toRadians(55));
         final Iterator<Float> itr = Iterables.cycle(innerAnglesList).iterator();
         mMutableTestMethod = () -> {
             if (mSpotLight != null) {
@@ -211,7 +212,7 @@ public class ViroSpotLightTest extends ViroBaseTest {
     }
 
     private void testSetOuterAngle() {
-        final List<Float> outerAnglesList = Arrays.asList((float)Math.toRadians(20), (float)Math.toRadians(35), (float)Math.toRadians(55));
+        final List<Float> outerAnglesList = Arrays.asList((float) Math.toRadians(20), (float) Math.toRadians(35), (float) Math.toRadians(55));
         final Iterator<Float> itr = Iterables.cycle(outerAnglesList).iterator();
         mMutableTestMethod = () -> {
             if (mSpotLight != null) {

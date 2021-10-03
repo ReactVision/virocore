@@ -25,13 +25,12 @@ package com.viromedia.releasetest.tests;
 
 import android.graphics.Bitmap;
 import android.graphics.Color;
-import android.util.Log;
 
 import com.viro.core.AmbientLight;
 import com.viro.core.Geometry;
-import com.viro.core.Submesh;
 import com.viro.core.Material;
 import com.viro.core.Node;
+import com.viro.core.Submesh;
 import com.viro.core.Texture;
 import com.viro.core.Vector;
 
@@ -61,7 +60,7 @@ public class ViroGeometryTest extends ViroBaseTest {
 
     public void testSimpleGeometry() {
         Node node = new Node();
-        node.setPosition(new Vector(0,-1, -3));
+        node.setPosition(new Vector(0, -1, -3));
 
         Geometry geo = new Geometry();
         geo.setVertices(Arrays.asList(new Vector(1, 0, 0), new Vector(0, 1, 0), new Vector(-1, 0, 0)));
@@ -79,14 +78,14 @@ public class ViroGeometryTest extends ViroBaseTest {
         node.setGeometry(geo);
         mRootNode.addChildNode(node);
 
-        assertPass("You should see one blue triangle", ()->{
+        assertPass("You should see one blue triangle", () -> {
             node.removeFromParentNode();
         });
     }
 
     public void testGeometryMissingData() {
         Node node = new Node();
-        node.setPosition(new Vector(0,-1, -3));
+        node.setPosition(new Vector(0, -1, -3));
 
         Geometry geo = new Geometry();
         geo.setVertices(Arrays.asList(new Vector(1, 0, 0), new Vector(0, 1, 0), new Vector(-1, 0, 0)));
@@ -102,18 +101,18 @@ public class ViroGeometryTest extends ViroBaseTest {
         node.setGeometry(geo);
         mRootNode.addChildNode(node);
 
-        assertPass("You should see one red triangle", ()->{
+        assertPass("You should see one red triangle", () -> {
             node.removeFromParentNode();
         });
     }
 
     public void testGeometryWithTexture() {
         Node node = new Node();
-        node.setPosition(new Vector(-0.5,-1, -3));
+        node.setPosition(new Vector(-0.5, -1, -3));
 
         Geometry geo = new Geometry();
         geo.setVertices(Arrays.asList(new Vector(0, 0, 0), new Vector(1, 0, 0), new Vector(1, 1, 0), new Vector(0, 1, 0)));
-        geo.setNormals( Arrays.asList(new Vector(0, 0, 1), new Vector(0, 0, 1), new Vector(0, 0, 1), new Vector(0, 0, 1)));
+        geo.setNormals(Arrays.asList(new Vector(0, 0, 1), new Vector(0, 0, 1), new Vector(0, 0, 1), new Vector(0, 0, 1)));
         geo.setTextureCoordinates(Arrays.asList(new Vector(0, 0, 0), new Vector(1, 0, 0), new Vector(1, 1, 0), new Vector(0, 1, 0)));
 
         Bitmap bobaBitmap = this.getBitmapFromAssets(mActivity, "boba.png");
@@ -130,22 +129,22 @@ public class ViroGeometryTest extends ViroBaseTest {
         node.setGeometry(geo);
         mRootNode.addChildNode(node);
 
-        assertPass("You should see a square with a pug texture", ()->{
+        assertPass("You should see a square with a pug texture", () -> {
             node.removeFromParentNode();
         });
     }
 
     public void testGeometryTwoElements() {
         Node node = new Node();
-        node.setPosition(new Vector(-0.5,-1, -3));
+        node.setPosition(new Vector(-0.5, -1, -3));
 
         Geometry geo = new Geometry();
         geo.setVertices(Arrays.asList(new Vector(-1, 0, 0), new Vector(0, 0, 0), new Vector(0, 1, 0), new Vector(-1, 1, 0),
-                                      new Vector(1, 0, 0), new Vector(2, 0, 0), new Vector(2, 1, 0), new Vector(1, 1, 0)));
-        geo.setNormals( Arrays.asList(new Vector(0, 0, 1), new Vector(0, 0, 1), new Vector(0, 0, 1), new Vector(0, 0, 1),
-                                      new Vector(0, 0, 1), new Vector(0, 0, 1), new Vector(0, 0, 1), new Vector(0, 0, 1)));
+                new Vector(1, 0, 0), new Vector(2, 0, 0), new Vector(2, 1, 0), new Vector(1, 1, 0)));
+        geo.setNormals(Arrays.asList(new Vector(0, 0, 1), new Vector(0, 0, 1), new Vector(0, 0, 1), new Vector(0, 0, 1),
+                new Vector(0, 0, 1), new Vector(0, 0, 1), new Vector(0, 0, 1), new Vector(0, 0, 1)));
         geo.setTextureCoordinates(Arrays.asList(new Vector(0, 0, 0), new Vector(1, 0, 0), new Vector(1, 1, 0), new Vector(0, 1, 0),
-                                                new Vector(0, 0, 0), new Vector(1, 0, 0), new Vector(1, 1, 0), new Vector(0, 1, 0)));
+                new Vector(0, 0, 0), new Vector(1, 0, 0), new Vector(1, 1, 0), new Vector(0, 1, 0)));
 
         Bitmap bobaBitmap = this.getBitmapFromAssets(mActivity, "boba.png");
         Texture texture = new Texture(bobaBitmap, Texture.Format.RGBA8, true, true);
@@ -165,7 +164,7 @@ public class ViroGeometryTest extends ViroBaseTest {
         node.setGeometry(geo);
         mRootNode.addChildNode(node);
 
-        assertPass("You should see two squares with pug textures", ()->{
+        assertPass("You should see two squares with pug textures", () -> {
             node.removeFromParentNode();
         });
     }

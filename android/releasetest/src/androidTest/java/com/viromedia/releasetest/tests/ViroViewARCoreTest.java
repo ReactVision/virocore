@@ -23,21 +23,17 @@
 
 package com.viromedia.releasetest.tests;
 
+import static org.junit.Assert.assertFalse;
+
 import com.google.ar.core.Config;
 import com.google.ar.core.Session;
-import com.google.ar.core.exceptions.UnavailableApkTooOldException;
-import com.google.ar.core.exceptions.UnavailableArcoreNotInstalledException;
 import com.google.ar.core.exceptions.UnavailableException;
-import com.google.ar.core.exceptions.UnavailableSdkTooOldException;
 import com.viro.core.ViroViewARCore;
 import com.viromedia.releasetest.ViroReleaseTestActivity;
 
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
-
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
 
 public class ViroViewARCoreTest {
 

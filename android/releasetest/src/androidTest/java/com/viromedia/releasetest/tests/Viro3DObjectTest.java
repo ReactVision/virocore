@@ -21,28 +21,28 @@ package com.viromedia.releasetest.tests;
 
 import android.graphics.Color;
 import android.net.Uri;
-import androidx.test.espresso.core.deps.guava.collect.Iterables;
 import android.util.Log;
 
+import com.google.common.collect.Iterables;
 import com.viro.core.AmbientLight;
-import com.viro.core.AnimationTransaction;
-import com.viro.core.DirectionalLight;
 import com.viro.core.Animation;
+import com.viro.core.AnimationTimingFunction;
+import com.viro.core.AnimationTransaction;
 import com.viro.core.AsyncObject3DListener;
+import com.viro.core.DirectionalLight;
 import com.viro.core.Material;
 import com.viro.core.Node;
 import com.viro.core.Object3D;
+import com.viro.core.Surface;
 import com.viro.core.Text;
 import com.viro.core.Vector;
-import com.viro.core.Surface;
-import com.viro.core.AnimationTimingFunction;
-
 
 import org.junit.FixMethodOrder;
 import org.junit.Test;
 import org.junit.runners.MethodSorters;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 
@@ -88,15 +88,15 @@ public class Viro3DObjectTest extends ViroBaseTest {
 
     public void stage0_testLoadModelGLTF() {
         Node node = new Node();
-        node.setScale(new Vector(0.15, 0.15 , 0.15));
-        node.setPosition(new Vector(0,-0.7, -1));
+        node.setScale(new Vector(0.15, 0.15, 0.15));
+        node.setPosition(new Vector(0, -0.7, -1));
 
         Object3D gltfModel = new Object3D();
         Object3D gltfModelGLB = new Object3D();
         Object3D gltfModelBase64 = new Object3D();
 
-        gltfModelGLB.setPosition(new Vector(-1.75,0,0));
-        gltfModelBase64.setPosition(new Vector(1.75,0,0));
+        gltfModelGLB.setPosition(new Vector(-1.75, 0, 0));
+        gltfModelBase64.setPosition(new Vector(1.75, 0, 0));
 
         node.addChildNode(gltfModel);
         node.addChildNode(gltfModelBase64);
@@ -139,22 +139,20 @@ public class Viro3DObjectTest extends ViroBaseTest {
             }
         });
 
-        assertPass("You should see 3 Ducks Render in the scene.", ()->{
-            node.removeFromParentNode();
-        });
+        assertPass("You should see 3 Ducks Render in the scene.", node::removeFromParentNode);
     }
 
     public void stage0_testLoadModelGLTFMorph() {
         Node node = new Node();
-        node.setScale(new Vector(0.15, 0.15 , 0.15));
-        node.setPosition(new Vector(0,-0.7, -1));
+        node.setScale(new Vector(0.15, 0.15, 0.15));
+        node.setPosition(new Vector(0, -0.7, -1));
 
         Object3D gltfModel = new Object3D();
         Object3D gltfModelGLB = new Object3D();
         Object3D gltfModelBase64 = new Object3D();
 
-        gltfModelGLB.setPosition(new Vector(-1.75,0,0));
-        gltfModelBase64.setPosition(new Vector(1.75,0,0));
+        gltfModelGLB.setPosition(new Vector(-1.75, 0, 0));
+        gltfModelBase64.setPosition(new Vector(1.75, 0, 0));
 
         node.addChildNode(gltfModel);
         node.addChildNode(gltfModelBase64);
@@ -167,9 +165,9 @@ public class Viro3DObjectTest extends ViroBaseTest {
                 Log.w("Viro", "GLTF load successful with bounds " + object.getBoundingBox() + ", type [" + type + "]");
 
                 boolean foundMorph = false;
-                for (String s : object.getMorphTargetKeys()){
-                    Log.e("Daniel"," Keys -> " + s);
-                    if (s.equalsIgnoreCase("thin")){
+                for (String s : object.getMorphTargetKeys()) {
+                    Log.e("Daniel", " Keys -> " + s);
+                    if (s.equalsIgnoreCase("thin")) {
                         foundMorph = true;
                         break;
                     }
@@ -210,8 +208,8 @@ public class Viro3DObjectTest extends ViroBaseTest {
 
                     @Override
                     public void onAnimationFinish(Animation animation, boolean canceled) {
-                        Log.e("Viro","Changing morph mode to: " + mMorphMode.mStringValue);
-                        switch (mMorphMode){
+                        Log.e("Viro", "Changing morph mode to: " + mMorphMode.mStringValue);
+                        switch (mMorphMode) {
                             case CPU:
                                 mMorphMode = Object3D.MorphMode.GPU;
                                 break;
@@ -233,7 +231,7 @@ public class Viro3DObjectTest extends ViroBaseTest {
             }
         });
 
-        assertPass("Both GLTF Morph cubes SHOULD Animate (wait for 3 cycles).", ()->{
+        assertPass("Both GLTF Morph cubes SHOULD Animate (wait for 3 cycles).", () -> {
             node.removeFromParentNode();
             mAnimation.setLoop(false);
         });
@@ -257,9 +255,7 @@ public class Viro3DObjectTest extends ViroBaseTest {
             }
         });
 
-        assertPass("Star model loads and begins to animate.", ()->{
-            mAnimation.setLoop(false);
-        });
+        assertPass("Star model loads and begins to animate.", () -> mAnimation.setLoop(false));
     }
 
     public void stage2_testFBXAnimPause() {
@@ -281,7 +277,7 @@ public class Viro3DObjectTest extends ViroBaseTest {
         });
 
         mMutableTestMethod = () -> {
-            if(!mIsAnimPaused) {
+            if (!mIsAnimPaused) {
                 mAnimation.pause();
                 mIsAnimPaused = true;
             } else {
@@ -289,12 +285,10 @@ public class Viro3DObjectTest extends ViroBaseTest {
             }
         };
 
-        assertPass("FBX rotates from pause to play.", ()-> {
+        assertPass("FBX rotates from pause to play.", () -> {
             if (mIsAnimPaused) {
                 mMutableTestMethod = null;
-                if(mIsAnimPaused) {
-                    mAnimation.play();
-                }
+                mAnimation.play();
             }
         });
     }
@@ -317,15 +311,13 @@ public class Viro3DObjectTest extends ViroBaseTest {
         });
 
         mMutableTestMethod = () -> mAnimation.stop();
-        assertPass("FBX animation stops mid way (after *maybe* one spin)", ()-> {
-            mAnimation.setLoop(false);
-        });
+        assertPass("FBX animation stops mid way (after *maybe* one spin)", () -> mAnimation.setLoop(false));
     }
 
     public void stage4_testLoadModelOBJ() {
         mObject3D.setPosition(new Vector(0, 0, -11));
         mObject3D.setScale(new Vector(0.04f, 0.04f, 0.04f));
-        mObject3D.loadModel(mViroView.getViroContext(), (Uri.parse("file:///android_asset/male02.obj")), Object3D.Type.OBJ,  new AsyncObject3DListener() {
+        mObject3D.loadModel(mViroView.getViroContext(), (Uri.parse("file:///android_asset/male02.obj")), Object3D.Type.OBJ, new AsyncObject3DListener() {
             @Override
             public void onObject3DLoaded(final Object3D object, final Object3D.Type type) {
 
@@ -352,7 +344,7 @@ public class Viro3DObjectTest extends ViroBaseTest {
         node.setGeometry(text);
         mScene.getRootNode().addChildNode(node);
 
-        mObject3D.loadModel(mViroView.getViroContext(), (Uri.parse("file:///android_asset/momentslogo.fbx")), Object3D.Type.FBX,  new AsyncObject3DListener() {
+        mObject3D.loadModel(mViroView.getViroContext(), (Uri.parse("file:///android_asset/momentslogo.fbx")), Object3D.Type.FBX, new AsyncObject3DListener() {
             @Override
             public void onObject3DLoaded(final Object3D object, final Object3D.Type type) {
 
@@ -364,9 +356,7 @@ public class Viro3DObjectTest extends ViroBaseTest {
 
             }
         });
-        assertPass("Text should display saying FBX failed to load.",()->{
-            node.removeFromParentNode();
-        });
+        assertPass("Text should display saying FBX failed to load.", node::removeFromParentNode);
     }
 
     public void stage5_testLoadModelError() {
@@ -381,7 +371,7 @@ public class Viro3DObjectTest extends ViroBaseTest {
         node.setGeometry(text);
         mScene.getRootNode().addChildNode(node);
 
-        mObject3D.loadModel(mViroView.getViroContext(), (Uri.parse("file:///android_asset/momentslogo.pong")), Object3D.Type.OBJ,  new AsyncObject3DListener() {
+        mObject3D.loadModel(mViroView.getViroContext(), (Uri.parse("file:///android_asset/momentslogo.pong")), Object3D.Type.OBJ, new AsyncObject3DListener() {
             @Override
             public void onObject3DLoaded(final Object3D object, final Object3D.Type type) {
 
@@ -393,7 +383,7 @@ public class Viro3DObjectTest extends ViroBaseTest {
 
             }
         });
-        assertPass("Text should display saying object failed to load.",()->{
+        assertPass("Text should display saying object failed to load.", () -> {
             node.removeFromParentNode();
             mObject3D.removeFromParentNode();
         });
@@ -406,7 +396,7 @@ public class Viro3DObjectTest extends ViroBaseTest {
                 Color.WHITE, 5f, 5f, Text.HorizontalAlignment.LEFT,
                 Text.VerticalAlignment.BOTTOM, Text.LineBreakMode.WORD_WRAP, Text.ClipMode.NONE, 50);
         mTextNode1.setGeometry(text1);
-        mTextNode1.setPosition(new Vector(-2,-0,-4));
+        mTextNode1.setPosition(new Vector(-2, -0, -4));
 
         Node mTextNode2 = new Node();
         Text text2 = new Text(mViroView.getViroContext(), "Toggle BLoom",
@@ -414,14 +404,14 @@ public class Viro3DObjectTest extends ViroBaseTest {
                 Color.WHITE, 5f, 5f, Text.HorizontalAlignment.LEFT,
                 Text.VerticalAlignment.BOTTOM, Text.LineBreakMode.WORD_WRAP, Text.ClipMode.NONE, 50);
         mTextNode2.setGeometry(text2);
-        mTextNode2.setPosition(new Vector(0.5,0.0,-4));
+        mTextNode2.setPosition(new Vector(0.5, 0.0, -4));
 
         Object3D object3D = new Object3D();
         mScene.getRootNode().addChildNode(mTextNode1);
         mScene.getRootNode().addChildNode(mTextNode2);
         mScene.getRootNode().addChildNode(object3D);
 
-        String expectedValues= "Expected Values:\n" +
+        String expectedValues = "Expected Values:\n" +
                 "mName: object_star(some number)\n" +
                 "mShininess: 6.311791\n" +
                 "mBloomThreshold: -1.0\n" +
@@ -487,7 +477,7 @@ public class Viro3DObjectTest extends ViroBaseTest {
 
 
         assertPass("You should see matching values on the left and right text, " +
-                "indicating a sucessful jMaterial Construction.",()->{
+                "indicating a sucessful jMaterial Construction.", () -> {
             mTextNode1.removeFromParentNode();
             mTextNode2.removeFromParentNode();
             object3D.removeFromParentNode();
@@ -509,17 +499,15 @@ public class Viro3DObjectTest extends ViroBaseTest {
             }
         });
 
-        final List<Integer> materialColors= Arrays.asList(Color.WHITE, Color.BLUE, Color.YELLOW, Color.CYAN);
+        final List<Integer> materialColors = Arrays.asList(Color.WHITE, Color.BLUE, Color.YELLOW, Color.CYAN);
         final Iterator<Integer> iterator = Iterables.cycle(materialColors).iterator();
         mMutableTestMethod = () -> {
-            if(object3D.getMaterials() != null && object3D.getMaterials().get(0) != null) {
+            if (object3D.getMaterials() != null && object3D.getMaterials().get(0) != null) {
                 object3D.getMaterials().get(0).setDiffuseColor(iterator.next());
             }
         };
 
-        assertPass("You should see dragon material change color over time from white, blue, yellow to cyan.",()->{
-            object3D.removeFromParentNode();
-        });
+        assertPass("You should see dragon material change color over time from white, blue, yellow to cyan.", object3D::removeFromParentNode);
 
     }
 
@@ -567,9 +555,7 @@ public class Viro3DObjectTest extends ViroBaseTest {
             }
         });
 
-        assertPass("You should see an animated dragon with it's shadow moving.",()->{
-            object3D.removeFromParentNode();
-        });
+        assertPass("You should see an animated dragon with it's shadow moving.", () -> object3D.removeFromParentNode());
     }
 
     public void stage8_testLoadModelAnimateVRXFreeze() {
@@ -590,7 +576,7 @@ public class Viro3DObjectTest extends ViroBaseTest {
         coloredMaterial.setLightingModel(Material.LightingModel.BLINN);
         //used to be 60 for width and height
         Surface surface = new Surface(60, 60);
-        surface.setMaterials(Arrays.asList(coloredMaterial));
+        surface.setMaterials(Collections.singletonList(coloredMaterial));
         Node surfaceNode = new Node();
         surfaceNode.setGeometry(surface);
         surfaceNode.setRotation(new Vector((float) -Math.PI / 2.0f, 0, 0));
@@ -629,7 +615,7 @@ public class Viro3DObjectTest extends ViroBaseTest {
             }
         };
 
-        assertPass("You should see an animated dragon frozen at timestamp 4.5 seconds, 6s, 1s, 0s",()->{
+        assertPass("You should see an animated dragon frozen at timestamp 4.5 seconds, 6s, 1s, 0s", () -> {
             object3D.removeFromParentNode();
             mAnimation.setLoop(false);
         });
@@ -653,7 +639,7 @@ public class Viro3DObjectTest extends ViroBaseTest {
         coloredMaterial.setLightingModel(Material.LightingModel.BLINN);
         //used to be 60 for width and height
         Surface surface = new Surface(60, 60);
-        surface.setMaterials(Arrays.asList(coloredMaterial));
+        surface.setMaterials(Collections.singletonList(coloredMaterial));
         Node surfaceNode = new Node();
         surfaceNode.setGeometry(surface);
         surfaceNode.setRotation(new Vector((float) -Math.PI / 2.0f, 0, 0));
@@ -685,10 +671,10 @@ public class Viro3DObjectTest extends ViroBaseTest {
         final Iterator<Float> itr = Iterables.cycle(speedList).iterator();
         mMutableTestMethod = () -> {
             if (mAnimation != null) {
-               mAnimation.setSpeed(itr.next());
+                mAnimation.setSpeed(itr.next());
             }
         };
-        assertPass("You should see an animated dragon move at different speeds: normal, slow, slower, then normal.",()->{
+        assertPass("You should see an animated dragon move at different speeds: normal, slow, slower, then normal.", () -> {
             object3D.removeFromParentNode();
             mAnimation.setLoop(false);
         });
@@ -712,7 +698,7 @@ public class Viro3DObjectTest extends ViroBaseTest {
         coloredMaterial.setLightingModel(Material.LightingModel.BLINN);
         //used to be 60 for width and height
         Surface surface = new Surface(60, 60);
-        surface.setMaterials(Arrays.asList(coloredMaterial));
+        surface.setMaterials(Collections.singletonList(coloredMaterial));
         Node surfaceNode = new Node();
         surfaceNode.setGeometry(surface);
         surfaceNode.setRotation(new Vector((float) -Math.PI / 2.0f, 0, 0));
@@ -740,7 +726,7 @@ public class Viro3DObjectTest extends ViroBaseTest {
             }
         });
 
-        assertPass("Animated dragon running 4x slower than usual",()->{
+        assertPass("Animated dragon running 4x slower than usual", () -> {
             object3D.removeFromParentNode();
             mAnimation.setLoop(false);
         });

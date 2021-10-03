@@ -22,6 +22,9 @@
 
 package com.viromedia.releasetest.tests;
 
+import static org.awaitility.Awaitility.await;
+import static org.junit.Assert.assertEquals;
+
 import android.content.Context;
 import android.content.res.AssetManager;
 import android.graphics.Bitmap;
@@ -36,21 +39,21 @@ import android.widget.ImageView;
 import com.viro.core.ARHitTestResult;
 import com.viro.core.ARPointCloud;
 import com.viro.core.ARScene;
+import com.viro.core.ClickState;
+import com.viro.core.ControllerStatus;
 import com.viro.core.EventDelegate;
 import com.viro.core.Material;
 import com.viro.core.Node;
-import com.viro.core.Scene;
-import com.viro.core.Surface;
-import com.viro.core.Text;
-import com.viro.core.Texture;
-import com.viro.core.Vector;
-import com.viro.core.ViroView;
-import com.viro.core.ClickState;
-import com.viro.core.ControllerStatus;
 import com.viro.core.PinchState;
 import com.viro.core.RotateState;
+import com.viro.core.Scene;
+import com.viro.core.Surface;
 import com.viro.core.SwipeState;
+import com.viro.core.Text;
+import com.viro.core.Texture;
 import com.viro.core.TouchState;
+import com.viro.core.Vector;
+import com.viro.core.ViroView;
 import com.viromedia.releasetest.BuildConfig;
 import com.viromedia.releasetest.ViroReleaseTestActivity;
 
@@ -61,17 +64,10 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.Arrays;
 import java.util.EnumSet;
-import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import static org.awaitility.Awaitility.await;
-import static org.junit.Assert.assertEquals;
-
-/**
- * Created by manish on 10/26/17.
- */
 
 public abstract class ViroBaseTest {
     private static final String TAG = "Viro";
@@ -97,7 +93,6 @@ public abstract class ViroBaseTest {
     private Node mTestMethodNameNode;
     private GenericEventCallback callbackOne;
     private GenericEventCallback callbackTwo;
-    private Handler mTestThreadHander;
     private Handler mUIThreadHandler;
     private TestCleanUpMethod mLastCleanupMethod;
 
@@ -115,7 +110,6 @@ public abstract class ViroBaseTest {
         }
 
         Looper.prepare();
-        mTestThreadHander = new Handler();
         mUIThreadHandler = new Handler(Looper.getMainLooper());
 
         Runnable setup = new Runnable() {
@@ -128,7 +122,7 @@ public abstract class ViroBaseTest {
         };
         mUIThreadHandler.post(setup);
 
-        mUIThreadHandler.postDelayed(new Runnable(){
+        mUIThreadHandler.postDelayed(new Runnable() {
             public void run() {
                 callbackEverySecond(mMutableTestMethod);
                 mUIThreadHandler.postDelayed(this, 1000);
@@ -284,7 +278,9 @@ public abstract class ViroBaseTest {
         // Hide the scene until assertPass is invoked (to prevent scene construction noise)
         mScene.getRootNode().setVisible(false);
         mViroView.setScene(mScene);
-    };
+    }
+
+    ;
 
     void callbackEverySecond(final MutableTestMethod testMethod) {
         if (testMethod == null) {
@@ -292,7 +288,7 @@ public abstract class ViroBaseTest {
         }
         try {
             testMethod.mutableTest();
-        } catch(Exception e) {
+        } catch (Exception e) {
             Log.e(TAG, "Exception running mutable test method", e);
         }
     }

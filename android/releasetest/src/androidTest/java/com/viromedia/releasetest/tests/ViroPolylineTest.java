@@ -25,8 +25,8 @@ package com.viromedia.releasetest.tests;
 
 import android.graphics.Color;
 import android.os.Handler;
-import androidx.test.espresso.core.deps.guava.collect.Iterables;
 
+import com.google.common.collect.Iterables;
 import com.viro.core.AmbientLight;
 import com.viro.core.Material;
 import com.viro.core.Node;
@@ -60,9 +60,9 @@ public class ViroPolylineTest extends ViroBaseTest {
         material.setCullMode(Material.CullMode.NONE);
         final float[][] points = {{0, 0, 0}, {1, 0, 0}, {1, 1, 0}};
         ArrayList<Vector> pointsList = new ArrayList<Vector>();
-        pointsList.add(new Vector(0,0,0));
-        pointsList.add(new Vector(1,0,0));
-        pointsList.add(new Vector(1,1,0));
+        pointsList.add(new Vector(0, 0, 0));
+        pointsList.add(new Vector(1, 0, 0));
+        pointsList.add(new Vector(1, 1, 0));
 
         polyline = new Polyline(pointsList, 0.1f);
         polyline.setMaterials(Arrays.asList(material));

@@ -24,7 +24,6 @@
 package com.viromedia.releasetest.tests;
 
 import android.graphics.Color;
-import androidx.test.annotation.UiThreadTest;
 
 import com.viro.core.Box;
 import com.viro.core.DirectionalLight;
@@ -169,8 +168,8 @@ public class ViroNodeTest extends ViroBaseTest {
             if (parentSphereNode != null) {
                 final Vector newRotation =
                         new Vector(parentSphereNode.getRotationEulerRealtime().x,
-                                   parentSphereNode.getRotationEulerRealtime().y + Math.toRadians(25),
-                                   parentSphereNode.getRotationEulerRealtime().z);
+                                parentSphereNode.getRotationEulerRealtime().y + Math.toRadians(25),
+                                parentSphereNode.getRotationEulerRealtime().z);
                 parentSphereNode.setRotation(newRotation);
             }
         };
@@ -299,11 +298,11 @@ public class ViroNodeTest extends ViroBaseTest {
         material.setCullMode(Material.CullMode.NONE);
         final float[][] points = {{-2, 0, 0}, {-1, 0, 0}, {0, 0, 0}, {1, 0, 0}, {2, 0, 0}};
         List<Vector> pointsList = new ArrayList();
-        pointsList.add(new Vector(-2,0,0));
-        pointsList.add(new Vector(-1,0,0));
-        pointsList.add(new Vector(0,0,0));
-        pointsList.add(new Vector(1,0,0));
-        pointsList.add(new Vector(2,0,0));
+        pointsList.add(new Vector(-2, 0, 0));
+        pointsList.add(new Vector(-1, 0, 0));
+        pointsList.add(new Vector(0, 0, 0));
+        pointsList.add(new Vector(1, 0, 0));
+        pointsList.add(new Vector(2, 0, 0));
 
         polyline = new Polyline(pointsList, 0.1f);
         polyline.setMaterials(Arrays.asList(material));
@@ -332,11 +331,11 @@ public class ViroNodeTest extends ViroBaseTest {
 
 
         List<Vector> pointsList = new ArrayList();
-        pointsList.add(new Vector(0,-2,0));
-        pointsList.add(new Vector(0,-1,0));
-        pointsList.add(new Vector(0,0,0));
-        pointsList.add(new Vector(0,1,0));
-        pointsList.add(new Vector(0,2,0));
+        pointsList.add(new Vector(0, -2, 0));
+        pointsList.add(new Vector(0, -1, 0));
+        pointsList.add(new Vector(0, 0, 0));
+        pointsList.add(new Vector(0, 1, 0));
+        pointsList.add(new Vector(0, 2, 0));
 
         polyline = new Polyline(pointsList, 0.1f);
         polyline.setMaterials(Arrays.asList(material));
@@ -392,7 +391,7 @@ public class ViroNodeTest extends ViroBaseTest {
         parentSphereNode.removeAllChildNodes();
         try {
             Thread.sleep(500);
-        }catch(InterruptedException e) {
+        } catch (InterruptedException e) {
 
         }
         parentSphereNode.addChildNode(childOne);
@@ -411,7 +410,7 @@ public class ViroNodeTest extends ViroBaseTest {
         parentSphereNode.removeAllChildNodes();
         try {
             Thread.sleep(500);
-        }catch(InterruptedException e) {
+        } catch (InterruptedException e) {
 
         }
         parentSphereNode.addChildNode(childOne);

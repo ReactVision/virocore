@@ -25,8 +25,8 @@ package com.viromedia.releasetest.tests;
 
 import android.graphics.Bitmap;
 import android.graphics.Color;
-import androidx.test.espresso.core.deps.guava.collect.Iterables;
 
+import com.google.common.collect.Iterables;
 import com.viro.core.AmbientLight;
 import com.viro.core.Box;
 import com.viro.core.Camera;
@@ -35,7 +35,6 @@ import com.viro.core.Material;
 import com.viro.core.Node;
 import com.viro.core.Quad;
 import com.viro.core.Sphere;
-
 import com.viro.core.Texture;
 import com.viro.core.Vector;
 
@@ -89,7 +88,7 @@ public class ViroMaterialTest extends ViroBaseTest {
         mSphereNode.setPosition(new Vector(0, 0, -12));
         mScene.getRootNode().addChildNode(mSphereNode);
 
-        mBox = new Box(2,2,2);
+        mBox = new Box(2, 2, 2);
         mNodeBox = new Node();
         mNodeBox.setOpacity(0.8f);
         mNodeBox.setPosition(new Vector(0, 0, -4));
@@ -135,7 +134,7 @@ public class ViroMaterialTest extends ViroBaseTest {
         runUITest(() -> testMaterialReadsFromDepthBuffer());
         runUITest(() -> testMaterialWritesToDepthBuffer());
         runUITest(() -> testMaterialBloomThreshold());
-        
+
         runUITest(() -> testMaterialColorWriteMaskCycling());
         runUITest(() -> testMaterialColorWriteMaskMultipleCycling());
         runUITest(() -> testMaterialColorWriteMaskOcclusion());
@@ -271,14 +270,14 @@ public class ViroMaterialTest extends ViroBaseTest {
         mMutableTestMethod = () -> {
             Material.CullMode newCullMode = Material.CullMode.BACK;
             if (mMaterialBoxList.get(0).getCullMode() == Material.CullMode.BACK) {
-                 newCullMode  = Material.CullMode.FRONT;
-            } else if(mMaterialBoxList.get(0).getCullMode() == Material.CullMode.FRONT) {
+                newCullMode = Material.CullMode.FRONT;
+            } else if (mMaterialBoxList.get(0).getCullMode() == Material.CullMode.FRONT) {
                 newCullMode = Material.CullMode.NONE;
-            } else if(mMaterialBoxList.get(0).getCullMode() == Material.CullMode.NONE) {
+            } else if (mMaterialBoxList.get(0).getCullMode() == Material.CullMode.NONE) {
                 newCullMode = Material.CullMode.BACK;
             }
 
-            for(Material material: mMaterialBoxList) {
+            for (Material material : mMaterialBoxList) {
                 material.setCullMode(newCullMode);
             }
             mBox.setMaterials(mMaterialBoxList);
