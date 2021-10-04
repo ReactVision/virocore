@@ -28,30 +28,29 @@ import android.net.Uri;
 import android.util.Log;
 import android.view.Surface;
 
+import androidx.annotation.NonNull;
+
 import com.google.android.exoplayer2.C;
-import com.google.android.exoplayer2.ExoPlaybackException;
+import com.google.android.exoplayer2.DefaultLoadControl;
 import com.google.android.exoplayer2.ExoPlayer;
-import com.google.android.exoplayer2.ExoPlayerFactory;
-import com.google.android.exoplayer2.PlaybackParameters;
+import com.google.android.exoplayer2.PlaybackException;
 import com.google.android.exoplayer2.Player;
 import com.google.android.exoplayer2.SimpleExoPlayer;
-import com.google.android.exoplayer2.Timeline;
 import com.google.android.exoplayer2.extractor.DefaultExtractorsFactory;
 import com.google.android.exoplayer2.extractor.ExtractorsFactory;
-import com.google.android.exoplayer2.source.ExtractorMediaSource;
 import com.google.android.exoplayer2.source.MediaSource;
-import com.google.android.exoplayer2.source.TrackGroupArray;
+import com.google.android.exoplayer2.source.ProgressiveMediaSource;
 import com.google.android.exoplayer2.source.dash.DashMediaSource;
 import com.google.android.exoplayer2.source.hls.HlsMediaSource;
 import com.google.android.exoplayer2.source.smoothstreaming.SsMediaSource;
 import com.google.android.exoplayer2.trackselection.AdaptiveTrackSelection;
 import com.google.android.exoplayer2.trackselection.DefaultTrackSelector;
-import com.google.android.exoplayer2.trackselection.TrackSelectionArray;
 import com.google.android.exoplayer2.upstream.DataSource;
 import com.google.android.exoplayer2.upstream.DefaultBandwidthMeter;
 import com.google.android.exoplayer2.upstream.DefaultDataSourceFactory;
 import com.google.android.exoplayer2.upstream.RawResourceDataSource;
 import com.google.android.exoplayer2.util.Util;
+import com.google.common.base.Ascii;
 
 /**
  * Wraps the Android ExoPlayer and can be controlled via JNI.
@@ -72,9 +71,9 @@ public class AVPlayer {
         STARTED,
     }
 
-    private SimpleExoPlayer mExoPlayer;
+    private final SimpleExoPlayer mExoPlayer;
     private float mVolume;
-    private long mNativeReference;
+    private final long mNativeReference;
     private boolean mLoop;
     private State mState;
     private boolean mMute;
@@ -90,22 +89,9 @@ public class AVPlayer {
 
         AdaptiveTrackSelection.Factory trackSelectionFactory = new AdaptiveTrackSelection.Factory();
         DefaultTrackSelector trackSelector = new DefaultTrackSelector(trackSelectionFactory);
-        mExoPlayer = ExoPlayerFactory.newSimpleInstance(context, trackSelector);
+        mExoPlayer = new SimpleExoPlayer.Builder(context).setTrackSelector(trackSelector).setLoadControl(new DefaultLoadControl()).build();
 
         mExoPlayer.addListener(new Player.EventListener() {
-
-            @Override
-            public void onTimelineChanged(Timeline timeline, Object manifest, int reason) {
-
-            }
-
-            @Override
-            public void onTracksChanged(TrackGroupArray trackGroups, TrackSelectionArray trackSelections) {
-            }
-
-            @Override
-            public void onLoadingChanged(boolean isLoading) {
-            }
 
             @Override
             public void onPlayerStateChanged(boolean playWhenReady, int playbackState) {
@@ -137,45 +123,10 @@ public class AVPlayer {
             }
 
             @Override
-            public void onRepeatModeChanged(int repeatMode) {
-
-            }
-
-            @Override
-            public void onShuffleModeEnabledChanged(boolean shuffleModeEnabled) {
-
-            }
-
-            @Override
-            public void onPlayerError(ExoPlaybackException error) {
+            public void onPlayerError(@NonNull PlaybackException error) {
                 Log.w(TAG, "AVPlayer encountered error [" + error + "]", error);
-
-                String message = null;
-                if (error.type == ExoPlaybackException.TYPE_RENDERER) {
-                    message = error.getRendererException().getLocalizedMessage();
-                } else if (error.type == ExoPlaybackException.TYPE_SOURCE) {
-                    message = error.getSourceException().getLocalizedMessage();
-                } else if (error.type == ExoPlaybackException.TYPE_UNEXPECTED) {
-                    message = error.getUnexpectedException().getLocalizedMessage();
-                }
-                nativeOnError(mNativeReference, message);
+                nativeOnError(mNativeReference, error.getLocalizedMessage());
             }
-
-            @Override
-            public void onPositionDiscontinuity(int reason) {
-
-            }
-
-            @Override
-            public void onPlaybackParametersChanged(PlaybackParameters playbackParameters) {
-
-            }
-
-            @Override
-            public void onSeekProcessed() {
-
-            }
-
         });
     }
 
@@ -221,8 +172,7 @@ public class AVPlayer {
         }
     }
 
-    private MediaSource buildMediaSource(Uri uri, DataSource.Factory mediaDataSourceFactory,
-                                         ExtractorsFactory extractorsFactory) {
+    private MediaSource buildMediaSource(Uri uri, DataSource.Factory mediaDataSourceFactory, ExtractorsFactory extractorsFactory) {
         int type = inferContentType(uri);
         switch (type) {
             case C.TYPE_SS:
@@ -233,8 +183,7 @@ public class AVPlayer {
                 return new HlsMediaSource.Factory(mediaDataSourceFactory).createMediaSource(uri);
             default:
                 // Return an ExtraMediaSource as default.
-                return new ExtractorMediaSource(uri, mediaDataSourceFactory, extractorsFactory,
-                        null, null);
+                return new ProgressiveMediaSource.Factory(mediaDataSourceFactory, extractorsFactory).createMediaSource(uri);
         }
     }
 
@@ -244,7 +193,7 @@ public class AVPlayer {
     }
 
     private int inferContentType(String fileName) {
-        fileName = Util.toLowerInvariant(fileName);
+        fileName = Ascii.toLowerCase(fileName);
         if (fileName.endsWith(".mpd")) {
             return C.TYPE_DASH;
         } else if (fileName.endsWith(".m3u8")) {
