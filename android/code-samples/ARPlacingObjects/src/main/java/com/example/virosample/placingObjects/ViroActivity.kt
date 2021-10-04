@@ -67,8 +67,6 @@ class ViroActivity : Activity() {
             }
         })
         setContentView(viroView)
-
-        (findViewById<View>(R.id.imageButton) as ImageButton).setOnClickListener { showPopup() }
     }
 
     /**
@@ -120,6 +118,8 @@ class ViroActivity : Activity() {
         mScene!!.rootNode.addLight(AmbientLight(Color.WHITE.toLong(), 1000f))
         viroView.scene = mScene
         View.inflate(this, R.layout.viro_view_ar_hit_test_hud, viroView as ViewGroup?)
+
+        (findViewById<View>(R.id.imageButton) as ImageButton).setOnClickListener { showPopup() }
     }
 
     /**
