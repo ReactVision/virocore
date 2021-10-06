@@ -291,7 +291,8 @@ static VROVector3f const kZeroVector = VROVector3f();
 }
 
 - (void)handleRotate:(UIRotationGestureRecognizer *)recognizer {
-    CGPoint location = [recognizer locationInView:recognizer.view];
+    // locationInView was `recognizer.self` but if view is created after app initialization, then it location x and y is 0
+    CGPoint location = [recognizer locationInView:nil];
     VROVector3f viewportTouchPos = VROVector3f(location.x * self.contentScaleFactor, location.y * self.contentScaleFactor);
     
     if(recognizer.state == UIGestureRecognizerStateBegan) {
@@ -305,7 +306,8 @@ static VROVector3f const kZeroVector = VROVector3f();
 }
 
 - (void)handlePinch:(UIPinchGestureRecognizer *)recognizer {
-    CGPoint location = [recognizer locationInView:recognizer.view];
+    // locationInView was `recognizer.self` but if view is created after app initialization, then it location x and y is 0
+    CGPoint location = [recognizer locationInView:nil];
     VROVector3f viewportTouchPos = VROVector3f(location.x * self.contentScaleFactor, location.y * self.contentScaleFactor);
   
     if(recognizer.state == UIGestureRecognizerStateBegan) {
@@ -318,7 +320,8 @@ static VROVector3f const kZeroVector = VROVector3f();
 }
 
 - (void)handleLongPress:(UIPanGestureRecognizer *)recognizer {
-    CGPoint location = [recognizer locationInView:recognizer.view];
+    // locationInView was `recognizer.self` but if view is created after app initialization, then it location x and y is 0
+    CGPoint location = [recognizer locationInView:nil];
     
     VROVector3f viewportTouchPos = VROVector3f(location.x * self.contentScaleFactor, location.y * self.contentScaleFactor);
     
@@ -332,7 +335,8 @@ static VROVector3f const kZeroVector = VROVector3f();
 }
 
 - (void)handleTap:(UITapGestureRecognizer *)recognizer {
-    CGPoint location = [recognizer locationInView:recognizer.view];
+    // locationInView was `recognizer.self` but if view is created after app initialization, then it location x and y is 0
+    CGPoint location = [recognizer locationInView:nil];
     
     VROVector3f viewportTouchPos = VROVector3f(location.x * self.contentScaleFactor, location.y * self.contentScaleFactor);
     
