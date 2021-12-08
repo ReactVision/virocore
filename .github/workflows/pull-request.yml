@@ -10,7 +10,7 @@ jobs:
   androidBuild:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2.3.4
+    - uses: actions/checkout@v2.4.0
     - name: set up JDK
       uses: actions/setup-java@v2
       with:
@@ -38,7 +38,7 @@ jobs:
         working-directory: android
     steps:
       - name: Checkout
-        uses: actions/checkout@v2.3.4
+        uses: actions/checkout@v2.4.0
         with:
           fetch-depth: 0
       - name: Install JDK 11
@@ -60,7 +60,7 @@ jobs:
   iosBuild:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v2.3.4
+      - uses: actions/checkout@v2.4.0
       - name: Install gpg
         run: brew install gnupg
       - name: Set XCode Version 11.2
