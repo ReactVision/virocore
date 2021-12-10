@@ -11,6 +11,7 @@
         tools:replace="android:icon,android:theme">
         <activity
             android:name=".MLMainActivity"
+            android:exported="true"
             android:label="@string/app_name"
             android:theme="@style/NoActionBar">
             <intent-filter>
