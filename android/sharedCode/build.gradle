@@ -8,11 +8,11 @@ apply plugin: 'maven-publish'
 
 android {
     flavorDimensions  "product"
-    compileSdkVersion 30
+    compileSdkVersion 31
 
     defaultConfig {
         minSdkVersion 24
-        targetSdkVersion 30
+        targetSdkVersion 31
 
         ndk {
             // Specifies the ABI configurations of your native
