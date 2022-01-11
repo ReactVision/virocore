@@ -12,6 +12,7 @@
 		13BC8FA821507E2300479BE0 /* VROARFrame.h in Headers */ = {isa = PBXBuildFile; fileRef = 8F1F065A1EF06FBB006FC8C2 /* VROARFrame.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		13BC8FA921507E4600479BE0 /* VROQuaternion.h in Headers */ = {isa = PBXBuildFile; fileRef = 8F4DCE2E1BFA8D5D00061DD7 /* VROQuaternion.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		647A0F137242382CD008BE56 /* Pods_ViroSample.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E7A7748CC8659A11C76D30F3 /* Pods_ViroSample.framework */; };
+		691C503C17159DA15F0DBCE1 /* Pods_ViroKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 6E0D3E35E404117B89C6BA6E /* Pods_ViroKit.framework */; };
 		8A11C8F51EF5AB9D0003E829 /* VROARDeclarativePlane.h in Headers */ = {isa = PBXBuildFile; fileRef = 8A11C8F41EF5A8E30003E829 /* VROARDeclarativePlane.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		8A11C8F81EF5B2270003E829 /* VROARConstraintMatcher.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 8A11C8F61EF5B2270003E829 /* VROARConstraintMatcher.cpp */; };
 		8A11C8F91EF5B2270003E829 /* VROARConstraintMatcher.h in Headers */ = {isa = PBXBuildFile; fileRef = 8A11C8F71EF5B2270003E829 /* VROARConstraintMatcher.h */; settings = {ATTRIBUTES = (Public, ); }; };
@@ -956,6 +957,7 @@
 		5900241E3CB603B31B8DDDDA /* Pods-ViroSample.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-ViroSample.debug.xcconfig"; path = "Pods/Target Support Files/Pods-ViroSample/Pods-ViroSample.debug.xcconfig"; sourceTree = "<group>"; };
 		5F74787A42D418320F1E3362 /* Pods-ViroKit_static_lib.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-ViroKit_static_lib.release.xcconfig"; path = "Pods/Target Support Files/Pods-ViroKit_static_lib/Pods-ViroKit_static_lib.release.xcconfig"; sourceTree = "<group>"; };
 		69FBDCF89ECBB5500043C227 /* Pods-ViroARKit.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-ViroARKit.debug.xcconfig"; path = "Pods/Target Support Files/Pods-ViroARKit/Pods-ViroARKit.debug.xcconfig"; sourceTree = "<group>"; };
+		6E0D3E35E404117B89C6BA6E /* Pods_ViroKit.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_ViroKit.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		6E1141125FCC9320616556D8 /* Pods-ViroKit.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-ViroKit.debug.xcconfig"; path = "Pods/Target Support Files/Pods-ViroKit/Pods-ViroKit.debug.xcconfig"; sourceTree = "<group>"; };
 		710AAB43C4650092845EAD81 /* Pods-ViroKit.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-ViroKit.release.xcconfig"; path = "Pods/Target Support Files/Pods-ViroKit/Pods-ViroKit.release.xcconfig"; sourceTree = "<group>"; };
 		782820C4A876FF888106C852 /* libPods-ViroKit_static_lib.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-ViroKit_static_lib.a"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -1929,6 +1931,7 @@
 				8F1664A61E5E43260062EBCE /* Accelerate.framework in Frameworks */,
 				8FDDE2121CD00F2600674DE2 /* CoreText.framework in Frameworks */,
 				EAD7E32D2DFA518AEAAB48C2 /* (null) in Frameworks */,
+				691C503C17159DA15F0DBCE1 /* Pods_ViroKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -3269,6 +3272,7 @@
 				A5EC65851EB3ECE200FE220E /* libLinearMath.a */,
 				48567375A658D093284ACEDD /* libPods-ViroARKit.a */,
 				782820C4A876FF888106C852 /* libPods-ViroKit_static_lib.a */,
+				6E0D3E35E404117B89C6BA6E /* Pods_ViroKit.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -4751,7 +4755,7 @@
 				DYLIB_COMPATIBILITY_VERSION = 1;
 				DYLIB_CURRENT_VERSION = 1;
 				DYLIB_INSTALL_NAME_BASE = "@rpath";
-				ENABLE_BITCODE = NO;
+				ENABLE_BITCODE = YES;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(PROJECT_DIR)/Libraries/harfbuzz/armv7_arm64",
