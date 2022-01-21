@@ -39,8 +39,7 @@ You can also try the latest mainline build containing bleeding edge features and
    - virocore.aar (for ViroCore)
    - ios_dist.tgz (for iOS)
 
-For ViroCore Android, 
-orld samples should have the corresponding file at the location viro_core/virocore-release-*version*. As such, simply download the virocore.aar artifact from the workflow above, and then rename (make sure it matches your code sample's name) and replace the virocore-release-v_x_xx_x.aar file in your HelloWorld project
+For ViroCore Android, HelloWorld samples should have the corresponding file at the location viro_core/virocore-release-*version*. As such, simply download the virocore.aar artifact from the workflow above, and then rename (make sure it matches your code sample's name) and replace the virocore-release-v_x_xx_x.aar file in your HelloWorld project
 
 ## Manual Building of the Renderer
 
