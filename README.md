@@ -102,7 +102,7 @@ Check out our [blog](https://blog.viromedia.com/) for tutorials, news, and updat
 
 ## Sample Code Examples
 
-### [AR Hellow World Android](https://github.com/viromedia/virocore/blob/master/code-samples/ARHelloWorldAndroid/app/src/main/java/com/example/virosample/ViroActivity.java)
+### [AR Hello World Android](https://github.com/viromedia/virocore/blob/master/code-samples/ARHelloWorldAndroid/app/src/main/java/com/example/virosample/ViroActivity.java)
 
 <a href="https://github.com/viromedia/virocore/blob/master/code-samples/ARHelloWorldAndroid/app/src/main/java/com/example/virosample/ViroActivity.java">
 <img src="https://raw.githubusercontent.com/viromedia/virocore/master/code-samples/ARHelloWorldAndroid/ViroARPlanesDemoActivity.gif">
