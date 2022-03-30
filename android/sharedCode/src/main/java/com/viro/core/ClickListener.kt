@@ -54,5 +54,5 @@ interface ClickListener {
      * @param clickState The status of the click event.
      * @param location   The location of the event in world coordinates.
      */
-    fun onClickState(source: Int, node: Node?, clickState: ClickState?, location: Vector?)
+    fun onClickState(source: Int, node: Node?, clickState: ClickState, location: Vector?)
 }
