@@ -22,7 +22,7 @@ jobs:
           ./gradlew assembleDebug
         working-directory: ./android
       - name: Upload result ViroCore
-        uses: actions/upload-artifact@v2.2.4
+        uses: actions/upload-artifact@v3.0.0
         with:
           name: viroCore
           path: |
@@ -49,7 +49,7 @@ jobs:
       - name: Code checks
         run: ./gradlew check
       - name: Archive Lint report
-        uses: actions/upload-artifact@v2.2.4
+        uses: actions/upload-artifact@v3.0.0
         if: ${{ always() }}
         with:
           name: Viro-Lint-report
@@ -87,7 +87,7 @@ jobs:
             IPHONEOS_DEPLOYMENT_TARGET=9.0
 
       - name: Upload iOS Renderer artifact
-        uses: actions/upload-artifact@v2.2.4
+        uses: actions/upload-artifact@v3.0.0
         with:
           name: ios_dist.tgz
           path: ./ios/dist/
