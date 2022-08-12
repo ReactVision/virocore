@@ -62,7 +62,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        xcode: [ '12.5.1', '13.1.0', '13.2.0' ]
+        xcode: [ '12.5.1', '13.2.1' ]
         macOS: [ 'macOS-11' ]
     steps:
       - uses: actions/checkout@v2.4.0
