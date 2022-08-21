@@ -819,6 +819,9 @@ static void ovrRenderer_RenderFrame(ovrRenderer *rendererOVR, const ovrJava *jav
             viroHeadView[i] += ovrEyeView[i];
         } //After these additions, viroHeadView is really viroEyeView
 
+        const float eyeOffset = ( eye ? -5.0f : 5.0f ) * interpupillaryDistance;
+        viroHeadView.translate(VROVector3f(eyeOffset,0.0f,0.0f));
+
         // We use our projection matrix because the one computed by OVR appears to be identical for
         // left and right, but with fixed NCP and FCP. Our projection uses the correct NCP and FCP.
         renderer->renderEye(eyeType,
