@@ -3,12 +3,12 @@ apply plugin: 'kotlin-android'
 
 android {
     flavorDimensions "target_platform"
-    compileSdkVersion 31
+    compileSdkVersion 33
 
     defaultConfig {
         applicationId "com.viromedia.releasetest"
         minSdkVersion 24
-        targetSdkVersion 31
+        targetSdkVersion 33
         versionCode 1
         versionName "1.0"
 
