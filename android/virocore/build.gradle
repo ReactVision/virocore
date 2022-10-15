@@ -53,28 +53,17 @@ android {
             minifyEnabled false
         }
     }
-
     packagingOptions {
-        // x86 is currently not supported, so do not copy over these resources
-        exclude '**/x86/**'
-
-        pickFirst 'lib/armeabi-v7a/libBulletDynamics.so'
-        pickFirst 'lib/armeabi-v7a/libgvr.so'
-        pickFirst 'lib/armeabi-v7a/libgvr_audio.so'
-        pickFirst 'lib/armeabi-v7a/libfreetyped.so'
-        pickFirst 'lib/armeabi-v7a/libBulletCollision.so'
-        pickFirst 'lib/armeabi-v7a/libLinearMath.so'
-        pickFirst 'lib/armeabi-v7a/libvrapi.so'
-        pickFirst 'lib/armeabi-v7a/libBulletSoftBody.so'
-        pickFirst 'lib/arm64-v8a/libBulletDynamics.so'
-        pickFirst 'lib/arm64-v8a/libgvr.so'
-        pickFirst 'lib/arm64-v8a/libgvr_audio.so'
-        pickFirst 'lib/arm64-v8a/libfreetyped.so'
-        pickFirst 'lib/arm64-v8a/libBulletCollision.so'
-        pickFirst 'lib/arm64-v8a/libLinearMath.so'
-        pickFirst 'lib/arm64-v8a/libvrapi.so'
-        pickFirst 'lib/arm64-v8a/libBulletSoftBody.so'
+        jniLibs {
+            excludes += ['**/x86/**']
+            pickFirsts += ['lib/armeabi-v7a/libBulletDynamics.so', 'lib/armeabi-v7a/libgvr.so', 'lib/armeabi-v7a/libgvr_audio.so', 'lib/armeabi-v7a/libfreetyped.so', 'lib/armeabi-v7a/libBulletCollision.so', 'lib/armeabi-v7a/libLinearMath.so', 'lib/armeabi-v7a/libvrapi.so', 'lib/armeabi-v7a/libBulletSoftBody.so', 'lib/arm64-v8a/libBulletDynamics.so', 'lib/arm64-v8a/libgvr.so', 'lib/arm64-v8a/libgvr_audio.so', 'lib/arm64-v8a/libfreetyped.so', 'lib/arm64-v8a/libBulletCollision.so', 'lib/arm64-v8a/libLinearMath.so', 'lib/arm64-v8a/libvrapi.so', 'lib/arm64-v8a/libBulletSoftBody.so']
+        }
+        resources {
+            excludes += ['**/x86/**']
+        }
     }
+
+    namespace 'com.viro.virocore'
 }
 
 dependencies {

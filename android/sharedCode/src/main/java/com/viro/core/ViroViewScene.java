@@ -43,7 +43,6 @@ import com.viro.core.internal.GLSurfaceViewQueue;
 import com.viro.core.internal.GLTextureView;
 import com.viro.core.internal.PlatformUtil;
 import com.viro.core.internal.ViroTouchGestureListener;
-import com.viro.renderer.BuildConfig;
 
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;

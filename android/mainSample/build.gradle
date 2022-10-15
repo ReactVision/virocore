@@ -24,10 +24,12 @@ android {
             applicationIdSuffix ".debug"
         }
     }
-
     packagingOptions {
-        exclude "META-INF/*.kotlin_module"
+        resources {
+            excludes += ['META-INF/*.kotlin_module']
+        }
     }
+
 
     flavorDimensions "source"
     productFlavors {
@@ -38,6 +40,7 @@ android {
             dimension "source"
         }
     }
+    namespace 'com.example.virosample'
 
 }
 

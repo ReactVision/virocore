@@ -13,9 +13,6 @@ android {
         }
     }
 
-    lintOptions {
-        disable 'UsingOnClickInXml'
-    }
 
     buildTypes {
         release {
@@ -24,9 +21,9 @@ android {
         }
     }
     packagingOptions {
-        pickFirst 'lib/armeabi-v7a/libarcore_sdk_c.so'
-        pickFirst 'lib/arm64-v8a/libarcore_sdk_c.so'
-        pickFirst 'lib/x86_64/libarcore_sdk_c.so'
+        jniLibs {
+            pickFirsts += ['lib/armeabi-v7a/libarcore_sdk_c.so', 'lib/arm64-v8a/libarcore_sdk_c.so', 'lib/x86_64/libarcore_sdk_c.so']
+        }
     }
 
     flavorDimensions "source"
@@ -38,6 +35,10 @@ android {
             dimension "source"
         }
     }
+    lint {
+        disable 'UsingOnClickInXml'
+    }
+    namespace 'com.example.virosample.placingObjects'
 }
 
 dependencies {

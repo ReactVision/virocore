@@ -27,6 +27,7 @@ android {
             dimension "source"
         }
     }
+    namespace 'com.example.virosample.blackPanther'
 }
 
 dependencies {

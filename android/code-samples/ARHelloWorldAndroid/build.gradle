@@ -12,9 +12,6 @@ android {
         }
     }
 
-    lintOptions {
-        disable 'UsingOnClickInXml'
-    }
 
     buildTypes {
         release {
@@ -31,6 +28,10 @@ android {
             dimension "source"
         }
     }
+    lint {
+        disable 'UsingOnClickInXml'
+    }
+    namespace 'com.example.virosample.hello'
 }
 
 dependencies {

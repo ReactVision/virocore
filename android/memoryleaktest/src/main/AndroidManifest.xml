@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.example.memoryleaktest">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <queries>
         <package android:name="com.google.ar.core" />
@@ -22,7 +21,7 @@
             android:value="optional" />
 
         <activity
-            android:name=".MainActivity"
+            android:name="com.example.memoryleaktest.MainActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -30,7 +29,7 @@
             </intent-filter>
         </activity>
         <activity
-            android:name=".MemoryLeakTest"
+            android:name="com.example.memoryleaktest.MemoryLeakTest"
             android:configChanges="keyboardHidden|orientation|screenSize|uiMode"
             android:enableVrMode="false"
             android:exported="false"
