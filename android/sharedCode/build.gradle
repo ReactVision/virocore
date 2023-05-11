@@ -40,7 +40,7 @@ dependencies {
     implementation project(':libs:gvr')
     implementation project(':libs:arcore')
     implementation 'com.google.protobuf.nano:protobuf-javanano:3.2.0rc2'
-    implementation "androidx.core:core-ktx:1.7.0"
+    implementation "androidx.core:core-ktx:1.10.1"
     implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
 }
 
