@@ -1,9 +1,7 @@
-source 'https://github.com/CocoaPods/Specs.git'
-
-platform :ios, '9.3'
+platform :ios, '13.0'
 
 def common_pods
-    pod 'GVRAudioSDK', '1.120.0'
+    pod 'GVRAudioSDK', '1.140.0'
 end
 
 target 'ViroSample' do

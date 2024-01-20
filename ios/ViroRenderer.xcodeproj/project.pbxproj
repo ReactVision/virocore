@@ -3696,7 +3696,7 @@
 				TargetAttributes = {
 					8F517BB51BCDA2BD0017C70B = {
 						CreatedOnToolsVersion = 7.0.1;
-						DevelopmentTeam = UN8MD7234Y;
+						DevelopmentTeam = 9DX2275A4Q;
 					};
 					8FD4DECC1C18ECD4003DC425 = {
 						CreatedOnToolsVersion = 7.1;
@@ -4527,7 +4527,7 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = UN8MD7234Y;
+				DEVELOPMENT_TEAM = 9DX2275A4Q;
 				ENABLE_BITCODE = NO;
 				FRAMEWORK_SEARCH_PATHS = "$(inherited)";
 				INFOPLIST_FILE = ViroSample/Info.plist;
@@ -4591,7 +4591,7 @@
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
-				DEVELOPMENT_TEAM = GL2Q36BUS6;
+				DEVELOPMENT_TEAM = 9DX2275A4Q;
 				ENABLE_BITCODE = NO;
 				FRAMEWORK_SEARCH_PATHS = "$(inherited)";
 				INFOPLIST_FILE = ViroSample/Info.plist;
