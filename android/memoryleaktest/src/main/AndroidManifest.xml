@@ -1,7 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.example.memoryleaktest">
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
 
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="true" />
     <queries>
         <package android:name="com.google.ar.core" />
     </queries>

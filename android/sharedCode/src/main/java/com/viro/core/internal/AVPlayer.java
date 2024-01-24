@@ -33,6 +33,7 @@ import androidx.annotation.NonNull;
 import com.google.android.exoplayer2.C;
 import com.google.android.exoplayer2.DefaultLoadControl;
 import com.google.android.exoplayer2.ExoPlayer;
+import com.google.android.exoplayer2.MediaItem;
 import com.google.android.exoplayer2.PlaybackException;
 import com.google.android.exoplayer2.Player;
 import com.google.android.exoplayer2.SimpleExoPlayer;
@@ -71,7 +72,7 @@ public class AVPlayer {
         STARTED,
     }
 
-    private final SimpleExoPlayer mExoPlayer;
+    private final ExoPlayer mExoPlayer;
     private float mVolume;
     private final long mNativeReference;
     private boolean mLoop;
@@ -88,13 +89,12 @@ public class AVPlayer {
         mMute = false;
 
         AdaptiveTrackSelection.Factory trackSelectionFactory = new AdaptiveTrackSelection.Factory();
-        DefaultTrackSelector trackSelector = new DefaultTrackSelector(trackSelectionFactory);
-        mExoPlayer = new SimpleExoPlayer.Builder(context).setTrackSelector(trackSelector).setLoadControl(new DefaultLoadControl()).build();
+        DefaultTrackSelector trackSelector = new DefaultTrackSelector(context, trackSelectionFactory);
+        mExoPlayer = new ExoPlayer.Builder(context).setTrackSelector(trackSelector).setLoadControl(new DefaultLoadControl()).build();
 
-        mExoPlayer.addListener(new Player.EventListener() {
-
+        mExoPlayer.addListener(new Player.Listener() {
             @Override
-            public void onPlayerStateChanged(boolean playWhenReady, int playbackState) {
+            public void onPlaybackStateChanged(@Player.State int playbackState) {
                 // this function sometimes gets called back w/ the same playbackState.
                 if (mPrevExoPlayerState == playbackState) {
                     return;
@@ -175,34 +175,34 @@ public class AVPlayer {
     private MediaSource buildMediaSource(Uri uri, DataSource.Factory mediaDataSourceFactory, ExtractorsFactory extractorsFactory) {
         int type = inferContentType(uri);
         switch (type) {
-            case C.TYPE_SS:
-                return new SsMediaSource.Factory(mediaDataSourceFactory).createMediaSource(uri);
-            case C.TYPE_DASH:
-                return new DashMediaSource.Factory(mediaDataSourceFactory).createMediaSource(uri);
-            case C.TYPE_HLS:
-                return new HlsMediaSource.Factory(mediaDataSourceFactory).createMediaSource(uri);
+            case C.CONTENT_TYPE_SS:
+                return new SsMediaSource.Factory(mediaDataSourceFactory).createMediaSource(MediaItem.fromUri(uri));
+            case C.CONTENT_TYPE_DASH:
+                return new DashMediaSource.Factory(mediaDataSourceFactory).createMediaSource(MediaItem.fromUri(uri));
+            case C.CONTENT_TYPE_HLS:
+                return new HlsMediaSource.Factory(mediaDataSourceFactory).createMediaSource(MediaItem.fromUri(uri));
             default:
                 // Return an ExtraMediaSource as default.
-                return new ProgressiveMediaSource.Factory(mediaDataSourceFactory, extractorsFactory).createMediaSource(uri);
+                return new ProgressiveMediaSource.Factory(mediaDataSourceFactory, extractorsFactory).createMediaSource(MediaItem.fromUri(uri));
         }
     }
 
     private int inferContentType(Uri uri) {
         String path = uri.getPath();
-        return path == null ? C.TYPE_OTHER : inferContentType(path);
+        return path == null ? C.CONTENT_TYPE_OTHER : inferContentType(path);
     }
 
     private int inferContentType(String fileName) {
         fileName = Ascii.toLowerCase(fileName);
         if (fileName.endsWith(".mpd")) {
-            return C.TYPE_DASH;
+            return C.CONTENT_TYPE_DASH;
         } else if (fileName.endsWith(".m3u8")) {
-            return C.TYPE_HLS;
+            return C.CONTENT_TYPE_HLS;
         } else if (fileName.endsWith(".ism") || fileName.endsWith(".isml")
                 || fileName.endsWith(".ism/manifest") || fileName.endsWith(".isml/manifest")) {
-            return C.TYPE_SS;
+            return C.CONTENT_TYPE_SS;
         } else {
-            return C.TYPE_OTHER;
+            return C.CONTENT_TYPE_OTHER;
         }
     }
 
