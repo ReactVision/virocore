@@ -64,8 +64,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        xcode: ["12.5.1", "13.2.1"]
-        macOS: ["macOS-11"]
+        xcode: ["14.3.1", "15.2"]
+        macOS: ["macOS-14"]
     steps:
       - uses: actions/checkout@v3.3.0
       - name: Install gpg
@@ -86,7 +86,7 @@ jobs:
             -scheme ViroKit \
             -sdk iphoneos \
             -configuration Release \
-            IPHONEOS_DEPLOYMENT_TARGET=9.0
+            IPHONEOS_DEPLOYMENT_TARGET=13.0
 
       - name: Upload iOS Renderer artifact
         uses: actions/upload-artifact@v3.1.2
