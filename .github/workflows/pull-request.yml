@@ -64,7 +64,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        xcode: ["14.3.1", "15.2"]
+        xcode: ["14.2.0", "13.4.1"]
         macOS: ["macos-latest"]
     steps:
       - uses: actions/checkout@v3.3.0
