@@ -81,7 +81,7 @@ jobs:
       - name: Xcodebuild iOS Renderer (non-static)
         run: |
           cd ios
-          xcodebuild \
+          set -o pipefail && xcodebuild \
             -workspace ViroRenderer.xcworkspace \
             -scheme ViroKit \
             -sdk iphoneos \
