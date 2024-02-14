@@ -3,10 +3,13 @@ apply plugin: 'maven-publish'
 
 android {
     compileSdkVersion 31
+    namespace "com.viro.ar"
+    
 
     defaultConfig {
         minSdkVersion 24
         targetSdkVersion 31
+        ndkVersion = "25.2.9519653"
 
         ndk {
             abiFilters "arm64-v8a", "armeabi-v7a"
@@ -40,7 +43,7 @@ android {
 
 dependencies {
     implementation fileTree(dir: 'libs', include: ['*.jar'])
-    implementation "androidx.appcompat:appcompat:1.3.1"
+    implementation "androidx.appcompat:appcompat:1.0.0"
 }
 
 // Extract the .so files (libviro_arcore.so) for each architecture and place them in the build/natives
@@ -63,12 +66,12 @@ tasks.whenTaskAdded { task ->
     }
 }
 
-project.afterEvaluate {
-    publishing {
-        publications {
-            release(MavenPublication) {
-                from components.release
-            }
-        }
-    }
-}
+// project.afterEvaluate {
+//     publishing {
+//         publications {
+//             release(MavenPublication) {
+//                 from components.release
+//             }
+//         }
+//     }
+// }
