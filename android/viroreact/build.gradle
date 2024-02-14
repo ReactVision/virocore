@@ -4,6 +4,9 @@ apply plugin: 'maven-publish'
 android {
     compileSdkVersion 31
     namespace "com.viro.viroreact"
+    buildFeatures {
+        buildConfig = true
+    }
 
     defaultConfig {
         minSdkVersion 24
@@ -87,7 +90,7 @@ android {
 dependencies {
     implementation fileTree(dir: 'libs', include: ['*.jar'])
     implementation "androidx.appcompat:appcompat:1.0.0"
-    implementation 'com.google.android.exoplayer:exoplayer:2.19.1'
+    implementation 'androidx.media3:media3-exoplayer:1.1.1'
     implementation project(':libs:gvr')
     implementation project(':libs:arcore')
     implementation 'com.google.protobuf.nano:protobuf-javanano:3.0.0-alpha-7'

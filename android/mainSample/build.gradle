@@ -4,6 +4,9 @@ apply plugin: 'kotlin-android'
 android {
     compileSdkVersion 31
     namespace "com.example.virosample"
+    buildFeatures {
+        buildConfig = true
+    }
 
     defaultConfig {
         applicationId "com.example.virosample"
@@ -12,8 +15,8 @@ android {
 
         // versionCode getGitCommitCount()
         // versionName getTag()
-        // buildConfigField "String", 'GIT_REPOSITORY', "\"" + getGitOriginRemote() + "\""
-        // buildConfigField "String", 'VERSION', "\"" + versionName + "\""
+        buildConfigField "String", 'GIT_REPOSITORY', "\"" + getGitOriginRemote() + "\""
+        buildConfigField "String", 'VERSION', "\"" + versionName + "\""
     }
 
     buildTypes {

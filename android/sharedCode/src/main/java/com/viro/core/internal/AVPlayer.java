@@ -30,26 +30,25 @@ import android.view.Surface;
 
 import androidx.annotation.NonNull;
 
-import com.google.android.exoplayer2.C;
-import com.google.android.exoplayer2.DefaultLoadControl;
-import com.google.android.exoplayer2.ExoPlayer;
-import com.google.android.exoplayer2.PlaybackException;
-import com.google.android.exoplayer2.Player;
-import com.google.android.exoplayer2.SimpleExoPlayer;
-import com.google.android.exoplayer2.extractor.DefaultExtractorsFactory;
-import com.google.android.exoplayer2.extractor.ExtractorsFactory;
-import com.google.android.exoplayer2.source.MediaSource;
-import com.google.android.exoplayer2.source.ProgressiveMediaSource;
-import com.google.android.exoplayer2.source.dash.DashMediaSource;
-import com.google.android.exoplayer2.source.hls.HlsMediaSource;
-import com.google.android.exoplayer2.source.smoothstreaming.SsMediaSource;
-import com.google.android.exoplayer2.trackselection.AdaptiveTrackSelection;
-import com.google.android.exoplayer2.trackselection.DefaultTrackSelector;
-import com.google.android.exoplayer2.upstream.DataSource;
-import com.google.android.exoplayer2.upstream.DefaultBandwidthMeter;
-import com.google.android.exoplayer2.upstream.DefaultDataSourceFactory;
-import com.google.android.exoplayer2.upstream.RawResourceDataSource;
-import com.google.android.exoplayer2.util.Util;
+import androidx.media3.common.C;
+import androidx.media3.exoplayer.DefaultLoadControl;
+import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.common.PlaybackException;
+import androidx.media3.common.Player;
+import androidx.media3.extractor.DefaultExtractorsFactory;
+import androidx.media3.extractor.ExtractorsFactory;
+import androidx.media3.exoplayer.source.MediaSource;
+import androidx.media3.exoplayer.source.ProgressiveMediaSource;
+import androidx.media3.exoplayer.dash.DashMediaSource;
+import androidx.media3.exoplayer.hls.HlsMediaSource;
+import androidx.media3.exoplayer.smoothstreaming.SsMediaSource;
+import androidx.media3.exoplayer.trackselection.AdaptiveTrackSelection;
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
+import androidx.media3.datasource.DataSource;
+import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter;
+import androidx.media3.datasource.DefaultDataSourceFactory;
+import androidx.media3.datasource.RawResourceDataSource;
+import androidx.media3.common.util.Util;
 import com.google.common.base.Ascii;
 
 /**
@@ -71,7 +70,7 @@ public class AVPlayer {
         STARTED,
     }
 
-    private final SimpleExoPlayer mExoPlayer;
+    private final ExoPlayer mExoPlayer;
     private float mVolume;
     private final long mNativeReference;
     private boolean mLoop;
@@ -87,11 +86,12 @@ public class AVPlayer {
         mState = State.IDLE;
         mMute = false;
 
-        AdaptiveTrackSelection.Factory trackSelectionFactory = new AdaptiveTrackSelection.Factory();
-        DefaultTrackSelector trackSelector = new DefaultTrackSelector(trackSelectionFactory);
-        mExoPlayer = new SimpleExoPlayer.Builder(context).setTrackSelector(trackSelector).setLoadControl(new DefaultLoadControl()).build();
+        // AdaptiveTrackSelection.Factory trackSelectionFactory = new AdaptiveTrackSelection.Factory();
+        DefaultTrackSelector trackSelector = new DefaultTrackSelector(context); 
+        // trackSelectionFactory);
+        mExoPlayer = new ExoPlayer.Builder(context).setTrackSelector(trackSelector).setLoadControl(new DefaultLoadControl()).build();
 
-        mExoPlayer.addListener(new Player.EventListener() {
+        mExoPlayer.addListener(new Player.Listener() {
 
             @Override
             public void onPlayerStateChanged(boolean playWhenReady, int playbackState) {

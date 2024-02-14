@@ -4,6 +4,9 @@ apply plugin: 'kotlin-android'
 android {
     flavorDimensions "target_platform"
     namespace "com.example.memoryleaktest"
+    buildFeatures {
+        buildConfig = true
+    }
 
     compileSdkVersion 31
     defaultConfig {
@@ -31,25 +34,25 @@ android {
             dimension "target_platform"
             resValue "string", "app_name", "MemoryLeakTest-gvr"
             applicationIdSuffix ".gvr"
-            //buildConfigField "String", "VR_PLATFORM", "\"GVR\""
+            buildConfigField "String", "VR_PLATFORM", "\"GVR\""
         }
         ovr {
             dimension "target_platform"
             resValue "string", "app_name", "MemoryLeakTest-ovr"
             applicationIdSuffix ".ovr"
-            //buildConfigField "String", "VR_PLATFORM", "\"OVR\""
+            buildConfigField "String", "VR_PLATFORM", "\"OVR\""
         }
         arcore {
             dimension "target_platform"
             resValue "string", "app_name", "MemoryLeakTest-arcore"
             applicationIdSuffix ".arcore"
-            //buildConfigField "String", "VR_PLATFORM", "\"ARCore\""
+            buildConfigField "String", "VR_PLATFORM", "\"ARCore\""
         }
         scene {
             dimension "target_platform"
             resValue "string", "app_name", "MemoryLeakTest-scene"
             applicationIdSuffix ".scene"
-            //buildConfigField "String", "VR_PLATFORM", "\"Scene\""
+            buildConfigField "String", "VR_PLATFORM", "\"Scene\""
         }
     }
     sourceSets { main { assets.srcDirs = ['src/main/assets', 'src/main/assets/'] } }
