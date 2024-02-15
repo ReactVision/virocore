@@ -86,8 +86,12 @@ dependencies {
     implementation fileTree(dir: 'libs', include: ['*.jar'])
     implementation "androidx.appcompat:appcompat:1.0.0"
     implementation 'androidx.media3:media3-exoplayer:1.1.1'
+    implementation 'androidx.media3:media3-exoplayer-dash:1.1.1'
+    implementation 'androidx.media3:media3-exoplayer-hls:1.1.1'
+    implementation 'androidx.media3:media3-exoplayer-smoothstreaming:1.1.1'
     api project(':libs:gvr')
     api project(':libs:arcore')
+    //implementation project(path: ':sharedCode')
     implementation 'com.google.protobuf.nano:protobuf-javanano:3.0.0-alpha-7'
 }
 

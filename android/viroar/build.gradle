@@ -62,9 +62,17 @@ task extractNativeLibraries() {
 // are dynamically generated.
 tasks.whenTaskAdded { task ->
     if (task.name == 'assembleRelease') {
+        //task.dependsOn ':sharedCode:assembleRelease'
         task.finalizedBy 'extractNativeLibraries'
     }
 }
+
+// tasks.whenTaskAdded {
+//     task ->
+//         if (task.name.contains("external") && !task.name.contains("Clean")) {
+//             task.dependsOn ':sharedCode:assembleRelease'
+//         }
+// }
 
 // project.afterEvaluate {
 //     publishing {

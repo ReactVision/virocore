@@ -49,6 +49,7 @@ import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter;
 import androidx.media3.datasource.DefaultDataSourceFactory;
 import androidx.media3.datasource.RawResourceDataSource;
 import androidx.media3.common.util.Util;
+import androidx.media3.common.MediaItem;
 import com.google.common.base.Ascii;
 
 /**
@@ -150,7 +151,7 @@ public class AVPlayer {
                 };
             } else {
                 dataSourceFactory = new DefaultDataSourceFactory(context,
-                        Util.getUserAgent(context, "ViroAVPlayer"), new DefaultBandwidthMeter());
+                        Util.getUserAgent(context, "ViroAVPlayer")); //, new DefaultBandwidthMeter());
             }
             Log.i(TAG, "AVPlayer setting URL to [" + uri + "]");
 
@@ -176,14 +177,14 @@ public class AVPlayer {
         int type = inferContentType(uri);
         switch (type) {
             case C.TYPE_SS:
-                return new SsMediaSource.Factory(mediaDataSourceFactory).createMediaSource(uri);
+                return new SsMediaSource.Factory(mediaDataSourceFactory).createMediaSource(MediaItem.fromUri(uri));
             case C.TYPE_DASH:
-                return new DashMediaSource.Factory(mediaDataSourceFactory).createMediaSource(uri);
+                return new DashMediaSource.Factory(mediaDataSourceFactory).createMediaSource(MediaItem.fromUri(uri));
             case C.TYPE_HLS:
-                return new HlsMediaSource.Factory(mediaDataSourceFactory).createMediaSource(uri);
+                return new HlsMediaSource.Factory(mediaDataSourceFactory).createMediaSource(MediaItem.fromUri(uri));
             default:
                 // Return an ExtraMediaSource as default.
-                return new ProgressiveMediaSource.Factory(mediaDataSourceFactory, extractorsFactory).createMediaSource(uri);
+                return new ProgressiveMediaSource.Factory(mediaDataSourceFactory, extractorsFactory).createMediaSource(MediaItem.fromUri(uri));
         }
     }
 

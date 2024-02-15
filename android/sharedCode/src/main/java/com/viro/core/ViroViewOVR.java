@@ -42,7 +42,7 @@ import android.view.WindowManager;
 import com.google.vr.cardboard.ContextUtils;
 import com.viro.core.internal.PlatformUtil;
 import com.viro.core.internal.RenderCommandQueue;
-import com.viro.renderer.BuildConfig;
+//import com.viro.renderer.BuildConfig;
 
 import java.util.List;
 import java.util.Queue;

@@ -1738,8 +1738,7 @@ public class Node implements EventDelegate.EventDelegateCallback {
                                         float rotEulerX, float rotEulerY, float rotEulerZ,
                                         float forwardX, float forwardY, float forwardZ,
                                         float upX, float upY, float upZ) {
-        // no-op - used by VRTARScene only
-    }
+    } //no-op - used by VRTARScene only
     //#ENDIF
 
  // +---------------------------------------------------------------------------+
