@@ -6,12 +6,12 @@ android {
     buildFeatures {
         buildConfig = true
     }
-    compileSdkVersion 31
+    compileSdkVersion 33
 
     defaultConfig {
         applicationId "com.viromedia.renderertest"
         minSdkVersion 24
-        targetSdkVersion 31
+        targetSdkVersion 33
         versionCode 1
         versionName "1.0"
         missingDimensionStrategy 'product', 'viro_core'

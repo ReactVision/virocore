@@ -11,7 +11,8 @@ cd android &&
 echo '========================================================================='
 echo 'Building :viroreact'
 echo '========================================================================='
- ./gradlew :viroreact:assembleRelease
+./gradlew :viroreact:check
+./gradlew :viroreact:assembleRelease
 
 echo '========================================================================='
 echo 'Checking for build artifacts'

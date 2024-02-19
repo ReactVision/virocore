@@ -2,12 +2,12 @@ apply plugin: 'com.android.library'
 apply plugin: 'kotlin-android'
 
 android {
-    compileSdkVersion 31
+    compileSdkVersion 33
     namespace "com.example.virosample.placingObjects"
 
     defaultConfig {
         minSdkVersion 24
-        targetSdkVersion 31
+        targetSdkVersion 33
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
         ndkVersion = "25.2.9519653"
         ndk {
