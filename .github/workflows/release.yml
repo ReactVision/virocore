@@ -3,7 +3,7 @@ name: Release with changelog
 on:
   push:
     tags:
-      - '*'
+      - "*"
 
 jobs:
   release:
@@ -17,14 +17,14 @@ jobs:
       - name: Install JDK ${{ matrix.java_version }}
         uses: actions/setup-java@v3
         with:
-          distribution: 'adopt'
-          java-version: 11
+          distribution: "adopt"
+          java-version: 17
 
       - name: Get the version
         id: tagger
         uses: jimschubert/query-tag-action@v2
         with:
-          skip-unshallow: 'true'
+          skip-unshallow: "true"
           abbrev: false
           commit-ish: HEAD
 
