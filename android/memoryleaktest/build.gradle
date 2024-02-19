@@ -3,12 +3,16 @@ apply plugin: 'kotlin-android'
 
 android {
     flavorDimensions "target_platform"
+    namespace "com.example.memoryleaktest"
+    buildFeatures {
+        buildConfig = true
+    }
 
-    compileSdkVersion 31
+    compileSdkVersion 33
     defaultConfig {
         applicationId "com.example.memoryleaktest"
         minSdkVersion 24
-        targetSdkVersion 31
+        targetSdkVersion 33
         versionCode 1
         versionName "1.0"
 
@@ -60,8 +64,8 @@ dependencies {
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.4.0'
     implementation project(':virocore')
     implementation project(':libs:gvr')
-    implementation project(':libs:arcore')
-    implementation "androidx.appcompat:appcompat:1.3.1"
-    implementation "androidx.core:core-ktx:1.6.0"
-    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
+    implementation 'com.google.ar:core:1.41.0'
+    implementation "androidx.appcompat:appcompat:1.0.0"
+    implementation "androidx.core:core-ktx:1.8.0"
+    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.8.21"
 }

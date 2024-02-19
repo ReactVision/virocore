@@ -2,11 +2,18 @@ apply plugin: 'com.android.library'
 apply plugin: 'maven-publish'
 
 android {
-    compileSdkVersion 31
+    compileSdkVersion 33
+    namespace "com.viro.ar"
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
 
     defaultConfig {
         minSdkVersion 24
-        targetSdkVersion 31
+        targetSdkVersion 33
+        ndkVersion = "25.2.9519653"
 
         ndk {
             abiFilters "arm64-v8a", "armeabi-v7a"
@@ -40,7 +47,7 @@ android {
 
 dependencies {
     implementation fileTree(dir: 'libs', include: ['*.jar'])
-    implementation "androidx.appcompat:appcompat:1.3.1"
+    implementation "androidx.appcompat:appcompat:1.0.0"
 }
 
 // Extract the .so files (libviro_arcore.so) for each architecture and place them in the build/natives
@@ -59,16 +66,24 @@ task extractNativeLibraries() {
 // are dynamically generated.
 tasks.whenTaskAdded { task ->
     if (task.name == 'assembleRelease') {
+        //task.dependsOn ':sharedCode:assembleRelease'
         task.finalizedBy 'extractNativeLibraries'
     }
 }
 
-project.afterEvaluate {
-    publishing {
-        publications {
-            release(MavenPublication) {
-                from components.release
-            }
-        }
-    }
-}
+// tasks.whenTaskAdded {
+//     task ->
+//         if (task.name.contains("external") && !task.name.contains("Clean")) {
+//             task.dependsOn ':sharedCode:assembleRelease'
+//         }
+// }
+
+// project.afterEvaluate {
+//     publishing {
+//         publications {
+//             release(MavenPublication) {
+//                 from components.release
+//             }
+//         }
+//     }
+// }

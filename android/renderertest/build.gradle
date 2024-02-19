@@ -2,12 +2,16 @@ apply plugin: 'com.android.application'
 
 android {
     flavorDimensions "target_platform"
-    compileSdkVersion 31
+    namespace "com.viromedia.renderertest"
+    buildFeatures {
+        buildConfig = true
+    }
+    compileSdkVersion 33
 
     defaultConfig {
         applicationId "com.viromedia.renderertest"
         minSdkVersion 24
-        targetSdkVersion 31
+        targetSdkVersion 33
         versionCode 1
         versionName "1.0"
         missingDimensionStrategy 'product', 'viro_core'
@@ -62,8 +66,8 @@ android {
 
 dependencies {
     implementation fileTree(include: ['*.jar'], dir: 'libs')
-    implementation project(':libs:arcore')
+    implementation 'com.google.ar:core:1.41.0'
     implementation project(':libs:gvr')
     implementation project(':virocore')
-    implementation "androidx.appcompat:appcompat:1.3.1"
+    implementation "androidx.appcompat:appcompat:1.0.0"
 }

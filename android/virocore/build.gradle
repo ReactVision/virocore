@@ -3,11 +3,20 @@ apply from: 'preprocessor.gradle'
 apply plugin: 'maven-publish'
 
 android {
-    compileSdkVersion 31
+    compileSdkVersion 33
+    namespace "com.viro.virocore"
+    buildFeatures {
+        buildConfig = true
+    }
 
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
     defaultConfig {
         minSdkVersion 24
-        targetSdkVersion 31
+        targetSdkVersion 33
+        ndkVersion = "25.2.9519653"
 
         ndk {
             abiFilters "arm64-v8a", "armeabi-v7a"
@@ -79,11 +88,15 @@ android {
 
 dependencies {
     implementation fileTree(dir: 'libs', include: ['*.jar'])
-    implementation "androidx.appcompat:appcompat:1.3.1"
-    implementation 'com.google.android.exoplayer:exoplayer:2.18.4'
+    implementation "androidx.appcompat:appcompat:1.0.0"
+    implementation 'androidx.media3:media3-exoplayer:1.1.1'
+    implementation 'androidx.media3:media3-exoplayer-dash:1.1.1'
+    implementation 'androidx.media3:media3-exoplayer-hls:1.1.1'
+    implementation 'androidx.media3:media3-exoplayer-smoothstreaming:1.1.1'
     api project(':libs:gvr')
-    api project(':libs:arcore')
-    implementation 'com.google.protobuf.nano:protobuf-javanano:3.2.0rc2'
+    implementation 'com.google.ar:core:1.41.0'
+    //implementation project(path: ':sharedCode')
+    implementation 'com.google.protobuf.nano:protobuf-javanano:3.0.0-alpha-7'
 }
 
 // We have to add dependencies to Android tasks in this deferred way because these tasks
@@ -99,26 +112,26 @@ tasks.whenTaskAdded {
         }
 }
 
-project.afterEvaluate {
-    publishing {
-        publications {
-            release(MavenPublication) {
-                from components.release
-                pom {
-                    name = "viroCore"
-                    description = "Community viroCore"
-                    url = "https://github.com/ViroCommunity/virocore"
-                    licenses {
-                        license {
-                            name = "MIT License"
-                            url = "https://github.com/ViroCommunity/virocore/blob/main/LICENSE"
-                        }
-                    }
-                    // TODO This fixes missing gvr dependency with Gradle 6.x but for Gradle 7.x it needs an other solution
-                    // configurations.api.getDependencies().each { dep -> addDependency(dep, "compile") }
-                    // configurations.implementation.getDependencies().each { dep -> addDependency(dep, "runtime") }
-                }
-            }
-        }
-    }
-}
+// project.afterEvaluate {
+//     publishing {
+//         publications {
+//             release(MavenPublication) {
+//                 from components.release
+//                 pom {
+//                     name = "viroCore"
+//                     description = "Community viroCore"
+//                     url = "https://github.com/ViroCommunity/virocore"
+//                     licenses {
+//                         license {
+//                             name = "MIT License"
+//                             url = "https://github.com/ViroCommunity/virocore/blob/main/LICENSE"
+//                         }
+//                     }
+//                     // TODO This fixes missing gvr dependency with Gradle 6.x but for Gradle 7.x it needs an other solution
+//                     // configurations.api.getDependencies().each { dep -> addDependency(dep, "compile") }
+//                     // configurations.implementation.getDependencies().each { dep -> addDependency(dep, "runtime") }
+//                 }
+//             }
+//         }
+//     }
+// }

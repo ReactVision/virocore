@@ -46,7 +46,7 @@ import com.google.vr.ndk.base.GvrLayout;
 import com.viro.core.internal.BuildInfo;
 import com.viro.core.internal.GLSurfaceViewQueue;
 import com.viro.core.internal.PlatformUtil;
-import com.viro.renderer.BuildConfig;
+//import com.viro.renderer.BuildConfig;
 import com.viro.core.internal.ViroTouchGestureListener;
 
 import java.lang.ref.WeakReference;
