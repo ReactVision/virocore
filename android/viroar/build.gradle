@@ -4,7 +4,11 @@ apply plugin: 'maven-publish'
 android {
     compileSdkVersion 31
     namespace "com.viro.ar"
-    
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
 
     defaultConfig {
         minSdkVersion 24
