@@ -292,14 +292,14 @@ public class ViroMediaRecorder {
 
     private static boolean hasAudioAndRecordingPermissions(Context context) {
         int version = Build.VERSION.SDK_INT;
+        boolean hasRecordPermissions = ContextCompat.checkSelfPermission(context,
+                Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
         if( version <= 32 ) {
-            boolean hasRecordPermissions = ContextCompat.checkSelfPermission(context,
-                    Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
             boolean hasExternalStoragePerm = ContextCompat.checkSelfPermission(context,
                     Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED;
             return hasRecordPermissions && hasExternalStoragePerm;
         }else{
-            return true;
+            return hasRecordPermissions;
         }
     }
 
