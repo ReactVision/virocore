@@ -33,6 +33,7 @@ import android.media.MediaRecorder;
 import android.net.Uri;
 import android.opengl.GLES20;
 import android.os.AsyncTask;
+import android.os.Build;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
@@ -290,16 +291,26 @@ public class ViroMediaRecorder {
     }
 
     private static boolean hasAudioAndRecordingPermissions(Context context) {
-        boolean hasRecordPermissions = ContextCompat.checkSelfPermission(context,
-                Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
-        boolean hasExternalStoragePerm = ContextCompat.checkSelfPermission(context,
-                Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED;
-        return hasRecordPermissions && hasExternalStoragePerm;
+        int version = Build.VERSION.SDK_INT;
+        if( version <= 32 ) {
+            boolean hasRecordPermissions = ContextCompat.checkSelfPermission(context,
+                    Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
+            boolean hasExternalStoragePerm = ContextCompat.checkSelfPermission(context,
+                    Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED;
+            return hasRecordPermissions && hasExternalStoragePerm;
+        }else{
+            return true;
+        }
     }
 
     private static boolean hasRecordingPermissions(Context context) {
-        return ContextCompat.checkSelfPermission(context,
-                Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED;
+        int version = Build.VERSION.SDK_INT;
+        if( version <= 32 ) {
+            return ContextCompat.checkSelfPermission(context,
+                    Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED;
+        }else{
+            return true;
+        }
     }
 
     /**
