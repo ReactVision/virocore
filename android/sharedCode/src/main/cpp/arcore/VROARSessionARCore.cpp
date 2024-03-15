@@ -148,7 +148,7 @@ void VROARSessionARCore::run() {
 
 void VROARSessionARCore::pause() {
     if (_session != nullptr) {
-        _session->pause();
+        //_session->pause();
         pinfo("AR session paused");
     }
     else {
