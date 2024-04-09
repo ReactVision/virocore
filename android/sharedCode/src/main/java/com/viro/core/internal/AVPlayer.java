@@ -25,32 +25,36 @@ package com.viro.core.internal;
 
 import android.content.Context;
 import android.net.Uri;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 import android.view.Surface;
 
 import androidx.annotation.NonNull;
-
 import androidx.media3.common.C;
-import androidx.media3.exoplayer.DefaultLoadControl;
-import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.common.MediaItem;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
-import androidx.media3.extractor.DefaultExtractorsFactory;
-import androidx.media3.extractor.ExtractorsFactory;
-import androidx.media3.exoplayer.source.MediaSource;
-import androidx.media3.exoplayer.source.ProgressiveMediaSource;
+import androidx.media3.common.util.Util;
+import androidx.media3.datasource.DataSource;
+import androidx.media3.datasource.DefaultDataSourceFactory;
+import androidx.media3.datasource.RawResourceDataSource;
+import androidx.media3.exoplayer.DefaultLoadControl;
+import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.dash.DashMediaSource;
 import androidx.media3.exoplayer.hls.HlsMediaSource;
 import androidx.media3.exoplayer.smoothstreaming.SsMediaSource;
-import androidx.media3.exoplayer.trackselection.AdaptiveTrackSelection;
+import androidx.media3.exoplayer.source.MediaSource;
+import androidx.media3.exoplayer.source.ProgressiveMediaSource;
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
-import androidx.media3.datasource.DataSource;
-import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter;
-import androidx.media3.datasource.DefaultDataSourceFactory;
-import androidx.media3.datasource.RawResourceDataSource;
-import androidx.media3.common.util.Util;
-import androidx.media3.common.MediaItem;
+import androidx.media3.extractor.DefaultExtractorsFactory;
+import androidx.media3.extractor.ExtractorsFactory;
+
 import com.google.common.base.Ascii;
+
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.FutureTask;
 
 /**
  * Wraps the Android ExoPlayer and can be controlled via JNI.
@@ -72,6 +76,9 @@ public class AVPlayer {
     }
 
     private final ExoPlayer mExoPlayer;
+
+    private Handler mainThreadHandler = new Handler(Looper.getMainLooper());
+
     private float mVolume;
     private final long mNativeReference;
     private boolean mLoop;
@@ -96,6 +103,7 @@ public class AVPlayer {
 
             @Override
             public void onPlayerStateChanged(boolean playWhenReady, int playbackState) {
+                Log.i(TAG, "AVPlayer onPlayerStateChanged " + mPrevExoPlayerState + " => " + playbackState);
                 // this function sometimes gets called back w/ the same playbackState.
                 if (mPrevExoPlayerState == playbackState) {
                     return;
@@ -131,6 +139,24 @@ public class AVPlayer {
         });
     }
 
+    @FunctionalInterface
+    public interface PlayerAction<T> {
+        T performAction(ExoPlayer player);
+    }
+
+    private <T> T runSynchronouslyOnMainThread(PlayerAction<T> action) throws ExecutionException, InterruptedException {
+        Callable<T> callable = () -> action.performAction(mExoPlayer);
+        FutureTask<T> future = new FutureTask<>(callable);
+
+        mainThreadHandler.post(future);
+        try {
+            return future.get();
+        } catch (Exception e) {
+            Log.e(TAG, "AVPlayer ExoPlayer failed to run action on the main thread", e);
+            throw e;
+        }
+    }
+
     public boolean setDataSourceURL(String resourceOrURL, final Context context) {
         try {
             reset();
@@ -157,14 +183,15 @@ public class AVPlayer {
 
             MediaSource mediaSource = buildMediaSource(uri, dataSourceFactory, extractorsFactory);
 
-            mExoPlayer.prepare(mediaSource);
-            mExoPlayer.seekToDefaultPosition();
-            mState = State.PREPARED;
-
-            Log.i(TAG, "AVPlayer prepared for playback");
-            nativeOnPrepared(mNativeReference);
-
-            return true;
+            return runSynchronouslyOnMainThread(player -> {
+                player.setMediaSource(mediaSource);
+                player.prepare();
+                player.seekToDefaultPosition();
+                mState = State.PREPARED;
+                Log.i(TAG, "AVPlayer prepared for playback");
+                nativeOnPrepared(mNativeReference);
+                return true;
+            });
         } catch (Exception e) {
             Log.w(TAG, "AVPlayer failed to load video at URL [" + resourceOrURL + "]", e);
             reset();
@@ -208,15 +235,28 @@ public class AVPlayer {
     }
 
     public void setVideoSink(Surface videoSink) {
-        mExoPlayer.setVideoSurface(videoSink);
+        try {
+            runSynchronouslyOnMainThread(player -> {
+                player.setVideoSurface(videoSink);
+                return null;
+            });
+        } catch (Exception e) {
+            Log.e(TAG, "AVPlayer failed to set video", e);
+        }
     }
 
     public void reset() {
-        mExoPlayer.stop();
-        mExoPlayer.seekToDefaultPosition();
-        mState = State.IDLE;
-
-        Log.i(TAG, "AVPlayer reset");
+        try {
+            runSynchronouslyOnMainThread(player -> {
+                player.stop();
+                player.seekToDefaultPosition();
+                mState = State.IDLE;
+                return null;
+            });
+            Log.i(TAG, "AVPlayer reset");
+        } catch (Exception e) {
+            Log.e(TAG, "AVPlayer failed reset", e);
+        }
     }
 
     public void destroy() {
@@ -228,8 +268,15 @@ public class AVPlayer {
 
     public void play() {
         if (mState == State.PREPARED || mState == State.PAUSED) {
-            mExoPlayer.setPlayWhenReady(true);
-            mState = State.STARTED;
+            try {
+                runSynchronouslyOnMainThread(player -> {
+                    player.setPlayWhenReady(true);
+                    mState = State.STARTED;
+                    return null;
+                });
+            } catch (Exception e) {
+                Log.e(TAG, "AVPlayer failed to play video", e);
+            }
         } else {
             Log.w(TAG, "AVPlayer could not play video in " + mState.toString() + " state");
         }
@@ -237,8 +284,15 @@ public class AVPlayer {
 
     public void pause() {
         if (mState == State.STARTED) {
-            mExoPlayer.setPlayWhenReady(false);
-            mState = State.PAUSED;
+            try {
+                runSynchronouslyOnMainThread(player -> {
+                    player.setPlayWhenReady(false);
+                    mState = State.PAUSED;
+                    return null;
+                });
+            } catch (Exception e) {
+                Log.e(TAG, "AVPlayer failed to pause video", e);
+            }
         } else {
             Log.w(TAG, "AVPlayer could not pause video in " + mState.toString() + " state");
         }
@@ -250,24 +304,46 @@ public class AVPlayer {
 
     public void setLoop(boolean loop) {
         mLoop = loop;
-        if (mExoPlayer.getPlaybackState() == ExoPlayer.STATE_ENDED) {
-            mExoPlayer.seekToDefaultPosition();
+        try {
+            runSynchronouslyOnMainThread(player -> {
+                if (player.getPlaybackState() == ExoPlayer.STATE_ENDED) {
+                    player.seekToDefaultPosition();
+                }
+                return null;
+            });
+        } catch (Exception e) {
+            Log.e(TAG, "AVPlayer failed to set loop", e);
         }
     }
 
     public void setVolume(float volume) {
         mVolume = volume;
-        if (!mMute) {
-            mExoPlayer.setVolume(mVolume);
+        if (mMute) {
+            return;
+        }
+        try {
+            runSynchronouslyOnMainThread(player -> {
+                player.setVolume(mVolume);
+                return null;
+            });
+        } catch (Exception e) {
+            Log.e(TAG, "AVPlayer failed to set volume", e);
         }
     }
 
     public void setMuted(boolean muted) {
         mMute = muted;
-        if (muted) {
-            mExoPlayer.setVolume(0);
-        } else {
-            mExoPlayer.setVolume(mVolume);
+        try {
+            runSynchronouslyOnMainThread(player -> {
+                if (muted) {
+                    player.setVolume(0);
+                } else {
+                    player.setVolume(mVolume);
+                }
+                return null;
+            });
+        } catch (Exception e) {
+            Log.e(TAG, "AVPlayer failed to set muted " + muted, e);
         }
     }
 
@@ -276,8 +352,14 @@ public class AVPlayer {
             Log.w(TAG, "AVPlayer could not seek while in IDLE state");
             return;
         }
-
-        mExoPlayer.seekTo((long) (seconds * 1000));
+        try {
+            runSynchronouslyOnMainThread(player -> {
+                player.seekTo((long) (seconds * 1000));
+                return null;
+            });
+        } catch (Exception e) {
+            Log.e(TAG, "AVPlayer failed to seek", e);
+        }
     }
 
     public float getCurrentTimeInSeconds() {
@@ -286,18 +368,33 @@ public class AVPlayer {
             return 0;
         }
 
-        return mExoPlayer.getCurrentPosition() / 1000.0f;
+        long currentPosition = 0;
+        try {
+            currentPosition = runSynchronouslyOnMainThread(player -> player.getCurrentPosition());
+        } catch (Exception e) {
+            Log.e(TAG, "AVPlayer could not get video current position", e);
+        }
+
+        return currentPosition / 1000.0f;
     }
 
     public float getVideoDurationInSeconds() {
         if (mState == State.IDLE) {
             Log.w(TAG, "AVPlayer could not get video duration in IDLE state");
             return 0;
-        } else if (mExoPlayer.getDuration() == C.TIME_UNSET) {
+        }
+
+        long duration = 0;
+        try {
+            duration = runSynchronouslyOnMainThread(player -> player.getDuration());
+        } catch (Exception e) {
+            Log.e(TAG, "AVPlayer could not get video duration", e);
+        }
+        if (duration == C.TIME_UNSET) {
             return 0;
         }
 
-        return mExoPlayer.getDuration() / 1000.0f;
+        return duration / 1000.0f;
     }
 
     /**
