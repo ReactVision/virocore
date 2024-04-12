@@ -145,6 +145,10 @@ public class AVPlayer {
     }
 
     private <T> T runSynchronouslyOnMainThread(PlayerAction<T> action) throws ExecutionException, InterruptedException {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            return action.performAction(mExoPlayer);
+        }
+
         Callable<T> callable = () -> action.performAction(mExoPlayer);
         FutureTask<T> future = new FutureTask<>(callable);
 
