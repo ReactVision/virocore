@@ -145,6 +145,10 @@ public class AVPlayer {
     }
 
     private <T> T runSynchronouslyOnMainThread(PlayerAction<T> action) throws ExecutionException, InterruptedException {
+        return runSynchronouslyOnMainThread(action, true);
+    }
+
+    private <T> T runSynchronouslyOnMainThread(PlayerAction<T> action, boolean waitForResult) throws ExecutionException, InterruptedException {
         if (Looper.myLooper() == Looper.getMainLooper()) {
             return action.performAction(mExoPlayer);
         }
@@ -153,6 +157,9 @@ public class AVPlayer {
         FutureTask<T> future = new FutureTask<>(callable);
 
         mainThreadHandler.post(future);
+
+        if (!waitForResult) return null;
+
         try {
             return future.get();
         } catch (Exception e) {
@@ -264,10 +271,20 @@ public class AVPlayer {
     }
 
     public void destroy() {
-        reset();
-        mExoPlayer.release();
-
-        Log.i(TAG, "AVPlayer destroyed");
+        try {
+            runSynchronouslyOnMainThread(player -> {
+                    player.stop();
+                    player.seekToDefaultPosition();
+                    player.release();
+                    mState = State.IDLE;
+                    return null;
+                },
+                false // don't wait for the result to prevent ANR issue
+            );
+            Log.i(TAG, "AVPlayer destroyed");
+        } catch (Exception e) {
+            Log.e(TAG, "AVPlayer destroy failed", e);
+        }
     }
 
     public void play() {
