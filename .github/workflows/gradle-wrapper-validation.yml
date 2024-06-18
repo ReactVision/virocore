@@ -17,4 +17,4 @@ jobs:
         example: [ android ]
     steps:
       - uses: actions/checkout@v4.1.6
-      - uses: gradle/wrapper-validation-action@v1
+      - uses: gradle/wrapper-validation-action@v3
