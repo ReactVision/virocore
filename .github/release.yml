@@ -11,6 +11,9 @@ changelog:
     - title: Exciting New Features 🎉
       labels:
         - enhancement
+    - title: CI Pipeline 🎉
+      labels:
+        - pipeline
     - title: Other Changes
       labels:
         - "*"
