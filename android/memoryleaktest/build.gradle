@@ -64,7 +64,7 @@ dependencies {
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.4.0'
     implementation project(':virocore')
     implementation project(':libs:gvr')
-    implementation 'com.google.ar:core:1.41.0'
+    implementation 'com.google.ar:core:1.44.0'
     implementation "androidx.appcompat:appcompat:1.0.0"
     implementation "androidx.core:core-ktx:1.8.0"
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.8.21"

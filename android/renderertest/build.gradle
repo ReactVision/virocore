@@ -66,7 +66,7 @@ android {
 
 dependencies {
     implementation fileTree(include: ['*.jar'], dir: 'libs')
-    implementation 'com.google.ar:core:1.41.0'
+    implementation 'com.google.ar:core:1.44.0'
     implementation project(':libs:gvr')
     implementation project(':virocore')
     implementation "androidx.appcompat:appcompat:1.0.0"

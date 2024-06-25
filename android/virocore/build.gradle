@@ -94,7 +94,7 @@ dependencies {
     implementation 'androidx.media3:media3-exoplayer-hls:1.1.1'
     implementation 'androidx.media3:media3-exoplayer-smoothstreaming:1.1.1'
     api project(':libs:gvr')
-    implementation 'com.google.ar:core:1.41.0'
+    implementation 'com.google.ar:core:1.44.0'
     //implementation project(path: ':sharedCode')
     implementation 'com.google.protobuf.nano:protobuf-javanano:3.0.0-alpha-7'
 }
