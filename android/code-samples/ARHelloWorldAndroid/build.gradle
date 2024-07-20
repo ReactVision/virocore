@@ -43,7 +43,7 @@ dependencies {
     testImplementation 'junit:junit:4.13.2'
     api project(':code-samples:gvr_common')
     api project(':code-samples:arcore_client')
-    aarImplementation('com.github.ViroCommunity.virocore:virocore:rc-1.20.2') {
+    aarImplementation(project(path: ':virocore')) {
         transitive = false
     }
     codeImplementation (project(path: ':virocore')) {
