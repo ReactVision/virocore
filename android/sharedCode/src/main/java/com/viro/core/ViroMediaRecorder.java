@@ -33,10 +33,13 @@ import android.media.MediaRecorder;
 import android.net.Uri;
 import android.opengl.GLES20;
 import android.os.AsyncTask;
+import android.os.Build;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import androidx.core.content.ContextCompat;
+
+import android.system.Os;
 import android.util.Log;
 
 import com.viro.core.internal.MediaRecorderSurface;
@@ -292,14 +295,21 @@ public class ViroMediaRecorder {
     private static boolean hasAudioAndRecordingPermissions(Context context) {
         boolean hasRecordPermissions = ContextCompat.checkSelfPermission(context,
                 Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
-        boolean hasExternalStoragePerm = ContextCompat.checkSelfPermission(context,
-                Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED;
+        boolean hasExternalStoragePerm = true;
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.Q) {
+            hasExternalStoragePerm = ContextCompat.checkSelfPermission(context,
+                    Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED;
+        }
         return hasRecordPermissions && hasExternalStoragePerm;
     }
 
     private static boolean hasRecordingPermissions(Context context) {
-        return ContextCompat.checkSelfPermission(context,
-                Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED;
+        boolean hasExternalStoragePerm = true;
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.Q) {
+            hasExternalStoragePerm = ContextCompat.checkSelfPermission(context,
+                    Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED;
+        }
+        return hasExternalStoragePerm;
     }
 
     /**
@@ -876,4 +886,3 @@ public class ViroMediaRecorder {
     private native void nativeEnableFrameRecording(long nativeRecorderRef, boolean enabled);
     private native void nativeScheduleScreenCapture(long nativeRecorderRef);
 }
-
