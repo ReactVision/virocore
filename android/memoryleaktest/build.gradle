@@ -61,7 +61,7 @@ android {
 
 dependencies {
     implementation fileTree(include: ['*.jar'], dir: 'libs')
-    androidTestImplementation 'androidx.test.espresso:espresso-core:3.4.0'
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.6.1'
     implementation project(':virocore')
     implementation project(':libs:gvr')
     implementation 'com.google.ar:core:1.45.0'
