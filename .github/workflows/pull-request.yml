@@ -62,9 +62,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        xcode: ["14.2.0", "13.4.1"]
-        macOS: ["macos-12"]
+        macOS: [ "macos-13" ]
+        xcode: [ "15.2.0" ]
     steps:
+      - name: Investigate available XCode versions
+        run: ls -n /Applications/ | grep Xcode*
       - uses: actions/checkout@v4.2.0
       - name: Install gpg
         run: brew install gnupg
