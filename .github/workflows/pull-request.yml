@@ -46,6 +46,7 @@ jobs:
         with:
           distribution: "adopt"
           java-version: 17
+      - uses: gradle/wrapper-validation-action@v3
       - name: Code checks
         run: ./gradlew :viroreact:check
       - name: Archive Lint report
