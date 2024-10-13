@@ -2,7 +2,7 @@ apply plugin: 'com.android.library'
 apply plugin: 'maven-publish'
 
 android {
-    compileSdkVersion 33
+    compileSdkVersion 34
     namespace "com.viro.ar"
 
     compileOptions {
@@ -12,7 +12,7 @@ android {
 
     defaultConfig {
         minSdkVersion 24
-        targetSdkVersion 33
+        targetSdkVersion 34
         ndkVersion = "25.2.9519653"
 
         ndk {
