@@ -6,12 +6,40 @@ on:
       - main
       - develop
   pull_request:
+env:
+  resourceRunID: ${{ github.run_id }}-${{ github.run_number }}
 
 jobs:
   androidBuild:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest ]
+        api: [ 34 ]
+        abi: [ x86_64 ]
+        emulatorApi: [ 14 ]
+        tag: [ 'google_apis' ]
+    #        include:
+    #          - os: macOS-latest
+    #            abi: x86_64
+    #            api: 28
+    #            emulatorApi: [ 9 ]
+    #            tag: 'default'
     steps:
-      - uses: actions/checkout@v4.2.0
+      - name: kvm support
+        run: |
+          egrep -c '(vmx|svm)' /proc/cpuinfo
+          id
+          sudo adduser $USER kvm
+          sudo chown -R $USER /dev/kvm
+          id
+      - name: prepare
+        run: |
+          sudo apt-get update && sudo apt-get install -y exiftool imagemagick xdg-utils libimage-exiftool-perl zsh jq xorg
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
       - name: set up JDK
         uses: actions/setup-java@v4
         with:
@@ -36,6 +64,59 @@ jobs:
             ./android/virocore/build/outputs/aar/*.aar
             ./android/viroreact/build/outputs/aar/*.aar
             ./android/viroar/build/outputs/aar/*.aar
+
+      - name: Install Android SDK
+        uses: hannesa2/action-android/install-sdk@0.1.16.7
+      - name: Android Emulator test
+        uses: hannesa2/action-android/emulator-run-cmd@0.1.16.7
+        with:
+          cmd: ./android/gradlew cAT --continue
+          api: ${{ matrix.api }}
+          tag: ${{ matrix.tag }}
+          abi: ${{ matrix.abi }}
+          cmdOptions: -noaudio -no-boot-anim -no-window -metrics-collection
+          bootTimeout: 720
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: Viro-Espresso-${{ matrix.api }}-${{ matrix.abi }}-report-${{ matrix.emulatorApi }}
+          path: |
+            ./android/**/build/reports/androidTests/connected
+            ./android/**/build/outputs/androidTest-results/connected
+      - name: Archive screenshots ${{ matrix.emulatorApi }}
+        uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: Viro-Screenshots-${{ matrix.api }}-${{ matrix.abi }}-${{ matrix.emulatorApi }}
+          path: |
+            android/mainSample/build/outputs/connected_android_test_additional_output/debugAndroidTest/connected
+            android/mainSample/build/outputs/androidTest-results/connected
+      - name: Compare screenshots
+        if: ${{ always() }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          emulatorApi: ${{ matrix.emulatorApi }}
+        run: |
+          ls -ls android/mainSample/build/outputs/connected_android_test_additional_output/debugAndroidTest/connected
+          cp android/mainSample/build/outputs/connected_android_test_additional_output/debugAndroidTest/connected/emulator-5554\ -\ android/${{ matrix.emulatorApi }}/* screenshotsToCompare${{ matrix.emulatorApi }}
+          export DISPLAY=:99
+          sudo Xvfb -ac :99 -screen 0 1280x1024x24 > /dev/null 2>&1 &
+          echo ${{ env.resourceRunID }}
+          ./android/screenShotCompare.sh ${{ env.resourceRunID }}
+      - name: Archive screenshots diffs ${{ matrix.emulatorApi }}
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Viro-Screenshots-diffs-${{ matrix.emulatorApi }}
+          path: |
+            android/screenshotDiffs
+            android/screenshotsToCompare${{ matrix.emulatorApi }}/view-*.png
+      - name: Show git status ${{ matrix.emulatorApi }}
+        if: ${{ always() }}
+        run: |
+          git add android/screenshotsToCompare${{ matrix.emulatorApi }}
+          git status
+          [ "$(git status -s -uno)" ] && exit 1 || exit 0
 
   AndroidCheck:
     name: Check
