@@ -4,7 +4,7 @@ apply plugin: 'kotlin-android'
 android {
     flavorDimensions "target_platform"
     namespace "com.viromedia.releasetest"
-    compileSdkVersion 33
+    compileSdkVersion 34
     buildFeatures {
         buildConfig = true
     }
@@ -12,7 +12,7 @@ android {
     defaultConfig {
         applicationId "com.viromedia.releasetest"
         minSdkVersion 24
-        targetSdkVersion 33
+        targetSdkVersion 34
         versionCode 1
         versionName "1.0"
 
