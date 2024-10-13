@@ -13,11 +13,11 @@ android {
     buildFeatures {
         buildConfig = true
     }
-    compileSdkVersion 33
+    compileSdkVersion 34
 
     defaultConfig {
         minSdkVersion 24
-        targetSdkVersion 33
+        targetSdkVersion 34
         ndkVersion = "25.2.9519653"
 
         ndk {

@@ -2,19 +2,22 @@ apply plugin: 'com.android.library'
 apply plugin: 'kotlin-android'
 
 android {
-    compileSdkVersion 33
+    compileSdkVersion 34
     namespace "com.example.virosample.placingObjects"
 
     defaultConfig {
         minSdkVersion 24
-        targetSdkVersion 33
+        targetSdkVersion 34
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
         ndkVersion = "25.2.9519653"
         ndk {
             abiFilters "arm64-v8a", "armeabi-v7a", "x86", "armeabi", "mips"
         }
     }
-
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
     lintOptions {
         disable 'UsingOnClickInXml'
     }
