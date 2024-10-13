@@ -21,6 +21,9 @@ jobs:
       - name: assemble ViroCore
         run: |
           ./gradlew :viroreact:assembleDebug
+          ./gradlew :code-samples:ARPlacingObjects:assembleDebug
+          ./gradlew :code-samples:ARRetail:assembleDebug
+          ./gradlew :code-samples:ARTesla:assembleDebug
           ./gradlew :code-samples:ARHelloWorldAndroid:assembleDebug
           ./gradlew :code-samples:ARBlackPanther:assembleDebug
           ./gradlew :mainSample:assembleDebug
