@@ -3,7 +3,7 @@ apply from: 'preprocessor.gradle'
 apply plugin: 'maven-publish'
 
 android {
-    compileSdkVersion 33
+    compileSdkVersion 34
     namespace "com.viro.virocore"
     buildFeatures {
         buildConfig = true
@@ -15,7 +15,7 @@ android {
     }
     defaultConfig {
         minSdkVersion 24
-        targetSdkVersion 33
+        targetSdkVersion 34
         ndkVersion = "25.2.9519653"
 
         ndk {

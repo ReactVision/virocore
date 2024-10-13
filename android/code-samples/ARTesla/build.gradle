@@ -1,12 +1,12 @@
 apply plugin: 'com.android.library'
 
 android {
-    compileSdkVersion 33
+    compileSdkVersion 34
     namespace "com.example.virosample.tesla"
 
     defaultConfig {
         minSdkVersion 24
-        targetSdkVersion 33
+        targetSdkVersion 34
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
         ndkVersion = "25.2.9519653"
         ndk {

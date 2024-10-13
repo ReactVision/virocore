@@ -2,7 +2,7 @@ apply plugin: 'com.android.application'
 apply plugin: 'kotlin-android'
 
 android {
-    compileSdkVersion 33
+    compileSdkVersion 34
     namespace "com.example.virosample"
     buildFeatures {
         buildConfig = true
@@ -11,12 +11,12 @@ android {
     defaultConfig {
         applicationId "com.example.virosample"
         minSdkVersion 24
-        targetSdkVersion 33
+        targetSdkVersion 34
 
-        // versionCode getGitCommitCount()
-        // versionName getTag()
+        versionCode getGitCommitCount()
+        versionName getTag()
         buildConfigField "String", 'GIT_REPOSITORY', "\"" + getGitOriginRemote() + "\""
-        buildConfigField "String", 'VERSION', "\"" + versionName + "\""
+        buildConfigField "String", 'VERSION', "\"" + getTag() + "\""
     }
 
     buildTypes {
@@ -28,7 +28,10 @@ android {
             applicationIdSuffix ".debug"
         }
     }
-
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
     packagingOptions {
         exclude "META-INF/*.kotlin_module"
     }
@@ -64,18 +67,8 @@ dependencies {
 }
 
 static def getTag() {
-    def tagVersion = "$System.env.TAG_VERSION"
-    if (tagVersion == "null") {
-        println "No variable TAG_VERSION specified, I'm using 'git describe --abbrev=0'"
-        def process = "git describe --abbrev=0".execute()
-        tagVersion = process.text.toString().trim()
-        if (tagVersion.equals("")) {
-            println "abbrev failed, I'm using 'git --tags'"
-            def processT = "git describe --tags".execute()
-            tagVersion = processT.text.toString().trim()
-        }
-    }
-    return tagVersion
+    def process = "git describe --tags --abbrev=0".execute()
+    return process.text.toString().trim()
 }
 
 static def getGitCommitCount() {

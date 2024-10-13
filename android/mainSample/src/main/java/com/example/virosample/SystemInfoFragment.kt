@@ -16,7 +16,7 @@ class SystemInfoFragment : PreferenceFragmentCompat() {
         addPreferencesFromResource(R.xml.prefs)
         // TODO after next release you can use info from library
         //findPreference<Preference>(PREFERENCE_ + "APPVERSION")?.summary = com.viro.renderer.BuildConfig.VIRO_VERSION
-        findPreference<Preference>(PREFERENCE_ + "APPVERSION")?.summary = BuildConfig.VERSION_NAME
+        findPreference<Preference>(PREFERENCE_ + "APPVERSION")?.summary = BuildConfig.VERSION
         findPreference<Preference>(PREFERENCE_ + "APPVERSION")?.title =
             "${findPreference<Preference>(PREFERENCE_ + "APPVERSION")?.title} [${BuildConfig.FLAVOR}]"
         findPreference<Preference>(PREFERENCE_ + "BOARD")?.summary = Build.BOARD
