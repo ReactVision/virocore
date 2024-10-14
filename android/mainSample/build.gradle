@@ -17,6 +17,9 @@ android {
         versionName getTag()
         buildConfigField "String", 'GIT_REPOSITORY', "\"" + getGitOriginRemote() + "\""
         buildConfigField "String", 'VERSION', "\"" + getTag() + "\""
+
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        testInstrumentationRunnerArguments useTestStorageService: 'true'
     }
 
     buildTypes {
@@ -64,6 +67,11 @@ dependencies {
 
     implementation "org.jetbrains.kotlin:kotlin-stdlib:2.0.0"
     implementation "androidx.core:core-ktx:1.8.0"
+
+    testImplementation 'junit:junit:4.13.2'
+    androidTestImplementation 'com.github.AppDevNext:Moka:1.6'
+    androidTestImplementation "androidx.test.ext:junit-ktx:1.1.5"
+    androidTestUtil "androidx.test.services:test-services:1.4.2"
 }
 
 static def getTag() {

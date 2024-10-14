@@ -1,0 +1,3 @@
+[submodule "android/git-diff-image"]
+	path = android/git-diff-image
+	url = git@github.com:ewanmellor/git-diff-image.git
