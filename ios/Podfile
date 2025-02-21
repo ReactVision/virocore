@@ -11,4 +11,6 @@ end
 target 'ViroKit' do
     use_frameworks!
     common_pods
+    pod 'ARCore/CloudAnchors', '~> 1.43.0'
+    pod 'ARCore/AugmentedFaces', '~> 1.43.0'
 end
