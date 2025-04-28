@@ -59,7 +59,7 @@ dependencies {
     implementation project(':code-samples:ARRetail')
     implementation project(':code-samples:ARTesla')
 
-    implementation "org.jetbrains.kotlin:kotlin-stdlib:2.0.0"
+    implementation "org.jetbrains.kotlin:kotlin-stdlib:2.1.20"
     implementation "androidx.core:core-ktx:1.8.0"
 }
 
