@@ -68,5 +68,5 @@ dependencies {
     implementation 'com.google.ar:core:1.45.0'
     implementation project(':libs:gvr')
     implementation project(':virocore')
-    implementation "androidx.appcompat:appcompat:1.0.0"
+    implementation "androidx.appcompat:appcompat:1.7.0"
 }
