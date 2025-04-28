@@ -100,7 +100,7 @@ dependencies {
     implementation 'androidx.media3:media3-exoplayer-smoothstreaming:1.1.1'
     implementation project(':libs:gvr')
     implementation 'com.google.ar:core:1.45.0'
-    implementation 'com.google.protobuf.nano:protobuf-javanano:3.0.0-alpha-7'
+    implementation 'com.google.protobuf.nano:protobuf-javanano:3.2.0rc2'
 }
 
 task copyReleaseAAR(type: Copy) {

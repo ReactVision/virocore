@@ -96,7 +96,7 @@ dependencies {
     api project(':libs:gvr')
     implementation 'com.google.ar:core:1.45.0'
     //implementation project(path: ':sharedCode')
-    implementation 'com.google.protobuf.nano:protobuf-javanano:3.0.0-alpha-7'
+    implementation 'com.google.protobuf.nano:protobuf-javanano:3.2.0rc2'
 }
 
 // We have to add dependencies to Android tasks in this deferred way because these tasks
