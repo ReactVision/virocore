@@ -85,7 +85,7 @@ dependencies {
     implementation project(':virocore')
     implementation 'com.google.ar:core:1.45.0'
     implementation project(':libs:gvr')
-    implementation "androidx.appcompat:appcompat:1.0.0"
+    implementation "androidx.appcompat:appcompat:1.7.0"
     // testing dependencies
     androidTestImplementation "androidx.test.espresso:espresso-core:3.6.1"
     androidTestImplementation 'androidx.test:rules:1.5.0'
