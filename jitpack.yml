@@ -1,5 +1,5 @@
 jdk:
-  - openjdk11
+  - openjdk17
 install:
   - cd android
   - ./gradlew :virocore:assembleRelease :virocore:publishToMavenLocal
