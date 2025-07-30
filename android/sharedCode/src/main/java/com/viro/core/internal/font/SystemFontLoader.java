@@ -86,11 +86,21 @@ public class SystemFontLoader {
                 family = sDefaultFamily;
             }
         }
+        
+        if (family == null) {
+            Log.e(TAG, "No font family found and default family is null!");
+            return null;
+        }
 
         FontFamily.Font font = family.getFont(isItalic, weight);
         if (font == null) {
             Log.w(TAG, "Font [" + typeface + "] of weight [" + weight + "] and italic [" + isItalic + "] not found, using default font instead");
-            return sDefaultFamily.getFont(isItalic, weight);
+            if (sDefaultFamily != null) {
+                return sDefaultFamily.getFont(isItalic, weight);
+            } else {
+                Log.e(TAG, "Default font family is null! Font system not properly initialized.");
+                return null;
+            }
         }
         else {
             return font;
@@ -159,6 +169,10 @@ public class SystemFontLoader {
             Map<String, FontFamily.Font> fontsByAlias = new HashMap<String, FontFamily.Font>();
             for (FontConfig.Alias alias : fontConfig.getAliases()) {
                 FontFamily toFamily = fontsByName.get(alias.getToName());
+                if (toFamily == null) {
+                    Log.w(TAG, "Font family not found for alias: " + alias.getName() + " -> " + alias.getToName());
+                    continue;
+                }
                 int weight = alias.getWeight();
 
                 FontFamily.Font font = toFamily.getFont(false, weight);

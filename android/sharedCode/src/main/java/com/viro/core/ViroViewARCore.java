@@ -294,7 +294,7 @@ public class ViroViewARCore extends ViroView {
 
         public void onSurfaceChanged(GL10 gl, int width, int height) {
             ViroViewARCore view = mView.get();
-            if (view == null) {
+            if (view == null || view.mSurfaceView == null) {
                 return;
             }
             view.mNativeRenderer.onSurfaceChanged(view.mSurfaceView.getHolder().getSurface(), width, height);
