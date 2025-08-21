@@ -1,7 +1,13 @@
-platform :ios, '13.0'
+platform :ios, '14.0'
 
 def common_pods
     pod 'GVRAudioSDK', '1.140.0'
+    
+    # ARCore iOS SDK for advanced AR features
+    pod 'ARCore/CloudAnchors', '1.50.0'
+    pod 'ARCore/Geospatial', '1.50.0'  
+    pod 'ARCore/AugmentedFaces', '1.50.0'
+    pod 'ARCore/Base', '1.50.0'
 end
 
 target 'ViroSample' do

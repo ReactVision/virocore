@@ -215,6 +215,11 @@ add_library( # Sets the name of the library.
              ${VIRO_RENDERER_SRC}/VROARImperativeSession.cpp
              ${VIRO_RENDERER_SRC}/VROInputControllerAR.cpp
              ${VIRO_RENDERER_SRC}/VROARShadow.cpp
+             ${VIRO_RENDERER_SRC}/VROARGeospatialAnchor.cpp
+             ${VIRO_RENDERER_SRC}/VROARSceneSemantics.cpp
+             ${VIRO_RENDERER_SRC}/VROARAugmentedFace.cpp
+             ${VIRO_RENDERER_SRC}/VROARPerformanceOptimizer.cpp
+             ${VIRO_RENDERER_SRC}/VROARMemoryManager.cpp
              ${VIRO_ANDROID_SRC}/VROInputControllerARAndroid.cpp
              ${VIRO_ANDROID_SRC}/VROSceneRendererARCore.cpp
              ${VIRO_ANDROID_SRC}/arcore/VROARSessionARCore.cpp
