@@ -297,6 +297,11 @@ public class ViroViewARCore extends ViroView {
             if (view == null || view.mSurfaceView == null) {
                 return;
             }
+            
+            if (view.mDestroyed || view.mNativeRenderer == null) {
+                return;
+            }
+            
             view.mNativeRenderer.onSurfaceChanged(view.mSurfaceView.getHolder().getSurface(), width, height);
 
             // Notify ARCore session that the view size changed so that the perspective matrix and
@@ -316,11 +321,25 @@ public class ViroViewARCore extends ViroView {
             if (view == null) {
                 return;
             }
-
-            for (int i = 0; i < view.mFrameListeners.size(); i++) {
-                view.mFrameListeners.get(i).onDrawFrame();
+            
+            // Check if the view has been destroyed or is being destroyed
+            if (view.mDestroyed) {
+                return;
             }
-            view.mNativeRenderer.drawFrame();
+
+            if (view.mFrameListeners != null) {
+                for (int i = 0; i < view.mFrameListeners.size(); i++) {
+                    view.mFrameListeners.get(i).onDrawFrame();
+                }
+            }
+            
+            // Only draw if renderer is valid, initialized, has a scene, and ARCore is installed
+            if (view.mNativeRenderer != null 
+                    && view.mRendererSurfaceInitialized.get() 
+                    && view.mCurrentScene != null
+                    && view.mARCoreInstalled.get()) {
+                view.mNativeRenderer.drawFrame();
+            }
         }
     }
 

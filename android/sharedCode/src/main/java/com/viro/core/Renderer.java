@@ -90,7 +90,9 @@ public class Renderer {
     }
 
     public void drawFrame() {
-        nativeDrawFrame(mNativeRef);
+        if (mNativeRef != 0) {
+            nativeDrawFrame(mNativeRef);
+        }
     }
     public void setVRModeEnabled(boolean enabled) { nativeSetVRModeEnabled(mNativeRef, enabled); }
 
