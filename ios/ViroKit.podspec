@@ -8,6 +8,6 @@ Pod::Spec.new do |s|
   s.license             = {:type => 'Copyright', :text => "Copyright 2025 ReactVision" }
   s.author              = 'ReactVision'
   s.requires_arc        = true
-  s.platform            = :ios, '17.6'
+  s.platform            = :ios, '13.0'
   s.dependency 'React'
 end
