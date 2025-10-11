@@ -472,18 +472,20 @@ static VROVector3f const kZeroVector = VROVector3f();
 #pragma mark - Settings and Notifications
 
 - (void)orientationDidChange:(NSNotification *)notification {
-    // the _cameraBackground will be updated if/when the frame is actually set.
-    _arSession->setOrientation(VROConvert::toCameraOrientation([[UIApplication sharedApplication] statusBarOrientation]));
+    if (_arSession) {
+        // the _cameraBackground will be updated if/when the frame is actually set.
+        _arSession->setOrientation(VROConvert::toCameraOrientation([[UIApplication sharedApplication] statusBarOrientation]));
+    }
 }
 
 - (void)applicationWillResignActive:(NSNotification *)notification {
-    _displayLink.paused = YES;
-    _arSession->pause();
+    if (_displayLink) { _displayLink.paused = YES; }
+    if (_arSession) { _arSession->pause(); }
 }
 
 - (void)applicationDidBecomeActive:(NSNotification *)notification {
-    _displayLink.paused = NO;
-    _arSession->run(); 
+    if (_displayLink) { _displayLink.paused = NO; }
+    if (_arSession) { _arSession->run(); }
 }
 
 - (void)setRenderDelegate:(id<VRORenderDelegate>)renderDelegate {
