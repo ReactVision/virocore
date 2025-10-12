@@ -62,8 +62,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        xcode: ["14.2.0", "13.4.1"]
-        macOS: ["macos-12"]
+        xcode: ["16.4"]
+        macOS: ["macos-15"]
     steps:
       - uses: actions/checkout@v4.2.2
       - name: Install gpg
