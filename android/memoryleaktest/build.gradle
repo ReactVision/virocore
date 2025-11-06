@@ -65,7 +65,7 @@ dependencies {
     implementation project(':virocore')
     implementation project(':libs:gvr')
     implementation 'com.google.ar:core:1.45.0'
-    implementation "androidx.appcompat:appcompat:1.0.0"
+    implementation "androidx.appcompat:appcompat:1.7.1"
     implementation "androidx.core:core-ktx:1.8.0"
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:2.0.20"
 }
