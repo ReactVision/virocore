@@ -514,10 +514,22 @@ void VROARSessioniOS::updateAnchorFromNative(std::shared_ptr<VROARAnchor> vAncho
         ARPlaneAnchor *planeAnchor = (ARPlaneAnchor *)anchor;
 
         std::shared_ptr<VROARPlaneAnchor> pAnchor = std::dynamic_pointer_cast<VROARPlaneAnchor>(vAnchor);
-        pAnchor->setCenter(VROConvert::toVector3f(planeAnchor.center));
-        pAnchor->setExtent(VROConvert::toVector3f(planeAnchor.extent));
-        pAnchor->setBoundaryVertices(std::vector<VROVector3f>());
 
+        // Get the anchor's world transform
+        VROMatrix4f worldTransform = VROConvert::toMatrix4f(anchor.transform);
+
+        // ARKit's planeAnchor.center is the plane center in the anchor's local space
+        // To get world coordinates, transform it by the anchor's transform
+        VROVector3f localCenter = VROConvert::toVector3f(planeAnchor.center);
+        VROVector3f worldCenter = worldTransform.multiply(localCenter);
+
+        // Store center in world coordinates (matching Android/Java API expectations)
+        pAnchor->setCenter(worldCenter);
+
+        // Update extent directly from ARKit
+        pAnchor->setExtent(VROConvert::toVector3f(planeAnchor.extent));
+
+        // Update alignment
         if (planeAnchor.alignment == ARPlaneAnchorAlignmentHorizontal) {
             pAnchor->setAlignment(VROARPlaneAlignment::Horizontal);
         }
@@ -526,19 +538,57 @@ void VROARSessioniOS::updateAnchorFromNative(std::shared_ptr<VROARAnchor> vAncho
             if (planeAnchor.alignment == ARPlaneAnchorAlignmentVertical) {
                 pAnchor->setAlignment(VROARPlaneAlignment::Vertical);
             }
+        }
+#endif
+
+        // Update boundary vertices if available
+        // ARKit provides boundary vertices in the plane's coordinate space,
+        // already relative to the plane center. Use them directly.
+        std::vector<VROVector3f> boundaryVertices;
+#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 110300
+        if (@available(iOS 11.3, *)) {
             if (planeAnchor.geometry && planeAnchor.geometry.boundaryVertices && planeAnchor.geometry.boundaryVertexCount > 0) {
-                std::vector<VROVector3f> points;
+                // Reserve space to avoid reallocations
+                boundaryVertices.reserve(planeAnchor.geometry.boundaryVertexCount);
+
+                // Apple documentation: "The boundary vertices are in the plane coordinate space"
+                // Use them directly - they're already relative to the plane center
                 for (int i = 0; i < planeAnchor.geometry.boundaryVertexCount; i++) {
                     vector_float3 vertex = planeAnchor.geometry.boundaryVertices[i];
                     SCNVector3 vector3 = SCNVector3FromFloat3(vertex);
-                    
-                    VROVector3f boundaryVertexFromAnchor = VROVector3f(vector3.x, vector3.y, vector3.z);
-                    VROVector3f boundaryVertexFromCenter = boundaryVertexFromAnchor - pAnchor->getCenter();
-                    points.push_back(boundaryVertexFromCenter);
+
+                    // Use ARKit's vertices directly - no transformation needed
+                    boundaryVertices.push_back(VROVector3f(vector3.x, vector3.y, vector3.z));
                 }
-                pAnchor->setBoundaryVertices(points);
             }
         }
+#endif
+        pAnchor->setBoundaryVertices(std::move(boundaryVertices));
+
+        // Record update for diagnostics
+        pAnchor->recordUpdate(true);
+
+#ifdef VRO_PLANE_PRECISION_DEBUG_LOGGING
+        // PRECISION VALIDATION: Log comparison between ARKit raw data and ViroCore processed data
+        // This helps validate that we're preserving native precision
+        // WARNING: This logging happens on EVERY plane update and can severely impact performance!
+        // Only enable for debugging precision issues.
+        VROVector3f arKitLocalCenter = VROConvert::toVector3f(planeAnchor.center);
+        VROVector3f arKitExtent = VROConvert::toVector3f(planeAnchor.extent);
+        VROVector3f viroWorldCenter = pAnchor->getCenter();
+        VROVector3f viroExtent = pAnchor->getExtent();
+        VROVector3f transformPosition(worldTransform[12], worldTransform[13], worldTransform[14]);
+
+        pinfo("ARKit Plane Precision Check:");
+        pinfo("  ARKit planeAnchor.center (local): (%.6f, %.6f, %.6f)",
+              arKitLocalCenter.x, arKitLocalCenter.y, arKitLocalCenter.z);
+        pinfo("  ARKit anchor.transform position: (%.6f, %.6f, %.6f)",
+              transformPosition.x, transformPosition.y, transformPosition.z);
+        pinfo("  ViroCore center (world): (%.6f, %.6f, %.6f) [should match transform + local]",
+              viroWorldCenter.x, viroWorldCenter.y, viroWorldCenter.z);
+        pinfo("  ARKit extent: (%.6f, %.6f, %.6f)", arKitExtent.x, arKitExtent.y, arKitExtent.z);
+        pinfo("  ViroCore extent: (%.6f, %.6f, %.6f)", viroExtent.x, viroExtent.y, viroExtent.z);
+        pinfo("  Boundary vertices: %d", (int)boundaryVertices.size());
 #endif
     }
     vAnchor->setTransform(VROConvert::toMatrix4f(anchor.transform));
@@ -606,8 +656,26 @@ void VROARSessioniOS::updateAnchor(ARAnchor *anchor) {
     auto it = _nativeAnchorMap.find(std::string([anchor.identifier.UUIDString UTF8String]));
     if (it != _nativeAnchorMap.end()) {
         std::shared_ptr<VROARAnchor> vAnchor = it->second;
-        updateAnchorFromNative(vAnchor, anchor);
-        updateAnchor(it->second);
+
+        // ATOMIC UPDATE: Sync anchor data from ARKit and immediately propagate
+        // This ensures plane properties and transform are always consistent
+        updateAnchorFromNative(vAnchor, anchor);  // Updates plane properties + transform
+        updateAnchor(it->second);                  // Immediately notifies delegates
+
+        // Log diagnostics for plane anchors every 100 updates
+        if ([anchor isKindOfClass:[ARPlaneAnchor class]]) {
+            std::shared_ptr<VROARPlaneAnchor> pAnchor = std::dynamic_pointer_cast<VROARPlaneAnchor>(vAnchor);
+            if (pAnchor && pAnchor->getUpdateCount() % 100 == 0) {
+                pinfo("Plane %s: %u updates, extent: %.3f x %.3f, center: (%.3f, %.3f, %.3f)",
+                      std::string([anchor.identifier.UUIDString UTF8String]).c_str(),
+                      pAnchor->getUpdateCount(),
+                      pAnchor->getExtent().x,
+                      pAnchor->getExtent().z,
+                      pAnchor->getCenter().x,
+                      pAnchor->getCenter().y,
+                      pAnchor->getCenter().z);
+            }
+        }
     } else {
         pinfo("Anchor %@ not found!", anchor.identifier);
     }

@@ -750,8 +750,14 @@ void VROARSessionARCore::processUpdatedAnchors(VROARFrameARCore *frameAR) {
                 if (vAnchor) {
                     std::shared_ptr<VROARPlaneAnchor> vPlane = std::dynamic_pointer_cast<VROARPlaneAnchor>(
                             vAnchor->getTrackable());
-                    syncPlaneWithARCore(vPlane, plane);
-                    vAnchor->sync();
+
+                    // ATOMIC UPDATE: Sync plane data and anchor transform together
+                    // to ensure they're never out of sync
+                    syncPlaneWithARCore(vPlane, plane);  // Updates plane properties
+                    vAnchor->sync();                      // Updates anchor transform to match ARCore anchor
+
+                    // Immediately propagate to application - no delay
+                    // This ensures the app sees consistent plane data + transform
                     updateAnchor(vAnchor);
                 } else {
                     pwarn("Anchor processing error: expected to find a plane");
@@ -936,30 +942,30 @@ std::shared_ptr<VROARAnchorARCore> VROARSessionARCore::getAnchorForTrackable(arc
 
 void VROARSessionARCore::syncPlaneWithARCore(std::shared_ptr<VROARPlaneAnchor> plane,
                                              arcore::Plane *planeAR) {
-    arcore::Pose *pose = _session->createPose();
-    planeAR->getCenterPose(pose);
+    // Get the plane's center pose directly from ARCore
+    // In ARCore, the anchor is created AT the plane's center, so we use
+    // the center pose as the anchor transform directly
+    arcore::Pose *centerPose = _session->createPose();
+    planeAR->getCenterPose(centerPose);
 
-    float newTransformMtx[16];
-    pose->toMatrix(newTransformMtx);
-    VROMatrix4f newTransform(newTransformMtx);
-    VROVector3f newTranslation = newTransform.extractTranslation();
+    float transformMtx[16];
+    centerPose->toMatrix(transformMtx);
 
-    VROMatrix4f oldTransform = plane->getTransform();
-    VROVector3f oldTranslation = oldTransform.extractTranslation();
+    VROMatrix4f transform(transformMtx);
 
-    // Update our plane's transform if it has been previously set.
-    if (!oldTranslation.isEqual(VROVector3f())) {
-        // Calculate our new center.
-        VROVector3f offsetRelativeToPlane = newTranslation - oldTranslation;
-        VROVector3f localCenter = VROVector3f(offsetRelativeToPlane.x, 0.0f, offsetRelativeToPlane.z);
-        plane->setCenter(localCenter);
+    // CRITICAL: Set transform on VROARPlaneAnchor because that's what the app uses!
+    // In Android's dual-anchor architecture, the app gets the VROARPlaneAnchor via
+    // getAnchorForTrackable(), so it needs the transform. We use the plane's current
+    // center pose directly, which updates as the plane grows.
+    plane->setTransform(transform);
 
-        // Calculate the plane's new transform.
-        newTransform.translate(localCenter.scale(-1.0));
-    }
+    // Extract world position as the center (Java API expects world coordinates)
+    VROVector3f worldCenter = transform.extractTranslation();
+    plane->setCenter(worldCenter);
 
-    plane->setTransform(newTransform);
+    delete (centerPose);
 
+    // Update alignment directly from ARCore
     switch (planeAR->getPlaneType()) {
         case arcore::PlaneType::HorizontalUpward :
             plane->setAlignment(VROARPlaneAlignment::HorizontalUpward);
@@ -967,38 +973,67 @@ void VROARSessionARCore::syncPlaneWithARCore(std::shared_ptr<VROARPlaneAnchor> p
         case arcore::PlaneType::HorizontalDownward :
             plane->setAlignment(VROARPlaneAlignment::HorizontalDownward);
             break;
-        case arcore::PlaneType ::Vertical :
+        case arcore::PlaneType::Vertical :
             plane->setAlignment(VROARPlaneAlignment::Vertical);
             break;
         default:
             plane->setAlignment(VROARPlaneAlignment::Horizontal);
     }
 
+    // Update extent directly from ARCore
     float extentX = planeAR->getExtentX();
     float extentZ = planeAR->getExtentZ();
     plane->setExtent(VROVector3f(extentX, 0, extentZ));
 
-    delete (pose);
-
-    // Grab the polygon points from ARCore,
+    // Update boundary vertices directly from ARCore
+    // ARCore provides polygon vertices in plane-local space (relative to center)
     std::vector<VROVector3f> boundaryVertices;
     float* polygonArray = planeAR->getPolygon();
     int polygonArraySize = planeAR->getPolygonSize();
 
     if (polygonArraySize > 0) {
-        // Parse out polygons from the shape.
+        // Reserve space to avoid reallocations
+        boundaryVertices.reserve(polygonArraySize / 2);
+
+        // ARCore polygon is 2D (X, Z pairs), parse directly
+        // Vertices are already in plane-local space relative to center
         for (int i = 0; i < polygonArraySize; i = i + 2) {
-            VROVector3f newPoint;
-            newPoint.x = polygonArray[i];
-            newPoint.y = 0;
-            newPoint.z = polygonArray[i+1];
-            boundaryVertices.push_back(newPoint);
+            VROVector3f vertex;
+            vertex.x = polygonArray[i];
+            vertex.y = 0;  // ARCore polygons are 2D
+            vertex.z = polygonArray[i + 1];
+            boundaryVertices.push_back(vertex);
         }
 
         delete [] polygonArray;
     }
+    plane->setBoundaryVertices(std::move(boundaryVertices));
 
-    plane->setBoundaryVertices(boundaryVertices);
+    // Record that an update occurred (for diagnostics)
+    plane->recordUpdate(true);
+
+#ifdef VRO_PLANE_PRECISION_DEBUG_LOGGING
+    // PRECISION VALIDATION: Log comparison between ARCore raw data and ViroCore processed data
+    // This helps validate that we're preserving native precision
+    // WARNING: This logging happens on EVERY plane update and can severely impact performance!
+    // Only enable for debugging precision issues.
+    VROVector3f viroCenter = plane->getCenter();
+    VROVector3f viroExtent = plane->getExtent();
+    VROVector3f arcoreWorldCenter = transform.extractTranslation();
+    VROMatrix4f viroTransform = plane->getTransform();
+    VROVector3f viroTransformPosition = viroTransform.extractTranslation();
+
+    pinfo("ARCore Plane Precision Check:");
+    pinfo("  ARCore center pose (world): (%.6f, %.6f, %.6f)",
+          arcoreWorldCenter.x, arcoreWorldCenter.y, arcoreWorldCenter.z);
+    pinfo("  ViroCore plane.center (world): (%.6f, %.6f, %.6f) [should match ARCore]",
+          viroCenter.x, viroCenter.y, viroCenter.z);
+    pinfo("  ViroCore plane.transform position: (%.6f, %.6f, %.6f) [should match center]",
+          viroTransformPosition.x, viroTransformPosition.y, viroTransformPosition.z);
+    pinfo("  ARCore extent: %.6f x %.6f", extentX, extentZ);
+    pinfo("  ViroCore extent: (%.6f, %.6f, %.6f)", viroExtent.x, viroExtent.y, viroExtent.z);
+    pinfo("  Boundary vertices: %d", (int)boundaryVertices.size());
+#endif
 }
 
 void VROARSessionARCore::syncImageAnchorWithARCore(std::shared_ptr<VROARImageAnchor> imageAnchor,
