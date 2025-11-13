@@ -910,6 +910,7 @@
 		A5EC65B61EBFF57B00FE220E /* VROPhysicsBody.cpp in Sources */ = {isa = PBXBuildFile; fileRef = A5EC65B31EBFF42100FE220E /* VROPhysicsBody.cpp */; };
 		A5EC65B71EBFF5A100FE220E /* VROPhysicsBody.h in Headers */ = {isa = PBXBuildFile; fileRef = A5EC65B41EBFF42100FE220E /* VROPhysicsBody.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		A5EC65B81EC004E100FE220E /* VROPhysicsShape.h in Headers */ = {isa = PBXBuildFile; fileRef = A5EC65941EBD16F000FE220E /* VROPhysicsShape.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		E12582562EC58CC0000722C2 /* VROVector2f.h in Headers */ = {isa = PBXBuildFile; fileRef = E12582552EC58CC0000722C2 /* VROVector2f.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		EAD7E32D2DFA518AEAAB48C2 /* (null) in Frameworks */ = {isa = PBXBuildFile; };
 /* End PBXBuildFile section */
 
@@ -1897,6 +1898,7 @@
 		A5EC65961EBD16F000FE220E /* VROPhysicsWorld.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = VROPhysicsWorld.h; sourceTree = "<group>"; };
 		A5EC65B31EBFF42100FE220E /* VROPhysicsBody.cpp */ = {isa = PBXFileReference; explicitFileType = sourcecode.cpp.objcpp; fileEncoding = 4; path = VROPhysicsBody.cpp; sourceTree = "<group>"; };
 		A5EC65B41EBFF42100FE220E /* VROPhysicsBody.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = VROPhysicsBody.h; sourceTree = "<group>"; };
+		E12582552EC58CC0000722C2 /* VROVector2f.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VROVector2f.h; sourceTree = "<group>"; };
 		E7A7748CC8659A11C76D30F3 /* Pods_ViroSample.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_ViroSample.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -2395,6 +2397,7 @@
 				8F39A31A1EA57FDB001125FC /* VROFrustumBoxIntersectionMetadata.cpp */,
 				8F4DCE261BF7ED1A00061DD7 /* VROBoundingBox.h */,
 				8F4DCE251BF7ED1A00061DD7 /* VROBoundingBox.cpp */,
+				E12582552EC58CC0000722C2 /* VROVector2f.h */,
 				8F1071E81BF7D9C5003B3C3F /* VROVector3f.h */,
 				8F1071E71BF7D9C5003B3C3F /* VROVector3f.cpp */,
 				8F152A6E1C0D77AA00A211F8 /* VROVector4f.h */,
@@ -3432,6 +3435,7 @@
 				8F2D1BB41EC3785C00E7BF44 /* VROBone.h in Headers */,
 				8F0E5EA91F3BB81A0007AD03 /* VRODisplayOpenGL.h in Headers */,
 				8FDDB49D1DADB8C200DE0968 /* VROLightingUBO.h in Headers */,
+				E12582562EC58CC0000722C2 /* VROVector2f.h in Headers */,
 				8FAE504822298DCD0043220B /* VROPoseFilterEuro.h in Headers */,
 				8FA9D6CD222621DE0003C9D2 /* VROPoseFilterMovingAverage.h in Headers */,
 				8FD2A5461F813C4100E831A6 /* VROARPlaneTest.h in Headers */,
