@@ -63,9 +63,11 @@ VRO_OBJECT ARUtilsCreateJavaARAnchorFromAnchor(std::shared_ptr<VROARAnchor> anch
         /*
          ARPlaneAnchor's constructor has the following args:
          String anchorId, String type, float[] position, float[] rotation,
-         float[] scale, String alignment, float[] extent, float[] center
+         float[] scale, String alignment, float[] extent, float[] center,
+         float[] boundaryVertices, String classification
          */
         VRO_STRING alignment = ARUtilsCreateStringFromAlignment(plane->getAlignment());
+        VRO_STRING classification = ARUtilsCreateStringFromClassification(plane->getClassification());
         VRO_FLOAT_ARRAY extentArray = ARUtilsCreateFloatArrayFromVector3f(plane->getExtent());
         VRO_FLOAT_ARRAY centerArray = ARUtilsCreateFloatArrayFromVector3f(plane->getCenter());
         VRO_FLOAT_ARRAY polygonPointsArray = ARUtilsCreatePointsArray(plane->getBoundaryVertices());
@@ -73,10 +75,10 @@ VRO_OBJECT ARUtilsCreateJavaARAnchorFromAnchor(std::shared_ptr<VROARAnchor> anch
         const char *typeArr = "plane";
         VRO_STRING type = VRO_NEW_STRING(typeArr);
 
-        return VROPlatformConstructHostObject("com/viro/core/ARPlaneAnchor", "(Ljava/lang/String;Ljava/lang/String;[F[F[FLjava/lang/String;[F[F[F)V",
+        return VROPlatformConstructHostObject("com/viro/core/ARPlaneAnchor", "(Ljava/lang/String;Ljava/lang/String;[F[F[FLjava/lang/String;[F[F[FLjava/lang/String;)V",
                                               anchorId, type, positionArray, rotationArray,
                                               scaleArray, alignment, extentArray, centerArray,
-                                              polygonPointsArray);
+                                              polygonPointsArray, classification);
     }
 
     // Create an ARImageAnchor in necessary and return.
@@ -134,6 +136,42 @@ VRO_STRING ARUtilsCreateStringFromAlignment(VROARPlaneAlignment alignment) {
     }
     else {
         strArr = "Vertical";
+    }
+    return VRO_NEW_STRING(strArr);
+}
+
+VRO_STRING ARUtilsCreateStringFromClassification(VROARPlaneClassification classification) {
+    VRO_ENV env = VROPlatformGetJNIEnv();
+    const char *strArr;
+    switch (classification) {
+        case VROARPlaneClassification::Wall:
+            strArr = "Wall";
+            break;
+        case VROARPlaneClassification::Floor:
+            strArr = "Floor";
+            break;
+        case VROARPlaneClassification::Ceiling:
+            strArr = "Ceiling";
+            break;
+        case VROARPlaneClassification::Table:
+            strArr = "Table";
+            break;
+        case VROARPlaneClassification::Seat:
+            strArr = "Seat";
+            break;
+        case VROARPlaneClassification::Door:
+            strArr = "Door";
+            break;
+        case VROARPlaneClassification::Window:
+            strArr = "Window";
+            break;
+        case VROARPlaneClassification::Unknown:
+            strArr = "Unknown";
+            break;
+        case VROARPlaneClassification::None:
+        default:
+            strArr = "None";
+            break;
     }
     return VRO_NEW_STRING(strArr);
 }

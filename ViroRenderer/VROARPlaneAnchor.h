@@ -29,6 +29,7 @@
 
 #include "VROARAnchor.h"
 #include "VROVector3f.h"
+#include "VROVector2f.h"
 #include <chrono>
 
 /*
@@ -46,6 +47,22 @@ enum class VROARPlaneAlignment {
     HorizontalUpward = 0x11,
     HorizontalDownward = 0x101,
     Vertical = 0x10,
+};
+
+/*
+ Classification of detected planes (iOS 12+, ARCore semantic labels).
+ Indicates the semantic meaning of a detected plane.
+ */
+enum class VROARPlaneClassification {
+    None,
+    Wall,
+    Floor,
+    Ceiling,
+    Table,
+    Seat,
+    Door,
+    Window,
+    Unknown
 };
 
 /*
@@ -98,6 +115,43 @@ public:
 
     std::vector<VROVector3f> getBoundaryVertices() {
         return  _boundaryVertices;
+    }
+
+    /*
+     Full mesh geometry (iOS 11.3+ only - ARSCNPlaneGeometry equivalent).
+     Provides detailed tessellated surface representation beyond just boundary.
+     On Android/ARCore, these will be empty as ARCore only provides boundaries.
+     */
+    void setMeshVertices(std::vector<VROVector3f> vertices) {
+        _meshVertices = std::move(vertices);
+    }
+    std::vector<VROVector3f> getMeshVertices() const {
+        return _meshVertices;
+    }
+
+    void setTextureCoordinates(std::vector<VROVector2f> uvs) {
+        _textureCoordinates = std::move(uvs);
+    }
+    std::vector<VROVector2f> getTextureCoordinates() const {
+        return _textureCoordinates;
+    }
+
+    void setTriangleIndices(std::vector<int> indices) {
+        _triangleIndices = std::move(indices);
+    }
+    std::vector<int> getTriangleIndices() const {
+        return _triangleIndices;
+    }
+
+    /*
+     Plane classification (iOS 12+, ARCore semantic labels).
+     Indicates what type of surface this plane represents.
+     */
+    void setClassification(VROARPlaneClassification classification) {
+        _classification = classification;
+    }
+    VROARPlaneClassification getClassification() const {
+        return _classification;
     }
 
     /*
@@ -218,6 +272,20 @@ private:
      A vector of points representing the vertex boundaries of this plane, if any.
      */
     std::vector<VROVector3f> _boundaryVertices;
+
+    /*
+     Full mesh geometry (iOS 11.3+ only).
+     Detailed tessellated mesh from ARSCNPlaneGeometry.
+     Empty on Android as ARCore only provides boundary polygon.
+     */
+    std::vector<VROVector3f> _meshVertices;
+    std::vector<VROVector2f> _textureCoordinates;
+    std::vector<int> _triangleIndices;
+
+    /*
+     Plane classification (iOS 12+, ARCore semantic labels).
+     */
+    VROARPlaneClassification _classification = VROARPlaneClassification::None;
 
     /*
      Update tracking and throttling.

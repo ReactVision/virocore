@@ -35,6 +35,7 @@ class VROARHitTestResultARCore;
 // Helper functions to create Java AR objects from native their representations
 VRO_OBJECT ARUtilsCreateJavaARAnchorFromAnchor(std::shared_ptr<VROARAnchor> anchor);
 VRO_STRING ARUtilsCreateStringFromAlignment(VROARPlaneAlignment alignment);
+VRO_STRING ARUtilsCreateStringFromClassification(VROARPlaneClassification classification);
 VRO_OBJECT ARUtilsCreateARHitTestResult(std::shared_ptr<VROARHitTestResult> result);
 VRO_OBJECT ARUtilsCreateARPointCloud(std::shared_ptr<VROARPointCloud> pointCloud);
 

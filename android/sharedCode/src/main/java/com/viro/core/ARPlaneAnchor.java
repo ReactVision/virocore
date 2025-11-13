@@ -84,7 +84,84 @@ public class ARPlaneAnchor extends ARAnchor {
         }
     };
 
+    /**
+     * Specifies the semantic classification of the ARPlaneAnchor.
+     * iOS 12+ provides ML-based classification. On Android, basic inference from plane orientation.
+     */
+    public enum Classification {
+        /**
+         * No classification available.
+         */
+        NONE("None"),
+
+        /**
+         * The plane is classified as a wall.
+         */
+        WALL("Wall"),
+
+        /**
+         * The plane is classified as a floor.
+         */
+        FLOOR("Floor"),
+
+        /**
+         * The plane is classified as a ceiling.
+         */
+        CEILING("Ceiling"),
+
+        /**
+         * The plane is classified as a table.
+         */
+        TABLE("Table"),
+
+        /**
+         * The plane is classified as a seat.
+         */
+        SEAT("Seat"),
+
+        /**
+         * The plane is classified as a door.
+         */
+        DOOR("Door"),
+
+        /**
+         * The plane is classified as a window.
+         */
+        WINDOW("Window"),
+
+        /**
+         * The plane classification is unknown.
+         */
+        UNKNOWN("Unknown");
+
+        private String mStringValue;
+        private Classification(String value) {
+            this.mStringValue = value;
+        }
+        /**
+         * @hide
+         */
+        public String getStringValue() {
+            return mStringValue;
+        }
+
+        private static Map<String, Classification> map = new HashMap<String, Classification>();
+        static {
+            for (Classification value : Classification.values()) {
+                map.put(value.getStringValue().toLowerCase(), value);
+            }
+        }
+        /**
+         * @hide
+         */
+        public static Classification valueFromString(String str) {
+            Classification result = map.get(str.toLowerCase());
+            return result != null ? result : UNKNOWN;
+        }
+    };
+
     private Alignment mAlignment;
+    private Classification mClassification;
     private Vector mExtent;
     private Vector mCenter;
     private ArrayList<Vector> mVertices;
@@ -101,9 +178,11 @@ public class ARPlaneAnchor extends ARAnchor {
                   String alignment,
                   float[] extent,
                   float[] center,
-                  float[] boundaryVerticesArray) {
+                  float[] boundaryVerticesArray,
+                  String classification) {
         super(anchorId, null, type, position, rotation, scale);
         mAlignment = Alignment.valueFromString(alignment);
+        mClassification = Classification.valueFromString(classification);
         mExtent = new Vector(extent);
         mCenter = new Vector(center);
         mVertices = new ArrayList<Vector>();
@@ -124,6 +203,17 @@ public class ARPlaneAnchor extends ARAnchor {
      */
     public Alignment getAlignment() {
         return mAlignment;
+    }
+
+    /**
+     * Get the semantic {@link Classification} of the plane.
+     * On iOS 12+, this uses ARKit's machine learning classification.
+     * On Android, basic inference from plane orientation (Floor, Ceiling, Wall).
+     *
+     * @return The Classification of the plane.
+     */
+    public Classification getClassification() {
+        return mClassification;
     }
 
     /**
