@@ -269,7 +269,7 @@ bool VROARSessioniOS::setAnchorDetection(std::set<VROAnchorDetection> types) {
                 detectionTypes = detectionTypes | ARPlaneDetectionHorizontal;
             }
 #if __IPHONE_OS_VERSION_MAX_ALLOWED >= 110300
-            else if (@available(iOS 11.3, *)) {
+            if (@available(iOS 11.3, *)) {
                 if (types.find(VROAnchorDetection::PlanesVertical) != types.end()) {
                     detectionTypes = detectionTypes | ARPlaneDetectionVertical;
                 }
@@ -564,6 +564,91 @@ void VROARSessioniOS::updateAnchorFromNative(std::shared_ptr<VROARAnchor> vAncho
         }
 #endif
         pAnchor->setBoundaryVertices(std::move(boundaryVertices));
+
+        // Extract full mesh geometry (iOS 11.3+)
+        // This provides detailed tessellated surface beyond just boundary
+#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 110300
+        if (@available(iOS 11.3, *)) {
+            if (planeAnchor.geometry) {
+                ARPlaneGeometry *geometry = planeAnchor.geometry;
+
+                // Extract mesh vertices (3D positions)
+                std::vector<VROVector3f> meshVertices;
+                if (geometry.vertices && geometry.vertexCount > 0) {
+                    meshVertices.reserve(geometry.vertexCount);
+                    for (int i = 0; i < geometry.vertexCount; i++) {
+                        vector_float3 vertex = geometry.vertices[i];
+                        meshVertices.push_back(VROVector3f(vertex.x, vertex.y, vertex.z));
+                    }
+                }
+                pAnchor->setMeshVertices(std::move(meshVertices));
+
+                // Extract texture coordinates
+                std::vector<VROVector2f> textureCoordinates;
+                if (geometry.textureCoordinates && geometry.textureCoordinateCount > 0) {
+                    textureCoordinates.reserve(geometry.textureCoordinateCount);
+                    for (int i = 0; i < geometry.textureCoordinateCount; i++) {
+                        vector_float2 uv = geometry.textureCoordinates[i];
+                        textureCoordinates.push_back(VROVector2f(uv.x, uv.y));
+                    }
+                }
+                pAnchor->setTextureCoordinates(std::move(textureCoordinates));
+
+                // Extract triangle indices
+                std::vector<int> triangleIndices;
+                if (geometry.triangleIndices && geometry.triangleCount > 0) {
+                    triangleIndices.reserve(geometry.triangleCount * 3);
+                    for (int i = 0; i < geometry.triangleCount * 3; i++) {
+                        triangleIndices.push_back(geometry.triangleIndices[i]);
+                    }
+                }
+                pAnchor->setTriangleIndices(std::move(triangleIndices));
+            }
+        }
+#endif
+
+        // Extract plane classification (iOS 12+)
+#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 120000
+        if (@available(iOS 12.0, *)) {
+            VROARPlaneClassification classification = VROARPlaneClassification::None;
+            switch (planeAnchor.classification) {
+                case ARPlaneClassificationWall:
+                    classification = VROARPlaneClassification::Wall;
+                    break;
+                case ARPlaneClassificationFloor:
+                    classification = VROARPlaneClassification::Floor;
+                    break;
+                case ARPlaneClassificationCeiling:
+                    classification = VROARPlaneClassification::Ceiling;
+                    break;
+                case ARPlaneClassificationTable:
+                    classification = VROARPlaneClassification::Table;
+                    break;
+                case ARPlaneClassificationSeat:
+                    classification = VROARPlaneClassification::Seat;
+                    break;
+#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 130000
+                case ARPlaneClassificationDoor:
+                    if (@available(iOS 13.0, *)) {
+                        classification = VROARPlaneClassification::Door;
+                    }
+                    break;
+                case ARPlaneClassificationWindow:
+                    if (@available(iOS 13.0, *)) {
+                        classification = VROARPlaneClassification::Window;
+                    }
+                    break;
+#endif
+                case ARPlaneClassificationNone:
+                    classification = VROARPlaneClassification::Unknown;
+                    break;
+                default:
+                    classification = VROARPlaneClassification::Unknown;
+                    break;
+            }
+            pAnchor->setClassification(classification);
+        }
+#endif
 
         // Record update for diagnostics
         pAnchor->recordUpdate(true);

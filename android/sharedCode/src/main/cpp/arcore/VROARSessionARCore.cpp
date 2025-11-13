@@ -1009,6 +1009,29 @@ void VROARSessionARCore::syncPlaneWithARCore(std::shared_ptr<VROARPlaneAnchor> p
     }
     plane->setBoundaryVertices(std::move(boundaryVertices));
 
+    // Infer basic plane classification from PlaneType
+    // Note: ARCore's semantic labels are not exposed in this API wrapper,
+    // so we use heuristics based on plane orientation
+    VROARPlaneClassification classification = VROARPlaneClassification::Unknown;
+    switch (planeAR->getPlaneType()) {
+        case arcore::PlaneType::HorizontalUpward:
+            // Upward-facing horizontal planes are typically floors/ground
+            classification = VROARPlaneClassification::Floor;
+            break;
+        case arcore::PlaneType::HorizontalDownward:
+            // Downward-facing horizontal planes are typically ceilings
+            classification = VROARPlaneClassification::Ceiling;
+            break;
+        case arcore::PlaneType::Vertical:
+            // Vertical planes are typically walls (could also be doors/windows but we can't distinguish)
+            classification = VROARPlaneClassification::Wall;
+            break;
+        default:
+            classification = VROARPlaneClassification::Unknown;
+            break;
+    }
+    plane->setClassification(classification);
+
     // Record that an update occurred (for diagnostics)
     plane->recordUpdate(true);
 
