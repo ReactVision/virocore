@@ -91,29 +91,22 @@ void VROARConstraintMatcher::detachAllNodes(std::vector<std::shared_ptr<VROARDec
 #pragma mark - Forwarded ARSessionDelegate callbacks from ARScene
 
 void VROARConstraintMatcher::anchorWasDetected(std::shared_ptr<VROARAnchor> anchor) {
-    pinfo("[ViroAR DEBUG] ConstraintMatcher: anchorWasDetected %s", anchor->getId().c_str());
     _nativeAnchorMap[anchor->getId()] = anchor;
     processDetachedAnchor(anchor);
 }
 
 void VROARConstraintMatcher::anchorDidUpdate(std::shared_ptr<VROARAnchor> anchor) {
-    pinfo("[ViroAR DEBUG] ConstraintMatcher: anchorDidUpdate %s", anchor->getId().c_str());
     std::shared_ptr<VROARDeclarativeNode> arNode = std::dynamic_pointer_cast<VROARDeclarativeNode>(anchor->getARNode());
     if (arNode) {
-        pinfo("[ViroAR DEBUG] Anchor has attached ARNode, checking requirements...");
         if (arNode->hasRequirementsFulfilled(anchor)) {
-            pinfo("[ViroAR DEBUG] Requirements fulfilled, calling onARAnchorUpdated");
             arNode->onARAnchorUpdated();
             return;
         }
-        pinfo("[ViroAR DEBUG] Requirements NOT fulfilled, detaching node");
         // if the updated anchor doesn't fulfill the node's requirement, notify that it was removed
         // before attempting to reattach it to another anchor.
         arNode->onARAnchorRemoved();
         arNode->setAnchor(nullptr);
         processDetachedNode(arNode);
-    } else {
-        pinfo("[ViroAR DEBUG] Anchor has no attached ARNode");
     }
     processDetachedAnchor(anchor);
 }
@@ -199,52 +192,39 @@ void VROARConstraintMatcher::processDetachedNode(std::shared_ptr<VROARDeclarativ
 }
 
 void VROARConstraintMatcher::processDetachedAnchor(std::shared_ptr<VROARAnchor> anchor) {
-    pinfo("[ViroAR DEBUG] ConstraintMatcher: processDetachedAnchor for %s", anchor->getId().c_str());
     // before we process, we need to remove the node from any list it might be in, because
     // if we fail, then we'll accidentally add it back in again!
     removeFromDetachedList(anchor);
 
     std::shared_ptr<VROARDeclarativeNode> node = findDetachedNode(anchor);
     if (node) {
-        pinfo("[ViroAR DEBUG] Found matching detached node, attaching...");
         removeFromDetachedList(node);
         attachNodeToAnchor(node, anchor);
     } else {
-        pinfo("[ViroAR DEBUG] No matching detached node found, adding anchor to detached list");
         _detachedAnchors.push_back(anchor);
     }
 }
 
 std::shared_ptr<VROARDeclarativeNode> VROARConstraintMatcher::findDetachedNode(std::shared_ptr<VROARAnchor> anchor) {
-    pinfo("[ViroAR DEBUG] ConstraintMatcher: findDetachedNode - checking %zu nodes with ID, %zu nodes without ID",
-          _detachedNodesWithID.size(), _detachedNodes.size());
-
     std::vector<std::shared_ptr<VROARDeclarativeNode>>::iterator it;
     // first check the nodes with ID!
     for (it = _detachedNodesWithID.begin(); it < _detachedNodesWithID.end(); it++) {
         std::shared_ptr<VROARDeclarativeNode> candidate = *it;
-        pinfo("[ViroAR DEBUG] Checking node with ID: %s against anchor ID: %s",
-              candidate->getAnchorId().c_str(), anchor->getId().c_str());
         if (candidate->getAnchorId() == anchor->getId()) {
-            pinfo("[ViroAR DEBUG] ID match found!");
             return candidate;
         }
     }
 
     for (it = _detachedNodes.begin(); it < _detachedNodes.end(); it++) {
         std::shared_ptr<VROARDeclarativeNode> candidate = *it;
-        pinfo("[ViroAR DEBUG] Checking if node fulfills requirements...");
         if (candidate->hasRequirementsFulfilled(anchor)) {
-            pinfo("[ViroAR DEBUG] Requirements match found!");
             return candidate;
         }
     }
-    pinfo("[ViroAR DEBUG] No matching node found");
     return nullptr;
 }
 
 void VROARConstraintMatcher::attachNodeToAnchor(std::shared_ptr<VROARDeclarativeNode> node, std::shared_ptr<VROARAnchor> anchor) {
-    pinfo("[ViroAR DEBUG] ConstraintMatcher: Attaching node to anchor %s", anchor->getId().c_str());
     anchor->setARNode(node);
     node->setAnchor(anchor);
     node->onARAnchorAttached();
