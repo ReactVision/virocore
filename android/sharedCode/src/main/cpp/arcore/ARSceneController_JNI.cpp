@@ -168,24 +168,40 @@ VRO_METHOD(void, nativeSetPointCloudMaxPoints)(VRO_ARGS
 VRO_METHOD(void, nativeSetAnchorDetectionTypes)(VRO_ARGS
                                                 VRO_REF(VROARSceneController) sceneRef,
                                                 VRO_STRING_ARRAY typeStrArray) {
+    // DEBUG LOGGING - START
+    pinfo("=== JNI setAnchorDetectionTypes called ===");
+    // DEBUG LOGGING - END
+
     std::weak_ptr<VROARScene> arScene_w = std::dynamic_pointer_cast<VROARScene>(
             VRO_REF_GET(VROARSceneController, sceneRef)->getScene());
     std::set<VROAnchorDetection> types;
 
     int stringCount = VRO_ARRAY_LENGTH(typeStrArray);
+    pinfo("  String count: %d", stringCount); // DEBUG
+
     for (int i = 0; i < stringCount; i++) {
         std::string typeString = VRO_STRING_STL(VRO_STRING_ARRAY_GET(typeStrArray, i));
+        pinfo("  String[%d]: %s", i, typeString.c_str()); // DEBUG
+
         if (VROStringUtil::strcmpinsensitive(typeString, "PlanesHorizontal")) {
+            pinfo("    -> Matched PlanesHorizontal"); // DEBUG
             types.insert(VROAnchorDetection::PlanesHorizontal);
         } else if (VROStringUtil::strcmpinsensitive(typeString, "PlanesVertical")) {
+            pinfo("    -> Matched PlanesVertical"); // DEBUG
             types.insert(VROAnchorDetection::PlanesVertical);
+        } else {
+            pwarn("    -> NO MATCH for: %s", typeString.c_str()); // DEBUG
         }
     }
+
+    pinfo("  Final types set size: %d", (int)types.size()); // DEBUG
 
     VROPlatformDispatchAsyncRenderer([arScene_w, types] {
         std::shared_ptr<VROARScene> arScene = arScene_w.lock();
         if (arScene) {
             arScene->setAnchorDetectionTypes(types);
+        } else {
+            pwarn("  ARScene was null when trying to set detection types!"); // DEBUG
         }
     });
 

@@ -75,10 +75,21 @@ std::shared_ptr<VROARSessionDelegate> VROARScene::getSessionDelegate() {
 }
 
 void VROARScene::setAnchorDetectionTypes(std::set<VROAnchorDetection> detectionTypes) {
+    // DEBUG LOGGING - START
+    pinfo("=== VROARScene::setAnchorDetectionTypes called ===");
+    pinfo("  Detection types count: %d", (int)detectionTypes.size());
+    for (auto type : detectionTypes) {
+        pinfo("    Type: %d", (int)type);
+    }
+    // DEBUG LOGGING - END
+
     _detectionTypes = detectionTypes;
     std::shared_ptr<VROARSession> arSession = _arSession.lock();
     if (arSession) {
+        pinfo("  ARSession EXISTS - calling setAnchorDetection"); // DEBUG
         arSession->setAnchorDetection(_detectionTypes);
+    } else {
+        pwarn("  ARSession is NULL - detection types stored but not applied!"); // DEBUG
     }
 }
 
@@ -87,6 +98,14 @@ void VROARScene::addNode(std::shared_ptr<VRONode> node) {
 }
 
 void VROARScene::setARSession(std::shared_ptr<VROARSession> arSession) {
+    // DEBUG LOGGING - START
+    pinfo("=== VROARScene::setARSession called ===");
+    pinfo("  Current _detectionTypes count: %d", (int)_detectionTypes.size());
+    for (auto type : _detectionTypes) {
+        pinfo("    Stored type: %d", (int)type);
+    }
+    // DEBUG LOGGING - END
+
     _arSession = arSession;
 
     // If there wasn't already a emitter, then reset _displayPointCloud
@@ -102,6 +121,7 @@ void VROARScene::setARSession(std::shared_ptr<VROARSession> arSession) {
         _imperativeSession->setARSession(arSession);
     }
 
+    pinfo("  Applying stored detection types to ARSession"); // DEBUG
     arSession->setAnchorDetection(_detectionTypes);
 }
 
