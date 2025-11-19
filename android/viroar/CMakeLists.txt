@@ -33,4 +33,5 @@ TARGET_LINK_LIBRARIES(# Specifies the target library.
                       lib-arcore
                       ${lib-log}
                       ${lib-mediandk}
+                      "-Wl,-z,max-page-size=16384"
                       )

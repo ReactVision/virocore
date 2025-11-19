@@ -803,18 +803,23 @@ namespace arcore {
         switch (planeFindingMode) {
             case PlaneFindingMode::Disabled:
                 arPlaneFindingMode = AR_PLANE_FINDING_MODE_DISABLED;
+                __android_log_print(ANDROID_LOG_INFO, "ViroARCore", "Setting ARCore plane mode: DISABLED");
                 break;
             case PlaneFindingMode::Horizontal:
                 arPlaneFindingMode = AR_PLANE_FINDING_MODE_HORIZONTAL;
+                __android_log_print(ANDROID_LOG_INFO, "ViroARCore", "Setting ARCore plane mode: HORIZONTAL");
                 break;
             case PlaneFindingMode::HorizontalAndVertical:
                 arPlaneFindingMode = AR_PLANE_FINDING_MODE_HORIZONTAL_AND_VERTICAL;
+                __android_log_print(ANDROID_LOG_INFO, "ViroARCore", "Setting ARCore plane mode: HORIZONTAL_AND_VERTICAL");
                 break;
             case PlaneFindingMode::Vertical:
                 arPlaneFindingMode = AR_PLANE_FINDING_MODE_VERTICAL;
+                __android_log_print(ANDROID_LOG_INFO, "ViroARCore", "Setting ARCore plane mode: VERTICAL");
                 break;
         }
         ArConfig_setPlaneFindingMode(_session, config, arPlaneFindingMode);
+        __android_log_print(ANDROID_LOG_INFO, "ViroARCore", "ArConfig_setPlaneFindingMode called with mode: %d", arPlaneFindingMode);
 
         // Set update mode
         ArUpdateMode arUpdateMode;

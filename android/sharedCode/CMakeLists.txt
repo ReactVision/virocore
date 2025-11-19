@@ -467,4 +467,5 @@ target_link_libraries( # Specifies the target library.
 
                        cpufeatures
                        ${lib-z}
+                       "-Wl,-z,max-page-size=16384"
         )
