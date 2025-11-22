@@ -780,7 +780,8 @@ namespace arcore {
 
     Config *
     SessionNative::createConfig(LightingMode lightingMode, PlaneFindingMode planeFindingMode,
-                                UpdateMode updateMode, CloudAnchorMode cloudAnchorMode, FocusMode focusMode) {
+                                UpdateMode updateMode, CloudAnchorMode cloudAnchorMode, FocusMode focusMode,
+                                DepthMode depthMode, SemanticMode semanticMode) {
         ArConfig *config;
         ArConfig_create(_session, &config);
 
@@ -789,10 +790,17 @@ namespace arcore {
         switch (lightingMode) {
             case LightingMode::Disabled: {
                 arLightingMode = AR_LIGHT_ESTIMATION_MODE_DISABLED;
+                __android_log_print(ANDROID_LOG_INFO, "ViroARCore", "Setting ARCore lighting mode: DISABLED");
                 break;
             }
             case LightingMode::AmbientIntensity: {
                 arLightingMode = AR_LIGHT_ESTIMATION_MODE_AMBIENT_INTENSITY;
+                __android_log_print(ANDROID_LOG_INFO, "ViroARCore", "Setting ARCore lighting mode: AMBIENT_INTENSITY");
+                break;
+            }
+            case LightingMode::EnvironmentalHDR: {
+                arLightingMode = AR_LIGHT_ESTIMATION_MODE_ENVIRONMENTAL_HDR;
+                __android_log_print(ANDROID_LOG_INFO, "ViroARCore", "Setting ARCore lighting mode: ENVIRONMENTAL_HDR");
                 break;
             }
         }
@@ -858,7 +866,64 @@ namespace arcore {
                 break;
         }
         ArConfig_setFocusMode(_session, config, arFocusMode);
+
+        // Set depth mode (ARCore 1.8+)
+        ArDepthMode arDepthMode;
+        switch (depthMode) {
+            case DepthMode::Disabled:
+                arDepthMode = AR_DEPTH_MODE_DISABLED;
+                __android_log_print(ANDROID_LOG_INFO, "ViroARCore", "Setting ARCore depth mode: DISABLED");
+                break;
+            case DepthMode::Automatic:
+                arDepthMode = AR_DEPTH_MODE_AUTOMATIC;
+                __android_log_print(ANDROID_LOG_INFO, "ViroARCore", "Setting ARCore depth mode: AUTOMATIC");
+                break;
+            case DepthMode::RawDepthOnly:
+                arDepthMode = AR_DEPTH_MODE_RAW_DEPTH_ONLY;
+                __android_log_print(ANDROID_LOG_INFO, "ViroARCore", "Setting ARCore depth mode: RAW_DEPTH_ONLY");
+                break;
+        }
+        ArConfig_setDepthMode(_session, config, arDepthMode);
+
+        // Set semantic mode (ARCore 1.20+)
+        ArSemanticMode arSemanticMode;
+        switch (semanticMode) {
+            case SemanticMode::Disabled:
+                arSemanticMode = AR_SEMANTIC_MODE_DISABLED;
+                __android_log_print(ANDROID_LOG_INFO, "ViroARCore", "Setting ARCore semantic mode: DISABLED");
+                break;
+            case SemanticMode::Enabled:
+                arSemanticMode = AR_SEMANTIC_MODE_ENABLED;
+                __android_log_print(ANDROID_LOG_INFO, "ViroARCore", "Setting ARCore semantic mode: ENABLED");
+                break;
+        }
+        ArConfig_setSemanticMode(_session, config, arSemanticMode);
+
         return new ConfigNative(config);
+    }
+
+    bool SessionNative::isDepthModeSupported(DepthMode depthMode) {
+        ArDepthMode arDepthMode;
+        switch (depthMode) {
+            case DepthMode::Disabled:
+                return true;  // Always supported
+            case DepthMode::Automatic:
+                arDepthMode = AR_DEPTH_MODE_AUTOMATIC;
+                break;
+            case DepthMode::RawDepthOnly:
+                arDepthMode = AR_DEPTH_MODE_RAW_DEPTH_ONLY;
+                break;
+        }
+
+        int32_t isSupported = 0;
+        ArSession_isDepthModeSupported(_session, arDepthMode, &isSupported);
+
+        __android_log_print(ANDROID_LOG_INFO, "ViroARCore",
+                          "Depth mode %d supported: %s",
+                          (int)depthMode,
+                          isSupported ? "YES" : "NO");
+
+        return isSupported != 0;
     }
 
     AugmentedImageDatabase *SessionNative::createAugmentedImageDatabase() {

@@ -234,7 +234,8 @@ namespace arcore {
 
         virtual Config *createConfig(LightingMode lightingMode, PlaneFindingMode planeFindingMode,
                                      UpdateMode updateMode, CloudAnchorMode cloudAnchorMode,
-                                     FocusMode focusMode);
+                                     FocusMode focusMode, DepthMode depthMode, SemanticMode semanticMode);
+        virtual bool isDepthModeSupported(DepthMode depthMode);
         virtual AugmentedImageDatabase *createAugmentedImageDatabase();
         virtual AugmentedImageDatabase *createAugmentedImageDatabase(uint8_t* raw_buffer, int64_t size);
         virtual Pose *createPose();

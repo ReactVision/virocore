@@ -44,13 +44,20 @@
 
 static bool kDebugTracking = false;
 
+// Minimum plane size filter to prevent small artifacts from being detected
+// Planes smaller than this threshold will be ignored
+static const float kMinPlaneExtent = 0.10f;  // 10cm minimum size in any dimension
+
 VROARSessionARCore::VROARSessionARCore(std::shared_ptr<VRODriverOpenGL> driver)
     : VROARSession(VROTrackingType::DOF6, VROWorldAlignment::Gravity),
-      _lightingMode(arcore::LightingMode::AmbientIntensity),
+      _lightingMode(arcore::LightingMode::EnvironmentalHDR),
       _planeFindingMode(arcore::PlaneFindingMode::Horizontal),
       _updateMode(arcore::UpdateMode::Blocking),
       _cloudAnchorMode(arcore::CloudAnchorMode::Enabled),
-      _focusMode(arcore::FocusMode::FIXED_FOCUS), _cameraTextureId(0),
+      _focusMode(arcore::FocusMode::FIXED_FOCUS),
+      _depthMode(arcore::DepthMode::Automatic),
+      _semanticMode(arcore::SemanticMode::Enabled),
+      _cameraTextureId(0),
       _displayRotation(VROARDisplayRotation::R0), _rotatedImageDataLength(0),
       _rotatedImageData(nullptr) {
 
@@ -250,11 +257,15 @@ void VROARSessionARCore::setDisplayGeometry(VROARDisplayRotation rotation,
 bool VROARSessionARCore::configure(arcore::LightingMode lightingMode,
                                    arcore::PlaneFindingMode planeFindingMode,
                                    arcore::UpdateMode updateMode,
-                                   arcore::CloudAnchorMode cloudAnchorMode) {
+                                   arcore::CloudAnchorMode cloudAnchorMode,
+                                   arcore::DepthMode depthMode,
+                                   arcore::SemanticMode semanticMode) {
   _lightingMode = lightingMode;
   _planeFindingMode = planeFindingMode;
   _updateMode = updateMode;
   _cloudAnchorMode = cloudAnchorMode;
+  _depthMode = depthMode;
+  _semanticMode = semanticMode;
 
   return updateARCoreConfig();
 }
@@ -263,11 +274,21 @@ bool VROARSessionARCore::updateARCoreConfig() {
   passert_msg(_session != nullptr,
               "ARCore must be installed before configuring session");
 
-  pinfo("Creating ARCore config with planeFindingMode=%d",
-        (int)_planeFindingMode); // DEBUG
+  // Check if depth mode is supported on this device
+  arcore::DepthMode effectiveDepthMode = _depthMode;
+  if (_depthMode != arcore::DepthMode::Disabled) {
+    if (!_session->isDepthModeSupported(_depthMode)) {
+      pwarn("⚠️ Requested depth mode %d not supported on this device, falling back to DISABLED",
+            (int)_depthMode);
+      effectiveDepthMode = arcore::DepthMode::Disabled;
+    }
+  }
+
+  pinfo("Creating ARCore config with planeFindingMode=%d, depthMode=%d, semanticMode=%d",
+        (int)_planeFindingMode, (int)effectiveDepthMode, (int)_semanticMode); // DEBUG
   arcore::Config *config =
       _session->createConfig(_lightingMode, _planeFindingMode, _updateMode,
-                             _cloudAnchorMode, _focusMode);
+                             _cloudAnchorMode, _focusMode, effectiveDepthMode, _semanticMode);
 
   if (getImageTrackingImpl() == VROImageTrackingImpl::ARCore &&
       _currentARCoreImageDatabase) {
@@ -280,13 +301,13 @@ bool VROARSessionARCore::updateARCoreConfig() {
 
   if (status == arcore::ConfigStatus::Success) {
     pinfo("✅ Successfully configured AR session [lighting %d, planes %d, "
-          "update %d, focus %d]",
-          _lightingMode, _planeFindingMode, _updateMode, _focusMode);
+          "update %d, focus %d, depth %d, semantic %d]",
+          _lightingMode, _planeFindingMode, _updateMode, _focusMode, effectiveDepthMode, _semanticMode);
     _session->resume();
     return true;
   } else if (status == arcore::ConfigStatus::UnsupportedConfiguration) {
     pwarn("❌ Failed to configure AR session: configuration not supported");
-    pwarn("   Your device may not support vertical plane detection!");
+    pwarn("   Your device may not support the requested features (vertical planes, depth, or semantic mode)!");
     return false;
   } else if (status == arcore::ConfigStatus::SessionNotPaused) {
     pwarn("❌ Failed to change AR configuration: session must be paused");
@@ -844,6 +865,17 @@ void VROARSessionARCore::processUpdatedAnchors(VROARFrameARCore *frameAR) {
         std::shared_ptr<VROARPlaneAnchor> vPlane =
             std::make_shared<VROARPlaneAnchor>();
         syncPlaneWithARCore(vPlane, plane);
+
+        // Filter out small planes (likely artifacts/noise)
+        VROVector3f extent = vPlane->getExtent();
+        float maxExtent = std::max(extent.x, extent.z);
+
+        if (maxExtent < kMinPlaneExtent) {
+          pinfo("Filtering out small plane (extent: %.3f x %.3f, threshold: %.3f)",
+                extent.x, extent.z, kMinPlaneExtent);
+          delete (trackable);
+          continue;
+        }
 
         // PURE ANDROID FIX: Do NOT create an arcore::Anchor for the plane.
         // Instead, we use the plane's trackable pose directly.

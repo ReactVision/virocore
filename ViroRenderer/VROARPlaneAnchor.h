@@ -33,14 +33,16 @@
 #include <chrono>
 
 /*
- OPTIONAL: Enable this flag to use change detection and update throttling.
- By default, all updates from ARCore/ARKit are passed through for maximum precision.
- Enable this only if you need to reduce update frequency for performance reasons.
+ ENABLED: Change detection and update throttling to reduce noise and artifacts.
+ This filters out small plane changes and prevents excessive updates, which is
+ particularly important for vertical plane detection where ARCore can be noisy.
 
- WARNING: Enabling this may reduce precision and cause ViroCore to behave differently
- from native ARCore/ARKit applications.
+ Thresholds:
+ - Minimum extent change: 1cm or 5%
+ - Minimum center change: 1cm
+ - Update throttle: 100ms (10 updates/sec max)
  */
-// #define VRO_PLANE_CHANGE_DETECTION_ENABLED
+#define VRO_PLANE_CHANGE_DETECTION_ENABLED
 
 enum class VROARPlaneAlignment {
     Horizontal = 0x1,

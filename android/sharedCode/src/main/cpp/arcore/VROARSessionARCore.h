@@ -66,7 +66,8 @@ public:
      Configure this ARCore session with the given modes. Returns true if supported.
      */
     bool configure(arcore::LightingMode lightingMode, arcore::PlaneFindingMode planeFindingMode,
-                   arcore::UpdateMode updateMode, arcore::CloudAnchorMode cloudAnchorMode);
+                   arcore::UpdateMode updateMode, arcore::CloudAnchorMode cloudAnchorMode,
+                   arcore::DepthMode depthMode, arcore::SemanticMode semanticMode);
     
     void setScene(std::shared_ptr<VROScene> scene);
     void setDelegate(std::shared_ptr<VROARSessionDelegate> delegate);
@@ -199,6 +200,8 @@ private:
     arcore::UpdateMode _updateMode;
     arcore::CloudAnchorMode _cloudAnchorMode;
     arcore::FocusMode _focusMode;
+    arcore::DepthMode _depthMode;
+    arcore::SemanticMode _semanticMode;
 
     bool updateARCoreConfig();
 

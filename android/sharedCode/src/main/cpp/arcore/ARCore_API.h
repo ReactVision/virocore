@@ -125,7 +125,8 @@ namespace arcore {
 
     enum class LightingMode {
         Disabled,
-        AmbientIntensity
+        AmbientIntensity,
+        EnvironmentalHDR
     };
     enum class PlaneFindingMode {
         Disabled,
@@ -141,6 +142,17 @@ namespace arcore {
     enum class FocusMode {
         FIXED_FOCUS,
         AUTO_FOCUS
+    };
+
+    enum class DepthMode {
+        Disabled,
+        Automatic,
+        RawDepthOnly
+    };
+
+    enum class SemanticMode {
+        Disabled,
+        Enabled
     };
 
     class Config {
@@ -305,7 +317,9 @@ namespace arcore {
 
         virtual Config *createConfig(LightingMode lightingMode, PlaneFindingMode planeFindingMode,
                                      UpdateMode updateMode, CloudAnchorMode cloudAnchorMode,
-                                     FocusMode focusMode) = 0;
+                                     FocusMode focusMode, DepthMode depthMode, SemanticMode semanticMode) = 0;
+
+        virtual bool isDepthModeSupported(DepthMode depthMode) = 0;
 
         virtual AugmentedImageDatabase *createAugmentedImageDatabase() = 0;
         virtual AugmentedImageDatabase *createAugmentedImageDatabase(uint8_t* raw_buffer, int64_t size) = 0;
