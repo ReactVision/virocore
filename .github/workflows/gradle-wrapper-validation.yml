@@ -16,5 +16,5 @@ jobs:
       matrix:
         example: [ android ]
     steps:
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@v6.0.0
       - uses: gradle/wrapper-validation-action@v3
