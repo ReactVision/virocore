@@ -6,12 +6,14 @@ uniform highp vec3 camera_position;
 uniform highp vec4 material_diffuse_surface_color;
 uniform highp float material_diffuse_intensity;
 uniform lowp float material_alpha;
+uniform lowp float material_alpha_cutoff;
 uniform lowp float material_shininess;
 uniform highp float material_roughness;
 uniform highp float material_roughness_intensity;
 uniform highp float material_metalness;
 uniform highp float material_metalness_intensity;
 uniform highp float material_ao;
+uniform highp vec3 material_emissive_color;
 
 #pragma surface_modifier_uniforms
 #pragma fragment_modifier_uniforms
@@ -39,35 +41,41 @@ void main() {
     _surface.normal = normalize(v_tbn[2]);
     _surface.position = v_surface_position;
     _surface.view = normalize(camera_position - _surface.position);
-    
+
     highp vec3 _ambient  = ambient_light_color.xyz;
     highp vec3 _diffuse  = vec3(0, 0, 0);
     highp vec3 _specular = vec3(0, 0, 0);
-    
+
 #pragma surface_modifier_body
-  
+
     for (int i = 0; i < num_lights; i++) {
         _lightingContribution.ambient  = vec3(0.0);
         _lightingContribution.diffuse  = vec3(0.0);
         _lightingContribution.specular = vec3(0.0);
         _lightingContribution.visibility = 1.0;
-        
+
         VROLightUniforms _light = lights[i];
-        
+
 #pragma lighting_model_modifier_body
-        
+
         _ambient  += _lightingContribution.ambient;
         _diffuse  += _lightingContribution.diffuse  * _lightingContribution.visibility;
         _specular += _lightingContribution.specular * _lightingContribution.visibility;
     }
-    
+
     highp vec4 _output_color = vec4(_ambient  * _surface.diffuse_color.xyz +
                                     _diffuse  * _surface.diffuse_color.xyz * _surface.diffuse_intensity +
-                                    _specular * _surface.specular_color,
+                                    _specular * _surface.specular_color +
+                                    material_emissive_color,
                                     _surface.alpha * _surface.diffuse_color.a);
-    
+
+    // Alpha masking: discard fragments below the cutoff threshold
+    if (material_alpha_cutoff > 0.0 && _output_color.a < material_alpha_cutoff) {
+        discard;
+    }
+
 #pragma fragment_modifier_body
-    
+
     frag_color = _output_color;
 }
 

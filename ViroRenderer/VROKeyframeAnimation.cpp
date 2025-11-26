@@ -50,7 +50,8 @@ std::shared_ptr<VROExecutableAnimation> VROKeyframeAnimation::copy() {
         frames.push_back(std::move(frame));
     }
     std::shared_ptr<VROKeyframeAnimation> animation = std::make_shared<VROKeyframeAnimation>(frames, _duration, _hasTranslation,
-                                                                                             _hasRotation, _hasScale, _hasMorphWeights);
+                                                                                             _hasRotation, _hasScale, _hasMorphWeights,
+                                                                                             _timingFunctionType);
     animation->setName(_name);
     animation->setSpeed(_speed);
     animation->setTimeOffset(_timeOffset);
@@ -102,7 +103,7 @@ void VROKeyframeAnimation::execute(std::shared_ptr<VRONode> node, std::function<
     VROTransaction::setAnimationDuration(_duration);
     VROTransaction::setAnimationTimeOffset(_timeOffset);
     VROTransaction::setAnimationSpeed(_speed);
-    VROTransaction::setTimingFunction(VROTimingFunctionType::Linear);
+    VROTransaction::setTimingFunction(_timingFunctionType);
     
     if (_hasTranslation) {
         std::shared_ptr<VROAnimation> animation = std::make_shared<VROAnimationVector3f>([shared_w](VROAnimatable *const animatable, VROVector3f v) {

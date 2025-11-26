@@ -1,9 +1,8 @@
 //
-//  VROTimingFunction.h
+//  VROTimingFunctionStep.h
 //  ViroRenderer
 //
-//  Created by Raj Advani on 10/22/15.
-//  Copyright © 2016 Viro Media. All rights reserved.
+//  Copyright © 2024 Viro Media. All rights reserved.
 //
 //  Permission is hereby granted, free of charge, to any person obtaining
 //  a copy of this software and associated documentation files (the
@@ -24,32 +23,30 @@
 //  TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 //  SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-#ifndef VROTIMINGFUNCTION_H_
-#define VROTIMINGFUNCTION_H_
+#ifndef VROTimingFunctionStep_h
+#define VROTimingFunctionStep_h
 
-#include <memory>
+#include "VROTimingFunction.h"
 
-enum class VROTimingFunctionType {
-    Linear,
-    EaseIn,
-    EaseOut,
-    EaseInEaseOut,
-    Bounce,
-    PowerDecel,
-    Step  // Hold value until next keyframe (no interpolation)
-};
+/*
+ Step interpolation holds the previous keyframe value until the next keyframe
+ is reached, then instantly jumps to that value. This implements the glTF 2.0
+ STEP interpolation mode.
 
-class VROTimingFunction {
-    
+ The timing function returns 0.0 for all t < 1.0, and 1.0 when t == 1.0.
+ This causes the animation system to hold the start value until the end
+ of each keyframe interval, then jump to the end value.
+ */
+class VROTimingFunctionStep : public VROTimingFunction {
 public:
-    
-    static std::unique_ptr<VROTimingFunction> forType(VROTimingFunctionType type);
 
-    VROTimingFunction() {}
-    virtual ~VROTimingFunction() {}
+    VROTimingFunctionStep() {}
+    virtual ~VROTimingFunctionStep() {}
 
-    virtual float getT(float t) = 0;
-    
+    float getT(float t) {
+        // Hold at 0 until we reach the end of the interval
+        return (t >= 1.0f) ? 1.0f : 0.0f;
+    }
 };
 
-#endif /* VROTIMINGFUNCTION_H_ */
+#endif /* VROTimingFunctionStep_h */

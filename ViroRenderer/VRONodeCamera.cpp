@@ -32,8 +32,14 @@
 
 VRONodeCamera::VRONodeCamera() :
     _rotationType(VROCameraRotationType::Standard),
-    _fov(0) {
-    
+    _fov(0),
+    _projectionType(VROCameraProjectionType::Perspective),
+    _nearClippingPlane(0.1f),
+    _farClippingPlane(1000.0f),
+    _aspectRatio(0),
+    _orthographicWidth(1.0f),
+    _orthographicHeight(1.0f) {
+
 }
 
 VRONodeCamera::~VRONodeCamera() {
@@ -72,3 +78,27 @@ void VRONodeCamera::setRefNodeToCopyRotation(std::shared_ptr<VRONode> node) {
     _refNodeToCopyCameraRotation = node;
 }
 
+// glTF 2.0 camera support
+void VRONodeCamera::setProjectionType(VROCameraProjectionType type) {
+    _projectionType = type;
+}
+
+void VRONodeCamera::setNearClippingPlane(float near) {
+    _nearClippingPlane = near;
+}
+
+void VRONodeCamera::setFarClippingPlane(float far) {
+    _farClippingPlane = far;
+}
+
+void VRONodeCamera::setAspectRatio(float aspectRatio) {
+    _aspectRatio = aspectRatio;
+}
+
+void VRONodeCamera::setOrthographicWidth(float xmag) {
+    _orthographicWidth = xmag;
+}
+
+void VRONodeCamera::setOrthographicHeight(float ymag) {
+    _orthographicHeight = ymag;
+}

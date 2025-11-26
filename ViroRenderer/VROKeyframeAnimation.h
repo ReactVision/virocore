@@ -33,6 +33,7 @@
 #include "VROVector3f.h"
 #include "VROQuaternion.h"
 #include "VROExecutableAnimation.h"
+#include "VROTimingFunction.h"
 
 class VROShaderModifier;
 
@@ -66,8 +67,11 @@ public:
 
     VROKeyframeAnimation(std::vector<std::unique_ptr<VROKeyframeAnimationFrame>> &frames,
                          float duration, bool hasTranslation, bool hasRotation, bool hasScale,
-                         float hasMorphWeights) : _hasTranslation(hasTranslation),
-                         _hasRotation(hasRotation), _hasScale(hasScale), _hasMorphWeights(hasMorphWeights) {
+                         float hasMorphWeights,
+                         VROTimingFunctionType timingFunctionType = VROTimingFunctionType::Linear) :
+                         _hasTranslation(hasTranslation),
+                         _hasRotation(hasRotation), _hasScale(hasScale), _hasMorphWeights(hasMorphWeights),
+                         _timingFunctionType(timingFunctionType) {
         _frames = std::move(frames);
         _duration = duration;
     }
@@ -91,6 +95,10 @@ public:
 
     float getDuration() const {
         return _duration;
+    }
+
+    VROTimingFunctionType getTimingFunctionType() const {
+        return _timingFunctionType;
     }
 
     void setSpeed(float speed);
@@ -135,12 +143,18 @@ private:
      The duration of this animation in seconds.
      */
     float _duration;
-    
+
+    /*
+     The timing function type for interpolation between keyframes.
+     Default is Linear. STEP interpolation uses VROTimingFunctionType::Step.
+     */
+    VROTimingFunctionType _timingFunctionType;
+
     /*
      If the animation is running, this is its associated transaction.
      */
     std::weak_ptr<VROTransaction> _transaction;
-    
+
 };
 
 #endif /* VROKeyframeAnimation_h */
