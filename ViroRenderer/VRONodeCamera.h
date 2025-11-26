@@ -32,6 +32,10 @@
 #include "VROQuaternion.h"
 
 enum class VROCameraRotationType;
+enum class VROCameraProjectionType {
+    Perspective,
+    Orthographic
+};
 
 class VRONode;
 /*
@@ -54,6 +58,15 @@ public:
     void setOrbitFocalPoint(VROVector3f focalPt);
     void setFieldOfViewY(float fovy);
     void setRefNodeToCopyRotation(std::shared_ptr<VRONode> node);
+
+    // glTF 2.0 camera support
+    void setProjectionType(VROCameraProjectionType type);
+    void setNearClippingPlane(float near);
+    void setFarClippingPlane(float far);
+    void setAspectRatio(float aspectRatio);
+    // Orthographic camera properties
+    void setOrthographicWidth(float xmag);
+    void setOrthographicHeight(float ymag);
     
     /*
      Return the ref node.
@@ -77,7 +90,27 @@ public:
     float getFieldOfView() const {
         return _fov;
     }
-    
+
+    // glTF 2.0 camera getters
+    VROCameraProjectionType getProjectionType() const {
+        return _projectionType;
+    }
+    float getNearClippingPlane() const {
+        return _nearClippingPlane;
+    }
+    float getFarClippingPlane() const {
+        return _farClippingPlane;
+    }
+    float getAspectRatio() const {
+        return _aspectRatio;
+    }
+    float getOrthographicWidth() const {
+        return _orthographicWidth;
+    }
+    float getOrthographicHeight() const {
+        return _orthographicHeight;
+    }
+
 private:
     
     /*
@@ -115,12 +148,22 @@ private:
      swap.
      */
     float _fov;
-    
+
+    /*
+     glTF 2.0 camera properties
+     */
+    VROCameraProjectionType _projectionType;
+    float _nearClippingPlane;
+    float _farClippingPlane;
+    float _aspectRatio;          // For perspective cameras (0 = use viewport aspect)
+    float _orthographicWidth;    // xmag for orthographic cameras
+    float _orthographicHeight;   // ymag for orthographic cameras
+
     /*
      Can be null. Reference node that is used to store the head rotation of the camera in a VRONode.
      */
     std::weak_ptr<VRONode> _refNodeToCopyCameraRotation;
-    
+
 };
 
 #endif /* VRONodeCamera_hpp */

@@ -64,6 +64,7 @@ namespace tinygltf {
     class AnimationSampler;
     class Buffer;
     class BufferView;
+    class Camera;
 }
 
 /*
@@ -115,6 +116,8 @@ private:
                              std::shared_ptr<VRODriver> driver);
     static bool processNode(const tinygltf::Model &gModel, std::shared_ptr<VRONode> &sceneNode, int gNodeIndex,
                             std::shared_ptr<VRODriver> driver);
+    static bool processCamera(const tinygltf::Model &gModel, std::shared_ptr<VRONode> &node, int cameraIndex);
+    static bool processLight(const tinygltf::Model &gModel, std::shared_ptr<VRONode> &node, int lightIndex);
     static bool processMesh(const tinygltf::Model &gModel, std::shared_ptr<VRONode> &node, const tinygltf::Mesh &gMesh,
                             std::shared_ptr<VRODriver> driver);
     static bool processSkin(const tinygltf::Model &gModel, std::shared_ptr<VRONode> &node, int skinIndex);
@@ -170,7 +173,13 @@ private:
     static bool getComponent(const tinygltf::Accessor &accessor, GLTFType &type);
     static VROGeometrySourceSemantic getGeometryAttribute(std::string attributeName);
     static VROFilterMode getFilterMode(int mode);
+    static VROFilterMode getMipFilterMode(int mode);
     static VROWrapMode getWrappingMode(int mode);
+
+    // Sparse accessor support
+    static bool applySparseAccessorData(const tinygltf::Model &gModel,
+                                        const tinygltf::Accessor &accessor,
+                                        std::vector<unsigned char> &outputData);
 
     // Processing of Animation Data
     static bool processAnimations(const tinygltf::Model &gModel);

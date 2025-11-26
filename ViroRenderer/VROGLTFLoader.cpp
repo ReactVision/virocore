@@ -43,6 +43,7 @@
 #include "VROModelIOUtil.h"
 #include "VROBone.h"
 #include "VROKeyframeAnimation.h"
+#include "VROTimingFunction.h"
 #include "VROSkeletalAnimation.h"
 #include "VROSkeleton.h"
 #include "VROBoneUBO.h"
@@ -51,6 +52,8 @@
 #include "VROShaderModifier.h"
 #include "VROShaderProgram.h"
 #include "VROMorpher.h"
+#include "VRONodeCamera.h"
+#include "VROLight.h"
 
 static std::string kVROGLTFInputSamplerKey = "timeInput";
 std::map<std::string, std::shared_ptr<VROVertexBuffer>> VROGLTFLoader::_dataCache;
@@ -189,13 +192,13 @@ bool VROGLTFLoader::getPrimitiveType(int mode, VROGeometryPrimitiveType &type) {
             type = VROGeometryPrimitiveType::TriangleStrip;
             break;
         case TINYGLTF_MODE_LINE_LOOP:
-            // TODO VIRO-3686: Add support for additional primitive modes.
-            perr("GLTF Mode LINE_LOOP primitive is not yet supported!");
-            return false;
+            // LINE_LOOP will be converted to Line in processVertexElement
+            type = VROGeometryPrimitiveType::Line;
+            break;
         case TINYGLTF_MODE_TRIANGLE_FAN:
-            // TODO VIRO-3686: Add support for additional primitive modes.
-            perr("GLTF Mode TRIANGLE_FAN primitive is not yet supported!");
-            return false;
+            // TRIANGLE_FAN will be converted to Triangle in processVertexElement
+            type = VROGeometryPrimitiveType::Triangle;
+            break;
         default:
             perr("Unsupported GLTF primitive type provided for this model.");
             return false;
@@ -206,26 +209,39 @@ bool VROGLTFLoader::getPrimitiveType(int mode, VROGeometryPrimitiveType &type) {
 VROFilterMode VROGLTFLoader::getFilterMode(int mode) {
     switch(mode) {
         case TINYGLTF_TEXTURE_FILTER_NEAREST:
-            //choose 1 pixel from the biggest mip
             return VROFilterMode::Nearest;
         case TINYGLTF_TEXTURE_FILTER_LINEAR:
-            //choose 4 pixels from the biggest mip and blend them
-            return VROFilterMode ::Linear;
+            return VROFilterMode::Linear;
         case TINYGLTF_TEXTURE_FILTER_NEAREST_MIPMAP_NEAREST:
-            // Behavior: Choose the best mip, then pick one pixel from that mip
-            // TODO VIRO-3687: Add additional Sampler filter modes. Fallback to nearest for now.
+            // Minification filter: Nearest (pick 1 pixel from chosen mip)
             return VROFilterMode::Nearest;
         case TINYGLTF_TEXTURE_FILTER_LINEAR_MIPMAP_NEAREST:
-            // Behavior: choose the best mip, then blend 4 pixels from that mip
-            // TODO VIRO-3687: Add additional Sampler filter modes. Fallback to nearest for now.
+            // Minification filter: Linear (blend 4 pixels from chosen mip)
+            return VROFilterMode::Linear;
+        case TINYGLTF_TEXTURE_FILTER_NEAREST_MIPMAP_LINEAR:
+            // Minification filter: Nearest (pick 1 pixel from each mip, then blend)
+            return VROFilterMode::Nearest;
+        case TINYGLTF_TEXTURE_FILTER_LINEAR_MIPMAP_LINEAR:
+            // Minification filter: Linear (trilinear filtering)
+            return VROFilterMode::Linear;
+        default:
+            return VROFilterMode::Linear;
+    }
+}
+
+VROFilterMode VROGLTFLoader::getMipFilterMode(int mode) {
+    switch(mode) {
+        case TINYGLTF_TEXTURE_FILTER_NEAREST:
+        case TINYGLTF_TEXTURE_FILTER_LINEAR:
+            // No mipmap filtering for non-mipmap modes
+            return VROFilterMode::None;
+        case TINYGLTF_TEXTURE_FILTER_NEAREST_MIPMAP_NEAREST:
+        case TINYGLTF_TEXTURE_FILTER_LINEAR_MIPMAP_NEAREST:
+            // Mip filter: Nearest (choose closest mip level)
             return VROFilterMode::Nearest;
         case TINYGLTF_TEXTURE_FILTER_NEAREST_MIPMAP_LINEAR:
-            // Behavior: choose the best 2 mips, choose 1 pixel from each, blend them
-            // TODO VIRO-3687: Add additional Sampler filter modes. Fallback to Linear for now.
-            return VROFilterMode::Linear;
         case TINYGLTF_TEXTURE_FILTER_LINEAR_MIPMAP_LINEAR:
-            // Behavior: choose the best 2 mips. choose 4 pixels from each, blend them
-            // TODO VIRO-3687: Add additional Sampler filter modes. Fallback to Linear for now.
+            // Mip filter: Linear (blend between two closest mip levels)
             return VROFilterMode::Linear;
         default:
             return VROFilterMode::Linear;
@@ -243,6 +259,105 @@ VROWrapMode VROGLTFLoader::getWrappingMode(int mode) {
         default:
             return VROWrapMode::Repeat;
     }
+}
+
+bool VROGLTFLoader::applySparseAccessorData(const tinygltf::Model &gModel,
+                                            const tinygltf::Accessor &accessor,
+                                            std::vector<unsigned char> &outputData) {
+    if (!accessor.sparse.isSparse) {
+        return true;  // No sparse data to apply
+    }
+
+    const tinygltf::Sparse &sparse = accessor.sparse;
+
+    // Calculate the size of each element in the accessor
+    int componentSize = 0;
+    switch (accessor.componentType) {
+        case TINYGLTF_COMPONENT_TYPE_BYTE:
+        case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE:
+            componentSize = 1;
+            break;
+        case TINYGLTF_COMPONENT_TYPE_SHORT:
+        case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT:
+            componentSize = 2;
+            break;
+        case TINYGLTF_COMPONENT_TYPE_INT:
+        case TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT:
+        case TINYGLTF_COMPONENT_TYPE_FLOAT:
+            componentSize = 4;
+            break;
+        case TINYGLTF_COMPONENT_TYPE_DOUBLE:
+            componentSize = 8;
+            break;
+        default:
+            perr("Unknown component type in sparse accessor");
+            return false;
+    }
+
+    int numComponents = 0;
+    switch (accessor.type) {
+        case TINYGLTF_TYPE_SCALAR: numComponents = 1; break;
+        case TINYGLTF_TYPE_VEC2: numComponents = 2; break;
+        case TINYGLTF_TYPE_VEC3: numComponents = 3; break;
+        case TINYGLTF_TYPE_VEC4: numComponents = 4; break;
+        case TINYGLTF_TYPE_MAT2: numComponents = 4; break;
+        case TINYGLTF_TYPE_MAT3: numComponents = 9; break;
+        case TINYGLTF_TYPE_MAT4: numComponents = 16; break;
+        default:
+            perr("Unknown accessor type in sparse accessor");
+            return false;
+    }
+
+    size_t elementSize = componentSize * numComponents;
+
+    // Read sparse indices
+    const tinygltf::BufferView &indicesBufferView = gModel.bufferViews[sparse.indices.bufferView];
+    const tinygltf::Buffer &indicesBuffer = gModel.buffers[indicesBufferView.buffer];
+    const unsigned char *indicesData = indicesBuffer.data.data() + indicesBufferView.byteOffset + sparse.indices.byteOffset;
+
+    // Read sparse values
+    const tinygltf::BufferView &valuesBufferView = gModel.bufferViews[sparse.values.bufferView];
+    const tinygltf::Buffer &valuesBuffer = gModel.buffers[valuesBufferView.buffer];
+    const unsigned char *valuesData = valuesBuffer.data.data() + valuesBufferView.byteOffset + sparse.values.byteOffset;
+
+    // Apply sparse values at specified indices
+    for (size_t i = 0; i < sparse.count; i++) {
+        // Read the index based on component type
+        size_t index = 0;
+        switch (sparse.indices.componentType) {
+            case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE:
+                index = indicesData[i];
+                break;
+            case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT:
+                index = reinterpret_cast<const uint16_t *>(indicesData)[i];
+                break;
+            case TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT:
+                index = reinterpret_cast<const uint32_t *>(indicesData)[i];
+                break;
+            default:
+                perr("Invalid sparse indices component type");
+                return false;
+        }
+
+        // Verify index is within bounds
+        if (index >= accessor.count) {
+            perr("Sparse accessor index out of bounds: %zu >= %zu", index, accessor.count);
+            return false;
+        }
+
+        // Copy the sparse value to the output data at the specified index
+        size_t destOffset = index * elementSize;
+        size_t srcOffset = i * elementSize;
+
+        if (destOffset + elementSize > outputData.size()) {
+            perr("Sparse accessor destination out of bounds");
+            return false;
+        }
+
+        memcpy(outputData.data() + destOffset, valuesData + srcOffset, elementSize);
+    }
+
+    return true;
 }
 
 void VROGLTFLoader::loadGLTFFromResource(std::string gltfManifestFilePath, const std::map<std::string, std::string> overwriteResourceMap,
@@ -313,10 +428,24 @@ void VROGLTFLoader::loadGLTFFromResource(std::string gltfManifestFilePath, const
                         // those nodes along the way.
                         bool success = true;
                         std::shared_ptr<VRONode> gltfRootNode = std::make_shared<VRONode>();
-                        for (const tinygltf::Scene &gScene : model.scenes) {
+
+                        // Per glTF 2.0 spec: if defaultScene is specified, load only that scene.
+                        // Otherwise, load all scenes in the file.
+                        if (model.defaultScene >= 0 && model.defaultScene < model.scenes.size()) {
+                            // Load only the default scene
+                            const tinygltf::Scene &gScene = model.scenes[model.defaultScene];
                             if (!processScene(model, gltfRootNode, gScene, driver)) {
                                 success = false;
-                                break;
+                            }
+                            pinfo("Loaded default scene '%s' (index %d)", gScene.name.c_str(), model.defaultScene);
+                        } else {
+                            // No default scene specified, load all scenes
+                            for (size_t i = 0; i < model.scenes.size(); i++) {
+                                const tinygltf::Scene &gScene = model.scenes[i];
+                                if (!processScene(model, gltfRootNode, gScene, driver)) {
+                                    success = false;
+                                    break;
+                                }
                             }
                         }
 
@@ -618,7 +747,19 @@ std::shared_ptr<VROKeyframeAnimation> VROGLTFLoader::convertChannelToKeyFrameAni
         hasMorphWeights = true;
     }
 
-    return std::make_shared<VROKeyframeAnimation>(frames, duration, hasTranslation, hasRotation, hasScale, hasMorphWeights);
+    // Determine the interpolation timing function type from the glTF sampler
+    VROTimingFunctionType timingType = VROTimingFunctionType::Linear;
+    if (VROStringUtil::strcmpinsensitive(gSampler.interpolation, "step")) {
+        timingType = VROTimingFunctionType::Step;
+    } else if (VROStringUtil::strcmpinsensitive(gSampler.interpolation, "cubicspline")) {
+        // CUBICSPLINE requires special handling of tangent data in the keyframes.
+        // For now, fall back to linear. Full CUBICSPLINE support would require
+        // storing in/out tangents per keyframe and implementing Hermite interpolation.
+        pwarn("CUBICSPLINE interpolation not fully supported, falling back to Linear");
+        timingType = VROTimingFunctionType::Linear;
+    }
+
+    return std::make_shared<VROKeyframeAnimation>(frames, duration, hasTranslation, hasRotation, hasScale, hasMorphWeights, timingType);
 }
 
 bool VROGLTFLoader::processRawChannelData(const tinygltf::Model &gModel,
@@ -626,9 +767,12 @@ bool VROGLTFLoader::processRawChannelData(const tinygltf::Model &gModel,
                                           int channelTarget,
                                           const tinygltf::AnimationSampler &channelSampler,
                                           std::vector<std::unique_ptr<VROKeyframeAnimationFrame>> &framesOut) {
-    // TODO VIRO-3848: Support additional 3D Model Interpolation types
-    if (!VROStringUtil::strcmpinsensitive(channelSampler.interpolation, "linear")) {
-        pwarn("Viro does not currently support non-linear animations for gltf models.");
+    // Support LINEAR and STEP interpolation types. CUBICSPLINE is parsed but falls back to linear
+    // since it requires special tangent handling not yet implemented.
+    if (!VROStringUtil::strcmpinsensitive(channelSampler.interpolation, "linear") &&
+        !VROStringUtil::strcmpinsensitive(channelSampler.interpolation, "step") &&
+        !VROStringUtil::strcmpinsensitive(channelSampler.interpolation, "cubicspline")) {
+        pwarn("Unknown animation interpolation type: %s", channelSampler.interpolation.c_str());
         return false;
     }
 
@@ -1166,6 +1310,18 @@ bool VROGLTFLoader::processNode(const tinygltf::Model &gModel, std::shared_ptr<V
         return false;
     }
 
+    // Process the Camera for this node, if any (glTF 2.0 camera support).
+    int cameraIndex = gNode.camera;
+    if (cameraIndex >= 0 && !processCamera(gModel, node, cameraIndex)) {
+        return false;
+    }
+
+    // Process the Light for this node, if any (KHR_lights_punctual extension).
+    int lightIndex = gNode.light;
+    if (lightIndex >= 0 && !processLight(gModel, node, lightIndex)) {
+        return false;
+    }
+
     // After processing the nodes of this model, process skins if any.
     std::shared_ptr<VROGeometry> geom = node->getGeometry();
     if (geom != nullptr && gNode.skin >=0) {
@@ -1203,6 +1359,144 @@ bool VROGLTFLoader::processNode(const tinygltf::Model &gModel, std::shared_ptr<V
             return false;
         }
     }
+    return true;
+}
+
+bool VROGLTFLoader::processCamera(const tinygltf::Model &gModel, std::shared_ptr<VRONode> &node, int cameraIndex) {
+    if (cameraIndex < 0 || cameraIndex >= gModel.cameras.size()) {
+        pwarn("Invalid camera index: %d", cameraIndex);
+        return false;
+    }
+
+    const tinygltf::Camera &gCamera = gModel.cameras[cameraIndex];
+    std::shared_ptr<VRONodeCamera> camera = std::make_shared<VRONodeCamera>();
+
+    if (gCamera.type == "perspective") {
+        camera->setProjectionType(VROCameraProjectionType::Perspective);
+
+        const tinygltf::PerspectiveCamera &persp = gCamera.perspective;
+
+        // glTF yfov is in radians, VRONodeCamera expects degrees
+        float fovDegrees = persp.yfov * (180.0f / M_PI);
+        camera->setFieldOfViewY(fovDegrees);
+
+        camera->setNearClippingPlane(persp.znear);
+
+        // zfar of 0 means infinite projection (optional in glTF spec)
+        if (persp.zfar > 0) {
+            camera->setFarClippingPlane(persp.zfar);
+        } else {
+            // Use a large default for infinite projection
+            camera->setFarClippingPlane(10000.0f);
+        }
+
+        // aspectRatio is optional; 0 means use viewport aspect
+        if (persp.aspectRatio > 0) {
+            camera->setAspectRatio(persp.aspectRatio);
+        }
+
+        pinfo("Loaded perspective camera '%s': fov=%.1f°, near=%.3f, far=%.1f",
+              gCamera.name.c_str(), fovDegrees, persp.znear, persp.zfar);
+
+    } else if (gCamera.type == "orthographic") {
+        camera->setProjectionType(VROCameraProjectionType::Orthographic);
+
+        const tinygltf::OrthographicCamera &ortho = gCamera.orthographic;
+
+        camera->setOrthographicWidth(ortho.xmag);
+        camera->setOrthographicHeight(ortho.ymag);
+        camera->setNearClippingPlane(ortho.znear);
+        camera->setFarClippingPlane(ortho.zfar);
+
+        pinfo("Loaded orthographic camera '%s': xmag=%.2f, ymag=%.2f, near=%.3f, far=%.1f",
+              gCamera.name.c_str(), ortho.xmag, ortho.ymag, ortho.znear, ortho.zfar);
+
+    } else {
+        pwarn("Unknown camera type: %s", gCamera.type.c_str());
+        return false;
+    }
+
+    node->setCamera(camera);
+    return true;
+}
+
+bool VROGLTFLoader::processLight(const tinygltf::Model &gModel, std::shared_ptr<VRONode> &node, int lightIndex) {
+    if (lightIndex < 0 || lightIndex >= gModel.lights.size()) {
+        pwarn("Invalid light index: %d", lightIndex);
+        return false;
+    }
+
+    const tinygltf::Light &gLight = gModel.lights[lightIndex];
+
+    // Map glTF light type to VROLightType
+    VROLightType lightType;
+    if (gLight.type == "directional") {
+        lightType = VROLightType::Directional;
+    } else if (gLight.type == "point") {
+        lightType = VROLightType::Omni;
+    } else if (gLight.type == "spot") {
+        lightType = VROLightType::Spot;
+    } else {
+        pwarn("Unknown light type: %s", gLight.type.c_str());
+        return false;
+    }
+
+    std::shared_ptr<VROLight> light = std::make_shared<VROLight>(lightType);
+
+    // Set light name
+    if (!gLight.name.empty()) {
+        light->setName(gLight.name);
+    }
+
+    // Set light color (glTF uses linear RGB)
+    if (gLight.color.size() >= 3) {
+        light->setColor({(float)gLight.color[0], (float)gLight.color[1], (float)gLight.color[2]});
+    }
+
+    // Set light intensity
+    // glTF uses candela for point/spot lights, lux for directional lights
+    // ViroCore intensity is typically 0-1000, so we map accordingly
+    // For now, pass through the intensity directly as ViroCore can handle various ranges
+    light->setIntensity((float)gLight.intensity * 1000.0f);
+
+    // Set attenuation based on range for point and spot lights
+    if (lightType == VROLightType::Omni || lightType == VROLightType::Spot) {
+        if (gLight.range > 0) {
+            // Use range as the end distance for attenuation
+            light->setAttenuationStartDistance(0.0f);
+            light->setAttenuationEndDistance((float)gLight.range);
+        }
+
+        // For point/spot lights, the light position is the node position (handled by transform)
+        // Direction for directional/spot lights is -Z in local space, handled by node rotation
+    }
+
+    // Set spot light cone angles
+    if (lightType == VROLightType::Spot) {
+        // glTF angles are in radians from the center axis, ViroCore uses full cone angles in degrees
+        // glTF: innerConeAngle is half-angle, outerConeAngle is half-angle
+        // ViroCore: spotInnerAngle/spotOuterAngle are full cone angles in degrees
+        float innerAngleDegrees = (float)(gLight.innerConeAngle * 2.0 * 180.0 / M_PI);
+        float outerAngleDegrees = (float)(gLight.outerConeAngle * 2.0 * 180.0 / M_PI);
+
+        light->setSpotInnerAngle(innerAngleDegrees);
+        light->setSpotOuterAngle(outerAngleDegrees);
+    }
+
+    // For directional and spot lights, set the default direction to -Z (glTF convention)
+    if (lightType == VROLightType::Directional || lightType == VROLightType::Spot) {
+        light->setDirection({0, 0, -1});
+    }
+
+    node->addLight(light);
+
+    pinfo("Loaded %s light '%s': color=(%.2f,%.2f,%.2f), intensity=%.1f",
+          gLight.type.c_str(), gLight.name.c_str(),
+          gLight.color.size() >= 3 ? gLight.color[0] : 1.0,
+          gLight.color.size() >= 3 ? gLight.color[1] : 1.0,
+          gLight.color.size() >= 3 ? gLight.color[2] : 1.0,
+          gLight.intensity);
+
     return true;
 }
 
@@ -1527,10 +1821,78 @@ bool VROGLTFLoader::processVertexElement(const tinygltf::Model &gModel,
     // Grab the vertex indices for this primitive.
     int gPrimitiveIndicesIndex = gPrimitive.indices;
     if (gPrimitiveIndicesIndex < 0) {
-        // Fallback to glDrawArrays if no indexed vertices are provided.
-        // TODO VIRO-3664: Support Draw Arrays for Viro Geometry in the main render pass.
-        pwarn("Models requiring glDrawArray functionality are not yet supported");
-        return false;
+        // No indices provided - generate sequential indices for glDrawArrays equivalent
+        // Get vertex count from POSITION attribute
+        auto posIt = gPrimitive.attributes.find("POSITION");
+        if (posIt == gPrimitive.attributes.end()) {
+            perr("Non-indexed primitive requires POSITION attribute to determine vertex count");
+            return false;
+        }
+
+        const tinygltf::Accessor &posAccessor = gModel.accessors[posIt->second];
+        size_t vertexCount = posAccessor.count;
+
+        if (vertexCount == 0) {
+            perr("Non-indexed primitive has zero vertices");
+            return false;
+        }
+
+        // Determine how many indices we need based on primitive type
+        size_t indexCount = vertexCount;
+
+        // Handle TRIANGLE_FAN conversion for non-indexed case
+        if (gPrimitive.mode == TINYGLTF_MODE_TRIANGLE_FAN) {
+            if (vertexCount < 3) {
+                perr("TRIANGLE_FAN requires at least 3 vertices");
+                return false;
+            }
+            size_t numTriangles = vertexCount - 2;
+            indexCount = numTriangles * 3;
+        }
+
+        // Handle LINE_LOOP conversion for non-indexed case
+        if (gPrimitive.mode == TINYGLTF_MODE_LINE_LOOP) {
+            indexCount = vertexCount + 1; // Add one to close the loop
+        }
+
+        // Use unsigned int for indices to support large meshes
+        int bytesPerIndex = sizeof(uint32_t);
+        size_t dataLength = indexCount * bytesPerIndex;
+        uint32_t *indices = new uint32_t[indexCount];
+
+        if (gPrimitive.mode == TINYGLTF_MODE_TRIANGLE_FAN) {
+            // Generate triangle indices from fan: (0,1,2), (0,2,3), (0,3,4), ...
+            size_t numTriangles = vertexCount - 2;
+            for (size_t i = 0; i < numTriangles; i++) {
+                indices[i * 3 + 0] = 0;
+                indices[i * 3 + 1] = (uint32_t)(i + 1);
+                indices[i * 3 + 2] = (uint32_t)(i + 2);
+            }
+        } else if (gPrimitive.mode == TINYGLTF_MODE_LINE_LOOP) {
+            // Generate line indices and close the loop
+            for (size_t i = 0; i < vertexCount; i++) {
+                indices[i] = (uint32_t)i;
+            }
+            indices[vertexCount] = 0; // Close the loop
+        } else {
+            // Generate sequential indices: 0, 1, 2, 3, ...
+            for (size_t i = 0; i < vertexCount; i++) {
+                indices[i] = (uint32_t)i;
+            }
+        }
+
+        int primitiveCount = VROGeometryUtilGetPrimitiveCount((int)indexCount, primitiveType);
+        std::shared_ptr<VROData> data = std::make_shared<VROData>((void *)indices,
+                                                                  (int)dataLength,
+                                                                  VRODataOwnership::Move);
+        std::shared_ptr<VROGeometryElement> element
+                = std::make_shared<VROGeometryElement>(data,
+                                                       primitiveType,
+                                                       primitiveCount,
+                                                       bytesPerIndex,
+                                                       false); // unsigned int is not signed
+        elements.push_back(element);
+        return true;
     }
 
     // Grab the accessor that maps to a bufferView through which to view the data buffer
@@ -1561,13 +1923,109 @@ bool VROGLTFLoader::processVertexElement(const tinygltf::Model &gModel,
     }
 
     // Determine offsets and data sizes representing the indexed vertices's 'window of data' in the buffer
-    int primitiveCount = VROGeometryUtilGetPrimitiveCount((int) gIndicesAccessor.count, primitiveType);
     size_t elementCount = gIndicesAccessor.count;
     size_t dataOffset = gIndicesAccessor.byteOffset + gIndiceBufferView.byteOffset;
-    size_t dataLength = elementCount *  bufferViewStride;
+    size_t dataLength = elementCount * bufferViewStride;
 
-    // Finally, grab the raw indexed vertex data from the buffer to be created with VROGeometryElement
+    // Get the raw buffer data
     const tinygltf::Buffer &gBuffer = gModel.buffers[gIndiceBufferView.buffer];
+    const unsigned char *srcData = gBuffer.data.data() + dataOffset;
+    int bytesPerIndex = getComponentTypeSize(gTypeComponent);
+
+    // Handle LINE_LOOP: Convert to Line by appending the first index at the end
+    if (gPrimitive.mode == TINYGLTF_MODE_LINE_LOOP) {
+        size_t newElementCount = elementCount + 1;
+        size_t newDataLength = newElementCount * bytesPerIndex;
+        unsigned char *convertedData = new unsigned char[newDataLength];
+
+        // Copy original indices
+        memcpy(convertedData, srcData, dataLength);
+        // Append first index at end to close the loop
+        memcpy(convertedData + dataLength, srcData, bytesPerIndex);
+
+        int primitiveCount = (int)(newElementCount / 2);
+        std::shared_ptr<VROData> data = std::make_shared<VROData>((void *)convertedData,
+                                                                  newDataLength,
+                                                                  VRODataOwnership::Move);
+        std::shared_ptr<VROGeometryElement> element
+                = std::make_shared<VROGeometryElement>(data,
+                                                       primitiveType,
+                                                       primitiveCount,
+                                                       bytesPerIndex,
+                                                       gTypeComponent != GLTFTypeComponent::UnsignedByte &&
+                                                       gTypeComponent != GLTFTypeComponent::UnsignedShort);
+        elements.push_back(element);
+        return true;
+    }
+
+    // Handle TRIANGLE_FAN: Convert to Triangles
+    // Fan with n vertices generates (n-2) triangles: (0,1,2), (0,2,3), (0,3,4), ...
+    if (gPrimitive.mode == TINYGLTF_MODE_TRIANGLE_FAN) {
+        if (elementCount < 3) {
+            perr("TRIANGLE_FAN requires at least 3 vertices");
+            return false;
+        }
+
+        size_t numTriangles = elementCount - 2;
+        size_t newElementCount = numTriangles * 3;
+        size_t newDataLength = newElementCount * bytesPerIndex;
+        unsigned char *convertedData = new unsigned char[newDataLength];
+
+        // Read original indices into a temporary buffer for easier manipulation
+        VROByteBuffer srcBuffer((char *)srcData, dataLength, false);
+        std::vector<uint32_t> originalIndices;
+        for (size_t i = 0; i < elementCount; i++) {
+            srcBuffer.setPosition(i * bytesPerIndex);
+            uint32_t index;
+            if (bytesPerIndex == 1) {
+                index = srcBuffer.readUnsignedByte();
+            } else if (bytesPerIndex == 2) {
+                index = srcBuffer.readUnsignedShort();
+            } else {
+                index = srcBuffer.readUnsignedInt();
+            }
+            originalIndices.push_back(index);
+        }
+
+        // Generate triangle indices from the fan
+        VROByteBuffer dstBuffer((char *)convertedData, newDataLength, false);
+        for (size_t i = 0; i < numTriangles; i++) {
+            uint32_t i0 = originalIndices[0];
+            uint32_t i1 = originalIndices[i + 1];
+            uint32_t i2 = originalIndices[i + 2];
+
+            if (bytesPerIndex == 1) {
+                dstBuffer.writeUnsignedByte((unsigned char)i0);
+                dstBuffer.writeUnsignedByte((unsigned char)i1);
+                dstBuffer.writeUnsignedByte((unsigned char)i2);
+            } else if (bytesPerIndex == 2) {
+                dstBuffer.writeUnsignedShort((unsigned short)i0);
+                dstBuffer.writeUnsignedShort((unsigned short)i1);
+                dstBuffer.writeUnsignedShort((unsigned short)i2);
+            } else {
+                dstBuffer.writeUnsignedInt(i0);
+                dstBuffer.writeUnsignedInt(i1);
+                dstBuffer.writeUnsignedInt(i2);
+            }
+        }
+
+        int primitiveCount = (int)numTriangles;
+        std::shared_ptr<VROData> data = std::make_shared<VROData>((void *)convertedData,
+                                                                  newDataLength,
+                                                                  VRODataOwnership::Move);
+        std::shared_ptr<VROGeometryElement> element
+                = std::make_shared<VROGeometryElement>(data,
+                                                       primitiveType,
+                                                       primitiveCount,
+                                                       bytesPerIndex,
+                                                       gTypeComponent != GLTFTypeComponent::UnsignedByte &&
+                                                       gTypeComponent != GLTFTypeComponent::UnsignedShort);
+        elements.push_back(element);
+        return true;
+    }
+
+    // Standard case: directly use the buffer data
+    int primitiveCount = VROGeometryUtilGetPrimitiveCount((int) gIndicesAccessor.count, primitiveType);
     std::shared_ptr<VROData> data = std::make_shared<VROData>((void *)gBuffer.data.data(),
                                                               dataLength,
                                                               dataOffset);
@@ -1575,7 +2033,7 @@ bool VROGLTFLoader::processVertexElement(const tinygltf::Model &gModel,
             = std::make_shared<VROGeometryElement>(data,
                                                    primitiveType,
                                                    primitiveCount,
-                                                   getComponentTypeSize(gTypeComponent),
+                                                   bytesPerIndex,
                                                    gTypeComponent != GLTFTypeComponent::UnsignedByte &&
                                                    gTypeComponent != GLTFTypeComponent::UnsignedShort);
     elements.push_back(element);
@@ -1852,12 +2310,28 @@ std::shared_ptr<VROMaterial> VROGLTFLoader::getMaterial(const tinygltf::Model &g
     std::shared_ptr<VROTexture> normalTexture = getTexture(gModel, gAdditionalMap, "normalTexture", false);
     if (normalTexture != nullptr) {
         vroMat->getNormal().setTexture(normalTexture);
+        // Parse normal texture scale (default 1.0 per glTF spec)
+        if (gAdditionalMap.find("normalTexture") != gAdditionalMap.end()) {
+            const tinygltf::Parameter &normalParam = gAdditionalMap["normalTexture"];
+            auto scaleIt = normalParam.json_double_value.find("scale");
+            if (scaleIt != normalParam.json_double_value.end()) {
+                vroMat->getNormal().setIntensity((float)scaleIt->second);
+            }
+        }
     }
 
     // Process Occlusion Textures
     std::shared_ptr<VROTexture> occlusionTexture = getTexture(gModel, gAdditionalMap, "occlusionTexture", false);
     if (occlusionTexture != nullptr) {
         vroMat->getAmbientOcclusion().setTexture(occlusionTexture);
+        // Parse occlusion texture strength (default 1.0 per glTF spec)
+        if (gAdditionalMap.find("occlusionTexture") != gAdditionalMap.end()) {
+            const tinygltf::Parameter &occlusionParam = gAdditionalMap["occlusionTexture"];
+            auto strengthIt = occlusionParam.json_double_value.find("strength");
+            if (strengthIt != occlusionParam.json_double_value.end()) {
+                vroMat->getAmbientOcclusion().setIntensity((float)strengthIt->second);
+            }
+        }
     }
 
     // Process GLTF transparency modes
@@ -1869,13 +2343,41 @@ std::shared_ptr<VROMaterial> VROGLTFLoader::getMaterial(const tinygltf::Model &g
     if (VROStringUtil::strcmpinsensitive(mode, "OPAQUE")) {
         vroMat->setTransparencyMode(VROTransparencyMode::RGBZero);
     } else if (VROStringUtil::strcmpinsensitive(mode, "MASK")) {
-        // TODO VIRO-3684: Implement Transparent Masks, fallback to Alpha transparency for now.
-        vroMat->setTransparencyMode(VROTransparencyMode::AOne);
+        vroMat->setTransparencyMode(VROTransparencyMode::Mask);
+        // Parse alphaCutoff, default is 0.5 per glTF spec
+        float alphaCutoff = 0.5f;
+        if (gAdditionalMap.find("alphaCutoff") != gAdditionalMap.end()) {
+            alphaCutoff = (float)gAdditionalMap["alphaCutoff"].Factor();
+        }
+        vroMat->setAlphaCutoff(alphaCutoff);
     } else if (VROStringUtil::strcmpinsensitive(mode, "BLEND")) {
         vroMat->setTransparencyMode(VROTransparencyMode::AOne);
     }
 
-    // TODO VIRO-3683: Implement GLTF Emissive Maps
+    // Process emissive material properties
+    // Emissive factor defaults to [0, 0, 0] (no emission)
+    if (gAdditionalMap.find("emissiveFactor") != gAdditionalMap.end()) {
+        std::vector<double> emissiveFactor = gAdditionalMap["emissiveFactor"].number_array;
+        if (emissiveFactor.size() >= 3) {
+            VROVector4f emissiveColor((float)emissiveFactor[0], (float)emissiveFactor[1],
+                                      (float)emissiveFactor[2], 1.0f);
+            vroMat->getEmission().setColor(emissiveColor);
+        }
+    }
+
+    // Process emissive texture if present
+    std::shared_ptr<VROTexture> emissiveTexture = getTexture(gModel, gAdditionalMap, "emissiveTexture", true);
+    if (emissiveTexture != nullptr) {
+        vroMat->getEmission().setTexture(emissiveTexture);
+    }
+
+    // Check for KHR_materials_unlit extension
+    // Unlit materials ignore lighting and use baseColor directly
+    if (gMat.extensions.find("KHR_materials_unlit") != gMat.extensions.end()) {
+        vroMat->setLightingModel(VROLightingModel::Constant);
+        pinfo("Material '%s' uses KHR_materials_unlit extension", gMat.name.c_str());
+    }
+
     vroMat->setName(gMat.name);
     return vroMat;
 }
@@ -1979,11 +2481,13 @@ std::shared_ptr<VROTexture> VROGLTFLoader::getTexture(const tinygltf::Model &gMo
         texture->setWrapT(getWrappingMode(sampler.wrapT));
         texture->setMagnificationFilter(getFilterMode(sampler.magFilter));
         texture->setMinificationFilter(getFilterMode(sampler.minFilter));
+        texture->setMipFilter(getMipFilterMode(sampler.minFilter));
     } else {
         texture->setWrapS(VROWrapMode::Repeat);
         texture->setWrapT(VROWrapMode::Repeat);
         texture->setMagnificationFilter(VROFilterMode::Linear);
         texture->setMinificationFilter(VROFilterMode::Linear);
+        texture->setMipFilter(VROFilterMode::Linear);
     }
 
     // Cache a copy of the created texture as other elements may also refer to it.

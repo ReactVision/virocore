@@ -31,6 +31,7 @@
 #include "VROTimingFunctionBounce.h"
 #include "VROTimingFunctionPowerDeceleration.h"
 #include "VROTimingFunctionLinear.h"
+#include "VROTimingFunctionStep.h"
 #include "VROLog.h"
 
 std::unique_ptr<VROTimingFunction> VROTimingFunction::forType(VROTimingFunctionType type) {
@@ -47,6 +48,8 @@ std::unique_ptr<VROTimingFunction> VROTimingFunction::forType(VROTimingFunctionT
             return std::unique_ptr<VROTimingFunction>(new VROTimingFunctionBounce());
         case VROTimingFunctionType::PowerDecel:
             return std::unique_ptr<VROTimingFunction>(new VROTimingFunctionPowerDeceleration());
+        case VROTimingFunctionType::Step:
+            return std::unique_ptr<VROTimingFunction>(new VROTimingFunctionStep());
         default:
             pabort();
     }

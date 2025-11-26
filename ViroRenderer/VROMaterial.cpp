@@ -44,6 +44,7 @@ VROMaterial::VROMaterial() : VROThreadRestricted(VROThreadName::Renderer),
     _fresnelExponent(1.0),
     _transparency(1.0),
     _transparencyMode(VROTransparencyMode::AOne),
+    _alphaCutoff(0.5f),  // glTF 2.0 default value
     _lightingModel(VROLightingModel::Constant),
     _litPerPixel(true),
     _cullMode(VROCullMode::Back),
@@ -92,6 +93,7 @@ VROMaterial::VROMaterial(std::shared_ptr<VROMaterial> material) : VROThreadRestr
  _fresnelExponent(material->_fresnelExponent),
  _transparency(material->_transparency),
  _transparencyMode(material->_transparencyMode),
+ _alphaCutoff(material->_alphaCutoff),
  _lightingModel(material->_lightingModel),
  _litPerPixel(material->_litPerPixel),
  _cullMode(material->_cullMode),
@@ -158,6 +160,7 @@ void VROMaterial::copyFrom(std::shared_ptr<VROMaterial> material) {
     _fresnelExponent = material->_fresnelExponent;
     _transparency = material->_transparency;
     _transparencyMode = material->_transparencyMode;
+    _alphaCutoff = material->_alphaCutoff;
     _lightingModel = material->_lightingModel;
     _litPerPixel = material->_litPerPixel;
     _cullMode = material->_cullMode;

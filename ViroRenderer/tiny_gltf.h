@@ -539,9 +539,35 @@ struct BufferView {
   BufferView() : byteOffset(0), byteStride(0) {}
 };
 
+// Sparse accessor indices
+struct SparseIndices {
+  int bufferView;     // required
+  size_t byteOffset;  // optional, default 0
+  int componentType;  // required: UNSIGNED_BYTE, UNSIGNED_SHORT, or UNSIGNED_INT
+
+  SparseIndices() : bufferView(-1), byteOffset(0), componentType(0) {}
+};
+
+// Sparse accessor values
+struct SparseValues {
+  int bufferView;     // required
+  size_t byteOffset;  // optional, default 0
+
+  SparseValues() : bufferView(-1), byteOffset(0) {}
+};
+
+// Sparse accessor storage
+struct Sparse {
+  size_t count;           // required: number of sparse elements
+  SparseIndices indices;  // required
+  SparseValues values;    // required
+  bool isSparse;          // helper flag
+
+  Sparse() : count(0), isSparse(false) {}
+};
+
 struct Accessor {
-  int bufferView;  // optional in spec but required here since sparse accessor
-                   // are not supported
+  int bufferView;  // optional in spec (can be -1 when only sparse is used)
   std::string name;
   size_t byteOffset;
   bool normalized;    // optinal.
@@ -553,7 +579,8 @@ struct Accessor {
   std::vector<double> minValues;  // optional
   std::vector<double> maxValues;  // optional
 
-  // TODO(syoyo): "sparse"
+  // Sparse accessor data (glTF 2.0 spec)
+  Sparse sparse;
 
   ///
   /// Utility function to compute byteStride for a given bufferView object.
@@ -669,10 +696,11 @@ struct Mesh {
 
 class Node {
  public:
-  Node() : camera(-1), skin(-1), mesh(-1) {}
+  Node() : camera(-1), skin(-1), mesh(-1), light(-1) {}
 
   Node(const Node &rhs) {
     camera = rhs.camera;
+    light = rhs.light;
 
     name = rhs.name;
     skin = rhs.skin;
@@ -691,6 +719,7 @@ class Node {
   ~Node() {}
 
   int camera;  // the index of the camera referenced by this node
+  int light;   // the index of the light referenced by this node (KHR_lights_punctual)
 
   std::string name;
   int skin;
@@ -701,7 +730,7 @@ class Node {
   std::vector<double> translation;  // length must be 0 or 3
   std::vector<double> matrix;       // length must be 0 or 16
   std::vector<double> weights;  // The weights of the instantiated Morph Target
-  
+
   ExtensionMap extensions;
   Value extras;
 };
@@ -733,8 +762,20 @@ struct Scene {
 
 struct Light {
   std::string name;
-  std::vector<double> color;
-  std::string type;
+  std::vector<double> color;  // RGB, default [1,1,1]
+  std::string type;           // "directional", "point", or "spot"
+
+  // KHR_lights_punctual extension properties
+  double intensity;           // Luminous intensity in candela (point/spot) or lux (directional)
+  double range;               // Hint for light's effective range (0 = unlimited)
+
+  // Spot light properties (innerConeAngle/outerConeAngle in radians)
+  double innerConeAngle;      // Angle where light is at full strength, default 0
+  double outerConeAngle;      // Angle where light attenuates to zero, default PI/4
+
+  Light() : intensity(1.0), range(0.0), innerConeAngle(0.0), outerConeAngle(0.785398163) {
+    color = {1.0, 1.0, 1.0};  // Default white
+  }
 };
 
 class Model {
@@ -2291,31 +2332,90 @@ static bool ParseBufferView(BufferView *bufferView, std::string *err,
 }
 
 /**
- TODO VIRO-3665 Implement missing parse sparse properties.
+ * Parse sparse accessor data (glTF 2.0 spec)
  */
-static void ParseSparseProperty(bool *ret, std::string *err, const json &o,
-                                const std::string &property,
-                                const bool required,
-                                const std::string &parent_node = "") {
-  json::const_iterator it = o.find(property);
-  if (it != o.end()) {
-      if (err) {
-          (*err) += "Viro does not yet support Parsing Sparse properties in GLTF.\n";
-      }
+static bool ParseSparseAccessor(Sparse *sparse, std::string *err, const json &o) {
+  json::const_iterator it = o.find("sparse");
+  if (it == o.end()) {
+    sparse->isSparse = false;
+    return true;  // No sparse data, which is valid
   }
+
+  const json &sparseObj = it.value();
+
+  // Parse count (required)
+  double count = 0.0;
+  if (!ParseNumberProperty(&count, err, sparseObj, "count", true, "Sparse")) {
+    return false;
+  }
+  sparse->count = static_cast<size_t>(count);
+
+  // Parse indices (required)
+  json::const_iterator indicesIt = sparseObj.find("indices");
+  if (indicesIt == sparseObj.end()) {
+    if (err) {
+      (*err) += "Missing 'indices' in sparse accessor.\n";
+    }
+    return false;
+  }
+  const json &indicesObj = indicesIt.value();
+
+  double indicesBufferView = 0.0;
+  if (!ParseNumberProperty(&indicesBufferView, err, indicesObj, "bufferView", true, "Sparse.indices")) {
+    return false;
+  }
+  sparse->indices.bufferView = static_cast<int>(indicesBufferView);
+
+  double indicesByteOffset = 0.0;
+  ParseNumberProperty(&indicesByteOffset, err, indicesObj, "byteOffset", false, "Sparse.indices");
+  sparse->indices.byteOffset = static_cast<size_t>(indicesByteOffset);
+
+  double indicesComponentType = 0.0;
+  if (!ParseNumberProperty(&indicesComponentType, err, indicesObj, "componentType", true, "Sparse.indices")) {
+    return false;
+  }
+  sparse->indices.componentType = static_cast<int>(indicesComponentType);
+
+  // Parse values (required)
+  json::const_iterator valuesIt = sparseObj.find("values");
+  if (valuesIt == sparseObj.end()) {
+    if (err) {
+      (*err) += "Missing 'values' in sparse accessor.\n";
+    }
+    return false;
+  }
+  const json &valuesObj = valuesIt.value();
+
+  double valuesBufferView = 0.0;
+  if (!ParseNumberProperty(&valuesBufferView, err, valuesObj, "bufferView", true, "Sparse.values")) {
+    return false;
+  }
+  sparse->values.bufferView = static_cast<int>(valuesBufferView);
+
+  double valuesByteOffset = 0.0;
+  ParseNumberProperty(&valuesByteOffset, err, valuesObj, "byteOffset", false, "Sparse.values");
+  sparse->values.byteOffset = static_cast<size_t>(valuesByteOffset);
+
+  sparse->isSparse = true;
+  return true;
 }
 
 static bool ParseAccessor(Accessor *accessor, std::string *err, const json &o) {
-  double bufferView = -1.0;
-  if (!ParseNumberProperty(&bufferView, err, o, "bufferView", true, "Accessor")) {
+  // Parse sparse accessor data first to determine if bufferView is required
+  if (!ParseSparseAccessor(&accessor->sparse, err, o)) {
     return false;
   }
 
-  // Viro Custom implementatino of parsing sparse array of bufferView.
-  bool hasSparseProperty = false;
-  ParseSparseProperty(&hasSparseProperty, err, o, "sparse", false, "Accessor");
-  if (hasSparseProperty){
-      return false;
+  // bufferView is optional when sparse is defined (per glTF 2.0 spec)
+  double bufferView = -1.0;
+  bool hasBufferView = ParseNumberProperty(&bufferView, err, o, "bufferView", false, "Accessor");
+
+  // Either bufferView or sparse must be present
+  if (!hasBufferView && !accessor->sparse.isSparse) {
+    if (err) {
+      (*err) += "Accessor must have either 'bufferView' or 'sparse' property.\n";
+    }
+    return false;
   }
 
   double byteOffset = 0.0;
@@ -2495,7 +2595,33 @@ static bool ParseMesh(Mesh *mesh, std::string *err, const json &o) {
 static bool ParseLight(Light *light, std::string *err, const json &o) {
   ParseStringProperty(&light->name, err, o, "name", false);
   ParseNumberArrayProperty(&light->color, err, o, "color", false);
-  ParseStringProperty(&light->type, err, o, "type", false);
+  ParseStringProperty(&light->type, err, o, "type", true);  // type is required
+
+  // KHR_lights_punctual properties
+  double intensity = 1.0;
+  ParseNumberProperty(&intensity, err, o, "intensity", false);
+  light->intensity = intensity;
+
+  double range = 0.0;
+  ParseNumberProperty(&range, err, o, "range", false);
+  light->range = range;
+
+  // Spot light properties (only valid for spot lights)
+  if (light->type == "spot") {
+    json::const_iterator spotIt = o.find("spot");
+    if (spotIt != o.end() && spotIt.value().is_object()) {
+      const json &spotObj = spotIt.value();
+
+      double innerConeAngle = 0.0;
+      ParseNumberProperty(&innerConeAngle, err, spotObj, "innerConeAngle", false);
+      light->innerConeAngle = innerConeAngle;
+
+      double outerConeAngle = 0.785398163;  // PI/4 default
+      ParseNumberProperty(&outerConeAngle, err, spotObj, "outerConeAngle", false);
+      light->outerConeAngle = outerConeAngle;
+    }
+  }
+
   return true;
 }
 
@@ -2539,6 +2665,17 @@ static bool ParseNode(Node *node, std::string *err, const json &o) {
 
   ParseExtensionsProperty(&node->extensions, err, o);
   ParseExtrasProperty(&(node->extras), o);
+
+  // Parse KHR_lights_punctual extension for node light reference
+  json::const_iterator extIt = o.find("extensions");
+  if (extIt != o.end() && extIt.value().is_object()) {
+    json::const_iterator lightsExt = extIt.value().find("KHR_lights_punctual");
+    if (lightsExt != extIt.value().end() && lightsExt.value().is_object()) {
+      double lightIndex = -1.0;
+      ParseNumberProperty(&lightIndex, err, lightsExt.value(), "light", false);
+      node->light = static_cast<int>(lightIndex);
+    }
+  }
 
   return true;
 }
@@ -3422,7 +3559,7 @@ bool TinyGLTF::LoadFromString(Model *model,
       json::const_iterator it(root.begin());
       json::const_iterator itEnd(root.end());
       for (; it != itEnd; ++it) {
-        // parse KHR_lights_cmn extension
+        // parse KHR_lights_cmn extension (legacy)
         if ((it.key().compare("KHR_lights_cmn") == 0) &&
             it.value().is_object()) {
           const json &object = it.value();
@@ -3440,6 +3577,25 @@ bool TinyGLTF::LoadFromString(Model *model,
           json::const_iterator arrayIt(lights.begin());
           json::const_iterator arrayItEnd(lights.end());
           for (; arrayIt != arrayItEnd; ++arrayIt) {
+            Light light;
+            if (!ParseLight(&light, err, arrayIt.value())) {
+              return false;
+            }
+            model->lights.push_back(light);
+          }
+        }
+
+        // parse KHR_lights_punctual extension (current standard)
+        if ((it.key().compare("KHR_lights_punctual") == 0) &&
+            it.value().is_object()) {
+          const json &object = it.value();
+          json::const_iterator itLight(object.find("lights"));
+          if (itLight == object.end() || !itLight.value().is_array()) {
+            continue;
+          }
+
+          const json &lights = itLight.value();
+          for (json::const_iterator arrayIt = lights.begin(); arrayIt != lights.end(); ++arrayIt) {
             Light light;
             if (!ParseLight(&light, err, arrayIt.value())) {
               return false;

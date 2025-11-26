@@ -59,7 +59,8 @@ enum class VROBlendMode {
 
 enum class VROTransparencyMode {
     AOne,
-    RGBZero
+    RGBZero,
+    Mask  // Alpha masking: discard fragments below alphaCutoff threshold
 };
 
 enum class VROLightingModel {
@@ -210,6 +211,18 @@ public:
     }
     VROTransparencyMode getTransparencyMode() const {
         return _transparencyMode;
+    }
+
+    /*
+     Alpha cutoff threshold for Mask transparency mode.
+     Fragments with alpha below this value are discarded.
+     Default is 0.5 per glTF specification.
+     */
+    void setAlphaCutoff(float cutoff) {
+        _alphaCutoff = cutoff;
+    }
+    float getAlphaCutoff() const {
+        return _alphaCutoff;
     }
 
     /*
@@ -494,6 +507,11 @@ private:
      The mode used to calculate transparency.
      */
     VROTransparencyMode _transparencyMode;
+
+    /*
+     Alpha cutoff threshold for Mask transparency mode.
+     */
+    float _alphaCutoff;
     
     /*
      The lighting model to use to compute the interaction between
