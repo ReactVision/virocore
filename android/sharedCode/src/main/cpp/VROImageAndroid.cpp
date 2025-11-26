@@ -96,15 +96,17 @@ unsigned char *VROImageAndroid::getData(size_t *length) {
  This function is used by VROARImageTargetAndroid (w/ ARCore). As such, we can
  make a few assumptions, that the data is from a Bitmap and is using the RGBA_8888
  format.
+
+ IMPORTANT: ARCore requires stride == width for augmented images. We always
+ return a tightly-packed grayscale buffer.
  */
 unsigned char *VROImageAndroid::getGrayscaleData(size_t *length, size_t *stride) {
-    *length = _dataLength / 4; // the length is 1/4th because RGBA -> Grayscale (1 byte)
+    *length = _width * _height; // tightly-packed grayscale (no padding)
+    *stride = _width; // ARCore requires stride == width
 
     if (_grayscaleData == nullptr) {
-        // we can make this assumption because VROPlatformConvertBitmap computes _dataLength = _stride * _height
+        // Calculate the RGBA stride from the original data
         int32_t rgbastride = _dataLength / _height;
-        *stride = rgbastride / 4;
-
         convertRgbaToGrayscale(rgbastride, &_grayscaleData);
     }
     return _grayscaleData;
@@ -113,17 +115,22 @@ unsigned char *VROImageAndroid::getGrayscaleData(size_t *length, size_t *stride)
 /*
  This function comes from the augmented_image_c example provided by ARCore (util.h's
  ConvertRgbaToGrayscale function).
+
+ IMPORTANT: ARCore requires stride == width for augmented images. We always
+ output a tightly-packed grayscale buffer (no row padding) regardless of the
+ input RGBA stride.
  */
 void VROImageAndroid::convertRgbaToGrayscale(int32_t stride, uint8_t **out_grayscale_buffer) {
-    int32_t grayscale_stride = stride / 4;  // Only support RGBA_8888 format
-    uint8_t *grayscale_buffer = new uint8_t[grayscale_stride * _height];
+    // Always use width as the output stride (no padding) - ARCore requires stride == width
+    uint8_t *grayscale_buffer = new uint8_t[_width * _height];
     for (int h = 0; h < _height; ++h) {
         for (int w = 0; w < _width; ++w) {
             const uint8_t *pixel = &_data[w * 4 + h * stride];
             uint8_t r = *pixel;
             uint8_t g = *(pixel + 1);
             uint8_t b = *(pixel + 2);
-            grayscale_buffer[w + h * grayscale_stride] =
+            // Write to tightly-packed buffer (stride == width)
+            grayscale_buffer[w + h * _width] =
                     static_cast<uint8_t>(0.213f * r + 0.715 * g + 0.072 * b);
         }
     }

@@ -320,6 +320,7 @@ namespace arcore {
                                      FocusMode focusMode, DepthMode depthMode, SemanticMode semanticMode) = 0;
 
         virtual bool isDepthModeSupported(DepthMode depthMode) = 0;
+        virtual bool isSemanticModeSupported(SemanticMode semanticMode) = 0;
 
         virtual AugmentedImageDatabase *createAugmentedImageDatabase() = 0;
         virtual AugmentedImageDatabase *createAugmentedImageDatabase(uint8_t* raw_buffer, int64_t size) = 0;
