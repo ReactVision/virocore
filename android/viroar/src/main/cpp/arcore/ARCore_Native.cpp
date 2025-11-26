@@ -926,6 +926,27 @@ namespace arcore {
         return isSupported != 0;
     }
 
+    bool SessionNative::isSemanticModeSupported(SemanticMode semanticMode) {
+        ArSemanticMode arSemanticMode;
+        switch (semanticMode) {
+            case SemanticMode::Disabled:
+                return true;  // Always supported
+            case SemanticMode::Enabled:
+                arSemanticMode = AR_SEMANTIC_MODE_ENABLED;
+                break;
+        }
+
+        int32_t isSupported = 0;
+        ArSession_isSemanticModeSupported(_session, arSemanticMode, &isSupported);
+
+        __android_log_print(ANDROID_LOG_INFO, "ViroARCore",
+                          "Semantic mode %d supported: %s",
+                          (int)semanticMode,
+                          isSupported ? "YES" : "NO");
+
+        return isSupported != 0;
+    }
+
     AugmentedImageDatabase *SessionNative::createAugmentedImageDatabase() {
         ArAugmentedImageDatabase *database;
         ArAugmentedImageDatabase_create(_session, &database);

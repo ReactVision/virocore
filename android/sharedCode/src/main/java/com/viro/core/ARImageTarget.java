@@ -129,7 +129,27 @@ public class ARImageTarget {
      *                      <i>post</i>-orientation.
      */
     public ARImageTarget(Bitmap image, Orientation orientation, float physicalWidth) {
-        mId = String.valueOf(this.hashCode()); // the ID is simply the string of the hashCode().
+        this(image, orientation, physicalWidth, null);
+    }
+
+    /**
+     * Creates a ARImageTarget object to be given to {@link ViroViewARCore} to start looking
+     * for and tracking the specified image, with a custom ID.
+     *
+     * @param image         The {@link Bitmap} containing the image to track.
+     * @param orientation   The {@link Orientation} of the given Bitmap, which indicates where the
+     *                      top of the image is. For example, if the input image is an upside-down
+     *                      dollar bill, you would set the orientation to {@link Orientation#Down}
+     *                      to identify right-side-up dollar bills in the world. Set to {@link
+     *                      Orientation#Up} to indicate you want to identify the image as-is without
+     *                      any rotation.
+     * @param physicalWidth The real-world width of the image in meters. Note this is the width
+     *                      <i>post</i>-orientation.
+     * @param id            The custom ID for this target. If null, a hashCode-based ID will be used.
+     *                      This ID is used to match detected images with their corresponding targets.
+     */
+    public ARImageTarget(Bitmap image, Orientation orientation, float physicalWidth, String id) {
+        mId = (id != null) ? id : String.valueOf(this.hashCode());
         mOrientation = orientation;
         mPhysicalWidth = physicalWidth;
         mNativeRef = nativeCreateARImageTarget(image, mOrientation.getStringValue(), mPhysicalWidth, mId);

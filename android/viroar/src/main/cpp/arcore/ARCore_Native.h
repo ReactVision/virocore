@@ -236,6 +236,7 @@ namespace arcore {
                                      UpdateMode updateMode, CloudAnchorMode cloudAnchorMode,
                                      FocusMode focusMode, DepthMode depthMode, SemanticMode semanticMode);
         virtual bool isDepthModeSupported(DepthMode depthMode);
+        virtual bool isSemanticModeSupported(SemanticMode semanticMode);
         virtual AugmentedImageDatabase *createAugmentedImageDatabase();
         virtual AugmentedImageDatabase *createAugmentedImageDatabase(uint8_t* raw_buffer, int64_t size);
         virtual Pose *createPose();

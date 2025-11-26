@@ -284,36 +284,37 @@ bool VROARSessionARCore::updateARCoreConfig() {
     }
   }
 
-  pinfo("Creating ARCore config with planeFindingMode=%d, depthMode=%d, semanticMode=%d",
-        (int)_planeFindingMode, (int)effectiveDepthMode, (int)_semanticMode); // DEBUG
+  // Check if semantic mode is supported on this device
+  arcore::SemanticMode effectiveSemanticMode = _semanticMode;
+  if (_semanticMode != arcore::SemanticMode::Disabled) {
+    if (!_session->isSemanticModeSupported(_semanticMode)) {
+      pwarn("⚠️ Requested semantic mode %d not supported on this device, falling back to DISABLED",
+            (int)_semanticMode);
+      effectiveSemanticMode = arcore::SemanticMode::Disabled;
+    }
+  }
+
   arcore::Config *config =
       _session->createConfig(_lightingMode, _planeFindingMode, _updateMode,
-                             _cloudAnchorMode, _focusMode, effectiveDepthMode, _semanticMode);
+                             _cloudAnchorMode, _focusMode, effectiveDepthMode, effectiveSemanticMode);
 
   if (getImageTrackingImpl() == VROImageTrackingImpl::ARCore &&
       _currentARCoreImageDatabase) {
     config->setAugmentedImageDatabase(_currentARCoreImageDatabase);
   }
 
-  pinfo("Applying config to ARCore session..."); // DEBUG
+  // ARCore requires the session to be paused before calling configure()
+  _session->pause();
+
   arcore::ConfigStatus status = _session->configure(config);
   delete (config);
 
   if (status == arcore::ConfigStatus::Success) {
-    pinfo("✅ Successfully configured AR session [lighting %d, planes %d, "
-          "update %d, focus %d, depth %d, semantic %d]",
-          _lightingMode, _planeFindingMode, _updateMode, _focusMode, effectiveDepthMode, _semanticMode);
     _session->resume();
     return true;
-  } else if (status == arcore::ConfigStatus::UnsupportedConfiguration) {
-    pwarn("❌ Failed to configure AR session: configuration not supported");
-    pwarn("   Your device may not support the requested features (vertical planes, depth, or semantic mode)!");
-    return false;
-  } else if (status == arcore::ConfigStatus::SessionNotPaused) {
-    pwarn("❌ Failed to change AR configuration: session must be paused");
-    return false;
   } else {
-    pwarn("❌ Unknown error updating AR configuration");
+    pwarn("Failed to configure AR session (status %d)", (int)status);
+    _session->resume();
     return false;
   }
 }
@@ -498,7 +499,7 @@ void VROARSessionARCore::addTargetToDatabase(
   rotateImageForOrientation(&grayscaleImage, &width, &height, &stride,
                             target->getOrientation());
 
-  database->addImageWithPhysicalSize(
+  arcore::AugmentedImageDatabaseStatus status = database->addImageWithPhysicalSize(
       targetAndroid->getId().c_str(), grayscaleImage, width, height,
       (int32_t)stride, target->getPhysicalWidth(), &outIndex);
 
@@ -918,7 +919,6 @@ void VROARSessionARCore::processUpdatedAnchors(VROARFrameARCore *frameAR) {
     arcore::TrackableList *imageList = _session->createTrackableList();
     frame->getUpdatedTrackables(imageList, arcore::TrackableType::Image);
     int imageSize = imageList->size();
-
     for (int i = 0; i < imageSize; i++) {
       arcore::Trackable *trackable = imageList->acquireItem(i);
       arcore::AugmentedImage *image = (arcore::AugmentedImage *)trackable;
@@ -968,8 +968,6 @@ void VROARSessionARCore::processUpdatedAnchors(VROARFrameARCore *frameAR) {
             target = std::dynamic_pointer_cast<VROARImageTargetAndroid>(
                 _imageTargets[j]);
             if (key == target->getId()) {
-              pinfo("Detected new anchor tied to image target [%s]",
-                    key.c_str());
               haveFoundTarget = true;
               // break out of the loop since we found a target id that matches
               // the key
