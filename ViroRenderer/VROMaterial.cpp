@@ -79,9 +79,12 @@ VROMaterial::VROMaterial() : VROThreadRestricted(VROThreadName::Renderer),
                                                      (int)VROTextureType::Texture2D);
         
     // TODO These are not yet implemented
-    _emission         = new VROMaterialVisual(*this, (int)VROTextureType::Texture2D);
-    _multiply         = new VROMaterialVisual(*this, (int)VROTextureType::Texture2D);
-    _selfIllumination = new VROMaterialVisual(*this, (int)VROTextureType::Texture2D);
+    _emission         = new VROMaterialVisual(*this, (int)VROTextureType::None |
+                                                     (int)VROTextureType::Texture2D);
+    _multiply         = new VROMaterialVisual(*this, (int)VROTextureType::None |
+                                                     (int)VROTextureType::Texture2D);
+    _selfIllumination = new VROMaterialVisual(*this, (int)VROTextureType::None |
+                                                     (int)VROTextureType::Texture2D);
         
     ALLOCATION_TRACKER_ADD(Materials, 1);
 }
