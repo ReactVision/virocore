@@ -1152,4 +1152,84 @@ public class ViroViewARCore extends ViroView {
         }
         return false;
     }
+
+    /**
+     * Listener interface for screenshot capture completion using PixelCopy.
+     */
+    public interface PixelCopyScreenshotListener {
+        /**
+         * Called when the screenshot was successfully captured.
+         *
+         * @param bitmap The captured screenshot bitmap.
+         */
+        void onSuccess(Bitmap bitmap);
+
+        /**
+         * Called when the screenshot capture failed.
+         *
+         * @param errorCode The PixelCopy result code indicating the type of failure.
+         */
+        void onError(int errorCode);
+    }
+
+    /**
+     * Takes a screenshot of the current AR view including the camera background using PixelCopy.
+     * This method captures the actual rendered content of the SurfaceView, ensuring both the
+     * camera feed and 3D objects are included in the screenshot.
+     *
+     * @param listener The listener that will be called with the result.
+     */
+    public void takeScreenshotWithPixelCopy(final PixelCopyScreenshotListener listener) {
+        if (mDestroyed || mSurfaceView == null) {
+            if (listener != null) {
+                listener.onError(android.view.PixelCopy.ERROR_SOURCE_INVALID);
+            }
+            return;
+        }
+
+        final Bitmap bitmap = Bitmap.createBitmap(
+                mSurfaceView.getWidth(),
+                mSurfaceView.getHeight(),
+                Bitmap.Config.ARGB_8888);
+
+        final Handler handler = new Handler(Looper.getMainLooper());
+
+        try {
+            android.view.PixelCopy.request(
+                    mSurfaceView,
+                    bitmap,
+                    new android.view.PixelCopy.OnPixelCopyFinishedListener() {
+                        @Override
+                        public void onPixelCopyFinished(int copyResult) {
+                            if (listener != null) {
+                                if (copyResult == android.view.PixelCopy.SUCCESS) {
+                                    listener.onSuccess(bitmap);
+                                } else {
+                                    bitmap.recycle();
+                                    listener.onError(copyResult);
+                                }
+                            } else {
+                                bitmap.recycle();
+                            }
+                        }
+                    },
+                    handler);
+        } catch (IllegalArgumentException e) {
+            Log.e(TAG, "PixelCopy failed: " + e.getMessage());
+            bitmap.recycle();
+            if (listener != null) {
+                listener.onError(android.view.PixelCopy.ERROR_SOURCE_INVALID);
+            }
+        }
+    }
+
+    /**
+     * Returns the GLSurfaceView used for rendering. This can be used for advanced screenshot
+     * or recording operations.
+     *
+     * @return The GLSurfaceView, or null if the view has been destroyed.
+     */
+    public GLSurfaceView getSurfaceView() {
+        return mSurfaceView;
+    }
 }
