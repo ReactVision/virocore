@@ -94,6 +94,7 @@ public:
     float          readFloat();
     double         readDouble();
     int            readInt();
+    unsigned int   readUnsignedInt();
     uint64_t       readUInt64();
     short          readShort();
     unsigned short readUnsignedShort();
@@ -188,8 +189,11 @@ public:
      */
     void writeBool(bool value);
     void writeByte(char value);
+    void writeUnsignedByte(unsigned char value);
     void writeShort(short value);
+    void writeUnsignedShort(unsigned short value);
     void writeInt(int value);
+    void writeUnsignedInt(unsigned int value);
     void writeHalf(float value);
     void writeFloat(float value);
     void writeFloats(float *pValues, const int numFloats);
