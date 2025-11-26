@@ -43,7 +43,7 @@ For ViroCore Android, HelloWorld samples should have the corresponding file at t
 
 ## Manual Building of the Renderer
 
-If you would like to modify / make changes to the renderer directly. These are the instructions for building the renderer and ViroCore platform. 
+If you would like to modify / make changes to the renderer directly. These are the instructions for building the renderer and ViroCore platform.
 
 ### Building the ViroCore platform:
 1. Follow the same prerequisite directions above from our [Quick start guide](https://virocore.viromedia.com/docs/getting-started).

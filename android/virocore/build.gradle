@@ -135,3 +135,10 @@ tasks.whenTaskAdded {
 //         }
 //     }
 // }
+
+// Disable standalone ViroCore build - use viroreact instead
+tasks.whenTaskAdded { task ->
+    if (task.name == 'assembleRelease' || task.name == 'assembleDebug') {
+        task.enabled = false
+    }
+}
