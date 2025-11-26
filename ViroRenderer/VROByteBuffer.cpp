@@ -192,6 +192,17 @@ int VROByteBuffer::readInt() {
     return value;
 }
 
+unsigned int VROByteBuffer::readUnsignedInt() {
+    passert(_pos + 4 <= _capacity);
+
+    unsigned int value;
+    memcpy(&value, _buffer + _pos, 4);
+
+    _pos += 4;
+
+    return value;
+}
+
 short VROByteBuffer::readShort() {
     passert(_pos + 2 <= _capacity);
 
@@ -638,6 +649,22 @@ void VROByteBuffer::writeByte(char value) {
     _pos++;
 }
 
+void VROByteBuffer::writeUnsignedByte(unsigned char value) {
+#if k_bufferDebugOverruns
+    const size_t newPos = _pos + 1;
+    if (newPos > _capacity) {
+        perr("Overrun! writeUnsignedByte newPos=%zu > _capacity=%zu", newPos, _capacity);
+#if k_bufferAbortOverruns
+        pabort();
+#endif
+        return;
+    }
+#endif
+
+    _buffer[_pos] = value;
+    _pos++;
+}
+
 void VROByteBuffer::writeShort(short value) {
 #if k_bufferDebugOverruns
     const size_t newPos = _pos + 2;
@@ -654,11 +681,43 @@ void VROByteBuffer::writeShort(short value) {
     _pos += 2;
 }
 
+void VROByteBuffer::writeUnsignedShort(unsigned short value) {
+#if k_bufferDebugOverruns
+    const size_t newPos = _pos + 2;
+    if (newPos > _capacity) {
+        perr("Overrun! writeUnsignedShort newPos=%zu > _capacity=%zu", newPos, _capacity);
+#if k_bufferAbortOverruns
+        pabort();
+#endif
+        return;
+    }
+#endif
+
+    memcpy(_buffer + _pos, &value, 2);
+    _pos += 2;
+}
+
 void VROByteBuffer::writeInt(int value) {
 #if k_bufferDebugOverruns
     const size_t newPos = _pos + 4;
     if (newPos > _capacity) {
         perr("Overrun! writeInt newPos=%zu > _capacity=%zu", newPos, _capacity);
+#if k_bufferAbortOverruns
+        pabort();
+#endif
+        return;
+    }
+#endif
+
+    memcpy(_buffer + _pos, &value, 4);
+    _pos += 4;
+}
+
+void VROByteBuffer::writeUnsignedInt(unsigned int value) {
+#if k_bufferDebugOverruns
+    const size_t newPos = _pos + 4;
+    if (newPos > _capacity) {
+        perr("Overrun! writeUnsignedInt newPos=%zu > _capacity=%zu", newPos, _capacity);
 #if k_bufferAbortOverruns
         pabort();
 #endif
