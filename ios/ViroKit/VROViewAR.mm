@@ -768,14 +768,21 @@ static VROVector3f const kZeroVector = VROVector3f();
                                                   0, 0, 1, 1);
     _cameraBackground->setScreenSpace(true);
     _cameraBackground->setName("Camera");
-    
+
     std::shared_ptr<VROMaterial> material = _cameraBackground->getMaterials()[0];
     material->setLightingModel(VROLightingModel::Constant);
     material->getDiffuse().setTexture(_arSession->getCameraBackgroundTexture());
     material->setWritesToDepthBuffer(false);
     material->setNeedsToneMapping(false);
     material->setCullMode(VROCullMode::None); // Required for mirrored mode when using front-facing camera
-    
+
+    // If occlusion mode is already set, add the shader modifier now
+    VROOcclusionMode occlusionMode = _arSession->getOcclusionMode();
+    if (occlusionMode != VROOcclusionMode::Disabled) {
+        material->addShaderModifier(VROShaderFactory::createOcclusionDepthModifier());
+        _occlusionModifierAdded = true;
+    }
+
     _arSession->setViewport(viewport);
     _arSession->run();
 }
