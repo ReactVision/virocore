@@ -201,6 +201,24 @@ void VROTextureSubstrateOpenGL::loadFace(GLenum target,
             GL( glGenerateMipmap(GL_TEXTURE_2D) );
         }
     }
+    else if (format == VROTextureFormat::R32F) {
+        // Single-channel 32-bit float texture (for depth maps)
+        passert_msg (internalFormat == VROTextureInternalFormat::R32F,
+                     "R32F source format is only compatible with R32F internal format!");
+        passert (mipmapMode == VROMipmapMode::None);
+
+        GL( glTexImage2D(target, 0, GL_R32F, width, height, 0,
+                         GL_RED, GL_FLOAT, faceData->getData()) );
+    }
+    else if (format == VROTextureFormat::R8) {
+        // Single-channel 8-bit unsigned texture (for confidence maps)
+        passert_msg (internalFormat == VROTextureInternalFormat::R8,
+                     "R8 source format is only compatible with R8 internal format!");
+        passert (mipmapMode == VROMipmapMode::None);
+
+        GL( glTexImage2D(target, 0, GL_R8, width, height, 0,
+                         GL_RED, GL_UNSIGNED_BYTE, faceData->getData()) );
+    }
     else {
         pabort();
     }
@@ -214,6 +232,10 @@ GLuint VROTextureSubstrateOpenGL::getInternalFormat(VROTextureInternalFormat for
             return GL_RGBA4;
         case VROTextureInternalFormat::RGB565:
             return GL_RGB565;
+        case VROTextureInternalFormat::R32F:
+            return GL_R32F;
+        case VROTextureInternalFormat::R8:
+            return GL_R8;
         default:
             return GL_RGBA;
     }

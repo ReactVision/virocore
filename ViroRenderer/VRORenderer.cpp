@@ -312,6 +312,18 @@ void VRORenderer::setClearColor(VROVector4f color, std::shared_ptr<VRODriver> dr
     }
 }
 
+void VRORenderer::setOcclusionMode(VROOcclusionMode mode) {
+    if (_context) {
+        _context->setOcclusionMode(mode);
+    }
+}
+
+void VRORenderer::setDepthTexture(std::shared_ptr<VROTexture> depthTexture) {
+    if (_context) {
+        _context->setDepthTexture(depthTexture);
+    }
+}
+
 VROCamera VRORenderer::updateCamera(const VROViewport &viewport, const VROFieldOfView &fov,
                                     const VROMatrix4f &headRotation, const VROMatrix4f &projection) {
     

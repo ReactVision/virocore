@@ -37,6 +37,7 @@
 #include <arcore/VROARSessionARCore.h>
 #include "VROSceneRenderer.h"
 #include "VRODriverOpenGLAndroid.h"
+#include "VROShaderFactory.h"
 
 #include "vr/gvr/capi/include/gvr_audio.h"
 #include "vr/gvr/capi/include/gvr_types.h"
@@ -152,11 +153,13 @@ private:
     void renderWithTracking(const std::shared_ptr<VROARCamera> &camera, const std::unique_ptr<VROARFrame> &frame,
                             VROViewport viewport);
     void updateARBackground(std::unique_ptr<VROARFrame> &frame, bool forceReset);
+    void updateBackgroundOcclusion(std::unique_ptr<VROARFrame> &frame);
     void renderWaitingForTracking(VROViewport viewport);
     void renderNothing();
     void initARSession(VROViewport viewport, std::shared_ptr<VROScene> scene);
 
     std::shared_ptr<VROSurface> _cameraBackground;
+    bool _occlusionModifierAdded = false;
     gvr::Sizei _surfaceSize;
     bool _arcoreInstalled;
     bool _destroyed;

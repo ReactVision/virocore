@@ -59,6 +59,8 @@ enum class VROTextureFormat {
     RGB8,
     RGB9_E5,
     RGB16F,
+    R32F,   // Single-channel 32-bit float (for depth maps)
+    R8,     // Single-channel 8-bit unsigned (for confidence maps)
 };
 
 // Texture formats for storage on the GPU
@@ -75,6 +77,8 @@ enum class VROTextureInternalFormat {
     RGB9_E5,
     RGB16F,
     RG8,
+    R32F,   // Single-channel 32-bit float (for depth maps)
+    R8,     // Single-channel 8-bit unsigned (for confidence maps)
 };
 
 enum class VROMipmapMode {

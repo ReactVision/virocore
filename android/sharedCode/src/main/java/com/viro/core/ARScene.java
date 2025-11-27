@@ -273,6 +273,40 @@ public class ARScene extends Scene {
         }
     };
 
+    /**
+     * The occlusion mode determines how virtual content is occluded by real-world objects.
+     * Occlusion allows virtual objects to be properly hidden behind real-world surfaces,
+     * creating a more realistic AR experience.
+     */
+    public enum OcclusionMode {
+        /**
+         * No occlusion - virtual objects always render on top of the camera background.
+         * This is the default mode.
+         */
+        DISABLED(0),
+
+        /**
+         * Use depth data from the AR framework to occlude virtual objects behind real-world
+         * surfaces. This requires device support for depth sensing (e.g., ARCore Depth API).
+         */
+        DEPTH_BASED(1),
+
+        /**
+         * Only occlude virtual objects behind detected people. This mode is optimized for
+         * people occlusion and may be more efficient than full depth-based occlusion.
+         * Requires device support for person segmentation.
+         */
+        PEOPLE_ONLY(2);
+
+        private int mTypeId;
+        OcclusionMode(int id) {
+            mTypeId = id;
+        }
+        public int getId() {
+            return mTypeId;
+        }
+    };
+
     private Listener mListener = null;
     private LoadARImageDatabaseListener mLoadARImageDatabaseListener;
     private long mNativeARDelegateRef;
@@ -602,6 +636,41 @@ public class ARScene extends Scene {
     }
 
     /**
+     * Set the occlusion mode for this AR scene. When enabled, virtual objects will be properly
+     * occluded by real-world surfaces, creating a more realistic AR experience.
+     * <p>
+     * Occlusion requires device support for depth sensing. Use {@link #isOcclusionSupported()}
+     * to check if occlusion is available on the current device before enabling it.
+     *
+     * @param mode The {@link OcclusionMode} to use.
+     * @see #isOcclusionSupported()
+     * @see #isOcclusionModeSupported(OcclusionMode)
+     */
+    public void setOcclusionMode(OcclusionMode mode) {
+        nativeSetOcclusionMode(mNativeRef, mode.getId());
+    }
+
+    /**
+     * Check if occlusion is supported on the current device. Occlusion requires device support
+     * for depth sensing (e.g., ARCore Depth API support).
+     *
+     * @return true if occlusion is supported, false otherwise.
+     */
+    public boolean isOcclusionSupported() {
+        return nativeIsOcclusionSupported(mNativeRef);
+    }
+
+    /**
+     * Check if the specified occlusion mode is supported on the current device.
+     *
+     * @param mode The {@link OcclusionMode} to check.
+     * @return true if the specified mode is supported, false otherwise.
+     */
+    public boolean isOcclusionModeSupported(OcclusionMode mode) {
+        return nativeIsOcclusionModeSupported(mNativeRef, mode.getId());
+    }
+
+    /**
      * @hide
      */
     //#IFDEF 'viro_react'
@@ -790,6 +859,9 @@ public class ARScene extends Scene {
     private native long nativeCreateAnchoredNode(long sceneControllerRef, float px, float py, float pz,
                                                  float qx, float qy, float qz, float qw);
     private native float[] nativeGetAmbientLightColor(long sceneControllerRef);
+    private native void nativeSetOcclusionMode(long sceneControllerRef, int mode);
+    private native boolean nativeIsOcclusionSupported(long sceneControllerRef);
+    private native boolean nativeIsOcclusionModeSupported(long sceneControllerRef, int mode);
 
     // Called by JNI
 

@@ -647,6 +647,46 @@ namespace arcore {
         }
     }
 
+    ImageRetrievalStatus FrameNative::acquireDepthImage(Image **outImage) {
+        ArImage *arImage = nullptr;
+        ArStatus status = ArFrame_acquireDepthImage16Bits(_session, _frame, &arImage);
+
+        if (status == AR_ERROR_INVALID_ARGUMENT) {
+            return ImageRetrievalStatus::InvalidArgument;
+        } else if (status == AR_ERROR_DEADLINE_EXCEEDED) {
+            return ImageRetrievalStatus::DeadlineExceeded;
+        } else if (status == AR_ERROR_RESOURCE_EXHAUSTED) {
+            return ImageRetrievalStatus::ResourceExhausted;
+        } else if (status == AR_ERROR_NOT_YET_AVAILABLE) {
+            return ImageRetrievalStatus::NotYetAvailable;
+        } else if (status == AR_SUCCESS && arImage != nullptr) {
+            *outImage = new ImageNative(arImage, _session);
+            return ImageRetrievalStatus::Success;
+        } else {
+            return ImageRetrievalStatus::UnknownError;
+        }
+    }
+
+    ImageRetrievalStatus FrameNative::acquireDepthConfidenceImage(Image **outImage) {
+        ArImage *arImage = nullptr;
+        ArStatus status = ArFrame_acquireRawDepthConfidenceImage(_session, _frame, &arImage);
+
+        if (status == AR_ERROR_INVALID_ARGUMENT) {
+            return ImageRetrievalStatus::InvalidArgument;
+        } else if (status == AR_ERROR_DEADLINE_EXCEEDED) {
+            return ImageRetrievalStatus::DeadlineExceeded;
+        } else if (status == AR_ERROR_RESOURCE_EXHAUSTED) {
+            return ImageRetrievalStatus::ResourceExhausted;
+        } else if (status == AR_ERROR_NOT_YET_AVAILABLE) {
+            return ImageRetrievalStatus::NotYetAvailable;
+        } else if (status == AR_SUCCESS && arImage != nullptr) {
+            *outImage = new ImageNative(arImage, _session);
+            return ImageRetrievalStatus::Success;
+        } else {
+            return ImageRetrievalStatus::UnknownError;
+        }
+    }
+
 #pragma mark - PointCloud
 
     PointCloudNative::~PointCloudNative() {

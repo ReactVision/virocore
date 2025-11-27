@@ -125,6 +125,13 @@ public:
         // no-op on Android
     }
 
+    /*
+     Occlusion support.
+     */
+    void setOcclusionMode(VROOcclusionMode mode) override;
+    bool isOcclusionSupported() const override;
+    bool isOcclusionModeSupported(VROOcclusionMode mode) const override;
+
 #pragma mark - [Internal] Configuration
 
     /*

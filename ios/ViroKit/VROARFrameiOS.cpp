@@ -37,6 +37,8 @@
 #include "VROARHitTestResult.h"
 #include "VROLight.h"
 #include "VROCameraTexture.h"
+#include "VROTexture.h"
+#include "VROData.h"
 
 VROARFrameiOS::VROARFrameiOS(ARFrame *frame, VROViewport viewport, VROCameraOrientation orientation,
                              std::shared_ptr<VROARSessioniOS> session) :
@@ -201,11 +203,124 @@ std::shared_ptr<VROARPointCloud> VROARFrameiOS::getPointCloud() {
         // ARKit doesn't provide this, set it to 1.
         points.push_back(VROVector4f(arPoint.x, arPoint.y, arPoint.z, 1));
     }
-    
+
     std::vector<uint64_t> identifiers(arPointCloud.identifiers, arPointCloud.identifiers + arPointCloud.count);
-    
+
     _pointCloud = std::make_shared<VROARPointCloud>(points, identifiers);
     return _pointCloud;
+}
+
+bool VROARFrameiOS::hasDepthData() const {
+    if (@available(iOS 14.0, *)) {
+        return _frame.sceneDepth != nil;
+    }
+    return false;
+}
+
+int VROARFrameiOS::getDepthImageWidth() const {
+    if (@available(iOS 14.0, *)) {
+        if (_frame.sceneDepth != nil) {
+            return (int)CVPixelBufferGetWidth(_frame.sceneDepth.depthMap);
+        }
+    }
+    return 0;
+}
+
+int VROARFrameiOS::getDepthImageHeight() const {
+    if (@available(iOS 14.0, *)) {
+        if (_frame.sceneDepth != nil) {
+            return (int)CVPixelBufferGetHeight(_frame.sceneDepth.depthMap);
+        }
+    }
+    return 0;
+}
+
+std::shared_ptr<VROTexture> VROARFrameiOS::getDepthTexture() {
+    if (_depthTexture) {
+        return _depthTexture;
+    }
+
+    if (@available(iOS 14.0, *)) {
+        ARDepthData *sceneDepth = _frame.sceneDepth;
+        if (sceneDepth == nil) {
+            return nullptr;
+        }
+
+        CVPixelBufferRef depthMap = sceneDepth.depthMap;
+        if (depthMap == nil) {
+            return nullptr;
+        }
+
+        // Get the depth map dimensions
+        size_t width = CVPixelBufferGetWidth(depthMap);
+        size_t height = CVPixelBufferGetHeight(depthMap);
+
+        // Lock the buffer to access the data
+        CVPixelBufferLockBaseAddress(depthMap, kCVPixelBufferLock_ReadOnly);
+        void *baseAddress = CVPixelBufferGetBaseAddress(depthMap);
+
+        // The depth map is Float32 format
+        OSType formatType = CVPixelBufferGetPixelFormatType(depthMap);
+        if (formatType == kCVPixelFormatType_DepthFloat32 && baseAddress != nullptr) {
+            // Copy the depth data (we need to copy since the CVPixelBuffer will be released)
+            size_t dataSize = width * height * sizeof(float);
+            std::shared_ptr<VROData> depthData = std::make_shared<VROData>(baseAddress, dataSize, VRODataOwnership::Copy);
+            std::vector<std::shared_ptr<VROData>> dataVec = { depthData };
+
+            _depthTexture = std::make_shared<VROTexture>(VROTextureType::Texture2D,
+                                                          VROTextureFormat::R32F,
+                                                          VROTextureInternalFormat::R32F,
+                                                          false, // not sRGB
+                                                          VROMipmapMode::None,
+                                                          dataVec,
+                                                          (int)width, (int)height,
+                                                          std::vector<uint32_t>());
+        }
+
+        CVPixelBufferUnlockBaseAddress(depthMap, kCVPixelBufferLock_ReadOnly);
+    }
+
+    return _depthTexture;
+}
+
+std::shared_ptr<VROTexture> VROARFrameiOS::getDepthConfidenceTexture() {
+    if (_depthConfidenceTexture) {
+        return _depthConfidenceTexture;
+    }
+
+    if (@available(iOS 14.0, *)) {
+        ARDepthData *sceneDepth = _frame.sceneDepth;
+        if (sceneDepth == nil || sceneDepth.confidenceMap == nil) {
+            return nullptr;
+        }
+
+        CVPixelBufferRef confidenceMap = sceneDepth.confidenceMap;
+        size_t width = CVPixelBufferGetWidth(confidenceMap);
+        size_t height = CVPixelBufferGetHeight(confidenceMap);
+
+        CVPixelBufferLockBaseAddress(confidenceMap, kCVPixelBufferLock_ReadOnly);
+        void *baseAddress = CVPixelBufferGetBaseAddress(confidenceMap);
+
+        if (baseAddress != nullptr) {
+            // Copy the confidence data
+            size_t dataSize = width * height;
+            std::shared_ptr<VROData> confidenceData = std::make_shared<VROData>(baseAddress, dataSize, VRODataOwnership::Copy);
+            std::vector<std::shared_ptr<VROData>> dataVec = { confidenceData };
+
+            _depthConfidenceTexture = std::make_shared<VROTexture>(VROTextureType::Texture2D,
+                                                                    VROTextureFormat::R8,
+                                                                    VROTextureInternalFormat::R8,
+                                                                    false, // not sRGB
+                                                                    VROMipmapMode::None,
+                                                                    dataVec,
+                                                                    (int)width, (int)height,
+                                                                    std::vector<uint32_t>());
+        }
+
+        CVPixelBufferUnlockBaseAddress(confidenceMap, kCVPixelBufferLock_ReadOnly);
+    }
+
+    return _depthConfidenceTexture;
 }
 
 #endif

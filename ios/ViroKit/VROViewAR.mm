@@ -49,6 +49,7 @@
 #import "VROARCameraInertial.h"
 #import "VRODeviceUtil.h"
 #import "VROCameraTexture.h"
+#import "VROShaderFactory.h"
 
 static VROVector3f const kZeroVector = VROVector3f();
 
@@ -62,10 +63,11 @@ static VROVector3f const kZeroVector = VROVector3f();
     std::shared_ptr<VRONode> _pointOfView;
     std::shared_ptr<VROInputControllerAR> _inputController;
     VROViewport _viewport;
-    
+
     CADisplayLink *_displayLink;
     int _frame;
     VROWorldAlignment _worldAlignment;
+    bool _occlusionModifierAdded;
 }
 
 @property (readwrite, nonatomic) VROTrackingType trackingType;
@@ -216,6 +218,7 @@ static VROVector3f const kZeroVector = VROVector3f();
      */
     _driver = std::make_shared<VRODriverOpenGLiOS>(self, self.context);
     _frame = 0;
+    _occlusionModifierAdded = false;
 
     _inputController = std::make_shared<VROInputControllerAR>(self.frame.size.width * self.contentScaleFactor,
                                                               self.frame.size.height * self.contentScaleFactor,
@@ -666,6 +669,11 @@ static VROVector3f const kZeroVector = VROVector3f();
     _cameraBackground->setTexcoordTransform(backgroundTransform);
 
     /*
+     Update occlusion settings on the camera background.
+     */
+    [self updateBackgroundOcclusionWithFrame:frame];
+
+    /*
      Notify the current ARScene with the ARCamera's tracking state.
      */
     if (_sceneController) {
@@ -693,9 +701,21 @@ static VROVector3f const kZeroVector = VROVector3f();
     VROMatrix4f projection = camera->getProjection(viewport, kZNear, _renderer->getFarClippingPlane(), &fov);
     VROMatrix4f rotation = camera->getRotation();
     VROVector3f position = camera->getPosition();
-    
+
+    // Set up occlusion depth texture if occlusion is enabled
+    VROOcclusionMode occlusionMode = _arSession->getOcclusionMode();
+    std::shared_ptr<VROTexture> depthTexture = nullptr;
+    if (occlusionMode != VROOcclusionMode::Disabled && frame->hasDepthData()) {
+        depthTexture = frame->getDepthTexture();
+    }
+
     _pointOfView->getCamera()->setPosition(position);
     _renderer->prepareFrame(_frame, viewport, fov, rotation, projection, _driver);
+
+    // Set occlusion info on the render context
+    _renderer->setOcclusionMode(occlusionMode);
+    _renderer->setDepthTexture(depthTexture);
+
     _renderer->renderEye(VROEyeType::Monocular, _renderer->getLookAtMatrix(), projection, viewport, _driver);
     _renderer->renderHUD(VROEyeType::Monocular, VROMatrix4f::identity(), projection, _driver);
     _renderer->endFrame(_driver);
@@ -707,11 +727,38 @@ static VROVector3f const kZeroVector = VROVector3f();
 - (void)renderWithoutTracking:(VROViewport)viewport {
     VROFieldOfView fov = _renderer->computeUserFieldOfView(viewport.getWidth(), viewport.getHeight());
     VROMatrix4f projection = fov.toPerspectiveProjection(kZNear, _renderer->getFarClippingPlane());
-    
+
     _renderer->prepareFrame(_frame, viewport, fov, VROMatrix4f::identity(), projection, _driver);
     _renderer->renderEye(VROEyeType::Monocular, _renderer->getLookAtMatrix(), projection, viewport, _driver);
     _renderer->renderHUD(VROEyeType::Monocular, VROMatrix4f::identity(), projection, _driver);
     _renderer->endFrame(_driver);
+}
+
+- (void)updateBackgroundOcclusionWithFrame:(const std::unique_ptr<VROARFrame> &)frame {
+    std::shared_ptr<VROMaterial> material = _cameraBackground->getMaterials()[0];
+    VROOcclusionMode occlusionMode = _arSession->getOcclusionMode();
+
+    if (occlusionMode != VROOcclusionMode::Disabled && frame->hasDepthData()) {
+        // Enable depth writing so virtual objects can be occluded
+        material->setWritesToDepthBuffer(true);
+
+        // Add the depth texture to the material for shader access
+        std::shared_ptr<VROTexture> depthTexture = frame->getDepthTexture();
+        if (depthTexture) {
+            // Set the depth texture as a secondary texture on the material
+            // The shader modifier will sample this texture
+            material->getAmbientOcclusion().setTexture(depthTexture);
+
+            // Add the occlusion shader modifier if not already added
+            if (!_occlusionModifierAdded) {
+                material->addShaderModifier(VROShaderFactory::createOcclusionDepthModifier());
+                _occlusionModifierAdded = true;
+            }
+        }
+    } else {
+        // Disable depth writing when occlusion is off
+        material->setWritesToDepthBuffer(false);
+    }
 }
 
 - (void)initARSessionWithViewport:(VROViewport)viewport scene:(std::shared_ptr<VROScene>)scene {

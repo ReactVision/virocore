@@ -38,6 +38,7 @@ class VROARCamera;
 class VROARAnchor;
 class VROARHitTestResult;
 class VROMatrix4f;
+class VROTexture;
 enum class VROARHitTestResultType;
 enum class VROCameraOrientation;
 
@@ -115,6 +116,36 @@ public:
      Retrieves the point cloud from this frame.
      */
     virtual std::shared_ptr<VROARPointCloud> getPointCloud() = 0;
+
+    /*
+     Get the depth texture for this frame, if available.
+     Returns nullptr if depth is not supported or not enabled.
+     The texture contains depth values in meters as 16-bit unsigned integers
+     (millimeters on ARCore, meters on ARKit).
+     */
+    virtual std::shared_ptr<VROTexture> getDepthTexture() { return nullptr; }
+
+    /*
+     Get the confidence texture for depth values, if available.
+     Returns nullptr if not supported. Values range from 0-255 where
+     higher values indicate higher confidence.
+     */
+    virtual std::shared_ptr<VROTexture> getDepthConfidenceTexture() { return nullptr; }
+
+    /*
+     Check if depth data is available for this frame.
+     */
+    virtual bool hasDepthData() const { return false; }
+
+    /*
+     Get the width of the depth image in pixels.
+     */
+    virtual int getDepthImageWidth() const { return 0; }
+
+    /*
+     Get the height of the depth image in pixels.
+     */
+    virtual int getDepthImageHeight() const { return 0; }
 };
 
 #endif /* VROARFrame_h */
