@@ -280,6 +280,13 @@ void VROSceneRendererARCore::initARSession(VROViewport viewport, std::shared_ptr
     material->setWritesToDepthBuffer(false);
     material->setNeedsToneMapping(false);
 
+    // If occlusion mode is already set, add the shader modifier now
+    VROOcclusionMode occlusionMode = _session->getOcclusionMode();
+    if (occlusionMode != VROOcclusionMode::Disabled) {
+        material->addShaderModifier(VROShaderFactory::createOcclusionDepthModifier());
+        _occlusionModifierAdded = true;
+    }
+
     std::shared_ptr<VROARScene> arScene = std::dynamic_pointer_cast<VROARScene>(scene);
     passert_msg (arScene != nullptr, "AR View requires an AR Scene!");
     arScene->setDriver(_driver);
