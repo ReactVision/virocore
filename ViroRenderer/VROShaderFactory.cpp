@@ -1088,3 +1088,58 @@ std::vector<std::string> VROShaderFactory::createColorLinearizationCode() {
     };
     return code;
 }
+
+std::shared_ptr<VROShaderModifier> VROShaderFactory::createOcclusionDepthModifier() {
+    /*
+     This modifier samples the AR depth texture and writes the depth value to gl_FragDepth.
+     This allows virtual objects rendered afterward to be properly occluded by real-world
+     surfaces captured by the AR framework's depth sensor.
+
+     The depth texture contains depth values in meters (linear depth from the AR framework).
+
+     OpenGL uses a non-linear depth buffer with the formula:
+         gl_FragDepth = (1/z - 1/near) / (1/far - 1/near)
+
+     This converts linear depth (meters) to the non-linear NDC depth that matches
+     how the projection matrix transforms virtual object depths.
+
+     The modifier uses the ao_map sampler which is automatically bound to the material's
+     ambient occlusion texture. The AR depth texture should be set via:
+         material->getAmbientOcclusion().setTexture(depthTexture);
+     */
+    std::vector<std::string> modifierCode = {
+        // Declare the depth texture uniform using ao_map which binds to ambient occlusion texture
+        "uniform sampler2D ao_map;",
+
+        // Sample depth from the AR depth texture (bound via ambient occlusion slot)
+        // The depth is already in meters (converted during texture creation)
+        // Use the diffuse texcoord which matches the screen-space UV for the background
+        "highp float depthMeters = texture(ao_map, _surface.diffuse_texcoord).r;",
+
+        // Convert linear depth to OpenGL non-linear depth buffer value
+        // Must match the near/far planes used in the projection matrix (see VRORenderer.h)
+        "highp float zNear = 0.01;",
+        "highp float zFar = 50.0;",
+
+        // If depth is valid (not zero or too small), convert to NDC depth
+        "if (depthMeters > zNear && depthMeters < zFar) {",
+        "    // OpenGL ES perspective depth formula: converts linear Z to non-linear depth buffer",
+        "    // Formula: (far * (z - near)) / (z * (far - near))",
+        "    // This produces values in [0, 1] range where 0 is near plane and 1 is far plane",
+        "    gl_FragDepth = (zFar * (depthMeters - zNear)) / (depthMeters * (zFar - zNear));",
+        "    gl_FragDepth = clamp(gl_FragDepth, 0.0, 1.0);",
+        "} else if (depthMeters >= zFar) {",
+        "    // Beyond far plane",
+        "    gl_FragDepth = 1.0;",
+        "} else {",
+        "    // No valid depth or too close, push to far plane so nothing is occluded",
+        "    gl_FragDepth = 1.0;",
+        "}"
+    };
+
+    std::shared_ptr<VROShaderModifier> modifier = std::make_shared<VROShaderModifier>(
+        VROShaderEntryPoint::Fragment, modifierCode);
+    modifier->setName("occlusion_depth");
+
+    return modifier;
+}

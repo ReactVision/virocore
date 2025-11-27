@@ -608,6 +608,55 @@ VRO_METHOD(void, nativeResolveCloudAnchor)(VRO_ARGS
     });
 }
 
+VRO_METHOD(void, nativeSetOcclusionMode)(VRO_ARGS
+                                          VRO_REF(VROARSceneController) sceneController_j,
+                                          VRO_INT mode) {
+    std::weak_ptr<VROARScene> scene_w = std::dynamic_pointer_cast<VROARScene>(
+            VRO_REF_GET(VROARSceneController, sceneController_j)->getScene());
+
+    VROPlatformDispatchAsyncRenderer([scene_w, mode] {
+        std::shared_ptr<VROARScene> scene = scene_w.lock();
+        if (!scene) {
+            return;
+        }
+        std::shared_ptr<VROARSession> session = scene->getARSession();
+        if (session) {
+            VROOcclusionMode occlusionMode = static_cast<VROOcclusionMode>(mode);
+            session->setOcclusionMode(occlusionMode);
+        }
+    });
+}
+
+VRO_METHOD(VRO_BOOL, nativeIsOcclusionSupported)(VRO_ARGS
+                                                  VRO_REF(VROARSceneController) sceneController_j) {
+    std::shared_ptr<VROARScene> scene = std::dynamic_pointer_cast<VROARScene>(
+            VRO_REF_GET(VROARSceneController, sceneController_j)->getScene());
+    if (!scene) {
+        return false;
+    }
+    std::shared_ptr<VROARSession> session = scene->getARSession();
+    if (session) {
+        return session->isOcclusionSupported();
+    }
+    return false;
+}
+
+VRO_METHOD(VRO_BOOL, nativeIsOcclusionModeSupported)(VRO_ARGS
+                                                      VRO_REF(VROARSceneController) sceneController_j,
+                                                      VRO_INT mode) {
+    std::shared_ptr<VROARScene> scene = std::dynamic_pointer_cast<VROARScene>(
+            VRO_REF_GET(VROARSceneController, sceneController_j)->getScene());
+    if (!scene) {
+        return false;
+    }
+    std::shared_ptr<VROARSession> session = scene->getARSession();
+    if (session) {
+        VROOcclusionMode occlusionMode = static_cast<VROOcclusionMode>(mode);
+        return session->isOcclusionModeSupported(occlusionMode);
+    }
+    return false;
+}
+
 }  // extern "C"
 
 // +---------------------------------------------------------------------------+

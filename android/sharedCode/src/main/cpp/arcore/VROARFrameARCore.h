@@ -32,6 +32,8 @@
 #include "ARCore_API.h"
 
 class VROARSessionARCore;
+class VROTexture;
+class VRODriver;
 
 class VROARFrameARCore : public VROARFrame {
 public:
@@ -62,6 +64,22 @@ public:
 
     std::shared_ptr<VROARPointCloud> getPointCloud();
 
+    /*
+     * Depth texture methods for AR occlusion support.
+     */
+    std::shared_ptr<VROTexture> getDepthTexture() override;
+    std::shared_ptr<VROTexture> getDepthConfidenceTexture() override;
+    bool hasDepthData() const override;
+    int getDepthImageWidth() const override;
+    int getDepthImageHeight() const override;
+
+    /*
+     * Set the driver needed for texture creation.
+     */
+    void setDriver(std::shared_ptr<VRODriver> driver) {
+        _driver = driver;
+    }
+
 private:
 
     arcore::Frame *_frame;
@@ -70,6 +88,21 @@ private:
     VROViewport _viewport;
     std::vector<std::shared_ptr<VROARAnchor>> _anchors; // Unused in ARCore
     std::shared_ptr<VROARPointCloud> _pointCloud;
+
+    // Driver for creating textures
+    std::weak_ptr<VRODriver> _driver;
+
+    // Cached depth texture (refreshed each frame)
+    std::shared_ptr<VROTexture> _depthTexture;
+    std::shared_ptr<VROTexture> _depthConfidenceTexture;
+    int _depthWidth = 0;
+    int _depthHeight = 0;
+    bool _depthDataAvailable = false;
+
+    /*
+     * Internal method to acquire and convert depth data to texture.
+     */
+    void acquireDepthData();
 
 };
 

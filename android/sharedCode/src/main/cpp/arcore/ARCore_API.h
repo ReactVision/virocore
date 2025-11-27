@@ -278,6 +278,22 @@ namespace arcore {
         virtual void getBackgroundTexcoords(float *outTexcoords) = 0;
         virtual PointCloud *acquirePointCloud() = 0;
         virtual ImageRetrievalStatus acquireCameraImage(Image **outImage) = 0;
+
+        /*
+         * Acquire the depth image for this frame.
+         * Returns Success if depth image was acquired, otherwise returns an error status.
+         * The depth image contains 16-bit unsigned integers representing depth in millimeters.
+         * Caller must delete the returned Image when done.
+         */
+        virtual ImageRetrievalStatus acquireDepthImage(Image **outImage) = 0;
+
+        /*
+         * Acquire the depth confidence image for this frame.
+         * Returns Success if confidence image was acquired, otherwise returns an error status.
+         * The confidence image contains 8-bit unsigned integers (0-255).
+         * Caller must delete the returned Image when done.
+         */
+        virtual ImageRetrievalStatus acquireDepthConfidenceImage(Image **outImage) = 0;
     };
 
     class PointCloud {

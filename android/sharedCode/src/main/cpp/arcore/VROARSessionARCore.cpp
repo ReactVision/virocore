@@ -1201,3 +1201,59 @@ uint8_t *VROARSessionARCore::getRotatedCameraImageData(int size) {
   }
   return _rotatedImageData;
 }
+
+#pragma mark - Occlusion Support
+
+void VROARSessionARCore::setOcclusionMode(VROOcclusionMode mode) {
+  // Call base class to store the mode
+  VROARSession::setOcclusionMode(mode);
+
+  // Update ARCore depth mode based on occlusion mode
+  arcore::DepthMode newDepthMode;
+  switch (mode) {
+    case VROOcclusionMode::DepthBased:
+    case VROOcclusionMode::PeopleOnly:
+      // Enable automatic depth for occlusion
+      newDepthMode = arcore::DepthMode::Automatic;
+      break;
+    case VROOcclusionMode::Disabled:
+    default:
+      // Disable depth when occlusion is disabled
+      newDepthMode = arcore::DepthMode::Disabled;
+      break;
+  }
+
+  if (newDepthMode != _depthMode) {
+    _depthMode = newDepthMode;
+    updateARCoreConfig();
+    pinfo("VROARSessionARCore: Occlusion mode set to %d, depth mode set to %d",
+          (int)mode, (int)_depthMode);
+  }
+}
+
+bool VROARSessionARCore::isOcclusionSupported() const {
+  if (_session == nullptr) {
+    return false;
+  }
+  // Check if automatic depth mode is supported
+  return _session->isDepthModeSupported(arcore::DepthMode::Automatic);
+}
+
+bool VROARSessionARCore::isOcclusionModeSupported(VROOcclusionMode mode) const {
+  if (_session == nullptr) {
+    return mode == VROOcclusionMode::Disabled;
+  }
+
+  switch (mode) {
+    case VROOcclusionMode::Disabled:
+      return true;
+    case VROOcclusionMode::DepthBased:
+      return _session->isDepthModeSupported(arcore::DepthMode::Automatic);
+    case VROOcclusionMode::PeopleOnly:
+      // People-only occlusion requires both depth and semantic segmentation
+      return _session->isDepthModeSupported(arcore::DepthMode::Automatic) &&
+             _session->isSemanticModeSupported(arcore::SemanticMode::Enabled);
+    default:
+      return false;
+  }
+}

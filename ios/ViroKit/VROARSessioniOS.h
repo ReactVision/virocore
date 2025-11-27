@@ -98,7 +98,12 @@ public:
     }
     void setVideoQuality(VROVideoQuality quality);
     void setVisionModel(std::shared_ptr<VROVisionModel> visionModel);
-    
+
+    // Occlusion support
+    void setOcclusionMode(VROOcclusionMode mode) override;
+    bool isOcclusionSupported() const override;
+    bool isOcclusionModeSupported(VROOcclusionMode mode) const override;
+
     /*
      Internal methods.
      */

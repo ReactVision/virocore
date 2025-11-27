@@ -179,6 +179,8 @@ namespace arcore {
         virtual void getBackgroundTexcoords(float *outTexcoords);
         virtual PointCloud *acquirePointCloud();
         virtual ImageRetrievalStatus acquireCameraImage(Image **outImage);
+        virtual ImageRetrievalStatus acquireDepthImage(Image **outImage);
+        virtual ImageRetrievalStatus acquireDepthConfidenceImage(Image **outImage);
 
         ArFrame *_frame;
         ArSession *_session;

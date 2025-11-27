@@ -97,6 +97,16 @@ enum class VROCloudAnchorProvider {
 };
 
 /*
+ The occlusion mode determines how virtual content is occluded
+ by real-world objects.
+ */
+enum class VROOcclusionMode {
+    Disabled,       // No occlusion - virtual objects always render on top
+    DepthBased,     // Use depth data to occlude virtual objects behind real-world surfaces
+    PeopleOnly      // Only occlude virtual objects behind detected people (iOS 13+/Android with ARCore)
+};
+
+/*
  Manages the device camera and motion tracking for AR.
  */
 class VROARSession {
@@ -311,15 +321,45 @@ public:
      each frame.
      */
     virtual void setVisionModel(std::shared_ptr<VROVisionModel> visionModel) = 0;
-    
+
+    /*
+     Set the occlusion mode for AR rendering. When enabled, virtual objects
+     will be properly occluded by real-world surfaces or people.
+     */
+    virtual void setOcclusionMode(VROOcclusionMode mode) {
+        _occlusionMode = mode;
+    }
+
+    /*
+     Get the current occlusion mode.
+     */
+    VROOcclusionMode getOcclusionMode() const {
+        return _occlusionMode;
+    }
+
+    /*
+     Returns true if occlusion is supported on this device.
+     */
+    virtual bool isOcclusionSupported() const {
+        return false;
+    }
+
+    /*
+     Returns true if the specified occlusion mode is supported on this device.
+     */
+    virtual bool isOcclusionModeSupported(VROOcclusionMode mode) const {
+        return mode == VROOcclusionMode::Disabled;
+    }
+
 protected:
     
     VROTrackingType _trackingType;
 
 private:
-    
+
     VROWorldAlignment _worldAlignment;
     VROImageTrackingImpl _imageTrackingImpl;
+    VROOcclusionMode _occlusionMode = VROOcclusionMode::Disabled;
     std::shared_ptr<VROScene> _scene;
     std::weak_ptr<VROARSessionDelegate> _delegate;
 

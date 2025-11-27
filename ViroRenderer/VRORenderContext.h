@@ -36,6 +36,7 @@
 #include "VROQuaternion.h"
 #include "VROCamera.h"
 #include "VROFrameScheduler.h"
+#include "VROARSession.h"
 
 class VROFrameSynchronizer;
 class VROTexture;
@@ -196,6 +197,34 @@ public:
         return _pbrEnabled;
     }
 
+    /*
+     Occlusion support - depth texture from AR framework for real-world occlusion.
+     */
+    void setDepthTexture(std::shared_ptr<VROTexture> depthTexture) {
+        _depthTexture = depthTexture;
+    }
+    std::shared_ptr<VROTexture> getDepthTexture() const {
+        return _depthTexture;
+    }
+
+    void setDepthTextureTransform(VROMatrix4f transform) {
+        _depthTextureTransform = transform;
+    }
+    VROMatrix4f getDepthTextureTransform() const {
+        return _depthTextureTransform;
+    }
+
+    void setOcclusionMode(VROOcclusionMode mode) {
+        _occlusionMode = mode;
+    }
+    VROOcclusionMode getOcclusionMode() const {
+        return _occlusionMode;
+    }
+
+    bool isOcclusionEnabled() const {
+        return _occlusionMode != VROOcclusionMode::Disabled && _depthTexture != nullptr;
+    }
+
 private:
     
     int _frame;
@@ -272,6 +301,21 @@ private:
      The input controller being used.
      */
     std::shared_ptr<VROInputControllerBase> _inputController;
+
+    /*
+     Depth texture from AR framework for occlusion.
+     */
+    std::shared_ptr<VROTexture> _depthTexture;
+
+    /*
+     Transform to convert from screen UV to depth texture UV.
+     */
+    VROMatrix4f _depthTextureTransform;
+
+    /*
+     Current occlusion mode.
+     */
+    VROOcclusionMode _occlusionMode = VROOcclusionMode::Disabled;
 
 };
 

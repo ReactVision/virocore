@@ -50,10 +50,10 @@ struct VROShaderCapabilities;
  */
 class VROShaderFactory {
 public:
-       
+
     VROShaderFactory();
     virtual ~VROShaderFactory();
-    
+
     /*
      Purge all shaders that are no longer used. If force is true, then we
      disregard time. If force is false, we only purge as many as we can
@@ -61,7 +61,7 @@ public:
      purged, and false if we ran out of time.
      */
     bool purgeUnusedShaders(const VROFrameTimer &timer, bool force);
-    
+
     /*
      Retrieve a shader that has the given material and lighting capabilities.
      If the shader is not cached, it will be created. The modifiers are required
@@ -71,7 +71,13 @@ public:
                                                 VROLightingShaderCapabilities lightingCapabilities,
                                                 const std::vector<std::shared_ptr<VROShaderModifier>> &modifiers,
                                                 std::shared_ptr<VRODriverOpenGL> &driver);
-    
+
+    /*
+     Creates a shader modifier for AR occlusion that writes depth from the
+     AR framework's depth texture to the depth buffer during background rendering.
+     */
+    static std::shared_ptr<VROShaderModifier> createOcclusionDepthModifier();
+
 private:
     
     /*
@@ -117,7 +123,7 @@ private:
     std::shared_ptr<VROShaderModifier> createPostProcessMaskModifier();
     std::shared_ptr<VROShaderModifier> createToneMappingMaskModifier();
     std::vector<std::string> createColorLinearizationCode();
-    
+
 };
 
 #endif /* VROShaderFactory_h */

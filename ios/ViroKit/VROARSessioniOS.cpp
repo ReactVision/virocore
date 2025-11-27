@@ -531,6 +531,61 @@ void VROARSessioniOS::removeARObjectTarget(
 #endif
 }
 
+#pragma mark - Occlusion Support
+
+void VROARSessioniOS::setOcclusionMode(VROOcclusionMode mode) {
+    VROARSession::setOcclusionMode(mode);
+
+    // Enable scene depth in ARKit configuration for depth-based occlusion
+    if (@available(iOS 14.0, *)) {
+        if ([_sessionConfiguration isKindOfClass:[ARWorldTrackingConfiguration class]]) {
+            ARWorldTrackingConfiguration *config = (ARWorldTrackingConfiguration *)_sessionConfiguration;
+
+            if (mode == VROOcclusionMode::DepthBased) {
+                // Enable scene depth if supported (requires LiDAR)
+                if ([ARWorldTrackingConfiguration supportsFrameSemantics:ARFrameSemanticSceneDepth]) {
+                    config.frameSemantics = ARFrameSemanticSceneDepth;
+                }
+            } else if (mode == VROOcclusionMode::PeopleOnly) {
+                // Enable person segmentation with depth
+                if ([ARWorldTrackingConfiguration supportsFrameSemantics:ARFrameSemanticPersonSegmentationWithDepth]) {
+                    config.frameSemantics = ARFrameSemanticPersonSegmentationWithDepth;
+                }
+            } else {
+                // Disable depth semantics
+                config.frameSemantics = ARFrameSemanticNone;
+            }
+
+            if (!_sessionPaused) {
+                [_session runWithConfiguration:_sessionConfiguration];
+            }
+        }
+    }
+}
+
+bool VROARSessioniOS::isOcclusionSupported() const {
+    if (@available(iOS 14.0, *)) {
+        // Check if scene depth is supported (requires LiDAR)
+        return [ARWorldTrackingConfiguration supportsFrameSemantics:ARFrameSemanticSceneDepth];
+    }
+    return false;
+}
+
+bool VROARSessioniOS::isOcclusionModeSupported(VROOcclusionMode mode) const {
+    if (mode == VROOcclusionMode::Disabled) {
+        return true;
+    }
+
+    if (@available(iOS 14.0, *)) {
+        if (mode == VROOcclusionMode::DepthBased) {
+            return [ARWorldTrackingConfiguration supportsFrameSemantics:ARFrameSemanticSceneDepth];
+        } else if (mode == VROOcclusionMode::PeopleOnly) {
+            return [ARWorldTrackingConfiguration supportsFrameSemantics:ARFrameSemanticPersonSegmentationWithDepth];
+        }
+    }
+    return false;
+}
+
 #pragma mark - Internal Methods
 
 std::shared_ptr<VROARAnchor>

@@ -40,6 +40,7 @@
 #include "VROInputControllerBase.h"
 #include "VROPostProcessEffectFactory.h"
 #include "VRORendererConfiguration.h"
+#include "VROARSession.h"
 
 class VROEye;
 class VRONode;
@@ -248,6 +249,12 @@ public:
     }
 
     void setClearColor(VROVector4f color, std::shared_ptr<VRODriver> driver);
+
+    /*
+     Set occlusion information for AR depth-based occlusion.
+     */
+    void setOcclusionMode(VROOcclusionMode mode);
+    void setDepthTexture(std::shared_ptr<VROTexture> depthTexture);
     
 #pragma mark - Camera
    
