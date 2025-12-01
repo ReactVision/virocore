@@ -78,6 +78,19 @@ public:
      */
     static std::shared_ptr<VROShaderModifier> createOcclusionDepthModifier();
 
+    /*
+     Creates a shader modifier for virtual objects that discards fragments
+     where the object is behind real-world surfaces (based on AR depth texture).
+     */
+    static std::shared_ptr<VROShaderModifier> createOcclusionMaskModifier();
+
+    /*
+     Creates a shader modifier that visualizes the depth texture as a color overlay
+     on the camera background for debugging purposes. Near objects appear red,
+     far objects appear blue, with a gradient in between.
+     */
+    static std::shared_ptr<VROShaderModifier> createDepthDebugModifier();
+
 private:
     
     /*

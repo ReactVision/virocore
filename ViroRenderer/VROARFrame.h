@@ -28,6 +28,7 @@
 #define VROARFrame_h
 
 #include "VROARPointCloud.h"
+#include "VROMatrix4f.h"
 
 #include <memory>
 #include <vector>
@@ -37,7 +38,6 @@
 class VROARCamera;
 class VROARAnchor;
 class VROARHitTestResult;
-class VROMatrix4f;
 class VROTexture;
 enum class VROARHitTestResultType;
 enum class VROCameraOrientation;
@@ -146,6 +146,18 @@ public:
      Get the height of the depth image in pixels.
      */
     virtual int getDepthImageHeight() const { return 0; }
+
+    /*
+     Returns the transform matrix to convert from camera texture coordinates
+     to depth texture coordinates. The depth map may have a different
+     orientation/resolution than the camera image, so this transform is needed
+     to correctly sample the depth texture.
+
+     By default returns identity (assumes depth texture UVs match camera UVs).
+     */
+    virtual VROMatrix4f getDepthTextureTransform() const {
+        return VROMatrix4f::identity();
+    }
 };
 
 #endif /* VROARFrame_h */

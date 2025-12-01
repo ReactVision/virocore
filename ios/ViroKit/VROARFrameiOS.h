@@ -72,6 +72,14 @@ public:
     int getDepthImageWidth() const override;
     int getDepthImageHeight() const override;
 
+    /*
+     Returns the transform matrix to convert from camera texture coordinates
+     to depth texture coordinates. The depth map from ARKit may have a different
+     orientation/resolution than the camera image, so this transform is needed
+     to correctly sample the depth texture.
+     */
+    VROMatrix4f getDepthTextureTransform() const;
+
 private:
 
     ARFrame *_frame;

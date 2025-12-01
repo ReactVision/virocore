@@ -53,7 +53,7 @@ VROShaderModifier::VROShaderModifier(VROShaderEntryPoint entryPoint, std::vector
     _shaderModifierId(++sShaderModifierId),
     _attributes(0),
     _entryPoint(entryPoint) {
-    
+
     for (std::string source : input) {
         if (isVariableDeclaration(source)) {
             _uniforms = _uniforms + source + "\n";
@@ -62,14 +62,14 @@ VROShaderModifier::VROShaderModifier(VROShaderEntryPoint entryPoint, std::vector
             _body = _body + source + "\n";
         }
     }
-    
+
     /*
      At the end of each section add the corresponding directive.
      This way multiple shader modifiers can utilize the same entry point.
      */
     _uniforms = _uniforms + getDirective(VROShaderSection::Uniforms) + "\n";
     _body = _body + "\n" + getDirective(VROShaderSection::Body) + "\n";
-        
+
     ALLOCATION_TRACKER_ADD(ShaderModifiers, 1);
 }
 
