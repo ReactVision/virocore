@@ -323,4 +323,18 @@ std::shared_ptr<VROTexture> VROARFrameiOS::getDepthConfidenceTexture() {
     return _depthConfidenceTexture;
 }
 
+VROMatrix4f VROARFrameiOS::getDepthTextureTransform() const {
+    /*
+     The depth texture from ARKit's sceneDepth is provided in the same coordinate space
+     as the camera image. Since we already apply the camera's displayTransform to
+     _surface.diffuse_texcoord in the vertex shader (via setTexcoordTransform), the
+     depth texture should use the same transformed coordinates.
+
+     ARKit's depth map is aligned with the camera image after applying the display transform,
+     so we return identity here - the depth UVs match the already-transformed camera UVs.
+     */
+    VROMatrix4f identity;
+    return identity;
+}
+
 #endif

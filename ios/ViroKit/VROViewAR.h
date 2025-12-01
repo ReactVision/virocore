@@ -114,4 +114,19 @@ enum class VROCameraPosition;
  */
 - (void)setDebugDrawDelegate:(NSObject<VRODebugDrawDelegate> *)debugDrawDelegate;
 
+/*
+ Enable or disable depth debug visualization. When enabled, the depth texture
+ from ARKit will be rendered as a color overlay on the camera feed:
+ - Red = close objects (0-1 meters)
+ - Yellow = medium distance (1-3 meters)
+ - Green = medium-far (3-5 meters)
+ - Cyan = far (5-10 meters)
+ - Blue = very far (10+ meters)
+ - Black = no depth data
+
+ @param enabled Whether to enable depth debug visualization
+ @param opacity The opacity of the depth overlay (0.0 = camera only, 1.0 = depth only)
+ */
+- (void)setDepthDebugEnabled:(BOOL)enabled opacity:(float)opacity;
+
 @end

@@ -131,6 +131,10 @@ void VROMaterialShaderBinding::loadTextures() {
         else if (sampler == "ao_map") {
             _textures.emplace_back(_material.getAmbientOcclusion().getTexture());
         }
+        else if (sampler == "ar_depth_texture") {
+            // AR depth texture is stored in the ambient occlusion slot for camera background
+            _textures.emplace_back(_material.getAmbientOcclusion().getTexture());
+        }
         else if (sampler == "emissive_texture") {
             _textures.emplace_back(_material.getEmission().getTexture());
         }

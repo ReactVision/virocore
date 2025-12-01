@@ -183,22 +183,23 @@ void VROSceneRendererARCore::updateBackgroundOcclusion(std::unique_ptr<VROARFram
     std::shared_ptr<VROMaterial> material = _cameraBackground->getMaterials()[0];
     VROOcclusionMode occlusionMode = _session->getOcclusionMode();
 
-    if (occlusionMode != VROOcclusionMode::Disabled && frame->hasDepthData()) {
+    // Check if we have depth data available
+    bool hasDepth = frame->hasDepthData();
+    std::shared_ptr<VROTexture> depthTexture = hasDepth ? frame->getDepthTexture() : nullptr;
+
+    if (occlusionMode != VROOcclusionMode::Disabled && depthTexture) {
         // Enable depth writing so virtual objects can be occluded
         material->setWritesToDepthBuffer(true);
 
-        // Add the depth texture to the material for shader access
-        std::shared_ptr<VROTexture> depthTexture = frame->getDepthTexture();
-        if (depthTexture) {
-            // Set the depth texture as a secondary texture on the material
-            // The shader modifier will sample this texture
-            material->getAmbientOcclusion().setTexture(depthTexture);
+        // Set the depth texture as a secondary texture on the material
+        // The shader modifier will sample this texture via ao_map
+        material->getAmbientOcclusion().setTexture(depthTexture);
 
-            // Add the occlusion shader modifier if not already added
-            if (!_occlusionModifierAdded) {
-                material->addShaderModifier(VROShaderFactory::createOcclusionDepthModifier());
-                _occlusionModifierAdded = true;
-            }
+        // Add the occlusion shader modifier if not already added
+        if (!_occlusionModifierAdded) {
+            std::shared_ptr<VROShaderModifier> occlusionModifier = VROShaderFactory::createOcclusionDepthModifier();
+            material->addShaderModifier(occlusionModifier);
+            _occlusionModifierAdded = true;
         }
     } else {
         // Disable depth writing when occlusion is off
@@ -283,7 +284,8 @@ void VROSceneRendererARCore::initARSession(VROViewport viewport, std::shared_ptr
     // If occlusion mode is already set, add the shader modifier now
     VROOcclusionMode occlusionMode = _session->getOcclusionMode();
     if (occlusionMode != VROOcclusionMode::Disabled) {
-        material->addShaderModifier(VROShaderFactory::createOcclusionDepthModifier());
+        std::shared_ptr<VROShaderModifier> occlusionModifier = VROShaderFactory::createOcclusionDepthModifier();
+        material->addShaderModifier(occlusionModifier);
         _occlusionModifierAdded = true;
     }
 

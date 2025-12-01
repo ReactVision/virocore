@@ -590,19 +590,19 @@ void VROShaderProgram::inflateVertexShaderModifiers(const std::vector<std::share
 
 void VROShaderProgram::inflateFragmentShaderModifiers(const std::vector<std::shared_ptr<VROShaderModifier>> &modifiers,
                                                       std::string &source) {
-    
+
     for (const std::shared_ptr<VROShaderModifier> &modifier : modifiers) {
         if (modifier->getEntryPoint() != VROShaderEntryPoint::Surface &&
-            modifier->getEntryPoint() != VROShaderEntryPoint::LightingModel && 
+            modifier->getEntryPoint() != VROShaderEntryPoint::LightingModel &&
             modifier->getEntryPoint() != VROShaderEntryPoint::Fragment &&
             modifier->getEntryPoint() != VROShaderEntryPoint::Image) {
             continue;
         }
-        
+
         insertModifier(modifier->getBodySource(), modifier->getDirective(VROShaderSection::Body), source);
         insertModifier(modifier->getUniformsSource(), modifier->getDirective(VROShaderSection::Uniforms), source);
         inflateReplacements(modifier->getReplacements(), source);
-        
+
         if (!modifier->getName().empty()) {
             _shaderName.append("_").append(modifier->getName());
         }
