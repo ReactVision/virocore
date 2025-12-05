@@ -77,7 +77,10 @@ VROSceneRendererARCore::VROSceneRendererARCore(VRORendererConfiguration config,
 }
 
 VROSceneRendererARCore::~VROSceneRendererARCore() {
-
+    // Ensure cleanup happens even if onDestroy wasn't called
+    if (!_destroyed) {
+        onDestroy();
+    }
 }
 
 #pragma mark - Rendering
@@ -220,8 +223,27 @@ void VROSceneRendererARCore::renderWithTracking(const std::shared_ptr<VROARCamer
      */
     VROOcclusionMode occlusionMode = _session->getOcclusionMode();
     std::shared_ptr<VROTexture> depthTexture = nullptr;
+    VROMatrix4f depthTransform = VROMatrix4f::identity();
+
     if (occlusionMode != VROOcclusionMode::Disabled && frame->hasDepthData()) {
         depthTexture = frame->getDepthTexture();
+
+        // Calculate the transform from Screen UV to Depth Texture UV
+        // We use the background texture coordinates which match the camera image orientation
+        VROVector3f BL, BR, TL, TR;
+        ((VROARFrameARCore *)frame.get())->getBackgroundTexcoords(&BL, &BR, &TL, &TR);
+
+        // Construct affine transform:
+        // (0,0) -> TL
+        // (1,0) -> TR
+        // (0,1) -> BL
+        float m[16];
+        m[0] = TR.x - TL.x;  m[4] = BL.x - TL.x;  m[8] = 0;  m[12] = TL.x;
+        m[1] = TR.y - TL.y;  m[5] = BL.y - TL.y;  m[9] = 0;  m[13] = TL.y;
+        m[2] = 0;            m[6] = 0;            m[10]= 1;  m[14] = 0;
+        m[3] = 0;            m[7] = 0;            m[11]= 0;  m[15] = 1;
+        
+        depthTransform = VROMatrix4f(m);
     }
 
     /*
@@ -233,6 +255,7 @@ void VROSceneRendererARCore::renderWithTracking(const std::shared_ptr<VROARCamer
     // Set occlusion info on the render context
     _renderer->setOcclusionMode(occlusionMode);
     _renderer->setDepthTexture(depthTexture);
+    _renderer->setDepthTextureTransform(depthTransform);
     _renderer->renderEye(VROEyeType::Monocular, _renderer->getLookAtMatrix(), projection, viewport, _driver);
     _renderer->renderHUD(VROEyeType::Monocular, VROMatrix4f::identity(), projection, _driver);
     _renderer->endFrame(_driver);
@@ -370,7 +393,38 @@ void VROSceneRendererARCore::onResume() {
 }
 
 void VROSceneRendererARCore::onDestroy() {
+    if (_destroyed) {
+        return;
+    }
     _destroyed = true;
+
+    // Pause the AR session
+    if (_session) {
+        _session->pause();
+    }
+
+    // Reset camera background surface to release texture
+    _cameraBackground.reset();
+
+    // Clean up scene controller and its resources
+    if (_sceneController) {
+        if (_sceneController->getScene()) {
+            _sceneController->getScene()->getRootNode()->deleteGL();
+        }
+        _sceneController.reset();
+    }
+
+    // Reset point of view
+    _pointOfView.reset();
+
+    // Reset renderer (releases GPU resources, frame synchronizer, etc.)
+    _renderer.reset();
+
+    // Reset AR session (triggers its destructor which cleans up ARCore)
+    _session.reset();
+
+    // Reset driver LAST as other objects depend on it
+    _driver.reset();
 }
 
 void VROSceneRendererARCore::setVRModeEnabled(bool enabled) {

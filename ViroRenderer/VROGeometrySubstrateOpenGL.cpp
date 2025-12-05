@@ -358,13 +358,6 @@ void VROGeometrySubstrateOpenGL::renderMaterial(const VROGeometry &geometry,
 
         if (!texture) {
             // Skip null textures (e.g., AR depth when not available)
-            // DEBUG: Log when AR depth texture is NULL
-            if (reference.isGlobal() && reference.getGlobalType() == VROGlobalTextureType::ARDepthMap) {
-                static int nullLogCount = 0;
-                if (nullLogCount++ % 60 == 0) {
-                    pinfo("AR Depth Texture: NULL at slot %d!", activeTexture);
-                }
-            }
             ++activeTexture;
             continue;
         }
@@ -379,15 +372,6 @@ void VROGeometrySubstrateOpenGL::renderMaterial(const VROGeometry &geometry,
             }
 
             std::pair<GLenum, GLuint> targetAndTexture = substrate->getTexture();
-
-            // DEBUG: Log AR depth texture binding with GL texture ID
-            if (reference.isGlobal() && reference.getGlobalType() == VROGlobalTextureType::ARDepthMap) {
-                static int bindLogCount = 0;
-                if (bindLogCount++ % 60 == 0) {
-                    pinfo("AR Depth Texture: binding GL texture %d to slot %d (hydrated=%d, substrates=%d)",
-                          targetAndTexture.second, activeTexture, texture->isHydrated(), texture->getNumSubstrates());
-                }
-            }
 
             driver->bindTexture(GL_TEXTURE0 + activeTexture, targetAndTexture.first, targetAndTexture.second);
             ++activeTexture;

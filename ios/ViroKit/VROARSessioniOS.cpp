@@ -69,7 +69,57 @@ VROARSessioniOS::VROARSessioniOS(VROTrackingType trackingType,
   updateTrackingType(trackingType);
 }
 
-VROARSessioniOS::~VROARSessioniOS() {}
+VROARSessioniOS::~VROARSessioniOS() {
+    // Pause the ARKit session to stop processing
+    if (_session && !_sessionPaused) {
+        [_session pause];
+        _sessionPaused = true;
+    }
+
+    // Clear the delegate to prevent callbacks during destruction
+    if (_session) {
+        _session.delegate = nil;
+    }
+
+    // Clear current frame
+    _currentFrame.reset();
+
+    // Clear all anchors
+    _anchors.clear();
+    _nativeAnchorMap.clear();
+
+    // Clear background texture
+    _background.reset();
+
+    // Clear video texture cache (releases CVOpenGLESTextureCache)
+    _videoTextureCache.reset();
+
+    // Clear vision model
+    _visionModel.reset();
+
+#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 110300
+    // Clear image detection resources
+    if (_arKitImageDetectionSet) {
+        [_arKitImageDetectionSet removeAllObjects];
+        _arKitImageDetectionSet = nil;
+    }
+    _arKitReferenceImageMap.clear();
+#endif
+
+#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 120000
+    // Clear object detection resources
+    if (_arKitObjectDetectionSet) {
+        [_arKitObjectDetectionSet removeAllObjects];
+        _arKitObjectDetectionSet = nil;
+    }
+    _arKitReferenceObjectMap.clear();
+#endif
+
+    // Release ARKit objects
+    _sessionConfiguration = nil;
+    _delegateAR = nil;
+    _session = nil;
+}
 
 void VROARSessioniOS::setTrackingType(VROTrackingType trackingType) {
   if (trackingType == _trackingType) {

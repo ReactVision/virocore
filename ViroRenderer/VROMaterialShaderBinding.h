@@ -128,6 +128,8 @@ private:
     VROUniform *_arCameraPositionUniform;
     VROUniform *_arViewportSizeUniform;
     VROUniform *_arDepthTextureTransformUniform;
+    VROUniform *_occlusionZNearUniform;
+    VROUniform *_occlusionZFarUniform;
     
     /*
      The textures of the material, in order of the samplers in the shader program.
