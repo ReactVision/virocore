@@ -37,6 +37,7 @@
 @implementation VROCloudAnchorProviderARCore
 
 + (BOOL)isAvailable {
+    pinfo("[ViroAR] ARCore SDK is available (ARCORE_AVAILABLE=1)");
     return YES;
 }
 
@@ -45,12 +46,17 @@
     if (self) {
         NSError *error = nil;
 
+        pinfo("[ViroAR] Initializing ARCore Cloud Anchors provider...");
+
         // Get API key from Info.plist
         NSString *apiKey = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"GARAPIKey"];
         if (!apiKey || apiKey.length == 0) {
-            pwarn("GARAPIKey not found in Info.plist. Cloud anchors require a Google Cloud API key.");
+            pwarn("[ViroAR] GARAPIKey not found in Info.plist. Cloud anchors require a Google Cloud API key.");
+            pwarn("[ViroAR] Add <key>GARAPIKey</key><string>YOUR_API_KEY</string> to Info.plist");
             return nil;
         }
+
+        pinfo("[ViroAR] GARAPIKey found (length: %lu)", (unsigned long)apiKey.length);
 
         // Initialize GARSession with API key
         // bundleIdentifier:nil uses the app's main bundle identifier
@@ -58,10 +64,12 @@
                                    bundleIdentifier:nil
                                               error:&error];
         if (error || !_garSession) {
-            pabort("Failed to create GARSession: %s",
+            pwarn("[ViroAR] Failed to create GARSession: %s",
                    error ? [[error localizedDescription] UTF8String] : "Unknown error");
             return nil;
         }
+
+        pinfo("[ViroAR] GARSession created successfully");
 
         // Create and apply configuration with cloud anchors enabled
         GARSessionConfiguration *config = [[GARSessionConfiguration alloc] init];
@@ -69,13 +77,13 @@
 
         [_garSession setConfiguration:config error:&error];
         if (error) {
-            pabort("Failed to configure GARSession: %s", [[error localizedDescription] UTF8String]);
+            pwarn("[ViroAR] Failed to configure GARSession: %s", [[error localizedDescription] UTF8String]);
             return nil;
         }
 
         _hostFutures = [NSMutableArray new];
         _resolveFutures = [NSMutableArray new];
-        pinfo("ARCore Cloud Anchors initialized successfully");
+        pinfo("[ViroAR] ARCore Cloud Anchors initialized successfully - ready for hosting/resolving");
     }
     return self;
 }
@@ -263,11 +271,13 @@
 @implementation VROCloudAnchorProviderARCore
 
 + (BOOL)isAvailable {
+    pwarn("[ViroAR] ARCore SDK is NOT available (ARCORE_AVAILABLE=0)");
+    pwarn("[ViroAR] To enable Cloud Anchors, add to your Podfile: pod 'ARCore/CloudAnchors', '~> 1.51.0'");
     return NO;
 }
 
 - (nullable instancetype)init {
-    pwarn("ARCore SDK not available. Cloud anchors require ARCore/CloudAnchors pod.");
+    pwarn("[ViroAR] ARCore SDK not available. Cloud anchors require ARCore/CloudAnchors pod.");
     return nil;
 }
 
