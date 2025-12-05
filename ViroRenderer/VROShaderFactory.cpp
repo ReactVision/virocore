@@ -340,13 +340,6 @@ std::shared_ptr<VROShaderProgram> VROShaderFactory::buildShader(VROShaderCapabil
     if (lightingCapabilities.arOcclusion && !hasDepthTextureModifier) {
         samplers.push_back("ar_occlusion_depth_texture");
         modifiers.push_back(createOcclusionMaskModifier());
-        pinfo("VROShaderFactory: Adding AR occlusion modifier, samplers count now %zu", samplers.size());
-    } else {
-        static int skipLogCount = 0;
-        if (skipLogCount++ % 60 == 0) {
-            pinfo("VROShaderFactory: Skipping AR occlusion (arOcclusion=%d, hasDepthTextureModifier=%d)",
-                  lightingCapabilities.arOcclusion, hasDepthTextureModifier);
-        }
     }
 
     // All shaders use these three base attributes. Add additional attributes from the

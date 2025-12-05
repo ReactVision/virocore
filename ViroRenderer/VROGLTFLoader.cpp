@@ -2375,7 +2375,6 @@ std::shared_ptr<VROMaterial> VROGLTFLoader::getMaterial(const tinygltf::Model &g
     // Unlit materials ignore lighting and use baseColor directly
     if (gMat.extensions.find("KHR_materials_unlit") != gMat.extensions.end()) {
         vroMat->setLightingModel(VROLightingModel::Constant);
-        pinfo("Material '%s' uses KHR_materials_unlit extension", gMat.name.c_str());
     }
 
     vroMat->setName(gMat.name);

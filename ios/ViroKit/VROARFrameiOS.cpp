@@ -267,24 +267,6 @@ std::shared_ptr<VROTexture> VROARFrameiOS::getDepthTexture() {
             std::shared_ptr<VROData> depthData = std::make_shared<VROData>(baseAddress, dataSize, VRODataOwnership::Copy);
             std::vector<std::shared_ptr<VROData>> dataVec = { depthData };
 
-            // DEBUG: Log some sample depth values from the texture
-            float *depthValues = (float *)baseAddress;
-            size_t centerIdx = (height / 2) * width + (width / 2);
-            size_t topLeftIdx = 0;
-            size_t bottomRightIdx = width * height - 1;
-            static int logCounter = 0;
-            if (logCounter++ % 60 == 0) {  // Log once per second (assuming 60fps)
-                float z = depthValues[centerIdx];
-                float n = 0.01f;  // kZNear
-                float f = 50.0f;  // kZFar
-                float depthNDC = 1.0f;
-                if (z > 0.0f && z < f) {
-                    depthNDC = (f * (z - n)) / (z * (f - n));
-                }
-                pinfo("Depth texture: %zux%zu, center z=%.3fm -> NDC=%.6f",
-                      width, height, z, depthNDC);
-            }
-
             _depthTexture = std::make_shared<VROTexture>(VROTextureType::Texture2D,
                                                           VROTextureFormat::R32F,
                                                           VROTextureInternalFormat::R32F,
