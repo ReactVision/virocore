@@ -488,9 +488,30 @@ VRO_METHOD(void, nativeHostCloudAnchor)(VRO_ARGS
         }
 
         std::shared_ptr<VROARAnchor> anchor = session->getAnchorWithId(localAnchorId);
+        if (!anchor) {
+            // Anchor not found in session - invoke failure callback
+            VROPlatformDispatchAsyncApplication([obj_w, localAnchorId] {
+                VRO_ENV env = VROPlatformGetJNIEnv();
+                VRO_OBJECT obj_j = VRO_NEW_LOCAL_REF(obj_w);
+                if (VRO_IS_OBJECT_NULL(obj_j)) {
+                    VRO_DELETE_WEAK_GLOBAL_REF(obj_w);
+                    return;
+                }
+                VRO_STRING localAnchorId_j = VRO_NEW_STRING(localAnchorId.c_str());
+                VRO_STRING error_j = VRO_NEW_STRING("Anchor not found in session");
+                VROPlatformCallHostFunction(obj_j, "onHostFailure",
+                                            "(Ljava/lang/String;Ljava/lang/String;)V",
+                                            localAnchorId_j, error_j);
+                VRO_DELETE_LOCAL_REF(obj_j);
+                VRO_DELETE_WEAK_GLOBAL_REF(obj_w);
+            });
+            return;
+        }
+        // Capture the original anchor to access its ARNode later if needed
+        std::weak_ptr<VROARAnchor> originalAnchor_w = anchor;
         scene->getARSession()->hostCloudAnchor(anchor, ttlDays,
-           [obj_w, localAnchorId](std::shared_ptr<VROARAnchor> cloudAnchor) {
-               VROPlatformDispatchAsyncApplication([obj_w, localAnchorId, cloudAnchor] {
+           [obj_w, localAnchorId, originalAnchor_w](std::shared_ptr<VROARAnchor> cloudAnchor) {
+               VROPlatformDispatchAsyncApplication([obj_w, localAnchorId, cloudAnchor, originalAnchor_w] {
                    // Success callback
                    VRO_ENV env = VROPlatformGetJNIEnv();
 
@@ -502,7 +523,19 @@ VRO_METHOD(void, nativeHostCloudAnchor)(VRO_ARGS
 
                    VRO_STRING localAnchorId_j = VRO_NEW_STRING(localAnchorId.c_str());
                    VRO_OBJECT anchor_j = ARUtilsCreateJavaARAnchorFromAnchor(cloudAnchor);
-                   int nodeId = cloudAnchor->getARNode()->getUniqueID();
+
+                   // Get the nodeId - cloud anchor may not have ARNode if original was a plane anchor
+                   int nodeId = 0;
+                   if (cloudAnchor->getARNode()) {
+                       nodeId = cloudAnchor->getARNode()->getUniqueID();
+                   } else {
+                       // Try to get from original anchor
+                       std::shared_ptr<VROARAnchor> originalAnchor = originalAnchor_w.lock();
+                       if (originalAnchor && originalAnchor->getARNode()) {
+                           nodeId = originalAnchor->getARNode()->getUniqueID();
+                       }
+                   }
+
                    VROPlatformCallHostFunction(obj_j, "onHostSuccess",
                                                "(Ljava/lang/String;Lcom/viro/core/ARAnchor;I)V",
                                                localAnchorId_j, anchor_j, nodeId);
@@ -575,7 +608,12 @@ VRO_METHOD(void, nativeResolveCloudAnchor)(VRO_ARGS
 
                    VRO_STRING cloudAnchorId_j = VRO_NEW_STRING(cloudAnchorId.c_str());
                    VRO_OBJECT anchor_j = ARUtilsCreateJavaARAnchorFromAnchor(cloudAnchor);
-                   int nodeId = cloudAnchor->getARNode()->getUniqueID();
+
+                   // Resolved cloud anchors don't have an ARNode - they're created by the cloud service
+                   int nodeId = 0;
+                   if (cloudAnchor->getARNode()) {
+                       nodeId = cloudAnchor->getARNode()->getUniqueID();
+                   }
 
                    VROPlatformCallHostFunction(obj_j, "onResolveSuccess",
                                                "(Ljava/lang/String;Lcom/viro/core/ARAnchor;I)V",

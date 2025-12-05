@@ -27,6 +27,8 @@
 #include "VROCloudAnchorProviderARCore.h"
 #include "VROARSessionARCore.h"
 #include "VROARAnchorARCore.h"
+#include "VROMatrix4f.h"
+#include "VROQuaternion.h"
 
 VROCloudAnchorProviderARCore::VROCloudAnchorProviderARCore(std::shared_ptr<VROARSessionARCore> session) :
     _session(session) {
@@ -56,9 +58,40 @@ void VROCloudAnchorProviderARCore::hostCloudAnchor(std::shared_ptr<VROARAnchor> 
         ttlDays = 365;
     }
 
+    // Get or create the ARCore anchor to host
+    // On Android, plane anchors are created without an internal ARCore anchor (to avoid
+    // pose "fighting"), so we need to create a new anchor at the plane's pose for hosting
+    std::shared_ptr<arcore::Anchor> anchorToHost = anchor_v->getAnchorInternal();
+    std::shared_ptr<arcore::Anchor> tempAnchor = nullptr;
+
+    if (!anchorToHost) {
+        // No internal anchor - create one from the anchor's transform
+        VROMatrix4f transform = anchor->getTransform();
+        VROVector3f pos = transform.extractTranslation();
+        VROVector3f scale = transform.extractScale();
+        VROQuaternion rot = transform.extractRotation(scale);
+
+        arcore::Pose *pose = session_arc->createPose(pos.x, pos.y, pos.z,
+                                                      rot.X, rot.Y, rot.Z, rot.W);
+        tempAnchor = std::shared_ptr<arcore::Anchor>(session_arc->acquireNewAnchor(pose));
+        delete (pose);
+
+        if (!tempAnchor) {
+            onFailure("Failed to create anchor for cloud hosting: tracking may be limited");
+            return;
+        }
+        anchorToHost = tempAnchor;
+    }
+
     arcore::AnchorAcquireStatus status;
     std::shared_ptr<arcore::Anchor> anchor_arc = std::shared_ptr<arcore::Anchor>(
-            session_arc->hostAndAcquireNewCloudAnchorWithTtl(anchor_v->getAnchorInternal().get(), ttlDays, &status));
+            session_arc->hostAndAcquireNewCloudAnchorWithTtl(anchorToHost.get(), ttlDays, &status));
+
+    // Clean up the temporary anchor if we created one
+    if (tempAnchor) {
+        tempAnchor->detach();
+    }
+
     if (!anchor_arc) {
         // ARCore can immediately fail to host a cloud anchor for a number of reasons
         onFailure("Failed to host cloud anchor [error: " + getAnchorStatusErrorMessage(status) + "]");

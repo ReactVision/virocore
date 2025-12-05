@@ -734,7 +734,23 @@ public class ARScene extends Scene {
      * @param callback The callback to invoke on success or failure.
      */
     public void hostCloudAnchor(ARAnchor anchor, CloudAnchorHostListener callback) {
-        hostCloudAnchorById(anchor.getAnchorId(), 1, callback); // Default TTL of 1 day
+        hostCloudAnchor(anchor, 1, callback); // Default TTL of 1 day
+    }
+
+    /**
+     * Host a cloud anchor with a specified TTL (time-to-live).
+     * <p>
+     * Note: When using API key authentication, the maximum TTL is 1 day. For longer TTL values
+     * (up to 365 days), you must use keyless authentication. See the ARCore Cloud Anchors
+     * documentation for more information.
+     *
+     * @param anchor   The {@link ARAnchor} to host.
+     * @param ttlDays  The TTL in days (1-365) for how long the cloud anchor should be stored.
+     *                 With API key auth, max is 1 day; with keyless auth, max is 365 days.
+     * @param callback The callback to invoke on success or failure.
+     */
+    public void hostCloudAnchor(ARAnchor anchor, int ttlDays, CloudAnchorHostListener callback) {
+        hostCloudAnchorById(anchor.getAnchorId(), ttlDays, callback);
     }
 
     /**
@@ -742,10 +758,10 @@ public class ARScene extends Scene {
      * This is a convenience method that takes just the anchor ID string instead of the full
      * ARAnchor object. The anchor must exist in the current AR session.
      * <p>
-     * See {@link #hostCloudAnchor(ARAnchor, CloudAnchorHostListener)} for full documentation.
+     * See {@link #hostCloudAnchor(ARAnchor, int, CloudAnchorHostListener)} for full documentation.
      *
      * @param anchorId The ID of the anchor to host.
-     * @param ttlDays The TTL in days (1-365) for how long the cloud anchor should be stored.
+     * @param ttlDays  The TTL in days (1-365) for how long the cloud anchor should be stored.
      * @param callback The callback to invoke on success or failure.
      * @hide
      */
@@ -769,9 +785,13 @@ public class ARScene extends Scene {
     void onHostSuccess(String originalAnchorId, ARAnchor cloudAnchor, int arNodeId) {
         CloudAnchorHostListener callback = mCloudAnchorHostCallbacks.get(originalAnchorId);
         if (callback != null) {
-            ARNode node = ARNode.getARNodeWithID(arNodeId);
-            if (node == null) {
-                node = new ARNode(arNodeId);
+            ARNode node = null;
+            // arNodeId of 0 means no ARNode was associated (e.g., plane anchors)
+            if (arNodeId != 0) {
+                node = ARNode.getARNodeWithID(arNodeId);
+                if (node == null) {
+                    node = new ARNode(arNodeId);
+                }
             }
             callback.onSuccess(cloudAnchor, node);
         } else {
@@ -834,9 +854,13 @@ public class ARScene extends Scene {
 
         CloudAnchorResolveListener callback = mCloudAnchorResolveCallbacks.get(cloudAnchorId);
         if (callback != null) {
-            ARNode node = ARNode.getARNodeWithID(arNodeId);
-            if (node == null) {
-                node = new ARNode(arNodeId);
+            ARNode node = null;
+            // arNodeId of 0 means no ARNode was associated (cloud anchors don't have ARNodes by default)
+            if (arNodeId != 0) {
+                node = ARNode.getARNodeWithID(arNodeId);
+                if (node == null) {
+                    node = new ARNode(arNodeId);
+                }
             }
             callback.onSuccess(cloudAnchor, node);
         } else {
