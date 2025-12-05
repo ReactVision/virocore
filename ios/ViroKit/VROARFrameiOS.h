@@ -44,6 +44,11 @@ public:
     CVPixelBufferRef getImage() const;
     CGImagePropertyOrientation getImageOrientation() const;
 
+    /*
+     Returns the underlying ARKit ARFrame.
+     */
+    ARFrame *getARFrame() const { return _frame; }
+
     double getTimestamp() const;
     VROCameraOrientation getOrientation() const { return _orientation; }
     

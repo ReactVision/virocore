@@ -28,20 +28,10 @@
 
 #if ARCORE_AVAILABLE
 
-// Structure to track pending cloud anchor operations
-@interface VROCloudAnchorOperation : NSObject
-@property (nonatomic, strong) GARAnchor *garAnchor;
-@property (nonatomic, copy) void (^onSuccess)(NSString *cloudAnchorId, ARAnchor *resolvedAnchor);
-@property (nonatomic, copy) void (^onFailure)(NSString *error);
-@property (nonatomic, assign) BOOL isHosting; // YES for host, NO for resolve
-@end
-
-@implementation VROCloudAnchorOperation
-@end
-
 @interface VROCloudAnchorProviderARCore ()
 @property (nonatomic, strong) GARSession *garSession;
-@property (nonatomic, strong) NSMutableDictionary<NSString *, VROCloudAnchorOperation *> *pendingOperations;
+@property (nonatomic, strong) NSMutableArray<GARHostCloudAnchorFuture *> *hostFutures;
+@property (nonatomic, strong) NSMutableArray<GARResolveCloudAnchorFuture *> *resolveFutures;
 @end
 
 @implementation VROCloudAnchorProviderARCore
@@ -50,30 +40,42 @@
     return YES;
 }
 
-- (nullable instancetype)initWithARSession:(ARSession *)session {
+- (nullable instancetype)init {
     self = [super init];
     if (self) {
         NSError *error = nil;
 
-        // Create GARSession configuration
-        GARSessionConfiguration *config = [[GARSessionConfiguration alloc] init];
-        config.cloudAnchorMode = GARCloudAnchorModeEnabled;
-
-        // Initialize GARSession with ARKit session
-        _garSession = [GARSession sessionWithARSession:session error:&error];
-        if (error) {
-            pabort("Failed to create GARSession: %s", [[error localizedDescription] UTF8String]);
+        // Get API key from Info.plist
+        NSString *apiKey = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"GARAPIKey"];
+        if (!apiKey || apiKey.length == 0) {
+            pwarn("GARAPIKey not found in Info.plist. Cloud anchors require a Google Cloud API key.");
             return nil;
         }
 
-        // Apply configuration
+        // Initialize GARSession with API key
+        // bundleIdentifier:nil uses the app's main bundle identifier
+        _garSession = [GARSession sessionWithAPIKey:apiKey
+                                   bundleIdentifier:nil
+                                              error:&error];
+        if (error || !_garSession) {
+            pabort("Failed to create GARSession: %s",
+                   error ? [[error localizedDescription] UTF8String] : "Unknown error");
+            return nil;
+        }
+
+        // Create and apply configuration with cloud anchors enabled
+        GARSessionConfiguration *config = [[GARSessionConfiguration alloc] init];
+        config.cloudAnchorMode = GARCloudAnchorModeEnabled;
+
         [_garSession setConfiguration:config error:&error];
         if (error) {
             pabort("Failed to configure GARSession: %s", [[error localizedDescription] UTF8String]);
             return nil;
         }
 
-        _pendingOperations = [NSMutableDictionary new];
+        _hostFutures = [NSMutableArray new];
+        _resolveFutures = [NSMutableArray new];
+        pinfo("ARCore Cloud Anchors initialized successfully");
     }
     return self;
 }
@@ -91,30 +93,41 @@
     }
 
     NSError *error = nil;
-    GARAnchor *garAnchor = [_garSession hostCloudAnchor:anchor
-                                                TTLDays:ttlDays
-                                                  error:&error];
 
-    if (error || !garAnchor) {
+    // Use the new async API with completion handler
+    GARHostCloudAnchorFuture *future = [_garSession hostCloudAnchor:anchor
+                                                            TTLDays:ttlDays
+                                                  completionHandler:^(NSString * _Nullable cloudAnchorId,
+                                                                      GARCloudAnchorState cloudState) {
+        if (cloudState == GARCloudAnchorStateSuccess && cloudAnchorId) {
+            pinfo("Cloud anchor hosted successfully: %s", [cloudAnchorId UTF8String]);
+            if (onSuccess) {
+                // Create an ARAnchor from the original anchor's transform
+                ARAnchor *resultAnchor = [[ARAnchor alloc] initWithTransform:anchor.transform];
+                onSuccess(cloudAnchorId, resultAnchor);
+            }
+        } else {
+            NSString *errorMsg = [self errorMessageForState:cloudState];
+            pwarn("Cloud anchor hosting failed: %s", [errorMsg UTF8String]);
+            if (onFailure) {
+                onFailure(errorMsg);
+            }
+        }
+    }
+                                                              error:&error];
+
+    if (error || !future) {
+        NSString *errorMsg = error ? [error localizedDescription] : @"Failed to start hosting";
+        pwarn("Failed to start cloud anchor hosting: %s", [errorMsg UTF8String]);
         if (onFailure) {
-            NSString *errorMsg = error ? [error localizedDescription] : @"Failed to start hosting";
             onFailure(errorMsg);
         }
         return;
     }
 
-    // Track the operation
-    VROCloudAnchorOperation *operation = [VROCloudAnchorOperation new];
-    operation.garAnchor = garAnchor;
-    operation.onSuccess = onSuccess;
-    operation.onFailure = onFailure;
-    operation.isHosting = YES;
-
-    // Use the GARAnchor's identifier as the key
-    NSString *key = [[NSUUID UUID] UUIDString];
-    _pendingOperations[key] = operation;
-
-    pinfo("Cloud anchor hosting started, tracking operation: %s", [key UTF8String]);
+    // Keep a reference to the future
+    [_hostFutures addObject:future];
+    pinfo("Cloud anchor hosting started");
 }
 
 - (void)resolveAnchor:(NSString *)cloudAnchorId
@@ -129,33 +142,55 @@
     }
 
     NSError *error = nil;
-    GARAnchor *garAnchor = [_garSession resolveCloudAnchorWithIdentifier:cloudAnchorId
-                                                                   error:&error];
 
-    if (error || !garAnchor) {
+    // Use the new async API with completion handler
+    GARResolveCloudAnchorFuture *future = [_garSession resolveCloudAnchorWithIdentifier:cloudAnchorId
+                                                                      completionHandler:^(GARAnchor * _Nullable anchor,
+                                                                                          GARCloudAnchorState cloudState) {
+        if (cloudState == GARCloudAnchorStateSuccess && anchor) {
+            pinfo("Cloud anchor resolved successfully: %s", [cloudAnchorId UTF8String]);
+            if (onSuccess) {
+                // Create an ARAnchor from the resolved GARAnchor's transform
+                ARAnchor *resultAnchor = [[ARAnchor alloc] initWithTransform:anchor.transform];
+                onSuccess(cloudAnchorId, resultAnchor);
+            }
+        } else {
+            NSString *errorMsg = [self errorMessageForState:cloudState];
+            pwarn("Cloud anchor resolve failed: %s", [errorMsg UTF8String]);
+            if (onFailure) {
+                onFailure(errorMsg);
+            }
+        }
+    }
+                                                                                  error:&error];
+
+    if (error || !future) {
+        NSString *errorMsg = error ? [error localizedDescription] : @"Failed to start resolving";
+        pwarn("Failed to start cloud anchor resolving: %s", [errorMsg UTF8String]);
         if (onFailure) {
-            NSString *errorMsg = error ? [error localizedDescription] : @"Failed to start resolving";
             onFailure(errorMsg);
         }
         return;
     }
 
-    // Track the operation
-    VROCloudAnchorOperation *operation = [VROCloudAnchorOperation new];
-    operation.garAnchor = garAnchor;
-    operation.onSuccess = onSuccess;
-    operation.onFailure = onFailure;
-    operation.isHosting = NO;
-
-    _pendingOperations[cloudAnchorId] = operation;
-
+    // Keep a reference to the future
+    [_resolveFutures addObject:future];
     pinfo("Cloud anchor resolve started for: %s", [cloudAnchorId UTF8String]);
 }
 
 - (void)cancelAllOperations {
-    // Remove all pending operations
-    // Note: GARSession doesn't have explicit cancel, operations will just be ignored
-    [_pendingOperations removeAllObjects];
+    // Cancel all pending host operations
+    for (GARHostCloudAnchorFuture *future in _hostFutures) {
+        [future cancel];
+    }
+    [_hostFutures removeAllObjects];
+
+    // Cancel all pending resolve operations
+    for (GARResolveCloudAnchorFuture *future in _resolveFutures) {
+        [future cancel];
+    }
+    [_resolveFutures removeAllObjects];
+
     pinfo("All cloud anchor operations cancelled");
 }
 
@@ -165,6 +200,7 @@
     }
 
     // Update GARSession with the current frame
+    // This is required for cloud anchors to work - it syncs ARKit tracking with GARSession
     NSError *error = nil;
     GARFrame *garFrame = [_garSession update:frame error:&error];
 
@@ -173,65 +209,22 @@
         return;
     }
 
-    // Check status of pending operations
-    NSMutableArray<NSString *> *completedKeys = [NSMutableArray new];
-
-    for (NSString *key in _pendingOperations) {
-        VROCloudAnchorOperation *operation = _pendingOperations[key];
-        GARAnchor *garAnchor = operation.garAnchor;
-
-        // Check the cloud state
-        GARCloudAnchorState state = garAnchor.cloudState;
-
-        switch (state) {
-            case GARCloudAnchorStateNone:
-            case GARCloudAnchorStateTaskInProgress:
-                // Still in progress, continue waiting
-                break;
-
-            case GARCloudAnchorStateSuccess: {
-                // Operation succeeded
-                [completedKeys addObject:key];
-
-                if (operation.onSuccess) {
-                    NSString *cloudId = garAnchor.cloudIdentifier;
-                    // Get the underlying ARKit anchor if available
-                    // For resolved anchors, we need to create one from the transform
-                    ARAnchor *arAnchor = [[ARAnchor alloc] initWithTransform:garAnchor.transform];
-                    operation.onSuccess(cloudId, arAnchor);
-                }
-
-                pinfo("Cloud anchor operation succeeded: %s", [key UTF8String]);
-                break;
-            }
-
-            case GARCloudAnchorStateErrorInternal:
-            case GARCloudAnchorStateErrorNotAuthorized:
-            case GARCloudAnchorStateErrorResourceExhausted:
-            case GARCloudAnchorStateErrorHostingDatasetProcessingFailed:
-            case GARCloudAnchorStateErrorCloudIdNotFound:
-            case GARCloudAnchorStateErrorResolvingSdkVersionTooOld:
-            case GARCloudAnchorStateErrorResolvingSdkVersionTooNew:
-            case GARCloudAnchorStateErrorHostingServiceUnavailable: {
-                // Operation failed
-                [completedKeys addObject:key];
-
-                if (operation.onFailure) {
-                    NSString *errorMsg = [self errorMessageForState:state];
-                    operation.onFailure(errorMsg);
-                }
-
-                pwarn("Cloud anchor operation failed: %s - %s", [key UTF8String],
-                      [[self errorMessageForState:state] UTF8String]);
-                break;
-            }
+    // Clean up completed futures
+    NSMutableArray<GARHostCloudAnchorFuture *> *completedHostFutures = [NSMutableArray new];
+    for (GARHostCloudAnchorFuture *future in _hostFutures) {
+        if (future.state == GARFutureStateDone) {
+            [completedHostFutures addObject:future];
         }
     }
+    [_hostFutures removeObjectsInArray:completedHostFutures];
 
-    // Remove completed operations
-    for (NSString *key in completedKeys) {
-        [_pendingOperations removeObjectForKey:key];
+    NSMutableArray<GARResolveCloudAnchorFuture *> *completedResolveFutures = [NSMutableArray new];
+    for (GARResolveCloudAnchorFuture *future in _resolveFutures) {
+        if (future.state == GARFutureStateDone) {
+            [completedResolveFutures addObject:future];
+        }
     }
+    [_resolveFutures removeObjectsInArray:completedResolveFutures];
 }
 
 - (NSString *)errorMessageForState:(GARCloudAnchorState)state {
@@ -273,7 +266,7 @@
     return NO;
 }
 
-- (nullable instancetype)initWithARSession:(ARSession *)session {
+- (nullable instancetype)init {
     pwarn("ARCore SDK not available. Cloud anchors require ARCore/CloudAnchors pod.");
     return nil;
 }

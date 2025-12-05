@@ -361,13 +361,13 @@ void VROARSessioniOS::setCloudAnchorProvider(VROCloudAnchorProvider provider) {
 
   if (provider == VROCloudAnchorProvider::ARCore) {
     // Initialize ARCore cloud anchor provider if not already done
-    if (_cloudAnchorProviderARCore == nil && _session != nil) {
+    if (_cloudAnchorProviderARCore == nil) {
       if ([VROCloudAnchorProviderARCore isAvailable]) {
-        _cloudAnchorProviderARCore = [[VROCloudAnchorProviderARCore alloc] initWithARSession:_session];
+        _cloudAnchorProviderARCore = [[VROCloudAnchorProviderARCore alloc] init];
         if (_cloudAnchorProviderARCore) {
           pinfo("ARCore Cloud Anchor provider initialized successfully");
         } else {
-          pwarn("Failed to initialize ARCore Cloud Anchor provider");
+          pwarn("Failed to initialize ARCore Cloud Anchor provider. Check GARAPIKey in Info.plist.");
         }
       } else {
         pwarn("ARCore SDK not available. Add ARCore/CloudAnchors pod to enable cloud anchors.");

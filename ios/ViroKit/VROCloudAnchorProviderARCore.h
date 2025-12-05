@@ -51,11 +51,11 @@ API_AVAILABLE(ios(12.0))
 @interface VROCloudAnchorProviderARCore : NSObject
 
 /**
- * Initialize the cloud anchor provider with an ARKit session.
- * @param session The ARKit ARSession to wrap with GARSession
- * @return Initialized provider, or nil if ARCore SDK is not available
+ * Initialize the cloud anchor provider.
+ * The API key is read from Info.plist (GARAPIKey).
+ * @return Initialized provider, or nil if ARCore SDK is not available or API key missing
  */
-- (nullable instancetype)initWithARSession:(ARSession *)session;
+- (nullable instancetype)init;
 
 /**
  * Check if the ARCore Cloud Anchors SDK is available.
