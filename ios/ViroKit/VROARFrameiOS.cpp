@@ -46,10 +46,20 @@ VROARFrameiOS::VROARFrameiOS(ARFrame *frame, VROViewport viewport, VROCameraOrie
     _viewport(viewport),
     _orientation(orientation),
     _session(session) {
-        
+
     _camera = std::make_shared<VROARCameraiOS>(frame.camera, orientation);
     for (ARAnchor *anchor in frame.anchors) {
-        _anchors.push_back(std::make_shared<VROARAnchoriOS>(anchor));
+        // Try to get the existing anchor from the session's anchor map first
+        // This ensures we use anchors with properly set IDs that can be used for cloud anchors
+        std::shared_ptr<VROARAnchor> vAnchor = session->getAnchorForNative(anchor);
+        if (vAnchor) {
+            _anchors.push_back(vAnchor);
+        } else {
+            // Fallback: create a new anchor (this shouldn't normally happen for tracked anchors)
+            auto newAnchor = std::make_shared<VROARAnchoriOS>(anchor);
+            newAnchor->setId(std::string([anchor.identifier.UUIDString UTF8String]));
+            _anchors.push_back(newAnchor);
+        }
     }
 }
 
