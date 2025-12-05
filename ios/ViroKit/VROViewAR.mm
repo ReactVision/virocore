@@ -362,21 +362,68 @@ static VROVector3f const kZeroVector = VROVector3f();
 }
 
 - (void)dealloc {
-    VROThreadRestricted::unsetThread();
-    [[NSNotificationCenter defaultCenter] removeObserver:self];
+    // Invalidate display link first to stop render loop
     if (_displayLink) {
         [_displayLink invalidate];
+        _displayLink = nil;
     }
+
+    // Ensure all GL resources are cleaned up if not already done
+    // This acts as a safety net in case deleteGL wasn't called
+    if (_renderer || _driver || _arSession) {
+        [self deleteGL];
+    }
+
+    // Clear thread restriction
+    VROThreadRestricted::unsetThread();
+
+    // Remove notification observers
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
 }
 
 - (void)deleteGL {
+    // Clean up view recorder first
     [self.viewRecorder deleteGL];
+
+    // Reset shader modifiers to release GPU shader resources
+    _depthDebugModifier.reset();
+    _occlusionModifier.reset();
+    _occlusionModifierAdded = false;
+    _depthDebugModifierAdded = false;
+
+    // Reset camera background surface (holds camera texture)
+    _cameraBackground.reset();
+
+    // Clean up scene controller and its node tree
+    if (_sceneController) {
+        if (_sceneController->getScene()) {
+            _sceneController->getScene()->getRootNode()->deleteGL();
+        }
+        _sceneController.reset();
+    }
+
+    // Reset render delegate wrapper
+    _renderDelegateWrapper.reset();
+
+    // Reset input controller
+    _inputController.reset();
+
+    // Reset point of view node
+    _pointOfView.reset();
+
+    // Reset renderer (holds significant GPU state including frame synchronizer,
+    // choreographer, and cached rendering state)
+    _renderer.reset();
+
+    // Pause and reset AR session
     if (_arSession) {
+        _arSession->pause();
         _arSession.reset();
     }
-    if (_sceneController) {
-        _sceneController->getScene()->getRootNode()->deleteGL();
-    }
+
+    // Reset driver LAST as other objects may have dependencies on it
+    // The driver holds the OpenGL context state, texture caches, and GPU resources
+    _driver.reset();
 }
 
 - (void)setPaused:(BOOL)paused {
