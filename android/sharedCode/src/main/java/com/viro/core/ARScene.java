@@ -734,13 +734,35 @@ public class ARScene extends Scene {
      * @param callback The callback to invoke on success or failure.
      */
     public void hostCloudAnchor(ARAnchor anchor, CloudAnchorHostListener callback) {
-        if (mCloudAnchorHostCallbacks.containsKey(anchor.getAnchorId())) {
+        hostCloudAnchorById(anchor.getAnchorId(), 1, callback); // Default TTL of 1 day
+    }
+
+    /**
+     * Host the anchor with the given ID to the cloud so it can be shared with other users.
+     * This is a convenience method that takes just the anchor ID string instead of the full
+     * ARAnchor object. The anchor must exist in the current AR session.
+     * <p>
+     * See {@link #hostCloudAnchor(ARAnchor, CloudAnchorHostListener)} for full documentation.
+     *
+     * @param anchorId The ID of the anchor to host.
+     * @param ttlDays The TTL in days (1-365) for how long the cloud anchor should be stored.
+     * @param callback The callback to invoke on success or failure.
+     * @hide
+     */
+    public void hostCloudAnchorById(String anchorId, int ttlDays, CloudAnchorHostListener callback) {
+        if (mCloudAnchorHostCallbacks.containsKey(anchorId)) {
             Log.e("Viro", "Ignoring redundant cloud anchor hosting request: we are already processing anchor ["
-                    + anchor.getAnchorId() + "]");
+                    + anchorId + "]");
             return;
         }
-        mCloudAnchorHostCallbacks.put(anchor.getAnchorId(), callback);
-        nativeHostCloudAnchor(mNativeRef, anchor.getAnchorId());
+        // Validate TTL: ARCore supports 1-365 days
+        if (ttlDays < 1) {
+            ttlDays = 1;
+        } else if (ttlDays > 365) {
+            ttlDays = 365;
+        }
+        mCloudAnchorHostCallbacks.put(anchorId, callback);
+        nativeHostCloudAnchor(mNativeRef, anchorId, ttlDays);
     }
 
     // Called by native
@@ -853,7 +875,7 @@ public class ARScene extends Scene {
     private native void nativeRemoveARImageTarget(long sceneControllerRef, long arImageTargetRef);
     private native void nativeAddARImageTargetDeclarative(long sceneControllerRef, long arImagetTargetRef);
     private native void nativeRemoveARImageTargetDeclarative(long sceneControllerRef, long arImageTargetRef);
-    private native void nativeHostCloudAnchor(long sceneControllerRef, String anchorId);
+    private native void nativeHostCloudAnchor(long sceneControllerRef, String anchorId, int ttlDays);
     private native void nativeResolveCloudAnchor(long sceneControllerRef, String cloudAnchorId);
     private native float nativeGetAmbientLightIntensity(long sceneControllerRef);
     private native long nativeCreateAnchoredNode(long sceneControllerRef, float px, float py, float pz,

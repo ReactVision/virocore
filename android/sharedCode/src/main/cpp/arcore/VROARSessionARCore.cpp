@@ -650,13 +650,14 @@ void VROARSessionARCore::updateAnchor(std::shared_ptr<VROARAnchor> anchor) {
 
 void VROARSessionARCore::hostCloudAnchor(
     std::shared_ptr<VROARAnchor> anchor,
+    int ttlDays,
     std::function<void(std::shared_ptr<VROARAnchor>)> onSuccess,
     std::function<void(std::string error)> onFailure) {
   if (_cloudAnchorMode == arcore::CloudAnchorMode::Disabled) {
     pwarn("Cloud anchors are disabled, ignoring anchor host request");
     return;
   }
-  _cloudAnchorProvider->hostCloudAnchor(anchor, onSuccess, onFailure);
+  _cloudAnchorProvider->hostCloudAnchor(anchor, ttlDays, onSuccess, onFailure);
 }
 
 void VROARSessionARCore::resolveCloudAnchor(

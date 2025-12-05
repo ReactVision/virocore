@@ -40,6 +40,7 @@ class VRODriver;
 class VROVideoTextureCacheOpenGL;
 class VROTrackingHelper;
 @class VROARKitSessionDelegate;
+@class VROCloudAnchorProviderARCore;
 
 class API_AVAILABLE(ios(12.0)) VROARSessioniOS : public VROARSession, public std::enable_shared_from_this<VROARSessioniOS> {
 public:
@@ -76,6 +77,7 @@ public:
     void addAnchor(std::shared_ptr<VROARAnchor> anchor);
     void removeAnchor(std::shared_ptr<VROARAnchor> anchor);
     void hostCloudAnchor(std::shared_ptr<VROARAnchor> anchor,
+                         int ttlDays,
                          std::function<void(std::shared_ptr<VROARAnchor>)> onSuccess,
                          std::function<void(std::string error)> onFailure);
     void resolveCloudAnchor(std::string anchorId,
@@ -132,6 +134,16 @@ private:
      Whether or not the session has been paused.
      */
     bool _sessionPaused;
+
+    /*
+     The cloud anchor provider to use for hosting/resolving cloud anchors.
+     */
+    VROCloudAnchorProvider _cloudAnchorProvider = VROCloudAnchorProvider::None;
+
+    /*
+     The ARCore cloud anchor provider instance (for iOS using ARCore SDK).
+     */
+    VROCloudAnchorProviderARCore *_cloudAnchorProviderARCore = nil;
 
     /*
      The last computed ARFrame.

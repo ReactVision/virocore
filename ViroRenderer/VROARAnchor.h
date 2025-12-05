@@ -69,6 +69,24 @@ public:
     void setId(std::string id) {
         _id = id;
     }
+
+    /*
+     Cloud anchor ID for cross-platform anchor sharing (via ARCore Cloud Anchors).
+     Empty string if anchor has not been hosted to the cloud.
+     */
+    std::string getCloudAnchorId() const {
+        return _cloudAnchorId;
+    }
+    void setCloudAnchorId(std::string cloudAnchorId) {
+        _cloudAnchorId = cloudAnchorId;
+    }
+
+    /*
+     Returns true if this anchor has been hosted to the cloud.
+     */
+    bool isCloudAnchor() const {
+        return !_cloudAnchorId.empty();
+    }
     
     /*
      Transformation matrix encoding the position, orientation and scale of the
@@ -116,8 +134,9 @@ public:
     }
     
 private:
-    
+
     std::string _id;
+    std::string _cloudAnchorId;
     VROMatrix4f _transform;
 
     /*

@@ -251,6 +251,7 @@ namespace arcore {
         virtual HitResult *createHitResult();
         virtual Anchor *acquireNewAnchor(const Pose *pose);
         virtual Anchor *hostAndAcquireNewCloudAnchor(const Anchor *anchor, AnchorAcquireStatus *status);
+        virtual Anchor *hostAndAcquireNewCloudAnchorWithTtl(const Anchor *anchor, int ttlDays, AnchorAcquireStatus *status);
         virtual Anchor *resolveAndAcquireNewCloudAnchor(const char *anchorId, AnchorAcquireStatus *status);
 
     private:

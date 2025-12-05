@@ -38,6 +38,7 @@ VROCloudAnchorProviderARCore::~VROCloudAnchorProviderARCore() {
 }
 
 void VROCloudAnchorProviderARCore::hostCloudAnchor(std::shared_ptr<VROARAnchor> anchor,
+                                                   int ttlDays,
                                                    std::function<void(std::shared_ptr<VROARAnchor>)> onSuccess,
                                                    std::function<void(std::string error)> onFailure) {
     std::shared_ptr<VROARSessionARCore> session = _session.lock();
@@ -48,9 +49,16 @@ void VROCloudAnchorProviderARCore::hostCloudAnchor(std::shared_ptr<VROARAnchor> 
 
     std::shared_ptr<VROARAnchorARCore> anchor_v = std::dynamic_pointer_cast<VROARAnchorARCore>(anchor);
 
+    // Validate TTL: ARCore supports 1-365 days
+    if (ttlDays < 1) {
+        ttlDays = 1;
+    } else if (ttlDays > 365) {
+        ttlDays = 365;
+    }
+
     arcore::AnchorAcquireStatus status;
     std::shared_ptr<arcore::Anchor> anchor_arc = std::shared_ptr<arcore::Anchor>(
-            session_arc->hostAndAcquireNewCloudAnchor(anchor_v->getAnchorInternal().get(), &status));
+            session_arc->hostAndAcquireNewCloudAnchorWithTtl(anchor_v->getAnchorInternal().get(), ttlDays, &status));
     if (!anchor_arc) {
         // ARCore can immediately fail to host a cloud anchor for a number of reasons
         onFailure("Failed to host cloud anchor [error: " + getAnchorStatusErrorMessage(status) + "]");

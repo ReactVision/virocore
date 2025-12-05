@@ -71,6 +71,7 @@ public:
     void removeAnchor(std::shared_ptr<VROARAnchor> anchor);
     void updateAnchor(std::shared_ptr<VROARAnchor> anchor);
     void hostCloudAnchor(std::shared_ptr<VROARAnchor> anchor,
+                         int ttlDays,
                          std::function<void(std::shared_ptr<VROARAnchor>)> onSuccess,
                          std::function<void(std::string error)> onFailure);
     void resolveCloudAnchor(std::string anchorId,

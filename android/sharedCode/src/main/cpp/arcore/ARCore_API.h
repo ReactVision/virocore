@@ -350,6 +350,7 @@ namespace arcore {
         virtual HitResult *createHitResult() = 0;
         virtual Anchor *acquireNewAnchor(const Pose *pose) = 0;
         virtual Anchor *hostAndAcquireNewCloudAnchor(const Anchor *anchor, AnchorAcquireStatus *status) = 0;
+        virtual Anchor *hostAndAcquireNewCloudAnchorWithTtl(const Anchor *anchor, int ttlDays, AnchorAcquireStatus *status) = 0;
         virtual Anchor *resolveAndAcquireNewCloudAnchor(const char *anchorId, AnchorAcquireStatus *status) = 0;
     };
 }

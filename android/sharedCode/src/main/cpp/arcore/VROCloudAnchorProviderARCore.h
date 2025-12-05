@@ -66,8 +66,12 @@ public:
      Host an anchor on the cloud anchor provider we're using. Hosting an anchor is an
      asynchronous process that will eventually return the hosted cloud anchor to the
      given callback.
+
+     The ttlDays parameter specifies how long the cloud anchor should be stored
+     on the cloud anchor service. Valid values range from 1 to 365 days.
      */
     void hostCloudAnchor(std::shared_ptr<VROARAnchor> anchor,
+                         int ttlDays,
                          std::function<void(std::shared_ptr<VROARAnchor>)> onSuccess,
                          std::function<void(std::string error)> onFailure);
 

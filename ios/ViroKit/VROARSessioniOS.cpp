@@ -49,6 +49,8 @@
 #include "VROVisionModel.h"
 #include <algorithm>
 
+#import "VROCloudAnchorProviderARCore.h"
+
 #pragma mark - Lifecycle and Initialization
 
 VROARSessioniOS::VROARSessioniOS(VROTrackingType trackingType,
@@ -355,7 +357,29 @@ bool VROARSessioniOS::setAnchorDetection(std::set<VROAnchorDetection> types) {
 }
 
 void VROARSessioniOS::setCloudAnchorProvider(VROCloudAnchorProvider provider) {
-  // TODO iOS ARCore Cloud Anchor implementation
+  _cloudAnchorProvider = provider;
+
+  if (provider == VROCloudAnchorProvider::ARCore) {
+    // Initialize ARCore cloud anchor provider if not already done
+    if (_cloudAnchorProviderARCore == nil && _session != nil) {
+      if ([VROCloudAnchorProviderARCore isAvailable]) {
+        _cloudAnchorProviderARCore = [[VROCloudAnchorProviderARCore alloc] initWithARSession:_session];
+        if (_cloudAnchorProviderARCore) {
+          pinfo("ARCore Cloud Anchor provider initialized successfully");
+        } else {
+          pwarn("Failed to initialize ARCore Cloud Anchor provider");
+        }
+      } else {
+        pwarn("ARCore SDK not available. Add ARCore/CloudAnchors pod to enable cloud anchors.");
+      }
+    }
+  } else {
+    // Clean up cloud anchor provider if switching to None
+    if (_cloudAnchorProviderARCore != nil) {
+      [_cloudAnchorProviderARCore cancelAllOperations];
+      _cloudAnchorProviderARCore = nil;
+    }
+  }
 }
 
 void VROARSessioniOS::addAnchor(std::shared_ptr<VROARAnchor> anchor) {
@@ -398,15 +422,124 @@ void VROARSessioniOS::updateAnchor(std::shared_ptr<VROARAnchor> anchor) {
 
 void VROARSessioniOS::hostCloudAnchor(
     std::shared_ptr<VROARAnchor> anchor,
+    int ttlDays,
     std::function<void(std::shared_ptr<VROARAnchor>)> onSuccess,
     std::function<void(std::string error)> onFailure) {
-  // Unsupproted
+  if (_cloudAnchorProvider != VROCloudAnchorProvider::ARCore) {
+    if (onFailure) {
+      onFailure("Cloud anchor provider not configured. Set cloudAnchorProvider='arcore' to enable.");
+    }
+    return;
+  }
+
+  if (_cloudAnchorProviderARCore == nil) {
+    if (onFailure) {
+      onFailure("ARCore Cloud Anchor provider not initialized. Ensure ARCore SDK is available.");
+    }
+    return;
+  }
+
+  // Validate TTL: ARCore supports 1-365 days
+  if (ttlDays < 1) {
+    ttlDays = 1;
+  } else if (ttlDays > 365) {
+    ttlDays = 365;
+  }
+
+  // Find the native ARKit anchor for this VROARAnchor
+  ARAnchor *nativeAnchor = nil;
+  std::string anchorId = anchor->getId();
+
+  // Search through the current ARKit anchors
+  if (_currentFrame) {
+    VROARFrameiOS *frameiOS = (VROARFrameiOS *)_currentFrame.get();
+    ARFrame *arFrame = frameiOS->getARFrame();
+    if (arFrame) {
+      for (ARAnchor *arAnchor in arFrame.anchors) {
+        if (std::string([[arAnchor.identifier UUIDString] UTF8String]) == anchorId) {
+          nativeAnchor = arAnchor;
+          break;
+        }
+      }
+    }
+  }
+
+  if (!nativeAnchor) {
+    if (onFailure) {
+      onFailure("Could not find native ARKit anchor for hosting.");
+    }
+    return;
+  }
+
+  // Create weak reference to self for callback
+  std::weak_ptr<VROARSessioniOS> weakSelf = shared_from_this();
+  std::shared_ptr<VROARAnchor> anchorCopy = anchor;
+
+  [_cloudAnchorProviderARCore hostAnchor:nativeAnchor
+                                 ttlDays:ttlDays
+                               onSuccess:^(NSString *cloudAnchorId, ARAnchor *resolvedAnchor) {
+    auto strongSelf = weakSelf.lock();
+    if (!strongSelf) return;
+
+    // Update the anchor with the cloud anchor ID
+    anchorCopy->setCloudAnchorId(std::string([cloudAnchorId UTF8String]));
+
+    if (onSuccess) {
+      onSuccess(anchorCopy);
+    }
+  }
+                               onFailure:^(NSString *error) {
+    if (onFailure) {
+      onFailure(std::string([error UTF8String]));
+    }
+  }];
 }
+
 void VROARSessioniOS::resolveCloudAnchor(
-    std::string anchorId,
+    std::string cloudAnchorId,
     std::function<void(std::shared_ptr<VROARAnchor> anchor)> onSuccess,
     std::function<void(std::string error)> onFailure) {
-  // Unsupported
+  if (_cloudAnchorProvider != VROCloudAnchorProvider::ARCore) {
+    if (onFailure) {
+      onFailure("Cloud anchor provider not configured. Set cloudAnchorProvider='arcore' to enable.");
+    }
+    return;
+  }
+
+  if (_cloudAnchorProviderARCore == nil) {
+    if (onFailure) {
+      onFailure("ARCore Cloud Anchor provider not initialized. Ensure ARCore SDK is available.");
+    }
+    return;
+  }
+
+  NSString *cloudIdNS = [NSString stringWithUTF8String:cloudAnchorId.c_str()];
+  std::weak_ptr<VROARSessioniOS> weakSelf = shared_from_this();
+  std::string cloudIdCopy = cloudAnchorId;
+
+  [_cloudAnchorProviderARCore resolveAnchor:cloudIdNS
+                                  onSuccess:^(NSString *resolvedCloudId, ARAnchor *resolvedAnchor) {
+    auto strongSelf = weakSelf.lock();
+    if (!strongSelf) return;
+
+    // Create a VROARAnchor from the resolved ARKit anchor
+    std::shared_ptr<VROARAnchor> viroAnchor = std::make_shared<VROARAnchor>();
+    viroAnchor->setId(std::string([[resolvedAnchor.identifier UUIDString] UTF8String]));
+    viroAnchor->setCloudAnchorId(cloudIdCopy);
+    viroAnchor->setTransform(VROConvert::toMatrix4f(resolvedAnchor.transform));
+
+    // Add the anchor to the session
+    strongSelf->addAnchor(viroAnchor);
+
+    if (onSuccess) {
+      onSuccess(viroAnchor);
+    }
+  }
+                                  onFailure:^(NSString *error) {
+    if (onFailure) {
+      onFailure(std::string([error UTF8String]));
+    }
+  }];
 }
 
 #pragma mark - Frames
@@ -429,6 +562,15 @@ std::unique_ptr<VROARFrame> &VROARSessioniOS::updateFrame() {
   if (_visionModel) {
     _visionModel->update(frameiOS);
   }
+
+  // Update cloud anchor provider to process pending operations
+  if (_cloudAnchorProviderARCore != nil) {
+    ARFrame *arFrame = frameiOS->getARFrame();
+    if (arFrame) {
+      [_cloudAnchorProviderARCore updateWithFrame:arFrame];
+    }
+  }
+
   return _currentFrame;
 }
 

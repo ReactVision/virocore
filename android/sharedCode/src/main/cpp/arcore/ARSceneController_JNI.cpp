@@ -462,16 +462,18 @@ VRO_METHOD(VRO_REF(VROARNode), nativeCreateAnchoredNode)(VRO_ARGS
 
 VRO_METHOD(void, nativeHostCloudAnchor)(VRO_ARGS
                                         VRO_REF(VROARSceneController) sceneController_j,
-                                        VRO_STRING anchorId_j) {
+                                        VRO_STRING anchorId_j,
+                                        VRO_INT ttlDays_j) {
     VRO_METHOD_PREAMBLE;
 
     std::weak_ptr<VROARScene> scene_w = std::dynamic_pointer_cast<VROARScene>(
             VRO_REF_GET(VROARSceneController, sceneController_j)->getScene());
 
     std::string localAnchorId = VRO_STRING_STL(anchorId_j);
+    int ttlDays = ttlDays_j;
     VRO_WEAK obj_w = VRO_NEW_WEAK_GLOBAL_REF(obj);
 
-    VROPlatformDispatchAsyncRenderer([obj_w, localAnchorId, scene_w] {
+    VROPlatformDispatchAsyncRenderer([obj_w, localAnchorId, ttlDays, scene_w] {
         VRO_ENV env = VROPlatformGetJNIEnv();
 
         std::shared_ptr<VROARScene> scene = scene_w.lock();
@@ -486,7 +488,7 @@ VRO_METHOD(void, nativeHostCloudAnchor)(VRO_ARGS
         }
 
         std::shared_ptr<VROARAnchor> anchor = session->getAnchorWithId(localAnchorId);
-        scene->getARSession()->hostCloudAnchor(anchor,
+        scene->getARSession()->hostCloudAnchor(anchor, ttlDays,
            [obj_w, localAnchorId](std::shared_ptr<VROARAnchor> cloudAnchor) {
                VROPlatformDispatchAsyncApplication([obj_w, localAnchorId, cloudAnchor] {
                    // Success callback

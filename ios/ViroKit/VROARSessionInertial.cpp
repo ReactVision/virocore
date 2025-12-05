@@ -97,9 +97,13 @@ void VROARSessionInertial::updateAnchor(std::shared_ptr<VROARAnchor> anchor) {
 }
 
 void VROARSessionInertial::hostCloudAnchor(std::shared_ptr<VROARAnchor> anchor,
+                                           int ttlDays,
                                            std::function<void(std::shared_ptr<VROARAnchor>)> onSuccess,
                                            std::function<void(std::string error)> onFailure) {
-    // Unsupproted
+    // Unsupported - inertial session does not support cloud anchors
+    if (onFailure) {
+        onFailure("Cloud anchors not supported in inertial AR mode");
+    }
 }
 void VROARSessionInertial::resolveCloudAnchor(std::string anchorId,
                                               std::function<void(std::shared_ptr<VROARAnchor> anchor)> onSuccess,

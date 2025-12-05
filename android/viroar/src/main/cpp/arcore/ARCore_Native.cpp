@@ -1078,6 +1078,19 @@ namespace arcore {
         };
     }
 
+    Anchor *SessionNative::hostAndAcquireNewCloudAnchorWithTtl(const Anchor *anchor, int ttlDays, AnchorAcquireStatus *status_v) {
+        ArAnchor *cloudAnchor;
+        ArStatus status = ArSession_hostAndAcquireNewCloudAnchorWithTtl(_session, ((AnchorNative *) anchor)->_anchor,
+                                                                         ttlDays, &cloudAnchor);
+        if (status == AR_SUCCESS) {
+            *status_v = AnchorAcquireStatus::Success;
+            return new AnchorNative(cloudAnchor, _session);
+        } else {
+            *status_v = convertAnchorStatus(status);
+            return nullptr;
+        };
+    }
+
     Anchor *SessionNative::resolveAndAcquireNewCloudAnchor(const char *anchorId, AnchorAcquireStatus *status_v) {
         ArAnchor *cloudAnchor;
         ArStatus status = ArSession_resolveAndAcquireNewCloudAnchor(_session, anchorId, &cloudAnchor);
