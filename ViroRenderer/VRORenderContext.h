@@ -37,6 +37,7 @@
 #include "VROCamera.h"
 #include "VROFrameScheduler.h"
 #include "VROARSession.h"
+#include "VROViewport.h"
 
 class VROFrameSynchronizer;
 class VROTexture;
@@ -225,6 +226,13 @@ public:
         return _occlusionMode != VROOcclusionMode::Disabled && _depthTexture != nullptr;
     }
 
+    void setViewport(VROViewport viewport) {
+        _viewport = viewport;
+    }
+    VROViewport getViewport() const {
+        return _viewport;
+    }
+
 private:
     
     int _frame;
@@ -316,6 +324,11 @@ private:
      Current occlusion mode.
      */
     VROOcclusionMode _occlusionMode = VROOcclusionMode::Disabled;
+
+    /*
+     Current viewport dimensions.
+     */
+    VROViewport _viewport;
 
 };
 

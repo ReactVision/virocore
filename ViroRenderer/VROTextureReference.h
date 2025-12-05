@@ -36,7 +36,8 @@ enum VROGlobalTextureType {
     ShadowMap,
     IrradianceMap,
     PrefilteredMap,
-    BrdfMap
+    BrdfMap,
+    ARDepthMap
 };
 
 /*

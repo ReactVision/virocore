@@ -96,24 +96,27 @@ struct VROLightingShaderCapabilities {
     bool pbr;
     bool diffuseIrradiance;
     bool specularIrradiance;
-    
+    bool arOcclusion;  // AR depth-based occlusion (LiDAR on iOS, ARCore depth on Android)
+
     bool operator< (const VROLightingShaderCapabilities &r) const {
-        return std::tie(  shadows,   hdr,   pbr,   diffuseIrradiance,   specularIrradiance)
-             < std::tie(r.shadows, r.hdr, r.pbr, r.diffuseIrradiance, r.specularIrradiance);
+        return std::tie(  shadows,   hdr,   pbr,   diffuseIrradiance,   specularIrradiance,   arOcclusion)
+             < std::tie(r.shadows, r.hdr, r.pbr, r.diffuseIrradiance, r.specularIrradiance, r.arOcclusion);
     }
     bool operator== (const VROLightingShaderCapabilities& r) const {
         return shadows == r.shadows &&
                hdr == r.hdr &&
                pbr == r.pbr &&
                diffuseIrradiance == r.diffuseIrradiance &&
-               specularIrradiance == r.specularIrradiance;
+               specularIrradiance == r.specularIrradiance &&
+               arOcclusion == r.arOcclusion;
     }
     bool operator!= (const VROLightingShaderCapabilities& r) const {
         return shadows != r.shadows ||
                hdr != r.hdr ||
                pbr != r.pbr ||
                diffuseIrradiance != r.diffuseIrradiance ||
-               specularIrradiance != r.specularIrradiance;
+               specularIrradiance != r.specularIrradiance ||
+               arOcclusion != r.arOcclusion;
     }
 };
 

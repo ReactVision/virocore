@@ -717,16 +717,24 @@ static VROVector3f const kZeroVector = VROVector3f();
     // Set up occlusion depth texture if occlusion is enabled
     VROOcclusionMode occlusionMode = _arSession->getOcclusionMode();
     std::shared_ptr<VROTexture> depthTexture = nullptr;
+    VROMatrix4f depthTextureTransform = VROMatrix4f::identity();
     if (occlusionMode != VROOcclusionMode::Disabled && frame->hasDepthData()) {
         depthTexture = frame->getDepthTexture();
+        depthTextureTransform = frame->getDepthTextureTransform();
+
+        // Ensure the depth texture is uploaded to GPU before rendering
+        if (depthTexture && !depthTexture->isHydrated()) {
+            depthTexture->prewarm(_driver);
+        }
     }
 
     _pointOfView->getCamera()->setPosition(position);
     _renderer->prepareFrame(_frame, viewport, fov, rotation, projection, _driver);
 
-    // Set occlusion info on the render context
+    // Set occlusion info on the render context for 3D object occlusion
     _renderer->setOcclusionMode(occlusionMode);
     _renderer->setDepthTexture(depthTexture);
+    _renderer->setDepthTextureTransform(depthTextureTransform);
 
     _renderer->renderEye(VROEyeType::Monocular, _renderer->getLookAtMatrix(), projection, viewport, _driver);
     _renderer->renderHUD(VROEyeType::Monocular, VROMatrix4f::identity(), projection, _driver);
@@ -748,40 +756,36 @@ static VROVector3f const kZeroVector = VROVector3f();
 
 - (void)updateBackgroundOcclusionWithFrame:(const std::unique_ptr<VROARFrame> &)frame {
     std::shared_ptr<VROMaterial> material = _cameraBackground->getMaterials()[0];
-    VROOcclusionMode occlusionMode = _arSession->getOcclusionMode();
 
-    // Check if we have depth data available
+    // Check if we have depth data available for debug visualization
+    // NOTE: Occlusion is now handled on 3D objects via the shader factory, not on the background.
+    // The background camera image should NOT write to the depth buffer.
     bool hasDepth = frame->hasDepthData();
     std::shared_ptr<VROTexture> depthTexture = hasDepth ? frame->getDepthTexture() : nullptr;
 
-    // Determine if we need depth features (occlusion or debug visualization)
-    bool needsDepth = (occlusionMode != VROOcclusionMode::Disabled || _depthDebugEnabled) && depthTexture;
+    // Only add depth debug visualization if enabled and depth data is available
+    bool needsDebugVisualization = _depthDebugEnabled && depthTexture;
 
-    if (needsDepth) {
-        // IMPORTANT: Hydrate the depth texture immediately so it's uploaded to the GPU
-        // before the shader tries to sample it. Without this, the texture will not be
-        // ready and the shader will sample a blank placeholder.
+    if (needsDebugVisualization) {
+        // Hydrate the depth texture so it's uploaded to the GPU
         if (!depthTexture->isHydrated()) {
             depthTexture->prewarm(_driver);
         }
 
-        // Set the depth texture on the material and update shader bindings
+        // Set the depth texture on the material for the debug modifier
         material->getAmbientOcclusion().setTexture(depthTexture);
         material->updateSubstrateTextures();
 
-        // IMPORTANT: The debug modifier MUST be added first (or always when occlusion is used)
-        // because it declares the ar_depth_texture sampler uniform.
-        // The occlusion modifier also uses this sampler but doesn't declare it.
+        // Add the debug modifier if not already added
         if (!_depthDebugModifierAdded) {
             _depthDebugModifier = VROShaderFactory::createDepthDebugModifier();
 
-            // Bind the opacity uniform - capture 'this' to access current state dynamically
+            // Bind the opacity uniform dynamically
             __weak VROViewAR *weakSelf = self;
             _depthDebugModifier->setUniformBinder("depth_debug_opacity", VROShaderProperty::Float,
                 [weakSelf](VROUniform *uniform, const VROGeometry *geometry, const VROMaterial *material) {
                     VROViewAR *strongSelf = weakSelf;
                     if (strongSelf) {
-                        // If debug is enabled, use the configured opacity; otherwise use 0 (invisible)
                         uniform->setFloat(strongSelf->_depthDebugEnabled ? strongSelf->_depthDebugOpacity : 0.0f);
                     } else {
                         uniform->setFloat(0.0f);
@@ -791,65 +795,20 @@ static VROVector3f const kZeroVector = VROVector3f();
             material->addShaderModifier(_depthDebugModifier);
             _depthDebugModifierAdded = true;
         }
-
-        // Handle occlusion mode - add the occlusion modifier after the debug modifier
-        if (occlusionMode != VROOcclusionMode::Disabled) {
-            // Enable depth writing so virtual objects can be occluded
-            material->setWritesToDepthBuffer(true);
-
-            // Add the occlusion shader modifier if not already added
-            if (!_occlusionModifierAdded) {
-                _occlusionModifier = VROShaderFactory::createOcclusionDepthModifier();
-
-                // Bind the near/far plane uniforms dynamically from the renderer
-                // This ensures the depth values match the actual projection matrix
-                __weak VROViewAR *weakSelf = self;
-                _occlusionModifier->setUniformBinder("occlusion_z_near", VROShaderProperty::Float,
-                    [weakSelf](VROUniform *uniform, const VROGeometry *geometry, const VROMaterial *material) {
-                        // Near plane is constant
-                        uniform->setFloat(kZNear);
-                    });
-
-                _occlusionModifier->setUniformBinder("occlusion_z_far", VROShaderProperty::Float,
-                    [weakSelf](VROUniform *uniform, const VROGeometry *geometry, const VROMaterial *material) {
-                        VROViewAR *strongSelf = weakSelf;
-                        if (strongSelf && strongSelf->_renderer) {
-                            // Get the dynamic far plane that matches the projection matrix
-                            uniform->setFloat(strongSelf->_renderer->getFarClippingPlane());
-                        } else {
-                            uniform->setFloat(kZFar);
-                        }
-                    });
-
-                material->addShaderModifier(_occlusionModifier);
-                _occlusionModifierAdded = true;
-            }
-        } else {
-            // Occlusion disabled - remove the occlusion modifier if it was added
-            if (_occlusionModifierAdded && _occlusionModifier) {
-                material->removeShaderModifier(_occlusionModifier);
-                _occlusionModifier.reset();
-                _occlusionModifierAdded = false;
-            }
-            // Depth debug only, no occlusion - don't write to depth buffer
-            material->setWritesToDepthBuffer(false);
-        }
     } else {
-        // No depth features needed - remove all modifiers
-        if (_occlusionModifierAdded && _occlusionModifier) {
-            material->removeShaderModifier(_occlusionModifier);
-            _occlusionModifier.reset();
-            _occlusionModifierAdded = false;
-        }
+        // Remove depth debug modifier if it was added
         if (_depthDebugModifierAdded && _depthDebugModifier) {
             material->removeShaderModifier(_depthDebugModifier);
             _depthDebugModifier.reset();
             _depthDebugModifierAdded = false;
-            // Also clear the depth texture when removing the modifier
             material->getAmbientOcclusion().setTexture(nullptr);
         }
-        material->setWritesToDepthBuffer(false);
     }
+
+    // Background camera should NEVER write to depth buffer.
+    // Occlusion is handled per-3D-object in the fragment shader via the occlusion mask modifier
+    // which is automatically added by VROShaderFactory when arOcclusion capability is enabled.
+    material->setWritesToDepthBuffer(false);
 }
 
 - (void)initARSessionWithViewport:(VROViewport)viewport scene:(std::shared_ptr<VROScene>)scene {

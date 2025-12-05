@@ -98,10 +98,13 @@ bool VROMaterialSubstrateOpenGL::bindShader(int lightsHash,
 
 void VROMaterialSubstrateOpenGL::bindView(VROMatrix4f modelMatrix, VROMatrix4f viewMatrix,
                                           VROMatrix4f projectionMatrix, VROMatrix4f normalMatrix,
-                                          VROVector3f cameraPosition, VROEyeType eyeType) {
+                                          VROVector3f cameraPosition, VROEyeType eyeType,
+                                          const VRORenderContext &context) {
     passert(_activeBinding != nullptr);
     _activeBinding->bindViewUniforms(modelMatrix, viewMatrix, projectionMatrix, normalMatrix,
                                      cameraPosition, eyeType);
+    // Bind AR occlusion uniforms if occlusion is enabled
+    _activeBinding->bindOcclusionUniforms(context);
 }
 
 const std::vector<VROTextureReference> &VROMaterialSubstrateOpenGL::getTextures() const {

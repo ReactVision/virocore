@@ -38,6 +38,8 @@ std::shared_ptr<VROTexture> VROTextureReference::getGlobalTexture(const VRORende
             return context.getPrefilteredMap();
         case VROGlobalTextureType::BrdfMap:
             return context.getBRDFMap();
+        case VROGlobalTextureType::ARDepthMap:
+            return context.getDepthTexture();
         default:
             pabort();
     }
