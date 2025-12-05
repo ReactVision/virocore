@@ -324,6 +324,12 @@ void VRORenderer::setDepthTexture(std::shared_ptr<VROTexture> depthTexture) {
     }
 }
 
+void VRORenderer::setDepthTextureTransform(VROMatrix4f transform) {
+    if (_context) {
+        _context->setDepthTextureTransform(transform);
+    }
+}
+
 VROCamera VRORenderer::updateCamera(const VROViewport &viewport, const VROFieldOfView &fov,
                                     const VROMatrix4f &headRotation, const VROMatrix4f &projection) {
     
@@ -454,11 +460,12 @@ void VRORenderer::prepareFrame(int frame, VROViewport viewport, VROFieldOfView f
     _context->setEnclosureViewMatrix(enclosureMatrix);
     
     /*
-     Orthographic matrix is used for objects that are rendered in screen coordinates. 
+     Orthographic matrix is used for objects that are rendered in screen coordinates.
      We use zero for the NCP since typically orthographic objects will have no Z
      coordinate (e.g., Z=0).
      */
     _context->setOrthographicMatrix(viewport.getOrthographicProjection(0, kZFar));
+    _context->setViewport(viewport);
     _context->setShadowMap(nullptr);
     
     _renderMetadata = std::make_shared<VRORenderMetadata>();

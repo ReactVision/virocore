@@ -865,6 +865,7 @@ void VROARSessioniOS::updateAnchor(ARAnchor *anchor) {
     updateAnchor(it->second);       // Immediately notifies delegates
 
     // Log diagnostics for plane anchors every 100 updates
+    /*
     if ([anchor isKindOfClass:[ARPlaneAnchor class]]) {
       std::shared_ptr<VROARPlaneAnchor> pAnchor =
           std::dynamic_pointer_cast<VROARPlaneAnchor>(vAnchor);
@@ -877,6 +878,7 @@ void VROARSessioniOS::updateAnchor(ARAnchor *anchor) {
               pAnchor->getCenter().y, pAnchor->getCenter().z);
       }
     }
+      */
   } else {
     pinfo("Anchor %@ not found!", anchor.identifier);
   }

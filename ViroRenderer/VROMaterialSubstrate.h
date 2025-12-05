@@ -88,11 +88,12 @@ public:
     
     /*
      Bind the properties of the view and projection to the active rendering
-     context.
+     context. The render context is used for occlusion uniform binding.
      */
     virtual void bindView(VROMatrix4f modelMatrix, VROMatrix4f viewMatrix,
                           VROMatrix4f projectionMatrix, VROMatrix4f normalMatrix,
-                          VROVector3f cameraPosition, VROEyeType eyeType) = 0;
+                          VROVector3f cameraPosition, VROEyeType eyeType,
+                          const VRORenderContext &context) = 0;
     
 };
 

@@ -325,6 +325,30 @@ std::shared_ptr<VROShaderProgram> VROShaderFactory::buildShader(VROShaderCapabil
         }
     }
 
+    // AR Occlusion - add depth-based occlusion for AR when enabled
+    // This must come after shadow modifiers but before tone mapping
+    // Skip if a custom modifier already declares ar_depth_texture (e.g., camera background's depth debug modifier)
+    // to avoid duplicate uniform declarations
+    bool hasDepthTextureModifier = false;
+    for (const std::shared_ptr<VROShaderModifier> &modifier : modifiers_in) {
+        if (modifier->getBodySource().find("ar_depth_texture") != std::string::npos) {
+            hasDepthTextureModifier = true;
+            break;
+        }
+    }
+
+    if (lightingCapabilities.arOcclusion && !hasDepthTextureModifier) {
+        samplers.push_back("ar_occlusion_depth_texture");
+        modifiers.push_back(createOcclusionMaskModifier());
+        pinfo("VROShaderFactory: Adding AR occlusion modifier, samplers count now %zu", samplers.size());
+    } else {
+        static int skipLogCount = 0;
+        if (skipLogCount++ % 60 == 0) {
+            pinfo("VROShaderFactory: Skipping AR occlusion (arOcclusion=%d, hasDepthTextureModifier=%d)",
+                  lightingCapabilities.arOcclusion, hasDepthTextureModifier);
+        }
+    }
+
     // All shaders use these three base attributes. Add additional attributes from the
     // modifiers.
     int attributes = (int)(VROShaderMask::Tex) | (int)(VROShaderMask::Norm) | (int)(VROShaderMask::Tangent);
@@ -1181,22 +1205,15 @@ std::shared_ptr<VROShaderModifier> VROShaderFactory::createOcclusionDepthModifie
         "highp float f = occlusion_z_far;",
 
         // Convert linear depth (meters) to perspective-correct NDC depth
-        // This formula produces:
-        //   - Values near 0 for objects close to the near plane
-        //   - Values near 1 for objects close to the far plane
-        //
-        // DEBUG TEST: Write depth as 1.0 (far plane) everywhere to verify depth writing works.
-        // All 3D objects should be visible if depth writing is working correctly.
-        // If objects still disappear, the issue is elsewhere (not in this shader).
-        "gl_FragDepth = 1.0;"
+        // Formula: depth_ndc = (f * (z - n)) / (z * (f - n))
+        "highp float depthNDC = 1.0;",
+        "if (z > 0.0 && z < f) {",
+        "    depthNDC = (f * (z - n)) / (z * (f - n));",
+        "    depthNDC = clamp(depthNDC, 0.0, 1.0);",
+        "}",
 
-        // ORIGINAL CODE (commented out for testing):
-        // "highp float depthNDC = 1.0;",
-        // "if (z > n && z < f) {",
-        // "    depthNDC = (f * (z - n)) / (z * (f - n));",
-        // "    depthNDC = clamp(depthNDC, 0.0, 1.0);",
-        // "}",
-        // "gl_FragDepth = depthNDC;"
+        // Write the computed perspective depth
+        "gl_FragDepth = depthNDC;"
     };
 
     std::shared_ptr<VROShaderModifier> modifier = std::make_shared<VROShaderModifier>(
@@ -1208,42 +1225,70 @@ std::shared_ptr<VROShaderModifier> VROShaderFactory::createOcclusionDepthModifie
 
 std::shared_ptr<VROShaderModifier> VROShaderFactory::createOcclusionMaskModifier() {
     /*
-     This modifier is applied to virtual objects. It samples the AR depth texture
-     and discards fragments where the virtual object is behind real-world surfaces.
+     This modifier is applied to virtual 3D objects to enable real-world occlusion.
+     It samples the AR depth texture at the fragment's screen position and discards
+     fragments where the virtual object is behind real-world surfaces.
 
-     The depth texture (bound via ar_depth_texture uniform) contains depth values
-     in meters from the AR framework.
+     The depth texture contains linear depth values in METERS from the AR framework
+     (ARKit LiDAR on iOS, ARCore depth on Android).
 
-     _surface.position contains the fragment's world-space position, which we use
-     to calculate the distance from the camera.
+     How it works:
+     1. Calculate screen-space UV from gl_FragCoord
+     2. Apply the depth texture transform for correct camera orientation
+     3. Sample the real-world depth at that screen position
+     4. Compare with the virtual object's distance from the camera
+     5. Discard the fragment if the virtual object is behind the real surface
+
+     Required uniforms (bound via setUniformBinder):
+     - ar_camera_position: Camera position in world space
+     - ar_viewport_size: Viewport dimensions in pixels
+     - ar_depth_texture_transform: Transform from screen UV to depth texture UV
+
+     The ar_depth_texture sampler is bound via the @sampler marker, which tells
+     VROMaterialShaderBinding to look it up as a global texture (ARDepthMap).
      */
     std::vector<std::string> modifierCode = {
-        // Declare the depth texture sampler
-        "uniform sampler2D ar_depth_texture;",
-        // Camera position uniform (should be set by the renderer)
+        // Request the ar_occlusion_depth_texture sampler via marker (binds to global ARDepthMap)
+        "uniform sampler2D ar_occlusion_depth_texture;",
+        "// @sampler ar_occlusion_depth_texture",
+
+        // Camera position and forward direction in world space (bound dynamically)
         "uniform highp vec3 ar_camera_position;",
-        // Viewport size for screen-space UV calculation
-        "uniform highp vec2 ar_viewport_size;",
-        // Depth texture transform for coordinate mapping
+
+        // Viewport size for screen-space UV calculation (bound dynamically, xy components used)
+        "uniform highp vec3 ar_viewport_size;",
+
+        // Depth texture transform for coordinate mapping (bound dynamically)
         "uniform highp mat4 ar_depth_texture_transform;",
 
+        // View matrix needed for planar depth calculation
+        "uniform highp mat4 view_matrix;",
+
         // Calculate screen-space UV from fragment position
-        // gl_FragCoord gives us the screen position
-        "highp vec2 screenUV = gl_FragCoord.xy / ar_viewport_size;",
+        // gl_FragCoord gives us the pixel position in screen space with origin at bottom-left
+        // We need to flip Y since textures/depth maps have origin at top-left
+        "highp vec2 screenUV = gl_FragCoord.xy / ar_viewport_size.xy;",
+        "screenUV.y = 1.0 - screenUV.y;",
 
         // Apply depth texture transform for correct orientation
+        // The depth texture may have different orientation than the camera image
         "highp vec2 depthUV = (ar_depth_texture_transform * vec4(screenUV, 0.0, 1.0)).xy;",
         "depthUV = clamp(depthUV, 0.0, 1.0);",
 
-        // Sample real-world depth at this screen position
-        "highp float realWorldDepth = texture(ar_depth_texture, depthUV).r;",
+        // Sample real-world depth at this screen position (in meters)
+        // ARKit depth is the perpendicular distance from the camera plane
+        "highp float realWorldDepth = texture(ar_occlusion_depth_texture, depthUV).r;",
 
-        // Calculate virtual object's distance from camera
-        "highp float virtualDepth = length(_surface.position - ar_camera_position);",
+        // Calculate virtual object's distance from camera (Planar Depth)
+        // We use the view matrix to transform the world position to view space.
+        // In OpenGL view space, the camera looks down the negative Z axis, so depth is -Z.
+        "highp float virtualDepth = -(view_matrix * vec4(_surface.position, 1.0)).z;",
 
-        // If virtual object is behind real-world surface, discard the fragment
-        // Add small epsilon to avoid z-fighting
-        "if (realWorldDepth > 0.001 && virtualDepth > realWorldDepth + 0.01) {",
+        // Apply Occlusion
+        // If the virtual object is behind the real-world surface (virtualDepth > realWorldDepth),
+        // we discard the fragment. We add a small bias (e.g. 1cm) to prevent self-occlusion artifacts
+        // or z-fighting when the object is very close to the surface.
+        "if (realWorldDepth > 0.0 && virtualDepth > (realWorldDepth + 0.01)) {",
         "    discard;",
         "}"
     };
@@ -1290,10 +1335,21 @@ std::shared_ptr<VROShaderModifier> VROShaderFactory::createDepthDebugModifier() 
         // Also add @sampler marker for texture binding
         "// @sampler ar_depth_texture",
         "uniform highp float depth_debug_opacity;",
+        
+        // Uniforms for correct coordinate mapping
+        "uniform highp vec3 ar_viewport_size;",
+        "uniform highp mat4 ar_depth_texture_transform;",
 
-        // Sample depth in meters directly using the diffuse texcoord
-        // The texcoord is already transformed correctly for the camera orientation
-        "highp float depth = texture(ar_depth_texture, _surface.diffuse_texcoord).r;",
+        // Calculate screen-space UV from fragment position
+        "highp vec2 screenUV = gl_FragCoord.xy / ar_viewport_size.xy;",
+        "screenUV.y = 1.0 - screenUV.y;",
+
+        // Apply depth texture transform for correct orientation
+        "highp vec2 depthUV = (ar_depth_texture_transform * vec4(screenUV, 0.0, 1.0)).xy;",
+        "depthUV = clamp(depthUV, 0.0, 1.0);",
+
+        // Sample depth in meters using the correct depth UVs
+        "highp float depth = texture(ar_depth_texture, depthUV).r;",
 
         // Create color based on depth value
         "highp vec3 depthColor;",

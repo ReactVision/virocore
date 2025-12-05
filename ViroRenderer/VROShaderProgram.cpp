@@ -529,6 +529,11 @@ void VROShaderProgram::addStandardUniforms() {
     addUniform(VROShaderProperty::Float, 1, "material_metalness_intensity");
     addUniform(VROShaderProperty::Float, 1, "material_ao");
     addUniform(VROShaderProperty::Vec3, 1, "material_emissive_color");
+
+    // AR Occlusion uniforms (used by occlusion mask modifier for depth-based occlusion)
+    addUniform(VROShaderProperty::Vec3, 1, "ar_camera_position");
+    addUniform(VROShaderProperty::Vec3, 1, "ar_viewport_size");
+    addUniform(VROShaderProperty::Mat4, 1, "ar_depth_texture_transform");
 }
 
 #pragma mark - Source Inflation and Shader Modifiers

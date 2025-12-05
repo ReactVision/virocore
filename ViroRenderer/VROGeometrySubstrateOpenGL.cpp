@@ -322,7 +322,7 @@ void VROGeometrySubstrateOpenGL::render(const VROGeometry &geometry,
     VROGeometryElementOpenGL element = _elements[elementIndex];
     VROMaterialSubstrateOpenGL *substrate = static_cast<VROMaterialSubstrateOpenGL *>(material->getSubstrate(driver));
     substrate->bindView(transform, viewMatrix, projectionMatrix, normalMatrix,
-                        context.getCamera().getPosition(), context.getEyeType());
+                        context.getCamera().getPosition(), context.getEyeType(), context);
     
     passert (elementIndex < _vaos.size() && elementIndex >= 0);
     GL (glBindVertexArray(_vaos[elementIndex]) );
@@ -356,6 +356,19 @@ void VROGeometrySubstrateOpenGL::renderMaterial(const VROGeometry &geometry,
 
         const std::shared_ptr<VROTexture> &texture = reference.getTexture(context);
 
+        if (!texture) {
+            // Skip null textures (e.g., AR depth when not available)
+            // DEBUG: Log when AR depth texture is NULL
+            if (reference.isGlobal() && reference.getGlobalType() == VROGlobalTextureType::ARDepthMap) {
+                static int nullLogCount = 0;
+                if (nullLogCount++ % 60 == 0) {
+                    pinfo("AR Depth Texture: NULL at slot %d!", activeTexture);
+                }
+            }
+            ++activeTexture;
+            continue;
+        }
+
         for (int s = 0; s < texture->getNumSubstrates(); s++) {
             VROTextureSubstrateOpenGL *substrate = (VROTextureSubstrateOpenGL *) texture->getSubstrate(s, driver, false);
             if (!substrate) {
@@ -364,8 +377,18 @@ void VROGeometrySubstrateOpenGL::renderMaterial(const VROGeometry &geometry,
                 std::shared_ptr<VROTexture> blank = getBlankTexture(texture->getType());
                 substrate = (VROTextureSubstrateOpenGL *) blank->getSubstrate(0, driver, true);
             }
-            
+
             std::pair<GLenum, GLuint> targetAndTexture = substrate->getTexture();
+
+            // DEBUG: Log AR depth texture binding with GL texture ID
+            if (reference.isGlobal() && reference.getGlobalType() == VROGlobalTextureType::ARDepthMap) {
+                static int bindLogCount = 0;
+                if (bindLogCount++ % 60 == 0) {
+                    pinfo("AR Depth Texture: binding GL texture %d to slot %d (hydrated=%d, substrates=%d)",
+                          targetAndTexture.second, activeTexture, texture->isHydrated(), texture->getNumSubstrates());
+                }
+            }
+
             driver->bindTexture(GL_TEXTURE0 + activeTexture, targetAndTexture.first, targetAndTexture.second);
             ++activeTexture;
         }
@@ -411,8 +434,8 @@ void VROGeometrySubstrateOpenGL::renderSilhouette(const VROGeometry &geometry,
         
         VROMaterialSubstrateOpenGL *substrate = static_cast<VROMaterialSubstrateOpenGL *>(material->getSubstrate(driver));
         substrate->bindView(transform, viewMatrix, projectionMatrix, normalMatrix,
-                            context.getCamera().getPosition(), context.getEyeType());
-        
+                            context.getCamera().getPosition(), context.getEyeType(), context);
+
         GL( glBindVertexArray(_vaos[i]) );
         substrate->bindGeometry(1.0, geometry);
         GL( glDrawElements(element.primitiveType, element.indexCount, element.indexType, 0) );
@@ -449,11 +472,11 @@ void VROGeometrySubstrateOpenGL::renderSilhouetteTextured(const VROGeometry &geo
     VROGeometryElementOpenGL &element = _elements[elementIndex];
     VROMaterialSubstrateOpenGL *substrate = static_cast<VROMaterialSubstrateOpenGL *>(material->getSubstrate(driver));
     substrate->bindView(transform, viewMatrix, projectionMatrix, normalMatrix,
-                        context.getCamera().getPosition(), context.getEyeType());
-    
+                        context.getCamera().getPosition(), context.getEyeType(), context);
+
     GL( glBindVertexArray(_vaos[elementIndex]) );
     renderMaterial(geometry, material, substrate, element, 1.0, context, driver);
     GL( glBindVertexArray(0) );
-    
+
     pglpop();
 }

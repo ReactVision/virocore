@@ -35,6 +35,7 @@
 #include "VRODriver.h"
 #include "VROTextureReference.h"
 #include "VROMath.h"
+#include "VRORenderContext.h"
 
 VROMaterialShaderBinding::VROMaterialShaderBinding(std::shared_ptr<VROShaderProgram> program,
                                                    VROLightingShaderCapabilities capabilities,
@@ -89,6 +90,11 @@ void VROMaterialShaderBinding::loadUniforms() {
     _viewMatrixUniform = program->getUniform("view_matrix");
     _cameraPositionUniform = program->getUniform("camera_position");
     _eyeTypeUniform = program->getUniform("eye_type");
+
+    // AR occlusion uniforms (may be null if occlusion not enabled)
+    _arCameraPositionUniform = program->getUniform("ar_camera_position");
+    _arViewportSizeUniform = program->getUniform("ar_viewport_size");
+    _arDepthTextureTransformUniform = program->getUniform("ar_depth_texture_transform");
     
     for (const std::shared_ptr<VROShaderModifier> &modifier : program->getModifiers()) {
         std::vector<std::string> uniformNames = modifier->getUniforms();
@@ -107,10 +113,13 @@ void VROMaterialShaderBinding::loadUniforms() {
 
 void VROMaterialShaderBinding::loadTextures() {
     _textures.clear();
-    
+
     const std::vector<std::string> &samplers = _program->getSamplers();
+
     for (const std::string &sampler : samplers) {
-        if (sampler == "diffuse_texture" || sampler == "diffuse_texture_y") {
+        if (sampler == "diffuse_texture" || sampler == "diffuse_texture_y" || sampler == "diffuse_texture_cbcr") {
+            // For YCbCr textures, both _y and _cbcr samplers use the same diffuse texture
+            // (the texture has multiple substrates for Y and CbCr planes)
             _textures.emplace_back(_material.getDiffuse().getTexture());
         }
         else if (sampler == "specular_texture") {
@@ -132,8 +141,19 @@ void VROMaterialShaderBinding::loadTextures() {
             _textures.emplace_back(_material.getAmbientOcclusion().getTexture());
         }
         else if (sampler == "ar_depth_texture") {
-            // AR depth texture is stored in the ambient occlusion slot for camera background
-            _textures.emplace_back(_material.getAmbientOcclusion().getTexture());
+            // For camera background materials, depth texture is stored in ambient occlusion slot.
+            // For 3D object materials, we use the global AR depth texture from the render context.
+            std::shared_ptr<VROTexture> aoTexture = _material.getAmbientOcclusion().getTexture();
+            if (aoTexture) {
+                _textures.emplace_back(aoTexture);
+            } else {
+                _textures.emplace_back(VROGlobalTextureType::ARDepthMap);
+            }
+        }
+        else if (sampler == "ar_occlusion_depth_texture") {
+            // For 3D object occlusion, always use the global AR depth texture.
+            // This avoids conflict with AO maps on the material.
+            _textures.emplace_back(VROGlobalTextureType::ARDepthMap);
         }
         else if (sampler == "emissive_texture") {
             _textures.emplace_back(_material.getEmission().getTexture());
@@ -149,6 +169,10 @@ void VROMaterialShaderBinding::loadTextures() {
         }
         else if (sampler == "brdf_map") {
             _textures.emplace_back(VROGlobalTextureType::BrdfMap);
+        }
+        else {
+            // Unhandled sampler - this will cause texture binding mismatch!
+            pwarn("loadTextures: Unhandled sampler '%s' - texture binding will be incorrect!", sampler.c_str());
         }
     }
 }
@@ -229,5 +253,25 @@ void VROMaterialShaderBinding::bindGeometryUniforms(float opacity, const VROGeom
     }
     for (auto binder_uniform : _modifierUniformBinders) {
         binder_uniform.first->setForMaterial(binder_uniform.second, &geometry, &material);
+    }
+}
+
+void VROMaterialShaderBinding::bindOcclusionUniforms(const VRORenderContext &context) {
+    // Only bind if occlusion is enabled
+    if (!context.isOcclusionEnabled()) {
+        return;
+    }
+
+    if (_arCameraPositionUniform != nullptr) {
+        VROVector3f cameraPos = context.getCamera().getPosition();
+        _arCameraPositionUniform->setVec3(cameraPos);
+    }
+    if (_arViewportSizeUniform != nullptr) {
+        VROViewport viewport = context.getViewport();
+        _arViewportSizeUniform->setVec3({(float)viewport.getWidth(), (float)viewport.getHeight(), 0.0f});
+    }
+    if (_arDepthTextureTransformUniform != nullptr) {
+        VROMatrix4f depthTransform = context.getDepthTextureTransform();
+        _arDepthTextureTransformUniform->setMat4(depthTransform);
     }
 }

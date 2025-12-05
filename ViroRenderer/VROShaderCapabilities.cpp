@@ -173,7 +173,8 @@ VROLightingShaderCapabilities VROShaderCapabilities::deriveLightingCapabilitiesK
     cap.pbr = context.isPBREnabled();
     cap.diffuseIrradiance = false;
     cap.specularIrradiance = false;
-    
+    cap.arOcclusion = context.isOcclusionEnabled();
+
     if (context.getShadowMap() != nullptr) {
         for (const std::shared_ptr<VROLight> &light : lights) {
             if (light->getCastsShadow()) {

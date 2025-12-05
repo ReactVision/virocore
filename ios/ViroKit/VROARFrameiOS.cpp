@@ -267,6 +267,24 @@ std::shared_ptr<VROTexture> VROARFrameiOS::getDepthTexture() {
             std::shared_ptr<VROData> depthData = std::make_shared<VROData>(baseAddress, dataSize, VRODataOwnership::Copy);
             std::vector<std::shared_ptr<VROData>> dataVec = { depthData };
 
+            // DEBUG: Log some sample depth values from the texture
+            float *depthValues = (float *)baseAddress;
+            size_t centerIdx = (height / 2) * width + (width / 2);
+            size_t topLeftIdx = 0;
+            size_t bottomRightIdx = width * height - 1;
+            static int logCounter = 0;
+            if (logCounter++ % 60 == 0) {  // Log once per second (assuming 60fps)
+                float z = depthValues[centerIdx];
+                float n = 0.01f;  // kZNear
+                float f = 50.0f;  // kZFar
+                float depthNDC = 1.0f;
+                if (z > 0.0f && z < f) {
+                    depthNDC = (f * (z - n)) / (z * (f - n));
+                }
+                pinfo("Depth texture: %zux%zu, center z=%.3fm -> NDC=%.6f",
+                      width, height, z, depthNDC);
+            }
+
             _depthTexture = std::make_shared<VROTexture>(VROTextureType::Texture2D,
                                                           VROTextureFormat::R32F,
                                                           VROTextureInternalFormat::R32F,
@@ -325,16 +343,33 @@ std::shared_ptr<VROTexture> VROARFrameiOS::getDepthConfidenceTexture() {
 
 VROMatrix4f VROARFrameiOS::getDepthTextureTransform() const {
     /*
-     The depth texture from ARKit's sceneDepth is provided in the same coordinate space
-     as the camera image. Since we already apply the camera's displayTransform to
-     _surface.diffuse_texcoord in the vertex shader (via setTexcoordTransform), the
-     depth texture should use the same transformed coordinates.
+     For 3D objects, we calculate screen-space UV from gl_FragCoord.xy / viewport_size.
+     This gives us normalized screen coordinates (0,0 at bottom-left, 1,1 at top-right).
 
-     ARKit's depth map is aligned with the camera image after applying the display transform,
-     so we return identity here - the depth UVs match the already-transformed camera UVs.
+     The depth texture from ARKit's sceneDepth is in camera sensor space, which may be
+     rotated/flipped relative to the screen based on device orientation.
+
+     ARKit's displayTransformForOrientation maps FROM camera sensor coordinates TO screen
+     display coordinates. We need the inverse: mapping FROM screen UV TO depth texture UV.
+
+     This is the same transform we use for the camera background texture coordinates
+     (getTexcoordTransform), since both the camera image and depth texture are in the
+     same sensor coordinate space.
      */
-    VROMatrix4f identity;
-    return identity;
+    UIInterfaceOrientation orientation = VROConvert::toDeviceOrientation(_orientation);
+    CGSize viewportSize = CGSizeMake(_viewport.getWidth(), _viewport.getHeight());
+
+    // Get the inverse of displayTransform to map from screen coordinates to texture coordinates
+    CGAffineTransform transform = CGAffineTransformInvert([_frame displayTransformForOrientation:orientation viewportSize:viewportSize]);
+
+    VROMatrix4f matrix;
+    matrix[0] = transform.a;
+    matrix[1] = transform.b;
+    matrix[4] = transform.c;
+    matrix[5] = transform.d;
+    matrix[12] = transform.tx;
+    matrix[13] = transform.ty;
+    return matrix;
 }
 
 #endif
