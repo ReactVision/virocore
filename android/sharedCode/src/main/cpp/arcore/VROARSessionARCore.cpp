@@ -1402,20 +1402,21 @@ void VROARSessionARCore::createGeospatialAnchor(double latitude, double longitud
     
     if (nativeAnchor) {
         std::shared_ptr<arcore::Anchor> anchorShared(nativeAnchor);
-        
-        // Create VROGeospatialAnchor
+        std::string key = VROStringUtil::toString64(anchorShared->getId());
+
+        // Create VROGeospatialAnchor with the same ID as the native anchor
         std::shared_ptr<VROGeospatialAnchor> geoAnchor = std::make_shared<VROGeospatialAnchor>(
             VROGeospatialAnchorType::WGS84, latitude, longitude, altitude, quaternion);
-            
+        geoAnchor->setId(key);
+
         // Create VROARAnchorARCore
         // We use the geoAnchor as the "trackable" so we can retrieve it in processUpdatedAnchors
-        std::string key = VROStringUtil::toString64(anchorShared->getId());
         std::shared_ptr<VROARAnchorARCore> vAnchor = std::make_shared<VROARAnchorARCore>(
             key, anchorShared, geoAnchor, shared_from_this());
-            
+
         // Add to maps
         addAnchor(vAnchor);
-        
+
         // Invoke callback
         if (onSuccess) onSuccess(geoAnchor);
     } else {
@@ -1442,21 +1443,24 @@ void VROARSessionARCore::createTerrainAnchor(double latitude, double longitude, 
                     delete nativeAnchor;
                     return;
                 }
-                
-                // Create VROGeospatialAnchor
-                std::shared_ptr<VROGeospatialAnchor> geoAnchor = std::make_shared<VROGeospatialAnchor>(
-                    VROGeospatialAnchorType::Terrain, latitude, longitude, altitudeAboveTerrain, quaternion);
-                geoAnchor->setResolveState(VROGeospatialAnchorResolveState::Success);
-                
-                // Create VROARAnchorARCore
+
+                // Create VROARAnchorARCore wrapper
                 std::shared_ptr<arcore::Anchor> anchorShared(nativeAnchor);
                 std::string key = VROStringUtil::toString64(anchorShared->getId());
+
+                // Create VROGeospatialAnchor with the same ID as the native anchor
+                std::shared_ptr<VROGeospatialAnchor> geoAnchor = std::make_shared<VROGeospatialAnchor>(
+                    VROGeospatialAnchorType::Terrain, latitude, longitude, altitudeAboveTerrain, quaternion);
+                geoAnchor->setId(key);
+                geoAnchor->setResolveState(VROGeospatialAnchorResolveState::Success);
+
+                // Create VROARAnchorARCore
                 std::shared_ptr<VROARAnchorARCore> vAnchor = std::make_shared<VROARAnchorARCore>(
                     key, anchorShared, geoAnchor, session);
-                
+
                 // Add to maps
                 session->addAnchor(vAnchor);
-                
+
                 if (onSuccess) onSuccess(geoAnchor);
             });
         },
@@ -1487,21 +1491,24 @@ void VROARSessionARCore::createRooftopAnchor(double latitude, double longitude, 
                     delete nativeAnchor;
                     return;
                 }
-                
-                // Create VROGeospatialAnchor
-                std::shared_ptr<VROGeospatialAnchor> geoAnchor = std::make_shared<VROGeospatialAnchor>(
-                    VROGeospatialAnchorType::Rooftop, latitude, longitude, altitudeAboveRooftop, quaternion);
-                geoAnchor->setResolveState(VROGeospatialAnchorResolveState::Success);
-                
-                // Create VROARAnchorARCore
+
+                // Create VROARAnchorARCore wrapper
                 std::shared_ptr<arcore::Anchor> anchorShared(nativeAnchor);
                 std::string key = VROStringUtil::toString64(anchorShared->getId());
+
+                // Create VROGeospatialAnchor with the same ID as the native anchor
+                std::shared_ptr<VROGeospatialAnchor> geoAnchor = std::make_shared<VROGeospatialAnchor>(
+                    VROGeospatialAnchorType::Rooftop, latitude, longitude, altitudeAboveRooftop, quaternion);
+                geoAnchor->setId(key);
+                geoAnchor->setResolveState(VROGeospatialAnchorResolveState::Success);
+
+                // Create VROARAnchorARCore
                 std::shared_ptr<VROARAnchorARCore> vAnchor = std::make_shared<VROARAnchorARCore>(
                     key, anchorShared, geoAnchor, session);
-                
+
                 // Add to maps
                 session->addAnchor(vAnchor);
-                
+
                 if (onSuccess) onSuccess(geoAnchor);
             });
         },
