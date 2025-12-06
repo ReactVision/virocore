@@ -57,6 +57,40 @@ namespace arcore {
         delete data;
     }
 
+    struct VpsAvailabilityCallbackData {
+        std::function<void(VPSAvailability)> callback;
+    };
+
+    void vpsAvailabilityCallback(void *context, ArVpsAvailability availability) {
+        VpsAvailabilityCallbackData *data = (VpsAvailabilityCallbackData *)context;
+        VPSAvailability result;
+        switch (availability) {
+            case AR_VPS_AVAILABILITY_AVAILABLE:
+                result = VPSAvailability::Available;
+                break;
+            case AR_VPS_AVAILABILITY_UNAVAILABLE:
+                result = VPSAvailability::Unavailable;
+                break;
+            case AR_VPS_AVAILABILITY_ERROR_NETWORK_CONNECTION:
+                result = VPSAvailability::ErrorNetwork;
+                break;
+            case AR_VPS_AVAILABILITY_ERROR_RESOURCE_EXHAUSTED:
+                result = VPSAvailability::ErrorResourceExhausted;
+                break;
+            case AR_VPS_AVAILABILITY_ERROR_INTERNAL:
+                result = VPSAvailability::ErrorInternal;
+                break;
+            case AR_VPS_AVAILABILITY_UNKNOWN:
+            default:
+                result = VPSAvailability::Unknown;
+                break;
+        }
+        if (data->callback) {
+            data->callback(result);
+        }
+        delete data;
+    }
+
 #pragma mark - Conversion
 
     AnchorAcquireStatus convertAnchorStatus(ArStatus status) {
@@ -1160,6 +1194,31 @@ namespace arcore {
         if (status != AR_SUCCESS) {
             delete data;
             onFailure("Failed to start rooftop anchor resolution: " + std::to_string(status));
+        }
+        if (future) {
+            ArFuture_release(ArAsFuture(future));
+        }
+    }
+
+    void SessionNative::checkVpsAvailability(double latitude, double longitude,
+                                             std::function<void(VPSAvailability)> callback) {
+        if (!_session) {
+            if (callback) {
+                callback(VPSAvailability::Unknown);
+            }
+            return;
+        }
+
+        VpsAvailabilityCallbackData *data = new VpsAvailabilityCallbackData{callback};
+        ArVpsAvailabilityFuture *future = nullptr;
+        ArStatus status = ArSession_checkVpsAvailabilityAsync(_session, latitude, longitude, data, vpsAvailabilityCallback, &future);
+
+        if (status != AR_SUCCESS) {
+            delete data;
+            __android_log_print(ANDROID_LOG_WARN, "ViroARCore", "Failed to check VPS availability: %d", status);
+            if (callback) {
+                callback(VPSAvailability::Unknown);
+            }
         }
         if (future) {
             ArFuture_release(ArAsFuture(future));

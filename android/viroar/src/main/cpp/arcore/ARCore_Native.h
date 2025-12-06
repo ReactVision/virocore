@@ -250,6 +250,8 @@ namespace arcore {
         virtual void createRooftopAnchor(double latitude, double longitude, double altitude, float qx, float qy, float qz, float qw,
                                          std::function<void(Anchor *anchor)> onSuccess,
                                          std::function<void(std::string error)> onFailure);
+        virtual void checkVpsAvailability(double latitude, double longitude,
+                                          std::function<void(VPSAvailability)> callback);
         virtual AugmentedImageDatabase *createAugmentedImageDatabase();
         virtual AugmentedImageDatabase *createAugmentedImageDatabase(uint8_t* raw_buffer, int64_t size);
         virtual Pose *createPose();

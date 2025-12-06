@@ -1356,7 +1356,34 @@ VROGeospatialPose VROARSessionARCore::getCameraGeospatialPose() const {
 
 void VROARSessionARCore::checkVPSAvailability(double latitude, double longitude,
                                               std::function<void(VROVPSAvailability)> callback) {
-    if (callback) callback(VROVPSAvailability::Unknown);
+    if (!_session) {
+        if (callback) callback(VROVPSAvailability::Unknown);
+        return;
+    }
+
+    _session->checkVpsAvailability(latitude, longitude, [callback](arcore::VPSAvailability availability) {
+        VROVPSAvailability result;
+        switch (availability) {
+            case arcore::VPSAvailability::Available:
+                result = VROVPSAvailability::Available;
+                break;
+            case arcore::VPSAvailability::Unavailable:
+                result = VROVPSAvailability::Unavailable;
+                break;
+            case arcore::VPSAvailability::ErrorNetwork:
+                result = VROVPSAvailability::ErrorNetwork;
+                break;
+            case arcore::VPSAvailability::ErrorResourceExhausted:
+                result = VROVPSAvailability::ErrorResourceExhausted;
+                break;
+            case arcore::VPSAvailability::ErrorInternal:
+            case arcore::VPSAvailability::Unknown:
+            default:
+                result = VROVPSAvailability::Unknown;
+                break;
+        }
+        if (callback) callback(result);
+    });
 }
 
 void VROARSessionARCore::createGeospatialAnchor(double latitude, double longitude, double altitude,

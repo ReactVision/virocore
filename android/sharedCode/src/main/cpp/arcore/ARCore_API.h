@@ -165,6 +165,15 @@ namespace arcore {
         Enabled
     };
 
+    enum class VPSAvailability {
+        Unknown,
+        Available,
+        Unavailable,
+        ErrorInternal,
+        ErrorNetwork,
+        ErrorResourceExhausted
+    };
+
     struct GeospatialPoseData {
         double latitude;
         double longitude;
@@ -369,6 +378,8 @@ namespace arcore {
         virtual void createRooftopAnchor(double latitude, double longitude, double altitude, float qx, float qy, float qz, float qw,
                                          std::function<void(Anchor *anchor)> onSuccess,
                                          std::function<void(std::string error)> onFailure) = 0;
+        virtual void checkVpsAvailability(double latitude, double longitude,
+                                          std::function<void(VPSAvailability)> callback) = 0;
 
         virtual AugmentedImageDatabase *createAugmentedImageDatabase() = 0;
         virtual AugmentedImageDatabase *createAugmentedImageDatabase(uint8_t* raw_buffer, int64_t size) = 0;
