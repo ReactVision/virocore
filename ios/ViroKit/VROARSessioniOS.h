@@ -131,6 +131,7 @@ public:
     // Scene Semantics API
     bool isSemanticModeSupported() const override;
     void setSemanticModeEnabled(bool enabled) override;
+    float getSemanticLabelFraction(VROSemanticLabel label) const;
 
     /*
      Internal methods.

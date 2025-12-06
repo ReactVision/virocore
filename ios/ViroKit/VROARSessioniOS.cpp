@@ -1255,8 +1255,18 @@ void VROARSessioniOS::removeGeospatialAnchor(std::shared_ptr<VROGeospatialAnchor
 #pragma mark - Scene Semantics API
 
 bool VROARSessioniOS::isSemanticModeSupported() const {
-  // Scene Semantics on iOS requires ARCore Geospatial SDK with Semantics extension
-  // Check if the cloud anchor provider with semantics support is available
+  // Scene Semantics on iOS requires ARCore SDK with Semantics extension
+  // Initialize the provider if needed to check support
+  if (_cloudAnchorProviderARCore == nil) {
+    // Try to create provider temporarily to check support
+    // Note: This is a const method, so we need a mutable cast
+    VROARSessioniOS *mutableSelf = const_cast<VROARSessioniOS *>(this);
+    mutableSelf->_cloudAnchorProviderARCore = [[VROCloudAnchorProviderARCore alloc] init];
+    if (mutableSelf->_cloudAnchorProviderARCore) {
+      pinfo("ARCore provider initialized for Scene Semantics support check");
+    }
+  }
+
   if (_cloudAnchorProviderARCore != nil) {
     return [_cloudAnchorProviderARCore isSemanticModeSupported];
   }
@@ -1265,6 +1275,19 @@ bool VROARSessioniOS::isSemanticModeSupported() const {
 
 void VROARSessioniOS::setSemanticModeEnabled(bool enabled) {
   _semanticModeEnabled = enabled;
+
+  // Initialize ARCore provider if needed for semantics
+  if (_cloudAnchorProviderARCore == nil && enabled) {
+    _cloudAnchorProviderARCore = [[VROCloudAnchorProviderARCore alloc] init];
+    if (_cloudAnchorProviderARCore) {
+      pinfo("ARCore provider initialized for Scene Semantics");
+    } else {
+      pwarn("⚠️ Failed to initialize ARCore provider for Scene Semantics");
+      pwarn("⚠️ Make sure GARAPIKey is set in Info.plist");
+      _semanticModeEnabled = false;
+      return;
+    }
+  }
 
   if (_cloudAnchorProviderARCore != nil) {
     // Check if semantic mode is supported before enabling
@@ -1277,9 +1300,16 @@ void VROARSessioniOS::setSemanticModeEnabled(bool enabled) {
     [_cloudAnchorProviderARCore setSemanticModeEnabled:enabled];
     pinfo("Scene Semantics mode set to %s", enabled ? "ENABLED" : "DISABLED");
   } else if (enabled) {
-    pwarn("⚠️ Scene Semantics requires ARCore Geospatial provider to be configured");
+    pwarn("⚠️ Scene Semantics requires ARCore SDK. Add ARCore/Semantics pod to your Podfile.");
     _semanticModeEnabled = false;
   }
+}
+
+float VROARSessioniOS::getSemanticLabelFraction(VROSemanticLabel label) const {
+  if (_cloudAnchorProviderARCore != nil) {
+    return [_cloudAnchorProviderARCore getSemanticLabelFraction:(NSInteger)label];
+  }
+  return 0.0f;
 }
 
 #pragma mark - VROARKitSessionDelegate

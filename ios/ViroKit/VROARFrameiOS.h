@@ -85,6 +85,9 @@ public:
      */
     VROMatrix4f getDepthTextureTransform() const;
 
+    // Scene Semantics support (requires ARCore SDK with Semantics extension)
+    float getSemanticLabelFraction(VROSemanticLabel label) override;
+
 private:
 
     ARFrame *_frame;

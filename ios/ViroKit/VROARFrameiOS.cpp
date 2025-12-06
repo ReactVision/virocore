@@ -364,4 +364,14 @@ VROMatrix4f VROARFrameiOS::getDepthTextureTransform() const {
     return matrix;
 }
 
+float VROARFrameiOS::getSemanticLabelFraction(VROSemanticLabel label) {
+    // Scene Semantics on iOS is provided through the ARCore SDK
+    // Delegate to the session which has access to the ARCore provider
+    std::shared_ptr<VROARSessioniOS> session = _session.lock();
+    if (session) {
+        return session->getSemanticLabelFraction(label);
+    }
+    return 0.0f;
+}
+
 #endif
