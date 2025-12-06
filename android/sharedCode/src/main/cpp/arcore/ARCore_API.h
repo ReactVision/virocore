@@ -29,6 +29,9 @@
 
 #include <stdint.h>
 #include <arcore_c_api.h>
+#include <functional>
+#include <string>
+#include <memory>
 
 typedef struct AImage AImage;
 
@@ -94,7 +97,9 @@ namespace arcore {
 
     enum class TrackingState {
         NotTracking,
-        Tracking
+        Tracking,
+        Paused,
+        Stopped
     };
 
     enum class TrackingFailureReason {
@@ -153,6 +158,22 @@ namespace arcore {
     enum class SemanticMode {
         Disabled,
         Enabled
+    };
+
+    enum class GeospatialMode {
+        Disabled,
+        Enabled
+    };
+
+    struct GeospatialPoseData {
+        double latitude;
+        double longitude;
+        double altitude;
+        double heading;
+        double horizontalAccuracy;
+        double verticalAccuracy;
+        double orientationYawAccuracy;
+        float quaternion[4];
     };
 
     class Config {
@@ -333,10 +354,21 @@ namespace arcore {
 
         virtual Config *createConfig(LightingMode lightingMode, PlaneFindingMode planeFindingMode,
                                      UpdateMode updateMode, CloudAnchorMode cloudAnchorMode,
-                                     FocusMode focusMode, DepthMode depthMode, SemanticMode semanticMode) = 0;
+                                     FocusMode focusMode, DepthMode depthMode, SemanticMode semanticMode,
+                                     GeospatialMode geospatialMode) = 0;
 
         virtual bool isDepthModeSupported(DepthMode depthMode) = 0;
         virtual bool isSemanticModeSupported(SemanticMode semanticMode) = 0;
+        virtual bool isGeospatialModeSupported(GeospatialMode mode) = 0;
+        virtual TrackingState getEarthTrackingState() = 0;
+        virtual bool getCameraGeospatialPose(GeospatialPoseData *outPose) = 0;
+        virtual Anchor *createGeospatialAnchor(double latitude, double longitude, double altitude, float qx, float qy, float qz, float qw) = 0;
+        virtual void createTerrainAnchor(double latitude, double longitude, double altitude, float qx, float qy, float qz, float qw,
+                                         std::function<void(Anchor *anchor)> onSuccess,
+                                         std::function<void(std::string error)> onFailure) = 0;
+        virtual void createRooftopAnchor(double latitude, double longitude, double altitude, float qx, float qy, float qz, float qw,
+                                         std::function<void(Anchor *anchor)> onSuccess,
+                                         std::function<void(std::string error)> onFailure) = 0;
 
         virtual AugmentedImageDatabase *createAugmentedImageDatabase() = 0;
         virtual AugmentedImageDatabase *createAugmentedImageDatabase(uint8_t* raw_buffer, int64_t size) = 0;
@@ -352,6 +384,7 @@ namespace arcore {
         virtual Anchor *hostAndAcquireNewCloudAnchor(const Anchor *anchor, AnchorAcquireStatus *status) = 0;
         virtual Anchor *hostAndAcquireNewCloudAnchorWithTtl(const Anchor *anchor, int ttlDays, AnchorAcquireStatus *status) = 0;
         virtual Anchor *resolveAndAcquireNewCloudAnchor(const char *anchorId, AnchorAcquireStatus *status) = 0;
+        virtual ArSession *getRawSession() = 0;
     };
 }
 

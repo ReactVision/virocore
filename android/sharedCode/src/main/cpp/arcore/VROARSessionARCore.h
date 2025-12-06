@@ -67,7 +67,8 @@ public:
      */
     bool configure(arcore::LightingMode lightingMode, arcore::PlaneFindingMode planeFindingMode,
                    arcore::UpdateMode updateMode, arcore::CloudAnchorMode cloudAnchorMode,
-                   arcore::DepthMode depthMode, arcore::SemanticMode semanticMode);
+                   arcore::DepthMode depthMode, arcore::SemanticMode semanticMode,
+                   arcore::GeospatialMode geospatialMode);
     
     void setScene(std::shared_ptr<VROScene> scene);
     void setDelegate(std::shared_ptr<VROARSessionDelegate> delegate);
@@ -132,6 +133,29 @@ public:
     void setOcclusionMode(VROOcclusionMode mode) override;
     bool isOcclusionSupported() const override;
     bool isOcclusionModeSupported(VROOcclusionMode mode) const override;
+
+    /*
+     Geospatial API.
+     */
+    bool isGeospatialModeSupported() const override;
+    void setGeospatialModeEnabled(bool enabled) override;
+    VROEarthTrackingState getEarthTrackingState() const override;
+    VROGeospatialPose getCameraGeospatialPose() const override;
+    void checkVPSAvailability(double latitude, double longitude,
+                              std::function<void(VROVPSAvailability)> callback) override;
+    void createGeospatialAnchor(double latitude, double longitude, double altitude,
+                                VROQuaternion quaternion,
+                                std::function<void(std::shared_ptr<VROGeospatialAnchor>)> onSuccess,
+                                std::function<void(std::string error)> onFailure) override;
+    void createTerrainAnchor(double latitude, double longitude, double altitudeAboveTerrain,
+                             VROQuaternion quaternion,
+                             std::function<void(std::shared_ptr<VROGeospatialAnchor>)> onSuccess,
+                             std::function<void(std::string error)> onFailure) override;
+    void createRooftopAnchor(double latitude, double longitude, double altitudeAboveRooftop,
+                             VROQuaternion quaternion,
+                             std::function<void(std::shared_ptr<VROGeospatialAnchor>)> onSuccess,
+                             std::function<void(std::string error)> onFailure) override;
+    void removeGeospatialAnchor(std::shared_ptr<VROGeospatialAnchor> anchor) override;
 
 #pragma mark - [Internal] Configuration
 
@@ -210,6 +234,7 @@ private:
     arcore::FocusMode _focusMode;
     arcore::DepthMode _depthMode;
     arcore::SemanticMode _semanticMode;
+    arcore::GeospatialMode _geospatialMode;
 
     bool updateARCoreConfig();
 

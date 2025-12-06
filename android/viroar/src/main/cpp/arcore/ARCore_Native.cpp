@@ -21,6 +21,42 @@
 
 namespace arcore {
 
+    struct TerrainAnchorCallbackData {
+        std::function<void(Anchor *anchor)> onSuccess;
+        std::function<void(std::string error)> onFailure;
+        ArSession *session;
+    };
+
+    void terrainAnchorCallback(void *context, ArAnchor *anchor, ArTerrainAnchorState state) {
+        TerrainAnchorCallbackData *data = (TerrainAnchorCallbackData *)context;
+        if (state == AR_TERRAIN_ANCHOR_STATE_SUCCESS) {
+            Anchor *nativeAnchor = new AnchorNative(anchor, data->session);
+            data->onSuccess(nativeAnchor);
+        } else {
+            data->onFailure("Failed to resolve terrain anchor: " + std::to_string(state));
+            if (anchor) ArAnchor_release(anchor);
+        }
+        delete data;
+    }
+
+    struct RooftopAnchorCallbackData {
+        std::function<void(Anchor *anchor)> onSuccess;
+        std::function<void(std::string error)> onFailure;
+        ArSession *session;
+    };
+
+    void rooftopAnchorCallback(void *context, ArAnchor *anchor, ArRooftopAnchorState state) {
+        RooftopAnchorCallbackData *data = (RooftopAnchorCallbackData *)context;
+        if (state == AR_ROOFTOP_ANCHOR_STATE_SUCCESS) {
+            Anchor *nativeAnchor = new AnchorNative(anchor, data->session);
+            data->onSuccess(nativeAnchor);
+        } else {
+            data->onFailure("Failed to resolve rooftop anchor: " + std::to_string(state));
+            if (anchor) ArAnchor_release(anchor);
+        }
+        delete data;
+    }
+
 #pragma mark - Conversion
 
     AnchorAcquireStatus convertAnchorStatus(ArStatus status) {
@@ -821,7 +857,7 @@ namespace arcore {
     Config *
     SessionNative::createConfig(LightingMode lightingMode, PlaneFindingMode planeFindingMode,
                                 UpdateMode updateMode, CloudAnchorMode cloudAnchorMode, FocusMode focusMode,
-                                DepthMode depthMode, SemanticMode semanticMode) {
+                                DepthMode depthMode, SemanticMode semanticMode, GeospatialMode geospatialMode) {
         ArConfig *config;
         ArConfig_create(_session, &config);
 
@@ -939,6 +975,20 @@ namespace arcore {
         }
         ArConfig_setSemanticMode(_session, config, arSemanticMode);
 
+        // Set geospatial mode (ARCore 1.31+)
+        ArGeospatialMode arGeospatialMode;
+        switch (geospatialMode) {
+            case GeospatialMode::Disabled:
+                arGeospatialMode = AR_GEOSPATIAL_MODE_DISABLED;
+                __android_log_print(ANDROID_LOG_INFO, "ViroARCore", "Setting ARCore geospatial mode: DISABLED");
+                break;
+            case GeospatialMode::Enabled:
+                arGeospatialMode = AR_GEOSPATIAL_MODE_ENABLED;
+                __android_log_print(ANDROID_LOG_INFO, "ViroARCore", "Setting ARCore geospatial mode: ENABLED");
+                break;
+        }
+        ArConfig_setGeospatialMode(_session, config, arGeospatialMode);
+
         return new ConfigNative(config);
     }
 
@@ -985,6 +1035,135 @@ namespace arcore {
                           isSupported ? "YES" : "NO");
 
         return isSupported != 0;
+    }
+
+    bool SessionNative::isGeospatialModeSupported(GeospatialMode mode) {
+        int supported = 0;
+        ArGeospatialMode arMode = (mode == GeospatialMode::Enabled) ? AR_GEOSPATIAL_MODE_ENABLED : AR_GEOSPATIAL_MODE_DISABLED;
+        ArSession_isGeospatialModeSupported(_session, arMode, &supported);
+        return supported != 0;
+    }
+
+    TrackingState SessionNative::getEarthTrackingState() {
+        ArEarth *earth = nullptr;
+        ArSession_acquireEarth(_session, &earth);
+        if (earth == nullptr) {
+            return TrackingState::Stopped;
+        }
+
+        ArTrackingState trackingState;
+        ArTrackable_getTrackingState(_session, (ArTrackable *)earth, &trackingState);
+        ArTrackable_release((ArTrackable *)earth);
+
+        switch (trackingState) {
+            case AR_TRACKING_STATE_TRACKING:
+                return TrackingState::Tracking;
+            case AR_TRACKING_STATE_PAUSED:
+                return TrackingState::Paused;
+            case AR_TRACKING_STATE_STOPPED:
+            default:
+                return TrackingState::Stopped;
+        }
+    }
+
+    bool SessionNative::getCameraGeospatialPose(GeospatialPoseData *outPose) {
+        ArEarth *earth = nullptr;
+        ArSession_acquireEarth(_session, &earth);
+        if (earth == nullptr) {
+            return false;
+        }
+
+        ArTrackingState trackingState;
+        ArTrackable_getTrackingState(_session, (ArTrackable *)earth, &trackingState);
+        if (trackingState != AR_TRACKING_STATE_TRACKING) {
+            ArTrackable_release((ArTrackable *)earth);
+            return false;
+        }
+
+        ArGeospatialPose *pose = nullptr;
+        ArGeospatialPose_create(_session, &pose);
+        
+        ArEarth_getCameraGeospatialPose(_session, earth, pose);
+        
+        ArGeospatialPose_getLatitudeLongitude(_session, pose, &outPose->latitude, &outPose->longitude);
+        ArGeospatialPose_getAltitude(_session, pose, &outPose->altitude);
+        ArGeospatialPose_getEastUpSouthQuaternion(_session, pose, outPose->quaternion);
+        ArGeospatialPose_getHeading(_session, pose, &outPose->heading);
+        ArGeospatialPose_getHorizontalAccuracy(_session, pose, &outPose->horizontalAccuracy);
+        ArGeospatialPose_getVerticalAccuracy(_session, pose, &outPose->verticalAccuracy);
+        ArGeospatialPose_getOrientationYawAccuracy(_session, pose, &outPose->orientationYawAccuracy);
+        
+        ArGeospatialPose_destroy(pose);
+        ArTrackable_release((ArTrackable *)earth);
+        return true;
+    }
+
+    Anchor *SessionNative::createGeospatialAnchor(double latitude, double longitude, double altitude, float qx, float qy, float qz, float qw) {
+        ArEarth *earth = nullptr;
+        ArSession_acquireEarth(_session, &earth);
+        if (earth == nullptr) return nullptr;
+
+        ArAnchor *arAnchor = nullptr;
+        float quaternion[4] = {qx, qy, qz, qw};
+        ArStatus status = ArEarth_acquireNewAnchor(_session, earth, latitude, longitude, altitude, quaternion, &arAnchor);
+        ArTrackable_release((ArTrackable *)earth);
+
+        if (status != AR_SUCCESS) return nullptr;
+        return new AnchorNative(arAnchor, _session);
+    }
+
+    void SessionNative::createTerrainAnchor(double latitude, double longitude, double altitude, float qx, float qy, float qz, float qw,
+                                            std::function<void(Anchor *anchor)> onSuccess,
+                                            std::function<void(std::string error)> onFailure) {
+        ArEarth *earth = nullptr;
+        ArSession_acquireEarth(_session, &earth);
+        if (earth == nullptr) {
+            onFailure("Failed to acquire Earth");
+            return;
+        }
+
+        TerrainAnchorCallbackData *data = new TerrainAnchorCallbackData{onSuccess, onFailure, _session};
+        float quaternion[4] = {qx, qy, qz, qw};
+        
+        ArResolveAnchorOnTerrainFuture *future = nullptr;
+        ArStatus status = ArEarth_resolveAnchorOnTerrainAsync(_session, earth, latitude, longitude, altitude, quaternion, data, terrainAnchorCallback, &future);
+        
+        ArTrackable_release((ArTrackable *)earth);
+        
+        if (status != AR_SUCCESS) {
+            delete data;
+            onFailure("Failed to start terrain anchor resolution: " + std::to_string(status));
+        }
+        if (future) {
+            ArFuture_release(ArAsFuture(future));
+        }
+    }
+
+    void SessionNative::createRooftopAnchor(double latitude, double longitude, double altitude, float qx, float qy, float qz, float qw,
+                                            std::function<void(Anchor *anchor)> onSuccess,
+                                            std::function<void(std::string error)> onFailure) {
+        ArEarth *earth = nullptr;
+        ArSession_acquireEarth(_session, &earth);
+        if (earth == nullptr) {
+            onFailure("Failed to acquire Earth");
+            return;
+        }
+
+        RooftopAnchorCallbackData *data = new RooftopAnchorCallbackData{onSuccess, onFailure, _session};
+        float quaternion[4] = {qx, qy, qz, qw};
+        
+        ArResolveAnchorOnRooftopFuture *future = nullptr;
+        ArStatus status = ArEarth_resolveAnchorOnRooftopAsync(_session, earth, latitude, longitude, altitude, quaternion, data, rooftopAnchorCallback, &future);
+        
+        ArTrackable_release((ArTrackable *)earth);
+        
+        if (status != AR_SUCCESS) {
+            delete data;
+            onFailure("Failed to start rooftop anchor resolution: " + std::to_string(status));
+        }
+        if (future) {
+            ArFuture_release(ArAsFuture(future));
+        }
     }
 
     AugmentedImageDatabase *SessionNative::createAugmentedImageDatabase() {

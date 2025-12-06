@@ -236,9 +236,20 @@ namespace arcore {
 
         virtual Config *createConfig(LightingMode lightingMode, PlaneFindingMode planeFindingMode,
                                      UpdateMode updateMode, CloudAnchorMode cloudAnchorMode,
-                                     FocusMode focusMode, DepthMode depthMode, SemanticMode semanticMode);
+                                     FocusMode focusMode, DepthMode depthMode, SemanticMode semanticMode,
+                                     GeospatialMode geospatialMode);
         virtual bool isDepthModeSupported(DepthMode depthMode);
         virtual bool isSemanticModeSupported(SemanticMode semanticMode);
+        virtual bool isGeospatialModeSupported(GeospatialMode mode);
+        virtual TrackingState getEarthTrackingState();
+        virtual bool getCameraGeospatialPose(GeospatialPoseData *outPose);
+        virtual Anchor *createGeospatialAnchor(double latitude, double longitude, double altitude, float qx, float qy, float qz, float qw);
+        virtual void createTerrainAnchor(double latitude, double longitude, double altitude, float qx, float qy, float qz, float qw,
+                                         std::function<void(Anchor *anchor)> onSuccess,
+                                         std::function<void(std::string error)> onFailure);
+        virtual void createRooftopAnchor(double latitude, double longitude, double altitude, float qx, float qy, float qz, float qw,
+                                         std::function<void(Anchor *anchor)> onSuccess,
+                                         std::function<void(std::string error)> onFailure);
         virtual AugmentedImageDatabase *createAugmentedImageDatabase();
         virtual AugmentedImageDatabase *createAugmentedImageDatabase(uint8_t* raw_buffer, int64_t size);
         virtual Pose *createPose();
@@ -253,6 +264,7 @@ namespace arcore {
         virtual Anchor *hostAndAcquireNewCloudAnchor(const Anchor *anchor, AnchorAcquireStatus *status);
         virtual Anchor *hostAndAcquireNewCloudAnchorWithTtl(const Anchor *anchor, int ttlDays, AnchorAcquireStatus *status);
         virtual Anchor *resolveAndAcquireNewCloudAnchor(const char *anchorId, AnchorAcquireStatus *status);
+        virtual ArSession *getRawSession() { return _session; }
 
     private:
         ArSession *_session;

@@ -96,10 +96,10 @@ public:
     
     const std::vector<VROTextureReference> &getTextures() const;
     
-    void updateTextures();
+    void updateTextures() override;
     void updateSortKey(VROSortKey &key, const std::vector<std::shared_ptr<VROLight>> &lights,
                        const VRORenderContext &context,
-                       std::shared_ptr<VRODriver> driver);
+                       std::shared_ptr<VRODriver> driver) override;
 
 private:
 

@@ -28,6 +28,7 @@
 #include "ARDeclarativePlane_JNI.h"
 #include "ARDeclarativeNode_JNI.h"
 #include "VROARImperativeSession.h"
+#include "VROGeospatialAnchor.h"
 #include "Node_JNI.h"
 #include "ViroUtils_JNI.h"
 #include "ARNode_JNI.h"
@@ -106,6 +107,258 @@ VRO_METHOD(void, nativeDisplayPointCloud)(VRO_ARGS
             arScene->displayPointCloud(displayPointCloud);
         }
     });
+}
+
+VRO_METHOD(jboolean, nativeIsGeospatialModeSupported)(VRO_ARGS
+                                                      VRO_REF(VROARSceneController) arSceneControllerPtr) {
+    std::shared_ptr<VROARScene> arScene = std::dynamic_pointer_cast<VROARScene>(VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
+    std::shared_ptr<VROARSession> arSession = arScene->getARSession();
+    if (arSession) {
+        return arSession->isGeospatialModeSupported();
+    }
+    return false;
+}
+
+VRO_METHOD(void, nativeSetGeospatialModeEnabled)(VRO_ARGS
+                                                 VRO_REF(VROARSceneController) arSceneControllerPtr,
+                                                 jboolean enabled) {
+    std::shared_ptr<VROARScene> arScene = std::dynamic_pointer_cast<VROARScene>(VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
+    std::shared_ptr<VROARSession> arSession = arScene->getARSession();
+    if (arSession) {
+        arSession->setGeospatialModeEnabled(enabled);
+    }
+}
+
+VRO_METHOD(jint, nativeGetEarthTrackingState)(VRO_ARGS
+                                              VRO_REF(VROARSceneController) arSceneControllerPtr) {
+    std::shared_ptr<VROARScene> arScene = std::dynamic_pointer_cast<VROARScene>(VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
+    std::shared_ptr<VROARSession> arSession = arScene->getARSession();
+    if (arSession) {
+        return (jint)arSession->getEarthTrackingState();
+    }
+    return (jint)VROEarthTrackingState::Stopped;
+}
+
+VRO_METHOD(void, nativeGetCameraGeospatialPose)(VRO_ARGS
+                                                VRO_REF(VROARSceneController) arSceneControllerPtr) {
+    std::shared_ptr<VROARScene> arScene = std::dynamic_pointer_cast<VROARScene>(VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
+    std::shared_ptr<VROARSession> arSession = arScene->getARSession();
+
+    if (arSession) {
+        VROGeospatialPose pose = arSession->getCameraGeospatialPose();
+        VROPlatformCallHostFunction(obj, "onGeospatialPoseSuccess", "(DDDDFFFFDDDD)V",
+                                    pose.latitude, pose.longitude, pose.altitude, pose.heading,
+                                    (float)pose.quaternion.X, (float)pose.quaternion.Y, (float)pose.quaternion.Z, (float)pose.quaternion.W,
+                                    pose.horizontalAccuracy, pose.verticalAccuracy, 0.0, pose.orientationYawAccuracy);
+    } else {
+        VROPlatformCallHostFunction(obj, "onGeospatialPoseFailure", "(Ljava/lang/String;)V",
+                                    VRO_NEW_STRING("AR Session not initialized"));
+    }
+}
+
+VRO_METHOD(void, nativeCheckVPSAvailability)(VRO_ARGS
+                                             VRO_REF(VROARSceneController) arSceneControllerPtr,
+                                             jdouble latitude, jdouble longitude) {
+    std::shared_ptr<VROARScene> arScene = std::dynamic_pointer_cast<VROARScene>(VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
+    std::shared_ptr<VROARSession> arSession = arScene->getARSession();
+
+    if (arSession) {
+        VRO_WEAK weakObj = VRO_NEW_WEAK_GLOBAL_REF(obj);
+        arSession->checkVPSAvailability(latitude, longitude, [weakObj, latitude, longitude](VROVPSAvailability availability) {
+            VRO_ENV env = VROPlatformGetJNIEnv();
+            VRO_OBJECT localObj = VRO_NEW_LOCAL_REF(weakObj);
+            if (VRO_IS_OBJECT_NULL(localObj)) {
+                VRO_DELETE_WEAK_GLOBAL_REF(weakObj);
+                return;
+            }
+
+            VROPlatformCallHostFunction(localObj, "onVPSAvailabilityResult", "(DDI)V",
+                                        latitude, longitude, (int)availability);
+
+            VRO_DELETE_LOCAL_REF(localObj);
+            VRO_DELETE_WEAK_GLOBAL_REF(weakObj);
+        });
+    }
+}
+
+VRO_METHOD(void, nativeCreateGeospatialAnchor)(VRO_ARGS
+                                               VRO_REF(VROARSceneController) arSceneControllerPtr,
+                                               jstring key,
+                                               jdouble latitude, jdouble longitude, jdouble altitude,
+                                               jfloat qx, jfloat qy, jfloat qz, jfloat qw) {
+    std::shared_ptr<VROARScene> arScene = std::dynamic_pointer_cast<VROARScene>(VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
+    std::shared_ptr<VROARSession> arSession = arScene->getARSession();
+
+    if (arSession) {
+        std::string keyStr = VRO_STRING_STL(key);
+        VROQuaternion quat(qx, qy, qz, qw);
+
+        VRO_WEAK weakObj = VRO_NEW_WEAK_GLOBAL_REF(obj);
+
+        arSession->createGeospatialAnchor(latitude, longitude, altitude, quat,
+                                          [weakObj, keyStr](std::shared_ptr<VROGeospatialAnchor> anchor) {
+            VRO_ENV env = VROPlatformGetJNIEnv();
+            VRO_OBJECT localObj = VRO_NEW_LOCAL_REF(weakObj);
+            if (VRO_IS_OBJECT_NULL(localObj)) {
+                VRO_DELETE_WEAK_GLOBAL_REF(weakObj);
+                return;
+            }
+
+            VRO_STRING jKey = VRO_NEW_STRING(keyStr.c_str());
+            VRO_STRING jAnchorId = VRO_NEW_STRING(anchor->getId().c_str());
+            VROVector3f pos = anchor->getTransform().extractTranslation();
+
+            VROPlatformCallHostFunction(localObj, "onGeospatialAnchorSuccess", "(Ljava/lang/String;Ljava/lang/String;IDDDDFFF)V",
+                                        jKey, jAnchorId, (int)anchor->getGeospatialType(),
+                                        anchor->getLatitude(), anchor->getLongitude(), anchor->getAltitude(), anchor->getHeading(),
+                                        pos.x, pos.y, pos.z);
+
+            VRO_DELETE_LOCAL_REF(localObj);
+            VRO_DELETE_WEAK_GLOBAL_REF(weakObj);
+        },
+                                          [weakObj, keyStr](std::string error) {
+            VRO_ENV env = VROPlatformGetJNIEnv();
+            VRO_OBJECT localObj = VRO_NEW_LOCAL_REF(weakObj);
+            if (VRO_IS_OBJECT_NULL(localObj)) {
+                VRO_DELETE_WEAK_GLOBAL_REF(weakObj);
+                return;
+            }
+
+            VRO_STRING jKey = VRO_NEW_STRING(keyStr.c_str());
+            VRO_STRING jError = VRO_NEW_STRING(error.c_str());
+
+            VROPlatformCallHostFunction(localObj, "onGeospatialAnchorFailure", "(Ljava/lang/String;Ljava/lang/String;)V",
+                                        jKey, jError);
+
+            VRO_DELETE_LOCAL_REF(localObj);
+            VRO_DELETE_WEAK_GLOBAL_REF(weakObj);
+        });
+    }
+}
+
+VRO_METHOD(void, nativeCreateTerrainAnchor)(VRO_ARGS
+                                            VRO_REF(VROARSceneController) arSceneControllerPtr,
+                                            jstring key,
+                                            jdouble latitude, jdouble longitude, jdouble altitudeAboveTerrain,
+                                            jfloat qx, jfloat qy, jfloat qz, jfloat qw) {
+    std::shared_ptr<VROARScene> arScene = std::dynamic_pointer_cast<VROARScene>(VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
+    std::shared_ptr<VROARSession> arSession = arScene->getARSession();
+
+    if (arSession) {
+        std::string keyStr = VRO_STRING_STL(key);
+        VROQuaternion quat(qx, qy, qz, qw);
+
+        VRO_WEAK weakObj = VRO_NEW_WEAK_GLOBAL_REF(obj);
+
+        arSession->createTerrainAnchor(latitude, longitude, altitudeAboveTerrain, quat,
+                                          [weakObj, keyStr](std::shared_ptr<VROGeospatialAnchor> anchor) {
+            VRO_ENV env = VROPlatformGetJNIEnv();
+            VRO_OBJECT localObj = VRO_NEW_LOCAL_REF(weakObj);
+            if (VRO_IS_OBJECT_NULL(localObj)) {
+                VRO_DELETE_WEAK_GLOBAL_REF(weakObj);
+                return;
+            }
+
+            VRO_STRING jKey = VRO_NEW_STRING(keyStr.c_str());
+            VRO_STRING jAnchorId = VRO_NEW_STRING(anchor->getId().c_str());
+            VROVector3f pos = anchor->getTransform().extractTranslation();
+
+            VROPlatformCallHostFunction(localObj, "onGeospatialAnchorSuccess", "(Ljava/lang/String;Ljava/lang/String;IDDDDFFF)V",
+                                        jKey, jAnchorId, (int)anchor->getGeospatialType(),
+                                        anchor->getLatitude(), anchor->getLongitude(), anchor->getAltitude(), anchor->getHeading(),
+                                        pos.x, pos.y, pos.z);
+
+            VRO_DELETE_LOCAL_REF(localObj);
+            VRO_DELETE_WEAK_GLOBAL_REF(weakObj);
+        },
+                                          [weakObj, keyStr](std::string error) {
+            VRO_ENV env = VROPlatformGetJNIEnv();
+            VRO_OBJECT localObj = VRO_NEW_LOCAL_REF(weakObj);
+            if (VRO_IS_OBJECT_NULL(localObj)) {
+                VRO_DELETE_WEAK_GLOBAL_REF(weakObj);
+                return;
+            }
+
+            VRO_STRING jKey = VRO_NEW_STRING(keyStr.c_str());
+            VRO_STRING jError = VRO_NEW_STRING(error.c_str());
+
+            VROPlatformCallHostFunction(localObj, "onGeospatialAnchorFailure", "(Ljava/lang/String;Ljava/lang/String;)V",
+                                        jKey, jError);
+
+            VRO_DELETE_LOCAL_REF(localObj);
+            VRO_DELETE_WEAK_GLOBAL_REF(weakObj);
+        });
+    }
+}
+
+VRO_METHOD(void, nativeCreateRooftopAnchor)(VRO_ARGS
+                                            VRO_REF(VROARSceneController) arSceneControllerPtr,
+                                            jstring key,
+                                            jdouble latitude, jdouble longitude, jdouble altitudeAboveRooftop,
+                                            jfloat qx, jfloat qy, jfloat qz, jfloat qw) {
+    std::shared_ptr<VROARScene> arScene = std::dynamic_pointer_cast<VROARScene>(VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
+    std::shared_ptr<VROARSession> arSession = arScene->getARSession();
+
+    if (arSession) {
+        std::string keyStr = VRO_STRING_STL(key);
+        VROQuaternion quat(qx, qy, qz, qw);
+
+        VRO_WEAK weakObj = VRO_NEW_WEAK_GLOBAL_REF(obj);
+
+        arSession->createRooftopAnchor(latitude, longitude, altitudeAboveRooftop, quat,
+                                          [weakObj, keyStr](std::shared_ptr<VROGeospatialAnchor> anchor) {
+            VRO_ENV env = VROPlatformGetJNIEnv();
+            VRO_OBJECT localObj = VRO_NEW_LOCAL_REF(weakObj);
+            if (VRO_IS_OBJECT_NULL(localObj)) {
+                VRO_DELETE_WEAK_GLOBAL_REF(weakObj);
+                return;
+            }
+
+            VRO_STRING jKey = VRO_NEW_STRING(keyStr.c_str());
+            VRO_STRING jAnchorId = VRO_NEW_STRING(anchor->getId().c_str());
+            VROVector3f pos = anchor->getTransform().extractTranslation();
+
+            VROPlatformCallHostFunction(localObj, "onGeospatialAnchorSuccess", "(Ljava/lang/String;Ljava/lang/String;IDDDDFFF)V",
+                                        jKey, jAnchorId, (int)anchor->getGeospatialType(),
+                                        anchor->getLatitude(), anchor->getLongitude(), anchor->getAltitude(), anchor->getHeading(),
+                                        pos.x, pos.y, pos.z);
+
+            VRO_DELETE_LOCAL_REF(localObj);
+            VRO_DELETE_WEAK_GLOBAL_REF(weakObj);
+        },
+                                          [weakObj, keyStr](std::string error) {
+            VRO_ENV env = VROPlatformGetJNIEnv();
+            VRO_OBJECT localObj = VRO_NEW_LOCAL_REF(weakObj);
+            if (VRO_IS_OBJECT_NULL(localObj)) {
+                VRO_DELETE_WEAK_GLOBAL_REF(weakObj);
+                return;
+            }
+
+            VRO_STRING jKey = VRO_NEW_STRING(keyStr.c_str());
+            VRO_STRING jError = VRO_NEW_STRING(error.c_str());
+
+            VROPlatformCallHostFunction(localObj, "onGeospatialAnchorFailure", "(Ljava/lang/String;Ljava/lang/String;)V",
+                                        jKey, jError);
+
+            VRO_DELETE_LOCAL_REF(localObj);
+            VRO_DELETE_WEAK_GLOBAL_REF(weakObj);
+        });
+    }
+}
+
+VRO_METHOD(void, nativeRemoveGeospatialAnchor)(VRO_ARGS
+                                               VRO_REF(VROARSceneController) arSceneControllerPtr,
+                                               jstring anchorId) {
+    std::shared_ptr<VROARScene> arScene = std::dynamic_pointer_cast<VROARScene>(VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
+    std::shared_ptr<VROARSession> arSession = arScene->getARSession();
+
+    if (arSession) {
+        std::string anchorIdStr = VRO_STRING_STL(anchorId);
+        std::shared_ptr<VROGeospatialAnchor> anchor = std::make_shared<VROGeospatialAnchor>(
+            VROGeospatialAnchorType::WGS84, 0, 0, 0, VROQuaternion());
+        anchor->setId(anchorIdStr);
+        arSession->removeGeospatialAnchor(anchor);
+    }
 }
 
 VRO_METHOD(void, nativeResetPointCloudSurface)(VRO_ARGS

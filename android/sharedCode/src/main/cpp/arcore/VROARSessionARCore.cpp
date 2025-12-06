@@ -26,6 +26,7 @@
 
 #include "VROARSessionARCore.h"
 #include "VROARAnchor.h"
+#include "VROGeospatialAnchor.h"
 #include "VROARHitTestResult.h"
 #include "VROARImageTargetAndroid.h"
 #include "VROARPlaneAnchor.h"
@@ -57,6 +58,7 @@ VROARSessionARCore::VROARSessionARCore(std::shared_ptr<VRODriverOpenGL> driver)
       _focusMode(arcore::FocusMode::FIXED_FOCUS),
       _depthMode(arcore::DepthMode::Automatic),
       _semanticMode(arcore::SemanticMode::Enabled),
+      _geospatialMode(arcore::GeospatialMode::Disabled),
       _cameraTextureId(0),
       _displayRotation(VROARDisplayRotation::R0), _rotatedImageDataLength(0),
       _rotatedImageData(nullptr) {
@@ -202,38 +204,54 @@ bool VROARSessionARCore::setAnchorDetection(
   pinfo("  Final: planesHorizontal=%d, planesVertical=%d", planesHorizontal,
         planesVertical); // DEBUG
 
+  arcore::PlaneFindingMode newMode;
   if (planesHorizontal && planesVertical) {
     pinfo("  Setting mode: HorizontalAndVertical"); // DEBUG
-    _planeFindingMode = arcore::PlaneFindingMode::HorizontalAndVertical;
+    newMode = arcore::PlaneFindingMode::HorizontalAndVertical;
   } else if (planesHorizontal) {
     pinfo("  Setting mode: Horizontal ONLY"); // DEBUG
-    _planeFindingMode = arcore::PlaneFindingMode::Horizontal;
+    newMode = arcore::PlaneFindingMode::Horizontal;
   } else if (planesVertical) {
     pinfo("  Setting mode: Vertical ONLY"); // DEBUG
-    _planeFindingMode = arcore::PlaneFindingMode::Vertical;
+    newMode = arcore::PlaneFindingMode::Vertical;
   } else {
     pinfo("  Setting mode: DISABLED"); // DEBUG
-    _planeFindingMode = arcore::PlaneFindingMode::Disabled;
+    newMode = arcore::PlaneFindingMode::Disabled;
   }
+
+  // Avoid unnecessary reconfiguration if mode hasn't changed
+  if (_planeFindingMode == newMode) {
+    return true;
+  }
+
+  _planeFindingMode = newMode;
   return updateARCoreConfig();
 }
 
 void VROARSessionARCore::setCloudAnchorProvider(
     VROCloudAnchorProvider provider) {
-  if (provider == VROCloudAnchorProvider::None) {
-    _cloudAnchorMode = arcore::CloudAnchorMode::Disabled;
-  } else {
-    _cloudAnchorMode = arcore::CloudAnchorMode::Enabled;
+  arcore::CloudAnchorMode newMode = (provider == VROCloudAnchorProvider::None)
+    ? arcore::CloudAnchorMode::Disabled
+    : arcore::CloudAnchorMode::Enabled;
+
+  // Avoid unnecessary reconfiguration if mode hasn't changed
+  if (_cloudAnchorMode == newMode) {
+    return;
   }
+
+  _cloudAnchorMode = newMode;
   updateARCoreConfig();
 }
 
 void VROARSessionARCore::setAutofocus(bool enabled) {
-  if (enabled) {
-    _focusMode = arcore::FocusMode::AUTO_FOCUS;
-  } else {
-    _focusMode = arcore::FocusMode::FIXED_FOCUS;
+  arcore::FocusMode newMode = enabled ? arcore::FocusMode::AUTO_FOCUS : arcore::FocusMode::FIXED_FOCUS;
+
+  // Avoid unnecessary reconfiguration if mode hasn't changed
+  if (_focusMode == newMode) {
+    return;
   }
+
+  _focusMode = newMode;
   updateARCoreConfig();
 }
 
@@ -259,13 +277,15 @@ bool VROARSessionARCore::configure(arcore::LightingMode lightingMode,
                                    arcore::UpdateMode updateMode,
                                    arcore::CloudAnchorMode cloudAnchorMode,
                                    arcore::DepthMode depthMode,
-                                   arcore::SemanticMode semanticMode) {
+                                   arcore::SemanticMode semanticMode,
+                                   arcore::GeospatialMode geospatialMode) {
   _lightingMode = lightingMode;
   _planeFindingMode = planeFindingMode;
   _updateMode = updateMode;
   _cloudAnchorMode = cloudAnchorMode;
   _depthMode = depthMode;
   _semanticMode = semanticMode;
+  _geospatialMode = geospatialMode;
 
   return updateARCoreConfig();
 }
@@ -294,9 +314,19 @@ bool VROARSessionARCore::updateARCoreConfig() {
     }
   }
 
+  // Check if geospatial mode is supported on this device
+  // This prevents the configuration loop when play-services-location is not linked
+  arcore::GeospatialMode effectiveGeospatialMode = _geospatialMode;
+  if (_geospatialMode != arcore::GeospatialMode::Disabled) {
+    if (!_session->isGeospatialModeSupported(_geospatialMode)) {
+      pwarn("⚠️ Requested geospatial mode not supported (missing play-services-location or API key?), falling back to DISABLED");
+      effectiveGeospatialMode = arcore::GeospatialMode::Disabled;
+    }
+  }
+
   arcore::Config *config =
       _session->createConfig(_lightingMode, _planeFindingMode, _updateMode,
-                             _cloudAnchorMode, _focusMode, effectiveDepthMode, effectiveSemanticMode);
+                             _cloudAnchorMode, _focusMode, effectiveDepthMode, effectiveSemanticMode, effectiveGeospatialMode);
 
   if (getImageTrackingImpl() == VROImageTrackingImpl::ARCore &&
       _currentARCoreImageDatabase) {
@@ -794,6 +824,15 @@ void VROARSessionARCore::processUpdatedAnchors(VROARFrameARCore *frameAR) {
         passert(anchor->getId() == vAnchor->getAnchorInternal()->getId());
         vAnchor->sync();
         updateAnchor(vAnchor);
+      } else {
+        // If the anchor is managed by a VROGeospatialAnchor (which is not an ARCore trackable),
+        // we need to manually sync it here.
+        std::shared_ptr<VROGeospatialAnchor> geoAnchor = std::dynamic_pointer_cast<VROGeospatialAnchor>(vAnchor->getTrackable());
+        if (geoAnchor) {
+            vAnchor->sync();
+            geoAnchor->updateFromGeospatialTransform(vAnchor->getTransform());
+            updateAnchor(geoAnchor);
+        }
       }
 
       // New or removed anchor.
@@ -1257,4 +1296,212 @@ bool VROARSessionARCore::isOcclusionModeSupported(VROOcclusionMode mode) const {
     default:
       return false;
   }
+}
+
+#pragma mark - Geospatial API
+
+bool VROARSessionARCore::isGeospatialModeSupported() const {
+    if (!_session) return false;
+    return _session->isGeospatialModeSupported(arcore::GeospatialMode::Enabled);
+}
+
+void VROARSessionARCore::setGeospatialModeEnabled(bool enabled) {
+    if (!_session) return;
+
+    arcore::GeospatialMode newMode = enabled ? arcore::GeospatialMode::Enabled : arcore::GeospatialMode::Disabled;
+
+    // Avoid unnecessary reconfiguration if mode hasn't changed
+    // This prevents VIO reset loops when setGeospatialModeEnabled is called repeatedly
+    if (_geospatialMode == newMode) {
+        return;
+    }
+
+    _geospatialMode = newMode;
+    updateARCoreConfig();
+}
+
+VROEarthTrackingState VROARSessionARCore::getEarthTrackingState() const {
+    if (!_session) return VROEarthTrackingState::Stopped;
+    
+    arcore::TrackingState state = _session->getEarthTrackingState();
+    switch (state) {
+        case arcore::TrackingState::Tracking:
+            return VROEarthTrackingState::Tracking;
+        case arcore::TrackingState::Paused:
+            return VROEarthTrackingState::Paused;
+        case arcore::TrackingState::Stopped:
+        default:
+            return VROEarthTrackingState::Stopped;
+    }
+}
+
+VROGeospatialPose VROARSessionARCore::getCameraGeospatialPose() const {
+    VROGeospatialPose result;
+    if (!_session) return result;
+    
+    arcore::GeospatialPoseData poseData;
+    if (_session->getCameraGeospatialPose(&poseData)) {
+        result.latitude = poseData.latitude;
+        result.longitude = poseData.longitude;
+        result.altitude = poseData.altitude;
+        result.heading = poseData.heading;
+        result.horizontalAccuracy = poseData.horizontalAccuracy;
+        result.verticalAccuracy = poseData.verticalAccuracy;
+        result.orientationYawAccuracy = poseData.orientationYawAccuracy;
+        result.quaternion = VROQuaternion(poseData.quaternion[0], poseData.quaternion[1], poseData.quaternion[2], poseData.quaternion[3]);
+    }
+    
+    return result;
+}
+
+void VROARSessionARCore::checkVPSAvailability(double latitude, double longitude,
+                                              std::function<void(VROVPSAvailability)> callback) {
+    if (callback) callback(VROVPSAvailability::Unknown);
+}
+
+void VROARSessionARCore::createGeospatialAnchor(double latitude, double longitude, double altitude,
+                                                VROQuaternion quaternion,
+                                                std::function<void(std::shared_ptr<VROGeospatialAnchor>)> onSuccess,
+                                                std::function<void(std::string error)> onFailure) {
+    if (_geospatialMode == arcore::GeospatialMode::Disabled) {
+        if (onFailure) onFailure("Geospatial mode is disabled");
+        return;
+    }
+
+    // Native takes double lat, double lon, double alt, float* rotation (4 floats)
+    float rot[4] = {quaternion.X, quaternion.Y, quaternion.Z, quaternion.W};
+    
+    arcore::Anchor *nativeAnchor = _session->createGeospatialAnchor(latitude, longitude, altitude, rot[0], rot[1], rot[2], rot[3]);
+    
+    if (nativeAnchor) {
+        std::shared_ptr<arcore::Anchor> anchorShared(nativeAnchor);
+        
+        // Create VROGeospatialAnchor
+        std::shared_ptr<VROGeospatialAnchor> geoAnchor = std::make_shared<VROGeospatialAnchor>(
+            VROGeospatialAnchorType::WGS84, latitude, longitude, altitude, quaternion);
+            
+        // Create VROARAnchorARCore
+        // We use the geoAnchor as the "trackable" so we can retrieve it in processUpdatedAnchors
+        std::string key = VROStringUtil::toString64(anchorShared->getId());
+        std::shared_ptr<VROARAnchorARCore> vAnchor = std::make_shared<VROARAnchorARCore>(
+            key, anchorShared, geoAnchor, shared_from_this());
+            
+        // Add to maps
+        addAnchor(vAnchor);
+        
+        // Invoke callback
+        if (onSuccess) onSuccess(geoAnchor);
+    } else {
+        if (onFailure) onFailure("Failed to create geospatial anchor");
+    }
+}
+
+void VROARSessionARCore::createTerrainAnchor(double latitude, double longitude, double altitudeAboveTerrain,
+                                             VROQuaternion quaternion,
+                                             std::function<void(std::shared_ptr<VROGeospatialAnchor>)> onSuccess,
+                                             std::function<void(std::string error)> onFailure) {
+    if (_geospatialMode == arcore::GeospatialMode::Disabled) {
+        if (onFailure) onFailure("Geospatial mode is disabled");
+        return;
+    }
+
+    std::weak_ptr<VROARSessionARCore> weakSession = shared_from_this();
+    
+    _session->createTerrainAnchor(latitude, longitude, altitudeAboveTerrain, quaternion.X, quaternion.Y, quaternion.Z, quaternion.W,
+        [weakSession, latitude, longitude, altitudeAboveTerrain, quaternion, onSuccess](arcore::Anchor *nativeAnchor) {
+            VROPlatformDispatchAsyncRenderer([weakSession, latitude, longitude, altitudeAboveTerrain, quaternion, onSuccess, nativeAnchor] {
+                std::shared_ptr<VROARSessionARCore> session = weakSession.lock();
+                if (!session) {
+                    delete nativeAnchor;
+                    return;
+                }
+                
+                // Create VROGeospatialAnchor
+                std::shared_ptr<VROGeospatialAnchor> geoAnchor = std::make_shared<VROGeospatialAnchor>(
+                    VROGeospatialAnchorType::Terrain, latitude, longitude, altitudeAboveTerrain, quaternion);
+                geoAnchor->setResolveState(VROGeospatialAnchorResolveState::Success);
+                
+                // Create VROARAnchorARCore
+                std::shared_ptr<arcore::Anchor> anchorShared(nativeAnchor);
+                std::string key = VROStringUtil::toString64(anchorShared->getId());
+                std::shared_ptr<VROARAnchorARCore> vAnchor = std::make_shared<VROARAnchorARCore>(
+                    key, anchorShared, geoAnchor, session);
+                
+                // Add to maps
+                session->addAnchor(vAnchor);
+                
+                if (onSuccess) onSuccess(geoAnchor);
+            });
+        },
+        [onFailure](std::string error) {
+            VROPlatformDispatchAsyncRenderer([onFailure, error] {
+                if (onFailure) onFailure(error);
+            });
+        }
+    );
+}
+
+void VROARSessionARCore::createRooftopAnchor(double latitude, double longitude, double altitudeAboveRooftop,
+                                             VROQuaternion quaternion,
+                                             std::function<void(std::shared_ptr<VROGeospatialAnchor>)> onSuccess,
+                                             std::function<void(std::string error)> onFailure) {
+    if (_geospatialMode == arcore::GeospatialMode::Disabled) {
+        if (onFailure) onFailure("Geospatial mode is disabled");
+        return;
+    }
+
+    std::weak_ptr<VROARSessionARCore> weakSession = shared_from_this();
+    
+    _session->createRooftopAnchor(latitude, longitude, altitudeAboveRooftop, quaternion.X, quaternion.Y, quaternion.Z, quaternion.W,
+        [weakSession, latitude, longitude, altitudeAboveRooftop, quaternion, onSuccess](arcore::Anchor *nativeAnchor) {
+            VROPlatformDispatchAsyncRenderer([weakSession, latitude, longitude, altitudeAboveRooftop, quaternion, onSuccess, nativeAnchor] {
+                std::shared_ptr<VROARSessionARCore> session = weakSession.lock();
+                if (!session) {
+                    delete nativeAnchor;
+                    return;
+                }
+                
+                // Create VROGeospatialAnchor
+                std::shared_ptr<VROGeospatialAnchor> geoAnchor = std::make_shared<VROGeospatialAnchor>(
+                    VROGeospatialAnchorType::Rooftop, latitude, longitude, altitudeAboveRooftop, quaternion);
+                geoAnchor->setResolveState(VROGeospatialAnchorResolveState::Success);
+                
+                // Create VROARAnchorARCore
+                std::shared_ptr<arcore::Anchor> anchorShared(nativeAnchor);
+                std::string key = VROStringUtil::toString64(anchorShared->getId());
+                std::shared_ptr<VROARAnchorARCore> vAnchor = std::make_shared<VROARAnchorARCore>(
+                    key, anchorShared, geoAnchor, session);
+                
+                // Add to maps
+                session->addAnchor(vAnchor);
+                
+                if (onSuccess) onSuccess(geoAnchor);
+            });
+        },
+        [onFailure](std::string error) {
+            VROPlatformDispatchAsyncRenderer([onFailure, error] {
+                if (onFailure) onFailure(error);
+            });
+        }
+    );
+}
+
+void VROARSessionARCore::removeGeospatialAnchor(std::shared_ptr<VROGeospatialAnchor> anchor) {
+    if (!anchor) return;
+    
+    std::shared_ptr<VROARAnchorARCore> foundAnchor = nullptr;
+    for (std::shared_ptr<VROARAnchorARCore> vAnchor : _anchors) {
+        if (vAnchor->getTrackable() == anchor) {
+            foundAnchor = vAnchor;
+            break;
+        }
+    }
+    
+    if (foundAnchor) {
+        // We must detach the native anchor first
+        if (foundAnchor->getAnchorInternal()) {
+            foundAnchor->getAnchorInternal()->detach();
+        }
+        removeAnchor(foundAnchor);
+    }
 }
