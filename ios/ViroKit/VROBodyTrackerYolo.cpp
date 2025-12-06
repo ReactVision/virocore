@@ -161,8 +161,7 @@ void VROBodyTrackerYolo::trackCurrentImage(VROMatrix4f transform, VROCameraOrien
 // Invoked on the _visionQueue
 void VROBodyTrackerYolo::processVisionResults(VNRequest *request, NSError *error) {
     NSArray *array = [request results];
-    NSLog(@"Number of results %d", (int) array.count);
-    
+
     VROPoseFrame joints = newPoseFrame();
     
     for (VNRecognizedObjectObservation *observation in array) {
@@ -179,9 +178,7 @@ void VROBodyTrackerYolo::processVisionResults(VNRequest *request, NSError *error
             if (classification.confidence > 0.8) {
                 std::string className = std::string([classification.identifier UTF8String]);
                 VROBodyJointType type = _labelsToJointTypes[className];
-                
-                NSLog(@"   Label %@, type %d, confidence %f", classification.identifier, type, classification.confidence);
-                
+
                 VROInferredBodyJoint joint(type);
                 joint.setConfidence(classification.confidence);
                 joint.setBounds(box);

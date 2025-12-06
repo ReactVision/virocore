@@ -199,9 +199,6 @@ static VROVector3f const kZeroVector = VROVector3f();
     VRODeviceUtil *device = [[VRODeviceUtil alloc] init];
     if (![device isBionicA12]) {
         _displayLink.preferredFramesPerSecond = 30;
-        pinfo("Preferred FPS 30");
-    } else {
-        pinfo("Preferred FPS 60");
     }
 #endif
 

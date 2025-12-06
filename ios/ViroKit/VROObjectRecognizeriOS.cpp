@@ -141,8 +141,7 @@ void VROObjectRecognizeriOS::trackCurrentImage(VROMatrix4f transform, VROCameraO
 // Invoked on the _visionQueue
 void VROObjectRecognizeriOS::processVisionResults(VNRequest *request, NSError *error) {
     NSArray *array = [request results];
-    NSLog(@"Number of results %d", (int) array.count);
-    
+
     std::map<std::string, std::vector<VRORecognizedObject>> objects;
     
     for (VNRecognizedObjectObservation *observation in array) {
@@ -158,8 +157,6 @@ void VROObjectRecognizeriOS::processVisionResults(VNRequest *request, NSError *e
         for (VNClassificationObservation *classification in observation.labels) {
             if (classification.confidence > 0.8) {
                 std::string className = std::string([classification.identifier UTF8String]);
-                
-                NSLog(@"   Label %@ confidence %f", classification.identifier, classification.confidence);
                 objects[className].push_back({ className, box, classification.confidence });
             }
         }
