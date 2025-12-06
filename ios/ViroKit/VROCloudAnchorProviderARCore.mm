@@ -38,7 +38,7 @@
 @property (nonatomic, strong) NSMutableArray<GARResolveCloudAnchorFuture *> *resolveFutures;
 @property (nonatomic, assign) BOOL geospatialModeEnabled;
 @property (nonatomic, strong) GARFrame *currentGARFrame;
-@property (nonatomic, strong) NSMutableDictionary<NSString *, NSValue *> *geospatialAnchors;
+@property (nonatomic, strong) NSMutableDictionary<NSString *, GARAnchor *> *geospatialAnchors;
 @end
 
 @implementation VROCloudAnchorProviderARCore
@@ -461,7 +461,7 @@
     anchor->updateFromGeospatialTransform(transform);
 
     // Store anchor reference
-    [_geospatialAnchors setObject:[NSValue valueWithPointer:garAnchor] forKey:anchorId];
+    [_geospatialAnchors setObject:garAnchor forKey:anchorId];
 
     pinfo("[ViroAR] Created WGS84 geospatial anchor at (%.6f, %.6f, %.1f)", latitude, longitude, altitude);
 
@@ -495,7 +495,7 @@
     std::string anchorIdStr = std::string([anchorId UTF8String]);
 
     // Create terrain anchor asynchronously
-    [_garSession createAnchorOnTerrainWithCoordinate:coordinate
+    [_garSession createAnchorWithCoordinate:coordinate
                                   altitudeAboveTerrain:altitudeAboveTerrain
                                     eastUpSouthQAnchor:quaternion
                                      completionHandler:^(GARAnchor * _Nullable garAnchor, GARTerrainAnchorState terrainState) {
@@ -518,7 +518,7 @@
             anchor->updateFromGeospatialTransform(transform);
 
             // Store anchor reference
-            [self->_geospatialAnchors setObject:[NSValue valueWithPointer:garAnchor] forKey:anchorId];
+            [self->_geospatialAnchors setObject:garAnchor forKey:anchorId];
 
             pinfo("[ViroAR] Created terrain anchor at (%.6f, %.6f) +%.1fm", latitude, longitude, altitudeAboveTerrain);
 
@@ -566,7 +566,7 @@
     std::string anchorIdStr = std::string([anchorId UTF8String]);
 
     // Create rooftop anchor asynchronously
-    [_garSession createAnchorOnRooftopWithCoordinate:coordinate
+    [_garSession createAnchorWithCoordinate:coordinate
                                   altitudeAboveRooftop:altitudeAboveRooftop
                                     eastUpSouthQAnchor:quaternion
                                      completionHandler:^(GARAnchor * _Nullable garAnchor, GARRooftopAnchorState rooftopState) {
@@ -589,7 +589,7 @@
             anchor->updateFromGeospatialTransform(transform);
 
             // Store anchor reference
-            [self->_geospatialAnchors setObject:[NSValue valueWithPointer:garAnchor] forKey:anchorId];
+            [self->_geospatialAnchors setObject:garAnchor forKey:anchorId];
 
             pinfo("[ViroAR] Created rooftop anchor at (%.6f, %.6f) +%.1fm", latitude, longitude, altitudeAboveRooftop);
 
@@ -613,10 +613,9 @@
 }
 
 - (void)removeGeospatialAnchor:(NSString *)anchorId {
-    NSValue *anchorValue = [_geospatialAnchors objectForKey:anchorId];
-    if (anchorValue) {
-        GARAnchor *garAnchor = (GARAnchor *)[anchorValue pointerValue];
-        [garAnchor detach];
+    GARAnchor *garAnchor = [_geospatialAnchors objectForKey:anchorId];
+    if (garAnchor) {
+        [_garSession removeAnchor:garAnchor];
         [_geospatialAnchors removeObjectForKey:anchorId];
         pinfo("[ViroAR] Removed geospatial anchor: %s", [anchorId UTF8String]);
     }
@@ -653,8 +652,6 @@
     switch (state) {
         case GARRooftopAnchorStateSuccess:
             return @"Success";
-        case GARRooftopAnchorStateTaskInProgress:
-            return @"Task in progress";
         case GARRooftopAnchorStateErrorInternal:
             return @"Internal error";
         case GARRooftopAnchorStateErrorNotAuthorized:
