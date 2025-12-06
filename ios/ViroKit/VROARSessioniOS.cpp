@@ -38,6 +38,7 @@
 #include "VROBox.h"
 #include "VROConvert.h"
 #include "VRODriver.h"
+#include "VROGeospatialAnchor.h"
 #include "VROLog.h"
 #include "VROPlatformUtil.h"
 #include "VROPortal.h"
@@ -50,6 +51,7 @@
 #include <algorithm>
 
 #import "VROCloudAnchorProviderARCore.h"
+#import <simd/simd.h>
 
 #pragma mark - Lifecycle and Initialization
 
@@ -1081,6 +1083,172 @@ void VROARSessioniOS::removeAnchor(ARAnchor *anchor) {
       std::string([anchor.identifier.UUIDString UTF8String]));
   if (it != _nativeAnchorMap.end()) {
     removeAnchor(it->second);
+  }
+}
+
+#pragma mark - Geospatial API
+
+void VROARSessioniOS::setGeospatialAnchorProvider(VROGeospatialAnchorProvider provider) {
+  VROARSession::setGeospatialAnchorProvider(provider);
+
+  if (provider == VROGeospatialAnchorProvider::ARCoreGeospatial) {
+    // Initialize ARCore provider if not already done (same instance as cloud anchors)
+    if (_cloudAnchorProviderARCore == nil) {
+      if ([VROCloudAnchorProviderARCore isAvailable]) {
+        _cloudAnchorProviderARCore = [[VROCloudAnchorProviderARCore alloc] init];
+        if (_cloudAnchorProviderARCore) {
+          pinfo("ARCore Geospatial provider initialized successfully");
+        } else {
+          pwarn("Failed to initialize ARCore Geospatial provider. Check GARAPIKey in Info.plist.");
+        }
+      } else {
+        pwarn("ARCore SDK not available. Add ARCore/Geospatial pod to enable geospatial features.");
+      }
+    }
+
+    // Enable geospatial mode
+    if (_cloudAnchorProviderARCore) {
+      [_cloudAnchorProviderARCore setGeospatialModeEnabled:YES];
+    }
+  }
+}
+
+bool VROARSessioniOS::isGeospatialModeSupported() const {
+  if (_cloudAnchorProviderARCore) {
+    return [_cloudAnchorProviderARCore isGeospatialModeSupported];
+  }
+  return [VROCloudAnchorProviderARCore isGeospatialAvailable];
+}
+
+void VROARSessioniOS::setGeospatialModeEnabled(bool enabled) {
+  if (_cloudAnchorProviderARCore) {
+    [_cloudAnchorProviderARCore setGeospatialModeEnabled:enabled];
+  }
+}
+
+VROEarthTrackingState VROARSessioniOS::getEarthTrackingState() const {
+  if (_cloudAnchorProviderARCore) {
+    return [_cloudAnchorProviderARCore getEarthTrackingState];
+  }
+  return VROEarthTrackingState::Stopped;
+}
+
+VROGeospatialPose VROARSessioniOS::getCameraGeospatialPose() const {
+  if (_cloudAnchorProviderARCore) {
+    return [_cloudAnchorProviderARCore getCameraGeospatialPose];
+  }
+  return VROGeospatialPose();
+}
+
+void VROARSessioniOS::checkVPSAvailability(double latitude, double longitude,
+                                           std::function<void(VROVPSAvailability)> callback) {
+  if (_cloudAnchorProviderARCore) {
+    [_cloudAnchorProviderARCore checkVPSAvailability:latitude
+                                           longitude:longitude
+                                            callback:^(VROVPSAvailability availability) {
+      if (callback) {
+        callback(availability);
+      }
+    }];
+  } else if (callback) {
+    callback(VROVPSAvailability::Unknown);
+  }
+}
+
+void VROARSessioniOS::createGeospatialAnchor(double latitude, double longitude, double altitude,
+                                             VROQuaternion quaternion,
+                                             std::function<void(std::shared_ptr<VROGeospatialAnchor>)> onSuccess,
+                                             std::function<void(std::string error)> onFailure) {
+  if (!_cloudAnchorProviderARCore) {
+    if (onFailure) {
+      onFailure("Geospatial provider not initialized. Set geospatialAnchorProvider='arcore-geospatial'.");
+    }
+    return;
+  }
+
+  // Convert VROQuaternion to simd_quatf
+  simd_quatf simdQuat = simd_quaternion(quaternion.X, quaternion.Y, quaternion.Z, quaternion.W);
+
+  [_cloudAnchorProviderARCore createGeospatialAnchor:latitude
+                                           longitude:longitude
+                                            altitude:altitude
+                                          quaternion:simdQuat
+                                           onSuccess:^(std::shared_ptr<VROGeospatialAnchor> anchor) {
+    if (onSuccess) {
+      onSuccess(anchor);
+    }
+  }
+                                           onFailure:^(NSString *error) {
+    if (onFailure) {
+      onFailure(std::string([error UTF8String]));
+    }
+  }];
+}
+
+void VROARSessioniOS::createTerrainAnchor(double latitude, double longitude, double altitudeAboveTerrain,
+                                          VROQuaternion quaternion,
+                                          std::function<void(std::shared_ptr<VROGeospatialAnchor>)> onSuccess,
+                                          std::function<void(std::string error)> onFailure) {
+  if (!_cloudAnchorProviderARCore) {
+    if (onFailure) {
+      onFailure("Geospatial provider not initialized. Set geospatialAnchorProvider='arcore-geospatial'.");
+    }
+    return;
+  }
+
+  // Convert VROQuaternion to simd_quatf
+  simd_quatf simdQuat = simd_quaternion(quaternion.X, quaternion.Y, quaternion.Z, quaternion.W);
+
+  [_cloudAnchorProviderARCore createTerrainAnchor:latitude
+                                        longitude:longitude
+                              altitudeAboveTerrain:altitudeAboveTerrain
+                                       quaternion:simdQuat
+                                        onSuccess:^(std::shared_ptr<VROGeospatialAnchor> anchor) {
+    if (onSuccess) {
+      onSuccess(anchor);
+    }
+  }
+                                        onFailure:^(NSString *error) {
+    if (onFailure) {
+      onFailure(std::string([error UTF8String]));
+    }
+  }];
+}
+
+void VROARSessioniOS::createRooftopAnchor(double latitude, double longitude, double altitudeAboveRooftop,
+                                          VROQuaternion quaternion,
+                                          std::function<void(std::shared_ptr<VROGeospatialAnchor>)> onSuccess,
+                                          std::function<void(std::string error)> onFailure) {
+  if (!_cloudAnchorProviderARCore) {
+    if (onFailure) {
+      onFailure("Geospatial provider not initialized. Set geospatialAnchorProvider='arcore-geospatial'.");
+    }
+    return;
+  }
+
+  // Convert VROQuaternion to simd_quatf
+  simd_quatf simdQuat = simd_quaternion(quaternion.X, quaternion.Y, quaternion.Z, quaternion.W);
+
+  [_cloudAnchorProviderARCore createRooftopAnchor:latitude
+                                        longitude:longitude
+                             altitudeAboveRooftop:altitudeAboveRooftop
+                                       quaternion:simdQuat
+                                        onSuccess:^(std::shared_ptr<VROGeospatialAnchor> anchor) {
+    if (onSuccess) {
+      onSuccess(anchor);
+    }
+  }
+                                        onFailure:^(NSString *error) {
+    if (onFailure) {
+      onFailure(std::string([error UTF8String]));
+    }
+  }];
+}
+
+void VROARSessioniOS::removeGeospatialAnchor(std::shared_ptr<VROGeospatialAnchor> anchor) {
+  if (_cloudAnchorProviderARCore && anchor) {
+    NSString *anchorId = [NSString stringWithUTF8String:anchor->getId().c_str()];
+    [_cloudAnchorProviderARCore removeGeospatialAnchor:anchorId];
   }
 }
 

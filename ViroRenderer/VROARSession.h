@@ -32,8 +32,10 @@
 #include "VROLog.h"
 #include "VROMatrix4f.h"
 #include "VROARImageDatabase.h"
+#include "VROGeospatial.h"
 
 class VROARAnchor;
+class VROGeospatialAnchor;
 class VROARFrame;
 class VROTexture;
 class VROViewport;
@@ -94,6 +96,11 @@ enum class VROImageTrackingImpl {
 enum class VROCloudAnchorProvider {
     None,
     ARCore,
+};
+
+enum class VROGeospatialAnchorProvider {
+    None,
+    ARCoreGeospatial,
 };
 
 /*
@@ -194,6 +201,17 @@ public:
      Set the provider to use for hosting and resolving cloud anchors.
      */
     virtual void setCloudAnchorProvider(VROCloudAnchorProvider provider) = 0;
+
+    /*
+     Set the provider to use for geospatial anchors.
+     */
+    virtual void setGeospatialAnchorProvider(VROGeospatialAnchorProvider provider) {
+        _geospatialAnchorProvider = provider;
+    }
+
+    VROGeospatialAnchorProvider getGeospatialAnchorProvider() const {
+        return _geospatialAnchorProvider;
+    }
 
     /*
      * Set camera's ArFocusMode as AUTO_FOCUS if enabled is true, else set to FIXED_FOCUS
@@ -355,6 +373,110 @@ public:
         return mode == VROOcclusionMode::Disabled;
     }
 
+    // ========================================================================
+    // Geospatial API
+    // ========================================================================
+
+    /*
+     Set the delegate to receive geospatial tracking updates.
+     */
+    virtual void setGeospatialDelegate(std::shared_ptr<VROGeospatialDelegate> delegate) {
+        _geospatialDelegate = delegate;
+    }
+
+    std::shared_ptr<VROGeospatialDelegate> getGeospatialDelegate() {
+        return _geospatialDelegate.lock();
+    }
+
+    /*
+     Returns true if geospatial mode is supported on this device.
+     */
+    virtual bool isGeospatialModeSupported() const {
+        return false;
+    }
+
+    /*
+     Enable or disable geospatial mode. When enabled, the session will track
+     the device's position relative to the Earth using GPS and VPS.
+     */
+    virtual void setGeospatialModeEnabled(bool enabled) {
+        // Default implementation does nothing
+    }
+
+    /*
+     Get the current Earth tracking state.
+     */
+    virtual VROEarthTrackingState getEarthTrackingState() const {
+        return VROEarthTrackingState::Stopped;
+    }
+
+    /*
+     Get the current camera geospatial pose. Returns an invalid pose if
+     geospatial tracking is not available.
+     */
+    virtual VROGeospatialPose getCameraGeospatialPose() const {
+        return VROGeospatialPose();
+    }
+
+    /*
+     Check VPS availability at the specified location.
+     The callback will be called with the availability status.
+     */
+    virtual void checkVPSAvailability(double latitude, double longitude,
+                                      std::function<void(VROVPSAvailability)> callback) {
+        if (callback) {
+            callback(VROVPSAvailability::Unknown);
+        }
+    }
+
+    /*
+     Create a WGS84 geospatial anchor at the specified location.
+     WGS84 anchors are positioned using absolute coordinates on the WGS84 ellipsoid.
+     */
+    virtual void createGeospatialAnchor(double latitude, double longitude, double altitude,
+                                        VROQuaternion quaternion,
+                                        std::function<void(std::shared_ptr<VROGeospatialAnchor>)> onSuccess,
+                                        std::function<void(std::string error)> onFailure) {
+        if (onFailure) {
+            onFailure("Geospatial anchors not supported");
+        }
+    }
+
+    /*
+     Create a terrain anchor at the specified location.
+     Terrain anchors are positioned relative to the terrain surface.
+     The altitude parameter specifies meters above the terrain.
+     */
+    virtual void createTerrainAnchor(double latitude, double longitude, double altitudeAboveTerrain,
+                                     VROQuaternion quaternion,
+                                     std::function<void(std::shared_ptr<VROGeospatialAnchor>)> onSuccess,
+                                     std::function<void(std::string error)> onFailure) {
+        if (onFailure) {
+            onFailure("Terrain anchors not supported");
+        }
+    }
+
+    /*
+     Create a rooftop anchor at the specified location.
+     Rooftop anchors are positioned relative to a building rooftop.
+     The altitude parameter specifies meters above the rooftop.
+     */
+    virtual void createRooftopAnchor(double latitude, double longitude, double altitudeAboveRooftop,
+                                     VROQuaternion quaternion,
+                                     std::function<void(std::shared_ptr<VROGeospatialAnchor>)> onSuccess,
+                                     std::function<void(std::string error)> onFailure) {
+        if (onFailure) {
+            onFailure("Rooftop anchors not supported");
+        }
+    }
+
+    /*
+     Remove a geospatial anchor from the session.
+     */
+    virtual void removeGeospatialAnchor(std::shared_ptr<VROGeospatialAnchor> anchor) {
+        // Default implementation does nothing
+    }
+
 protected:
     
     VROTrackingType _trackingType;
@@ -364,8 +486,10 @@ private:
     VROWorldAlignment _worldAlignment;
     VROImageTrackingImpl _imageTrackingImpl;
     VROOcclusionMode _occlusionMode = VROOcclusionMode::Disabled;
+    VROGeospatialAnchorProvider _geospatialAnchorProvider = VROGeospatialAnchorProvider::None;
     std::shared_ptr<VROScene> _scene;
     std::weak_ptr<VROARSessionDelegate> _delegate;
+    std::weak_ptr<VROGeospatialDelegate> _geospatialDelegate;
 
 };
 

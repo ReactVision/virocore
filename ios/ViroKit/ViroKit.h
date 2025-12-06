@@ -211,6 +211,8 @@ FOUNDATION_EXPORT const unsigned char ViroKitVersionString[];
 #import <ViroKit/VROARImageTargetiOS.h>
 #import <ViroKit/VROARObjectTarget.h>
 #import <ViroKit/VROARObjectTargetiOS.h>
+#import <ViroKit/VROGeospatial.h>
+#import <ViroKit/VROGeospatialAnchor.h>
 
 // Test
 #import <ViroKit/VRORendererTest.h>

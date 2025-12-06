@@ -106,6 +106,28 @@ public:
     bool isOcclusionSupported() const override;
     bool isOcclusionModeSupported(VROOcclusionMode mode) const override;
 
+    // Geospatial API
+    void setGeospatialAnchorProvider(VROGeospatialAnchorProvider provider) override;
+    bool isGeospatialModeSupported() const override;
+    void setGeospatialModeEnabled(bool enabled) override;
+    VROEarthTrackingState getEarthTrackingState() const override;
+    VROGeospatialPose getCameraGeospatialPose() const override;
+    void checkVPSAvailability(double latitude, double longitude,
+                              std::function<void(VROVPSAvailability)> callback) override;
+    void createGeospatialAnchor(double latitude, double longitude, double altitude,
+                                VROQuaternion quaternion,
+                                std::function<void(std::shared_ptr<VROGeospatialAnchor>)> onSuccess,
+                                std::function<void(std::string error)> onFailure) override;
+    void createTerrainAnchor(double latitude, double longitude, double altitudeAboveTerrain,
+                             VROQuaternion quaternion,
+                             std::function<void(std::shared_ptr<VROGeospatialAnchor>)> onSuccess,
+                             std::function<void(std::string error)> onFailure) override;
+    void createRooftopAnchor(double latitude, double longitude, double altitudeAboveRooftop,
+                             VROQuaternion quaternion,
+                             std::function<void(std::shared_ptr<VROGeospatialAnchor>)> onSuccess,
+                             std::function<void(std::string error)> onFailure) override;
+    void removeGeospatialAnchor(std::shared_ptr<VROGeospatialAnchor> anchor) override;
+
     /*
      Internal methods.
      */

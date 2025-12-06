@@ -28,6 +28,7 @@
 
 #import <Foundation/Foundation.h>
 #import <ARKit/ARKit.h>
+#import <CoreLocation/CoreLocation.h>
 
 #if __has_include(<ARCore/ARCore.h>)
 #define ARCORE_AVAILABLE 1
@@ -36,16 +37,31 @@
 #define ARCORE_AVAILABLE 0
 #endif
 
+// ARCore Geospatial is part of the main ARCore SDK when using CocoaPods
+// The geospatial classes (GAREarth, GARGeospatialTransform) are in ARCoreGARSession
+#if __has_include(<ARCoreGARSession/ARCoreGARSession.h>)
+#define ARCORE_GEOSPATIAL_AVAILABLE 1
+#import <ARCoreGARSession/ARCoreGARSession.h>
+#elif __has_include(<ARCoreGeospatial/ARCoreGeospatial.h>)
+#define ARCORE_GEOSPATIAL_AVAILABLE 1
+#import <ARCoreGeospatial/ARCoreGeospatial.h>
+#else
+#define ARCORE_GEOSPATIAL_AVAILABLE 0
+#endif
+
 #include <memory>
 #include <string>
 #include <functional>
 #include <map>
+#include "VROGeospatial.h"
 
 class VROARAnchor;
+class VROGeospatialAnchor;
 
 /**
- * Wrapper class for ARCore Cloud Anchors on iOS.
- * This class manages the GARSession and handles hosting/resolving cloud anchors.
+ * Wrapper class for ARCore Cloud Anchors and Geospatial API on iOS.
+ * This class manages the GARSession and handles hosting/resolving cloud anchors,
+ * as well as geospatial features like Earth tracking and geospatial anchors.
  */
 API_AVAILABLE(ios(12.0))
 @interface VROCloudAnchorProviderARCore : NSObject
@@ -94,6 +110,101 @@ API_AVAILABLE(ios(12.0))
  * @param frame The current ARFrame
  */
 - (void)updateWithFrame:(ARFrame *)frame;
+
+// ========================================================================
+// Geospatial API
+// ========================================================================
+
+/**
+ * Check if geospatial mode is available.
+ */
++ (BOOL)isGeospatialAvailable;
+
+/**
+ * Check if geospatial mode is supported on this device.
+ */
+- (BOOL)isGeospatialModeSupported;
+
+/**
+ * Enable or disable geospatial mode.
+ * @param enabled YES to enable geospatial mode
+ */
+- (void)setGeospatialModeEnabled:(BOOL)enabled;
+
+/**
+ * Get the current Earth tracking state.
+ */
+- (VROEarthTrackingState)getEarthTrackingState;
+
+/**
+ * Get the current camera geospatial pose.
+ * Returns an invalid pose if geospatial tracking is not available.
+ */
+- (VROGeospatialPose)getCameraGeospatialPose;
+
+/**
+ * Check VPS availability at the specified location.
+ * @param latitude Latitude in degrees
+ * @param longitude Longitude in degrees
+ * @param callback Callback with the availability status
+ */
+- (void)checkVPSAvailability:(double)latitude
+                   longitude:(double)longitude
+                    callback:(void (^)(VROVPSAvailability))callback;
+
+/**
+ * Create a WGS84 geospatial anchor.
+ * @param latitude Latitude in degrees
+ * @param longitude Longitude in degrees
+ * @param altitude Altitude in meters above WGS84 ellipsoid
+ * @param quaternion Orientation quaternion in EUS frame
+ * @param onSuccess Success callback with the created anchor
+ * @param onFailure Failure callback with error message
+ */
+- (void)createGeospatialAnchor:(double)latitude
+                     longitude:(double)longitude
+                      altitude:(double)altitude
+                    quaternion:(simd_quatf)quaternion
+                     onSuccess:(void (^)(std::shared_ptr<VROGeospatialAnchor>))onSuccess
+                     onFailure:(void (^)(NSString *error))onFailure;
+
+/**
+ * Create a terrain anchor.
+ * @param latitude Latitude in degrees
+ * @param longitude Longitude in degrees
+ * @param altitudeAboveTerrain Altitude in meters above terrain
+ * @param quaternion Orientation quaternion in EUS frame
+ * @param onSuccess Success callback with the created anchor
+ * @param onFailure Failure callback with error message
+ */
+- (void)createTerrainAnchor:(double)latitude
+                  longitude:(double)longitude
+        altitudeAboveTerrain:(double)altitudeAboveTerrain
+                 quaternion:(simd_quatf)quaternion
+                  onSuccess:(void (^)(std::shared_ptr<VROGeospatialAnchor>))onSuccess
+                  onFailure:(void (^)(NSString *error))onFailure;
+
+/**
+ * Create a rooftop anchor.
+ * @param latitude Latitude in degrees
+ * @param longitude Longitude in degrees
+ * @param altitudeAboveRooftop Altitude in meters above rooftop
+ * @param quaternion Orientation quaternion in EUS frame
+ * @param onSuccess Success callback with the created anchor
+ * @param onFailure Failure callback with error message
+ */
+- (void)createRooftopAnchor:(double)latitude
+                  longitude:(double)longitude
+       altitudeAboveRooftop:(double)altitudeAboveRooftop
+                 quaternion:(simd_quatf)quaternion
+                  onSuccess:(void (^)(std::shared_ptr<VROGeospatialAnchor>))onSuccess
+                  onFailure:(void (^)(NSString *error))onFailure;
+
+/**
+ * Remove a geospatial anchor.
+ * @param anchorId The ID of the anchor to remove
+ */
+- (void)removeGeospatialAnchor:(NSString *)anchorId;
 
 @end
 

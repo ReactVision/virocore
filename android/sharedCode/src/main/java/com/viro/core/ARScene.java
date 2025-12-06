@@ -189,6 +189,139 @@ public class ARScene extends Scene {
         public void onFailure(String error);
     }
 
+    // ========================================================================
+    // Geospatial API Interfaces and Types
+    // ========================================================================
+
+    /**
+     * Earth tracking state for the ARCore Geospatial API.
+     */
+    public enum EarthTrackingState {
+        /**
+         * Geospatial tracking is enabled and working.
+         */
+        ENABLED,
+        /**
+         * Geospatial tracking is paused (e.g., AR session paused).
+         */
+        PAUSED,
+        /**
+         * Geospatial tracking is stopped or not initialized.
+         */
+        STOPPED
+    }
+
+    /**
+     * VPS (Visual Positioning System) availability at a location.
+     */
+    public enum VPSAvailability {
+        /**
+         * VPS is available at this location.
+         */
+        AVAILABLE,
+        /**
+         * VPS is not available at this location.
+         */
+        UNAVAILABLE,
+        /**
+         * VPS availability is unknown.
+         */
+        UNKNOWN
+    }
+
+    /**
+     * Type of geospatial anchor.
+     */
+    public enum GeospatialAnchorType {
+        /**
+         * WGS84 anchor - positioned using absolute WGS84 coordinates.
+         */
+        WGS84,
+        /**
+         * Terrain anchor - positioned relative to terrain surface.
+         */
+        TERRAIN,
+        /**
+         * Rooftop anchor - positioned relative to building rooftop.
+         */
+        ROOFTOP
+    }
+
+    /**
+     * Represents the camera's geospatial pose including location, orientation, and accuracy.
+     */
+    public static class GeospatialPose {
+        /** Latitude in degrees */
+        public double latitude;
+        /** Longitude in degrees */
+        public double longitude;
+        /** Altitude in meters above the WGS84 ellipsoid */
+        public double altitude;
+        /** Heading in degrees (0 = North, 90 = East) */
+        public double heading;
+        /** Orientation quaternion [x, y, z, w] in EUS frame */
+        public float[] quaternion;
+        /** Horizontal accuracy in meters (95% confidence) */
+        public double horizontalAccuracy;
+        /** Vertical accuracy in meters (95% confidence) */
+        public double verticalAccuracy;
+        /** Heading accuracy in degrees (95% confidence) */
+        public double headingAccuracy;
+        /** Orientation yaw accuracy in degrees (95% confidence) */
+        public double orientationYawAccuracy;
+
+        public GeospatialPose() {
+            quaternion = new float[4];
+        }
+    }
+
+    /**
+     * Represents a geospatial anchor.
+     */
+    public static class GeospatialAnchor {
+        /** Unique identifier for this anchor */
+        public String anchorId;
+        /** Type of geospatial anchor */
+        public GeospatialAnchorType type;
+        /** Latitude in degrees */
+        public double latitude;
+        /** Longitude in degrees */
+        public double longitude;
+        /** Altitude in meters */
+        public double altitude;
+        /** Heading in degrees */
+        public double heading;
+        /** Position in world coordinates [x, y, z] */
+        public float[] position;
+
+        public GeospatialAnchor() {
+            position = new float[3];
+        }
+    }
+
+    /**
+     * Callback interface for VPS availability checks.
+     */
+    public interface VPSAvailabilityListener {
+        void onResult(VPSAvailability availability);
+    }
+
+    /**
+     * Callback interface for geospatial anchor creation.
+     */
+    public interface GeospatialAnchorListener {
+        void onSuccess(GeospatialAnchor anchor);
+        void onFailure(String error);
+    }
+
+    /**
+     * Callback interface for geospatial pose retrieval.
+     */
+    public interface GeospatialPoseListener {
+        void onSuccess(GeospatialPose pose);
+        void onFailure(String error);
+    }
+
     /**
      * Callback interface for responding to requests for loading AR image databases. Used by
      * {@link ARScene#loadARImageDatabase(Uri, LoadARImageDatabaseListener)}.
@@ -313,6 +446,12 @@ public class ARScene extends Scene {
     private boolean mHasTrackingInitialized = false;
     private Map<String, CloudAnchorHostListener> mCloudAnchorHostCallbacks = new HashMap<>();
     private Map<String, CloudAnchorResolveListener> mCloudAnchorResolveCallbacks = new HashMap<>();
+
+    // Geospatial API state
+    private boolean mGeospatialModeEnabled = false;
+    private Map<String, GeospatialAnchorListener> mGeospatialAnchorCallbacks = new HashMap<>();
+    private Map<String, VPSAvailabilityListener> mVPSAvailabilityCallbacks = new HashMap<>();
+    private GeospatialPoseListener mGeospatialPoseCallback = null;
 
     /**
      * Construct a new ARScene.
@@ -880,6 +1019,235 @@ public class ARScene extends Scene {
         }
     }
 
+    // ========================================================================
+    // Geospatial API Methods
+    // ========================================================================
+
+    /**
+     * Check if geospatial mode is supported on this device.
+     *
+     * @return true if geospatial mode is supported, false otherwise.
+     */
+    public boolean isGeospatialModeSupported() {
+        return nativeIsGeospatialModeSupported(mNativeRef);
+    }
+
+    /**
+     * Enable or disable geospatial mode. When enabled, the session will track
+     * the device's position relative to the Earth using GPS and VPS.
+     *
+     * @param enabled true to enable geospatial mode, false to disable.
+     */
+    public void setGeospatialModeEnabled(boolean enabled) {
+        mGeospatialModeEnabled = enabled;
+        nativeSetGeospatialModeEnabled(mNativeRef, enabled);
+    }
+
+    /**
+     * Check if geospatial mode is currently enabled.
+     *
+     * @return true if geospatial mode is enabled.
+     */
+    public boolean isGeospatialModeEnabled() {
+        return mGeospatialModeEnabled;
+    }
+
+    /**
+     * Get the current Earth tracking state.
+     *
+     * @return The current {@link EarthTrackingState}.
+     */
+    public EarthTrackingState getEarthTrackingState() {
+        int state = nativeGetEarthTrackingState(mNativeRef);
+        switch (state) {
+            case 0:
+                return EarthTrackingState.ENABLED;
+            case 1:
+                return EarthTrackingState.PAUSED;
+            case 2:
+            default:
+                return EarthTrackingState.STOPPED;
+        }
+    }
+
+    /**
+     * Get the camera's current geospatial pose.
+     *
+     * @param listener Callback to receive the pose or an error.
+     */
+    public void getCameraGeospatialPose(GeospatialPoseListener listener) {
+        mGeospatialPoseCallback = listener;
+        nativeGetCameraGeospatialPose(mNativeRef);
+    }
+
+    /**
+     * Check VPS availability at the specified location.
+     *
+     * @param latitude  Latitude in degrees.
+     * @param longitude Longitude in degrees.
+     * @param listener  Callback to receive the availability result.
+     */
+    public void checkVPSAvailability(double latitude, double longitude, VPSAvailabilityListener listener) {
+        String key = latitude + "," + longitude;
+        mVPSAvailabilityCallbacks.put(key, listener);
+        nativeCheckVPSAvailability(mNativeRef, latitude, longitude);
+    }
+
+    /**
+     * Create a WGS84 geospatial anchor at the specified location.
+     * The anchor is positioned using absolute coordinates on the WGS84 ellipsoid.
+     *
+     * @param latitude   Latitude in degrees.
+     * @param longitude  Longitude in degrees.
+     * @param altitude   Altitude in meters above the WGS84 ellipsoid.
+     * @param quaternion Orientation quaternion [x, y, z, w] in EUS frame.
+     * @param listener   Callback to receive the anchor or an error.
+     */
+    public void createGeospatialAnchor(double latitude, double longitude, double altitude,
+                                        float[] quaternion, GeospatialAnchorListener listener) {
+        String key = "geo_" + System.nanoTime();
+        mGeospatialAnchorCallbacks.put(key, listener);
+        nativeCreateGeospatialAnchor(mNativeRef, key, latitude, longitude, altitude,
+                quaternion[0], quaternion[1], quaternion[2], quaternion[3]);
+    }
+
+    /**
+     * Create a terrain anchor at the specified location.
+     * The anchor is positioned relative to the terrain surface.
+     *
+     * @param latitude             Latitude in degrees.
+     * @param longitude            Longitude in degrees.
+     * @param altitudeAboveTerrain Altitude in meters above terrain.
+     * @param quaternion           Orientation quaternion [x, y, z, w] in EUS frame.
+     * @param listener             Callback to receive the anchor or an error.
+     */
+    public void createTerrainAnchor(double latitude, double longitude, double altitudeAboveTerrain,
+                                     float[] quaternion, GeospatialAnchorListener listener) {
+        String key = "terrain_" + System.nanoTime();
+        mGeospatialAnchorCallbacks.put(key, listener);
+        nativeCreateTerrainAnchor(mNativeRef, key, latitude, longitude, altitudeAboveTerrain,
+                quaternion[0], quaternion[1], quaternion[2], quaternion[3]);
+    }
+
+    /**
+     * Create a rooftop anchor at the specified location.
+     * The anchor is positioned relative to a building rooftop.
+     *
+     * @param latitude             Latitude in degrees.
+     * @param longitude            Longitude in degrees.
+     * @param altitudeAboveRooftop Altitude in meters above rooftop.
+     * @param quaternion           Orientation quaternion [x, y, z, w] in EUS frame.
+     * @param listener             Callback to receive the anchor or an error.
+     */
+    public void createRooftopAnchor(double latitude, double longitude, double altitudeAboveRooftop,
+                                     float[] quaternion, GeospatialAnchorListener listener) {
+        String key = "rooftop_" + System.nanoTime();
+        mGeospatialAnchorCallbacks.put(key, listener);
+        nativeCreateRooftopAnchor(mNativeRef, key, latitude, longitude, altitudeAboveRooftop,
+                quaternion[0], quaternion[1], quaternion[2], quaternion[3]);
+    }
+
+    /**
+     * Remove a geospatial anchor from the session.
+     *
+     * @param anchorId The ID of the anchor to remove.
+     */
+    public void removeGeospatialAnchor(String anchorId) {
+        nativeRemoveGeospatialAnchor(mNativeRef, anchorId);
+    }
+
+    // Called by native - Geospatial pose result
+    void onGeospatialPoseSuccess(double latitude, double longitude, double altitude, double heading,
+                                  float qx, float qy, float qz, float qw,
+                                  double horizontalAccuracy, double verticalAccuracy,
+                                  double headingAccuracy, double orientationYawAccuracy) {
+        if (mGeospatialPoseCallback != null) {
+            GeospatialPose pose = new GeospatialPose();
+            pose.latitude = latitude;
+            pose.longitude = longitude;
+            pose.altitude = altitude;
+            pose.heading = heading;
+            pose.quaternion[0] = qx;
+            pose.quaternion[1] = qy;
+            pose.quaternion[2] = qz;
+            pose.quaternion[3] = qw;
+            pose.horizontalAccuracy = horizontalAccuracy;
+            pose.verticalAccuracy = verticalAccuracy;
+            pose.headingAccuracy = headingAccuracy;
+            pose.orientationYawAccuracy = orientationYawAccuracy;
+            mGeospatialPoseCallback.onSuccess(pose);
+            mGeospatialPoseCallback = null;
+        }
+    }
+
+    void onGeospatialPoseFailure(String error) {
+        if (mGeospatialPoseCallback != null) {
+            mGeospatialPoseCallback.onFailure(error);
+            mGeospatialPoseCallback = null;
+        }
+    }
+
+    // Called by native - VPS availability result
+    void onVPSAvailabilityResult(double latitude, double longitude, int availability) {
+        String key = latitude + "," + longitude;
+        VPSAvailabilityListener callback = mVPSAvailabilityCallbacks.get(key);
+        if (callback != null) {
+            VPSAvailability result;
+            switch (availability) {
+                case 0:
+                    result = VPSAvailability.AVAILABLE;
+                    break;
+                case 1:
+                    result = VPSAvailability.UNAVAILABLE;
+                    break;
+                default:
+                    result = VPSAvailability.UNKNOWN;
+                    break;
+            }
+            callback.onResult(result);
+            mVPSAvailabilityCallbacks.remove(key);
+        }
+    }
+
+    // Called by native - Geospatial anchor creation result
+    void onGeospatialAnchorSuccess(String key, String anchorId, int type,
+                                    double latitude, double longitude, double altitude, double heading,
+                                    float posX, float posY, float posZ) {
+        GeospatialAnchorListener callback = mGeospatialAnchorCallbacks.get(key);
+        if (callback != null) {
+            GeospatialAnchor anchor = new GeospatialAnchor();
+            anchor.anchorId = anchorId;
+            switch (type) {
+                case 0:
+                    anchor.type = GeospatialAnchorType.WGS84;
+                    break;
+                case 1:
+                    anchor.type = GeospatialAnchorType.TERRAIN;
+                    break;
+                case 2:
+                    anchor.type = GeospatialAnchorType.ROOFTOP;
+                    break;
+            }
+            anchor.latitude = latitude;
+            anchor.longitude = longitude;
+            anchor.altitude = altitude;
+            anchor.heading = heading;
+            anchor.position[0] = posX;
+            anchor.position[1] = posY;
+            anchor.position[2] = posZ;
+            callback.onSuccess(anchor);
+            mGeospatialAnchorCallbacks.remove(key);
+        }
+    }
+
+    void onGeospatialAnchorFailure(String key, String error) {
+        GeospatialAnchorListener callback = mGeospatialAnchorCallbacks.get(key);
+        if (callback != null) {
+            callback.onFailure(error);
+            mGeospatialAnchorCallbacks.remove(key);
+        }
+    }
+
     private native long nativeCreateARSceneController();
     private native long nativeCreateARSceneControllerDeclarative();
     private native long nativeCreateARSceneDelegate(long sceneControllerRef);
@@ -908,6 +1276,23 @@ public class ARScene extends Scene {
     private native void nativeSetOcclusionMode(long sceneControllerRef, int mode);
     private native boolean nativeIsOcclusionSupported(long sceneControllerRef);
     private native boolean nativeIsOcclusionModeSupported(long sceneControllerRef, int mode);
+
+    // Geospatial API native methods
+    private native boolean nativeIsGeospatialModeSupported(long sceneControllerRef);
+    private native void nativeSetGeospatialModeEnabled(long sceneControllerRef, boolean enabled);
+    private native int nativeGetEarthTrackingState(long sceneControllerRef);
+    private native void nativeGetCameraGeospatialPose(long sceneControllerRef);
+    private native void nativeCheckVPSAvailability(long sceneControllerRef, double latitude, double longitude);
+    private native void nativeCreateGeospatialAnchor(long sceneControllerRef, String key,
+                                                      double latitude, double longitude, double altitude,
+                                                      float qx, float qy, float qz, float qw);
+    private native void nativeCreateTerrainAnchor(long sceneControllerRef, String key,
+                                                   double latitude, double longitude, double altitudeAboveTerrain,
+                                                   float qx, float qy, float qz, float qw);
+    private native void nativeCreateRooftopAnchor(long sceneControllerRef, String key,
+                                                   double latitude, double longitude, double altitudeAboveRooftop,
+                                                   float qx, float qy, float qz, float qw);
+    private native void nativeRemoveGeospatialAnchor(long sceneControllerRef, String anchorId);
 
     // Called by JNI
 

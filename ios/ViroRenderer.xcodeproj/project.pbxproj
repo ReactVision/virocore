@@ -913,7 +913,9 @@
 		E12582562EC58CC0000722C2 /* VROVector2f.h in Headers */ = {isa = PBXBuildFile; fileRef = E12582552EC58CC0000722C2 /* VROVector2f.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		E188BC752EE37644000A427E /* VROCloudAnchorProviderARCore.mm in Sources */ = {isa = PBXBuildFile; fileRef = E188BC742EE37644000A427E /* VROCloudAnchorProviderARCore.mm */; };
 		E188BC772EE37652000A427E /* VROCloudAnchorProviderARCore.h in Headers */ = {isa = PBXBuildFile; fileRef = E188BC762EE37652000A427E /* VROCloudAnchorProviderARCore.h */; settings = {ATTRIBUTES = (Public, ); }; };
-		EAD7E32D2DFA518AEAAB48C2 /* BuildFile in Frameworks */ = {isa = PBXBuildFile; };
+		E19926002EE3B7E900328B9D /* VROGeospatial.h in Headers */ = {isa = PBXBuildFile; fileRef = E19925FF2EE3B7E900328B9D /* VROGeospatial.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		E19926022EE3B7F700328B9D /* VROGeospatialAnchor.h in Headers */ = {isa = PBXBuildFile; fileRef = E19926012EE3B7F700328B9D /* VROGeospatialAnchor.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		EAD7E32D2DFA518AEAAB48C2 /* (null) in Frameworks */ = {isa = PBXBuildFile; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -1903,6 +1905,8 @@
 		E12582552EC58CC0000722C2 /* VROVector2f.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VROVector2f.h; sourceTree = "<group>"; };
 		E188BC742EE37644000A427E /* VROCloudAnchorProviderARCore.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = VROCloudAnchorProviderARCore.mm; sourceTree = "<group>"; };
 		E188BC762EE37652000A427E /* VROCloudAnchorProviderARCore.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VROCloudAnchorProviderARCore.h; sourceTree = "<group>"; };
+		E19925FF2EE3B7E900328B9D /* VROGeospatial.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VROGeospatial.h; sourceTree = "<group>"; };
+		E19926012EE3B7F700328B9D /* VROGeospatialAnchor.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VROGeospatialAnchor.h; sourceTree = "<group>"; };
 		E7A7748CC8659A11C76D30F3 /* Pods_ViroSample.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_ViroSample.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -1936,7 +1940,7 @@
 				A5EC65891EB3ECE200FE220E /* libLinearMath.a in Frameworks */,
 				8F1664A61E5E43260062EBCE /* Accelerate.framework in Frameworks */,
 				8FDDE2121CD00F2600674DE2 /* CoreText.framework in Frameworks */,
-				EAD7E32D2DFA518AEAAB48C2 /* BuildFile in Frameworks */,
+				EAD7E32D2DFA518AEAAB48C2 /* (null) in Frameworks */,
 				691C503C17159DA15F0DBCE1 /* Pods_ViroKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -2432,6 +2436,8 @@
 				8FCB10291DD5489E00FE425C /* VROVideoDelegateiOS.h */,
 				8FCB10191DD5449700FE425C /* VROVideoTextureiOS.h */,
 				8FCB10181DD5449700FE425C /* VROVideoTextureiOS.cpp */,
+				E19926012EE3B7F700328B9D /* VROGeospatialAnchor.h */,
+				E19925FF2EE3B7E900328B9D /* VROGeospatial.h */,
 				8FCB101C1DD544E800FE425C /* VROVideoTextureCache.h */,
 				8FCB101D1DD544E800FE425C /* VROVideoTextureCacheMetal.cpp */,
 				8FCB101E1DD544E800FE425C /* VROVideoTextureCacheMetal.h */,
@@ -3312,6 +3318,8 @@
 			files = (
 				A5B4AF0B20535D460006D970 /* VROPolygon.h in Headers */,
 				A5B433ED204E659A00E9EE53 /* VROFixedParticleEmitter.h in Headers */,
+				E19926022EE3B7F700328B9D /* VROGeospatialAnchor.h in Headers */,
+				E19926002EE3B7E900328B9D /* VROGeospatial.h in Headers */,
 				8FD2A5071F81276B00E831A6 /* VROPencil.h in Headers */,
 				E188BC772EE37652000A427E /* VROCloudAnchorProviderARCore.h in Headers */,
 				8FD2A50A1F8127F200E831A6 /* VRORendererTest.h in Headers */,

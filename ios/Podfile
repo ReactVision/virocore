@@ -2,9 +2,10 @@ platform :ios, '13.0'
 
 def common_pods
     pod 'GVRAudioSDK', '1.140.0'
-    # ARCore SDK for Cloud Anchors support on iOS
+    # ARCore SDK for Cloud Anchors and Geospatial support on iOS
     # Requires Google Cloud API key in Info.plist
     pod 'ARCore/CloudAnchors', '~> 1.51.0'
+    pod 'ARCore/Geospatial', '~> 1.51.0'
 end
 
 target 'ViroSample' do
