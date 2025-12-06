@@ -757,6 +757,75 @@ namespace arcore {
         }
     }
 
+    ImageRetrievalStatus FrameNative::acquireSemanticImage(Image **outImage) {
+        // Check if semantic image acquisition is available in the ARCore C API
+        // ArFrame_acquireSemanticImage was added in ARCore 1.40+
+        #if defined(AR_SEMANTIC_LABEL_SKY)
+        ArImage *arImage = nullptr;
+        ArStatus status = ArFrame_acquireSemanticImage(_session, _frame, &arImage);
+
+        if (status == AR_ERROR_INVALID_ARGUMENT) {
+            return ImageRetrievalStatus::InvalidArgument;
+        } else if (status == AR_ERROR_DEADLINE_EXCEEDED) {
+            return ImageRetrievalStatus::DeadlineExceeded;
+        } else if (status == AR_ERROR_RESOURCE_EXHAUSTED) {
+            return ImageRetrievalStatus::ResourceExhausted;
+        } else if (status == AR_ERROR_NOT_YET_AVAILABLE) {
+            return ImageRetrievalStatus::NotYetAvailable;
+        } else if (status == AR_SUCCESS && arImage != nullptr) {
+            *outImage = new ImageNative(arImage, _session);
+            return ImageRetrievalStatus::Success;
+        } else {
+            return ImageRetrievalStatus::UnknownError;
+        }
+        #else
+        // ARCore version does not support semantic image acquisition
+        return ImageRetrievalStatus::NotYetAvailable;
+        #endif
+    }
+
+    ImageRetrievalStatus FrameNative::acquireSemanticConfidenceImage(Image **outImage) {
+        // Check if semantic confidence image acquisition is available in the ARCore C API
+        #if defined(AR_SEMANTIC_LABEL_SKY)
+        ArImage *arImage = nullptr;
+        ArStatus status = ArFrame_acquireSemanticConfidenceImage(_session, _frame, &arImage);
+
+        if (status == AR_ERROR_INVALID_ARGUMENT) {
+            return ImageRetrievalStatus::InvalidArgument;
+        } else if (status == AR_ERROR_DEADLINE_EXCEEDED) {
+            return ImageRetrievalStatus::DeadlineExceeded;
+        } else if (status == AR_ERROR_RESOURCE_EXHAUSTED) {
+            return ImageRetrievalStatus::ResourceExhausted;
+        } else if (status == AR_ERROR_NOT_YET_AVAILABLE) {
+            return ImageRetrievalStatus::NotYetAvailable;
+        } else if (status == AR_SUCCESS && arImage != nullptr) {
+            *outImage = new ImageNative(arImage, _session);
+            return ImageRetrievalStatus::Success;
+        } else {
+            return ImageRetrievalStatus::UnknownError;
+        }
+        #else
+        // ARCore version does not support semantic confidence image acquisition
+        return ImageRetrievalStatus::NotYetAvailable;
+        #endif
+    }
+
+    float FrameNative::getSemanticLabelFraction(SemanticLabel label) {
+        // Check if semantic label fraction query is available in the ARCore C API
+        #if defined(AR_SEMANTIC_LABEL_SKY)
+        float fraction = 0.0f;
+        ArSemanticLabel arLabel = static_cast<ArSemanticLabel>(static_cast<int>(label));
+        ArStatus status = ArFrame_getSemanticLabelFraction(_session, _frame, arLabel, &fraction);
+        if (status == AR_SUCCESS) {
+            return fraction;
+        }
+        return 0.0f;
+        #else
+        // ARCore version does not support semantic label fraction query
+        return 0.0f;
+        #endif
+    }
+
 #pragma mark - PointCloud
 
     PointCloudNative::~PointCloudNative() {

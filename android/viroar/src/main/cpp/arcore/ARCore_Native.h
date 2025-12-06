@@ -181,6 +181,9 @@ namespace arcore {
         virtual ImageRetrievalStatus acquireCameraImage(Image **outImage);
         virtual ImageRetrievalStatus acquireDepthImage(Image **outImage);
         virtual ImageRetrievalStatus acquireDepthConfidenceImage(Image **outImage);
+        virtual ImageRetrievalStatus acquireSemanticImage(Image **outImage);
+        virtual ImageRetrievalStatus acquireSemanticConfidenceImage(Image **outImage);
+        virtual float getSemanticLabelFraction(SemanticLabel label);
 
         ArFrame *_frame;
         ArSession *_session;

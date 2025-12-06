@@ -734,6 +734,103 @@
 
 #endif // ARCORE_GEOSPATIAL_AVAILABLE
 
+// ========================================================================
+// Scene Semantics API Implementation
+// ========================================================================
+
+#if ARCORE_SEMANTICS_AVAILABLE
+
+#pragma mark - Scene Semantics API (with ARCoreSemantics SDK)
+
+- (BOOL)isSemanticModeSupported {
+    if (!_garSession) {
+        return NO;
+    }
+    // Check if the GARSession supports semantic mode
+    // This requires ARCore SDK 1.40+ with Semantics support
+    return [_garSession isSemanticModeSupported:GARSemanticModeEnabled];
+}
+
+- (void)setSemanticModeEnabled:(BOOL)enabled {
+    if (!_garSession) {
+        pwarn("[ViroAR] Cannot set semantic mode - GARSession not initialized");
+        return;
+    }
+
+    // Check if supported before enabling
+    if (enabled && ![self isSemanticModeSupported]) {
+        pwarn("[ViroAR] Scene Semantics is not supported on this device");
+        return;
+    }
+
+    GARSessionConfiguration *config = [[GARSessionConfiguration alloc] init];
+    config.cloudAnchorMode = GARCloudAnchorModeEnabled;
+    config.semanticMode = enabled ? GARSemanticModeEnabled : GARSemanticModeDisabled;
+
+#if ARCORE_GEOSPATIAL_AVAILABLE
+    // Preserve existing geospatial mode setting if available
+    config.geospatialMode = _geospatialModeEnabled ? GARGeospatialModeEnabled : GARGeospatialModeDisabled;
+#endif
+
+    NSError *error = nil;
+    [_garSession setConfiguration:config error:&error];
+
+    if (error) {
+        pwarn("[ViroAR] Failed to configure semantic mode: %s", [[error localizedDescription] UTF8String]);
+    } else {
+        pinfo("[ViroAR] Scene Semantics mode set to %s", enabled ? "ENABLED" : "DISABLED");
+    }
+}
+
+- (CVPixelBufferRef _Nullable)getSemanticImage {
+    if (!_currentGARFrame) {
+        return nil;
+    }
+    return _currentGARFrame.semanticImage;
+}
+
+- (CVPixelBufferRef _Nullable)getSemanticConfidenceImage {
+    if (!_currentGARFrame) {
+        return nil;
+    }
+    return _currentGARFrame.semanticConfidenceImage;
+}
+
+- (float)getSemanticLabelFraction:(NSInteger)label {
+    if (!_currentGARFrame) {
+        return 0.0f;
+    }
+
+    GARSemanticLabel garLabel = (GARSemanticLabel)label;
+    return [_currentGARFrame fractionForSemanticLabel:garLabel];
+}
+
+#else // ARCORE_SEMANTICS_AVAILABLE not defined
+
+#pragma mark - Scene Semantics stubs (no ARCoreSemantics SDK)
+
+- (BOOL)isSemanticModeSupported {
+    return NO;
+}
+
+- (void)setSemanticModeEnabled:(BOOL)enabled {
+    pwarn("[ViroAR] Scene Semantics requires ARCore/Semantics pod. Add to your Podfile: pod 'ARCore/Semantics', '~> 1.51.0'");
+}
+
+- (CVPixelBufferRef _Nullable)getSemanticImage {
+    return nil;
+}
+
+- (CVPixelBufferRef _Nullable)getSemanticConfidenceImage {
+    return nil;
+}
+
+- (float)getSemanticLabelFraction:(NSInteger)label {
+    return 0.0f;
+}
+
+#endif // ARCORE_SEMANTICS_AVAILABLE
+
 @end
 
 #else // ARCORE_AVAILABLE not defined
@@ -840,6 +937,27 @@
 
 - (void)removeGeospatialAnchor:(NSString *)anchorId {
     // No-op
+}
+
+// Scene Semantics stubs when ARCore SDK not available
+- (BOOL)isSemanticModeSupported {
+    return NO;
+}
+
+- (void)setSemanticModeEnabled:(BOOL)enabled {
+    // No-op when ARCore SDK not available
+}
+
+- (CVPixelBufferRef _Nullable)getSemanticImage {
+    return nil;
+}
+
+- (CVPixelBufferRef _Nullable)getSemanticConfidenceImage {
+    return nil;
+}
+
+- (float)getSemanticLabelFraction:(NSInteger)label {
+    return 0.0f;
 }
 
 @end

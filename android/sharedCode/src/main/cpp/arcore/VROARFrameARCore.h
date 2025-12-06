@@ -74,6 +74,16 @@ public:
     int getDepthImageHeight() const override;
 
     /*
+     * Scene Semantics methods.
+     */
+    bool hasSemanticData() const override;
+    VROSemanticImage getSemanticImage() override;
+    VROSemanticConfidenceImage getSemanticConfidenceImage() override;
+    float getSemanticLabelFraction(VROSemanticLabel label) override;
+    int getSemanticImageWidth() const override;
+    int getSemanticImageHeight() const override;
+
+    /*
      * Set the driver needed for texture creation.
      */
     void setDriver(std::shared_ptr<VRODriver> driver) {
@@ -99,10 +109,23 @@ private:
     int _depthHeight = 0;
     bool _depthDataAvailable = false;
 
+    // Cached semantic data (refreshed each frame)
+    mutable VROSemanticImage _semanticImage;
+    mutable VROSemanticConfidenceImage _semanticConfidenceImage;
+    mutable int _semanticWidth = 0;
+    mutable int _semanticHeight = 0;
+    mutable bool _semanticDataAvailable = false;
+    mutable bool _semanticDataChecked = false;
+
     /*
      * Internal method to acquire and convert depth data to texture.
      */
     void acquireDepthData();
+
+    /*
+     * Internal method to acquire semantic data from ARCore.
+     */
+    void acquireSemanticData() const;
 
 };
 

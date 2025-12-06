@@ -49,6 +49,14 @@
 #define ARCORE_GEOSPATIAL_AVAILABLE 0
 #endif
 
+// ARCore Semantics for Scene Semantics API (ML-based scene understanding)
+#if __has_include(<ARCoreSemantics/ARCoreSemantics.h>)
+#define ARCORE_SEMANTICS_AVAILABLE 1
+#import <ARCoreSemantics/ARCoreSemantics.h>
+#else
+#define ARCORE_SEMANTICS_AVAILABLE 0
+#endif
+
 #include <memory>
 #include <string>
 #include <functional>
@@ -205,6 +213,44 @@ API_AVAILABLE(ios(12.0))
  * @param anchorId The ID of the anchor to remove
  */
 - (void)removeGeospatialAnchor:(NSString *)anchorId;
+
+// ========================================================================
+// Scene Semantics API
+// ========================================================================
+
+/**
+ * Check if scene semantics mode is supported on this device.
+ * Requires ARCore SDK with Semantics support and compatible device.
+ */
+- (BOOL)isSemanticModeSupported;
+
+/**
+ * Enable or disable scene semantics mode.
+ * @param enabled YES to enable semantics, NO to disable
+ */
+- (void)setSemanticModeEnabled:(BOOL)enabled;
+
+/**
+ * Get the semantic image from the current frame.
+ * Returns nil if semantics is not enabled or data not yet available.
+ * The pixel buffer contains single-channel 8-bit data where each pixel
+ * is a semantic label (0-11).
+ */
+- (CVPixelBufferRef _Nullable)getSemanticImage;
+
+/**
+ * Get the semantic confidence image from the current frame.
+ * Returns nil if not available.
+ * The pixel buffer contains single-channel 8-bit confidence values (0-255).
+ */
+- (CVPixelBufferRef _Nullable)getSemanticConfidenceImage;
+
+/**
+ * Get the fraction of pixels with the specified semantic label.
+ * @param label The semantic label ID (0-11)
+ * @return Fraction in range [0.0, 1.0], or 0.0 if not available
+ */
+- (float)getSemanticLabelFraction:(NSInteger)label;
 
 @end
 

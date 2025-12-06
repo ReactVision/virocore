@@ -33,6 +33,7 @@
 #include "VROMatrix4f.h"
 #include "VROARImageDatabase.h"
 #include "VROGeospatial.h"
+#include "VROSemantics.h"
 
 class VROARAnchor;
 class VROGeospatialAnchor;
@@ -477,9 +478,51 @@ public:
         // Default implementation does nothing
     }
 
+    // ========================================================================
+    // Scene Semantics API
+    // ========================================================================
+
+    /*
+     * Set the delegate to receive semantic updates each frame.
+     */
+    virtual void setSemanticsDelegate(std::shared_ptr<VROSemanticsDelegate> delegate) {
+        _semanticsDelegate = delegate;
+    }
+
+    std::shared_ptr<VROSemanticsDelegate> getSemanticsDelegate() {
+        return _semanticsDelegate.lock();
+    }
+
+    /*
+     * Returns true if semantic mode is supported on this device.
+     * Scene semantics requires ARCore 1.40+ and specific device capabilities.
+     */
+    virtual bool isSemanticModeSupported() const {
+        return false;
+    }
+
+    /*
+     * Enable or disable semantic mode. When enabled, the session will
+     * provide semantic segmentation data for each frame.
+     *
+     * Note: Scene semantics is designed for outdoor scenes only and
+     * works best in portrait orientation.
+     */
+    virtual void setSemanticModeEnabled(bool enabled) {
+        _semanticModeEnabled = enabled;
+    }
+
+    /*
+     * Get whether semantic mode is currently enabled.
+     */
+    virtual bool isSemanticModeEnabled() const {
+        return _semanticModeEnabled;
+    }
+
 protected:
-    
+
     VROTrackingType _trackingType;
+    bool _semanticModeEnabled = false;
 
 private:
 
@@ -490,6 +533,7 @@ private:
     std::shared_ptr<VROScene> _scene;
     std::weak_ptr<VROARSessionDelegate> _delegate;
     std::weak_ptr<VROGeospatialDelegate> _geospatialDelegate;
+    std::weak_ptr<VROSemanticsDelegate> _semanticsDelegate;
 
 };
 

@@ -1248,6 +1248,45 @@ public class ARScene extends Scene {
         }
     }
 
+    // ========================================================================
+    // Scene Semantics API Methods
+    // ========================================================================
+
+    /**
+     * Check if Scene Semantics mode is supported on this device.
+     * Scene Semantics uses ML to classify each pixel in the camera feed
+     * into categories like sky, building, tree, road, etc.
+     *
+     * @return true if semantic mode is supported, false otherwise.
+     */
+    public boolean isSemanticModeSupported() {
+        return nativeIsSemanticModeSupported(mNativeRef);
+    }
+
+    /**
+     * Enable or disable Scene Semantics mode. When enabled, the session will
+     * process each frame to generate semantic labels for each pixel.
+     *
+     * @param enabled true to enable semantic mode, false to disable.
+     */
+    public void setSemanticModeEnabled(boolean enabled) {
+        nativeSetSemanticModeEnabled(mNativeRef, enabled);
+    }
+
+    /**
+     * Get the fraction of pixels in the current frame that belong to the
+     * specified semantic label.
+     *
+     * @param labelIndex The semantic label index (0-11):
+     *                   0=unlabeled, 1=sky, 2=building, 3=tree, 4=road,
+     *                   5=sidewalk, 6=terrain, 7=structure, 8=object,
+     *                   9=vehicle, 10=person, 11=water
+     * @return The fraction of pixels (0.0-1.0), or 0.0 if not available.
+     */
+    public float getSemanticLabelFraction(int labelIndex) {
+        return nativeGetSemanticLabelFraction(mNativeRef, labelIndex);
+    }
+
     private native long nativeCreateARSceneController();
     private native long nativeCreateARSceneControllerDeclarative();
     private native long nativeCreateARSceneDelegate(long sceneControllerRef);
@@ -1293,6 +1332,11 @@ public class ARScene extends Scene {
                                                    double latitude, double longitude, double altitudeAboveRooftop,
                                                    float qx, float qy, float qz, float qw);
     private native void nativeRemoveGeospatialAnchor(long sceneControllerRef, String anchorId);
+
+    // Scene Semantics API native methods
+    private native boolean nativeIsSemanticModeSupported(long sceneControllerRef);
+    private native void nativeSetSemanticModeEnabled(long sceneControllerRef, boolean enabled);
+    private native float nativeGetSemanticLabelFraction(long sceneControllerRef, int labelIndex);
 
     // Called by JNI
 

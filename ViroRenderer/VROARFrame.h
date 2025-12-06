@@ -29,6 +29,7 @@
 
 #include "VROARPointCloud.h"
 #include "VROMatrix4f.h"
+#include "VROSemantics.h"
 
 #include <memory>
 #include <vector>
@@ -158,6 +159,63 @@ public:
     virtual VROMatrix4f getDepthTextureTransform() const {
         return VROMatrix4f::identity();
     }
+
+    // ========================================================================
+    // Scene Semantics API
+    // ========================================================================
+
+    /*
+     * Check if semantic data is available for this frame.
+     * Returns true if semantic segmentation data can be retrieved.
+     */
+    virtual bool hasSemanticData() const { return false; }
+
+    /*
+     * Get the semantic image for this frame.
+     * Each pixel contains a label ID (0-11) corresponding to VROSemanticLabel.
+     * Returns an empty/invalid image if semantics is not enabled or data not yet available.
+     */
+    virtual VROSemanticImage getSemanticImage() { return VROSemanticImage(); }
+
+    /*
+     * Get the semantic confidence image for this frame.
+     * Each pixel contains a confidence value (0-255) for the semantic label.
+     * Higher values indicate higher confidence in the classification.
+     * Returns an empty/invalid image if not available.
+     */
+    virtual VROSemanticConfidenceImage getSemanticConfidenceImage() {
+        return VROSemanticConfidenceImage();
+    }
+
+    /*
+     * Get the fraction of pixels with the specified semantic label.
+     * Returns a value in [0.0, 1.0] representing the percentage of pixels
+     * classified with the given label, or 0.0 if not available.
+     */
+    virtual float getSemanticLabelFraction(VROSemanticLabel label) { return 0.0f; }
+
+    /*
+     * Get fractions for all semantic labels in the current frame.
+     * Returns a map of label to fraction (0.0-1.0).
+     */
+    virtual VROSemanticFractions getSemanticFractions() {
+        VROSemanticFractions fractions;
+        for (int i = 0; i < VRO_SEMANTIC_LABEL_COUNT; i++) {
+            VROSemanticLabel label = static_cast<VROSemanticLabel>(i);
+            fractions[label] = getSemanticLabelFraction(label);
+        }
+        return fractions;
+    }
+
+    /*
+     * Get the width of the semantic image in pixels.
+     */
+    virtual int getSemanticImageWidth() const { return 0; }
+
+    /*
+     * Get the height of the semantic image in pixels.
+     */
+    virtual int getSemanticImageHeight() const { return 0; }
 };
 
 #endif /* VROARFrame_h */

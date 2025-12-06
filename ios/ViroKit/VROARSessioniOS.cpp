@@ -1252,6 +1252,36 @@ void VROARSessioniOS::removeGeospatialAnchor(std::shared_ptr<VROGeospatialAnchor
   }
 }
 
+#pragma mark - Scene Semantics API
+
+bool VROARSessioniOS::isSemanticModeSupported() const {
+  // Scene Semantics on iOS requires ARCore Geospatial SDK with Semantics extension
+  // Check if the cloud anchor provider with semantics support is available
+  if (_cloudAnchorProviderARCore != nil) {
+    return [_cloudAnchorProviderARCore isSemanticModeSupported];
+  }
+  return false;
+}
+
+void VROARSessioniOS::setSemanticModeEnabled(bool enabled) {
+  _semanticModeEnabled = enabled;
+
+  if (_cloudAnchorProviderARCore != nil) {
+    // Check if semantic mode is supported before enabling
+    if (enabled && !isSemanticModeSupported()) {
+      pwarn("⚠️ Scene Semantics is not supported on this device, ignoring setSemanticModeEnabled(true)");
+      _semanticModeEnabled = false;
+      return;
+    }
+
+    [_cloudAnchorProviderARCore setSemanticModeEnabled:enabled];
+    pinfo("Scene Semantics mode set to %s", enabled ? "ENABLED" : "DISABLED");
+  } else if (enabled) {
+    pwarn("⚠️ Scene Semantics requires ARCore Geospatial provider to be configured");
+    _semanticModeEnabled = false;
+  }
+}
+
 #pragma mark - VROARKitSessionDelegate
 
 @interface VROARKitSessionDelegate ()

@@ -128,6 +128,10 @@ public:
                              std::function<void(std::string error)> onFailure) override;
     void removeGeospatialAnchor(std::shared_ptr<VROGeospatialAnchor> anchor) override;
 
+    // Scene Semantics API
+    bool isSemanticModeSupported() const override;
+    void setSemanticModeEnabled(bool enabled) override;
+
     /*
      Internal methods.
      */

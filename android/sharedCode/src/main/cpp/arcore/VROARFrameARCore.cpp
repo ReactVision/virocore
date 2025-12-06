@@ -415,3 +415,111 @@ int VROARFrameARCore::getDepthImageWidth() const {
 int VROARFrameARCore::getDepthImageHeight() const {
     return _depthHeight;
 }
+
+#pragma mark - Scene Semantics
+
+void VROARFrameARCore::acquireSemanticData() const {
+    // Only check once per frame
+    if (_semanticDataChecked) {
+        return;
+    }
+    _semanticDataChecked = true;
+
+    // Reset state
+    _semanticDataAvailable = false;
+    _semanticImage = VROSemanticImage();
+    _semanticConfidenceImage = VROSemanticConfidenceImage();
+    _semanticWidth = 0;
+    _semanticHeight = 0;
+
+    std::shared_ptr<VROARSessionARCore> session = _session.lock();
+    if (!session) {
+        return;
+    }
+
+    // Check if semantic mode is enabled
+    if (!session->isSemanticModeEnabled()) {
+        return;
+    }
+
+    // Try to acquire semantic image
+    arcore::Image *semanticImage = nullptr;
+    arcore::ImageRetrievalStatus status = _frame->acquireSemanticImage(&semanticImage);
+
+    if (status != arcore::ImageRetrievalStatus::Success || semanticImage == nullptr) {
+        // Semantic data not yet available (normal during first few frames)
+        return;
+    }
+
+    // Get image dimensions
+    _semanticWidth = semanticImage->getWidth();
+    _semanticHeight = semanticImage->getHeight();
+
+    if (_semanticWidth <= 0 || _semanticHeight <= 0) {
+        delete semanticImage;
+        return;
+    }
+
+    // Copy semantic label data
+    const uint8_t *data = nullptr;
+    int dataLength = 0;
+    semanticImage->getPlaneData(0, &data, &dataLength);
+
+    if (data != nullptr && dataLength > 0) {
+        _semanticImage.width = _semanticWidth;
+        _semanticImage.height = _semanticHeight;
+        _semanticImage.data.assign(data, data + dataLength);
+        _semanticDataAvailable = true;
+    }
+
+    delete semanticImage;
+
+    // Optionally acquire confidence image
+    arcore::Image *confidenceImage = nullptr;
+    status = _frame->acquireSemanticConfidenceImage(&confidenceImage);
+
+    if (status == arcore::ImageRetrievalStatus::Success && confidenceImage != nullptr) {
+        const uint8_t *confData = nullptr;
+        int confDataLength = 0;
+        confidenceImage->getPlaneData(0, &confData, &confDataLength);
+
+        if (confData != nullptr && confDataLength > 0) {
+            _semanticConfidenceImage.width = confidenceImage->getWidth();
+            _semanticConfidenceImage.height = confidenceImage->getHeight();
+            _semanticConfidenceImage.data.assign(confData, confData + confDataLength);
+        }
+
+        delete confidenceImage;
+    }
+}
+
+bool VROARFrameARCore::hasSemanticData() const {
+    acquireSemanticData();
+    return _semanticDataAvailable;
+}
+
+VROSemanticImage VROARFrameARCore::getSemanticImage() {
+    acquireSemanticData();
+    return _semanticImage;
+}
+
+VROSemanticConfidenceImage VROARFrameARCore::getSemanticConfidenceImage() {
+    acquireSemanticData();
+    return _semanticConfidenceImage;
+}
+
+float VROARFrameARCore::getSemanticLabelFraction(VROSemanticLabel label) {
+    // Query ARCore directly for fraction (more efficient than parsing image)
+    arcore::SemanticLabel arcoreLabel = static_cast<arcore::SemanticLabel>(static_cast<int>(label));
+    return _frame->getSemanticLabelFraction(arcoreLabel);
+}
+
+int VROARFrameARCore::getSemanticImageWidth() const {
+    acquireSemanticData();
+    return _semanticWidth;
+}
+
+int VROARFrameARCore::getSemanticImageHeight() const {
+    acquireSemanticData();
+    return _semanticHeight;
+}

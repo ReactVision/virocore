@@ -1522,7 +1522,7 @@ void VROARSessionARCore::createRooftopAnchor(double latitude, double longitude, 
 
 void VROARSessionARCore::removeGeospatialAnchor(std::shared_ptr<VROGeospatialAnchor> anchor) {
     if (!anchor) return;
-    
+
     std::shared_ptr<VROARAnchorARCore> foundAnchor = nullptr;
     for (std::shared_ptr<VROARAnchorARCore> vAnchor : _anchors) {
         if (vAnchor->getTrackable() == anchor) {
@@ -1530,12 +1530,51 @@ void VROARSessionARCore::removeGeospatialAnchor(std::shared_ptr<VROGeospatialAnc
             break;
         }
     }
-    
+
     if (foundAnchor) {
         // We must detach the native anchor first
         if (foundAnchor->getAnchorInternal()) {
             foundAnchor->getAnchorInternal()->detach();
         }
         removeAnchor(foundAnchor);
+    }
+}
+
+#pragma mark - Scene Semantics API
+
+bool VROARSessionARCore::isSemanticModeSupported() const {
+    if (!_session) return false;
+
+    // Check if ARCore supports semantic mode on this device
+    // This also validates that the ARCore version is 1.40+
+    return _session->isSemanticModeSupported(arcore::SemanticMode::Enabled);
+}
+
+void VROARSessionARCore::setSemanticModeEnabled(bool enabled) {
+    if (!_session) return;
+
+    arcore::SemanticMode newMode = enabled ? arcore::SemanticMode::Enabled : arcore::SemanticMode::Disabled;
+
+    // Avoid unnecessary reconfiguration if mode hasn't changed
+    if (_semanticMode == newMode) {
+        return;
+    }
+
+    // Check if semantic mode is supported before enabling
+    if (enabled && !isSemanticModeSupported()) {
+        pwarn("⚠️ Scene Semantics is not supported on this device, ignoring setSemanticModeEnabled(true)");
+        return;
+    }
+
+    _semanticMode = newMode;
+    _semanticModeEnabled = enabled;
+
+    if (updateARCoreConfig()) {
+        pinfo("Scene Semantics mode set to %s", enabled ? "ENABLED" : "DISABLED");
+    } else {
+        pwarn("⚠️ Failed to update ARCore config for Scene Semantics");
+        // Revert the state
+        _semanticMode = arcore::SemanticMode::Disabled;
+        _semanticModeEnabled = false;
     }
 }

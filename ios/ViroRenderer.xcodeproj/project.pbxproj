@@ -915,6 +915,7 @@
 		E188BC772EE37652000A427E /* VROCloudAnchorProviderARCore.h in Headers */ = {isa = PBXBuildFile; fileRef = E188BC762EE37652000A427E /* VROCloudAnchorProviderARCore.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		E19926002EE3B7E900328B9D /* VROGeospatial.h in Headers */ = {isa = PBXBuildFile; fileRef = E19925FF2EE3B7E900328B9D /* VROGeospatial.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		E19926022EE3B7F700328B9D /* VROGeospatialAnchor.h in Headers */ = {isa = PBXBuildFile; fileRef = E19926012EE3B7F700328B9D /* VROGeospatialAnchor.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		E1E71AAD2EE4B64E00CA1D20 /* VROSemantics.h in Headers */ = {isa = PBXBuildFile; fileRef = E1E71AAC2EE4B64E00CA1D20 /* VROSemantics.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		EAD7E32D2DFA518AEAAB48C2 /* BuildFile in Frameworks */ = {isa = PBXBuildFile; };
 /* End PBXBuildFile section */
 
@@ -1901,6 +1902,7 @@
 		E188BC762EE37652000A427E /* VROCloudAnchorProviderARCore.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VROCloudAnchorProviderARCore.h; sourceTree = "<group>"; };
 		E19925FF2EE3B7E900328B9D /* VROGeospatial.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VROGeospatial.h; sourceTree = "<group>"; };
 		E19926012EE3B7F700328B9D /* VROGeospatialAnchor.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VROGeospatialAnchor.h; sourceTree = "<group>"; };
+		E1E71AAC2EE4B64E00CA1D20 /* VROSemantics.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VROSemantics.h; sourceTree = "<group>"; };
 		EFE739A6468B94B79ECAD5E5 /* Pods-ViroSample.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-ViroSample.debug.xcconfig"; path = "Target Support Files/Pods-ViroSample/Pods-ViroSample.debug.xcconfig"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -2212,6 +2214,7 @@
 				8A2DA3AC1F8B2C0F001FC3BA /* VROInputControllerAR.cpp */,
 				8A2DA3AB1F8B2C0F001FC3BA /* VROInputPresenterAR.h */,
 				8F1F065D1EF06FBB006FC8C2 /* VROARSession.h */,
+				E1E71AAC2EE4B64E00CA1D20 /* VROSemantics.h */,
 				8F1F065A1EF06FBB006FC8C2 /* VROARFrame.h */,
 				8F1F06591EF06FBB006FC8C2 /* VROARCamera.h */,
 				8AE44C9B20214DAD00CE8394 /* VROARImageTarget.h */,
@@ -3294,7 +3297,6 @@
 				EFE739A6468B94B79ECAD5E5 /* Pods-ViroSample.debug.xcconfig */,
 				10F85F85854768DC3F2F2A35 /* Pods-ViroSample.release.xcconfig */,
 			);
-			name = Pods;
 			path = Pods;
 			sourceTree = "<group>";
 		};
@@ -3308,6 +3310,7 @@
 				A5B4AF0B20535D460006D970 /* VROPolygon.h in Headers */,
 				A5B433ED204E659A00E9EE53 /* VROFixedParticleEmitter.h in Headers */,
 				E19926022EE3B7F700328B9D /* VROGeospatialAnchor.h in Headers */,
+				E1E71AAD2EE4B64E00CA1D20 /* VROSemantics.h in Headers */,
 				E19926002EE3B7E900328B9D /* VROGeospatial.h in Headers */,
 				8FD2A5071F81276B00E831A6 /* VROPencil.h in Headers */,
 				E188BC772EE37652000A427E /* VROCloudAnchorProviderARCore.h in Headers */,
@@ -4137,10 +4140,12 @@
 			inputPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-ViroSample/Pods-ViroSample-resources.sh",
 				"${PODS_CONFIGURATION_BUILD_DIR}/ARCore/ARCoreResources.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/ARCore/ARCoreCoreMLSemanticsResources.bundle",
 			);
 			name = "[CP] Copy Pods Resources";
 			outputPaths = (
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/ARCoreResources.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/ARCoreCoreMLSemanticsResources.bundle",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -4170,10 +4175,12 @@
 			inputPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-ViroKit/Pods-ViroKit-resources.sh",
 				"${PODS_CONFIGURATION_BUILD_DIR}/ARCore/ARCoreResources.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/ARCore/ARCoreCoreMLSemanticsResources.bundle",
 			);
 			name = "[CP] Copy Pods Resources";
 			outputPaths = (
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/ARCoreResources.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/ARCoreCoreMLSemanticsResources.bundle",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;

@@ -160,6 +160,29 @@ namespace arcore {
         Enabled
     };
 
+    /*
+     * Semantic labels for scene understanding.
+     * These labels classify pixels in outdoor scenes into semantic categories.
+     * Values match ARCore's ArSemanticLabel enum.
+     */
+    enum class SemanticLabel {
+        Unlabeled = 0,   // Pixel could not be classified
+        Sky = 1,         // Sky regions
+        Building = 2,    // Building structures
+        Tree = 3,        // Trees and large vegetation
+        Road = 4,        // Road surfaces
+        Sidewalk = 5,    // Pedestrian sidewalks
+        Terrain = 6,     // Natural terrain/ground
+        Structure = 7,   // General man-made structures
+        Object = 8,      // Generic objects
+        Vehicle = 9,     // Vehicles (cars, trucks, etc.)
+        Person = 10,     // Human figures
+        Water = 11       // Water bodies
+    };
+
+    // Total number of semantic labels
+    static const int SEMANTIC_LABEL_COUNT = 12;
+
     enum class GeospatialMode {
         Disabled,
         Enabled
@@ -324,6 +347,32 @@ namespace arcore {
          * Caller must delete the returned Image when done.
          */
         virtual ImageRetrievalStatus acquireDepthConfidenceImage(Image **outImage) = 0;
+
+        /*
+         * Acquire the semantic image for this frame.
+         * Returns Success if semantic image was acquired, otherwise returns an error status.
+         * The semantic image contains 8-bit unsigned integers representing semantic labels (0-11).
+         * Each pixel value corresponds to a SemanticLabel enum value.
+         * Caller must delete the returned Image when done.
+         */
+        virtual ImageRetrievalStatus acquireSemanticImage(Image **outImage) = 0;
+
+        /*
+         * Acquire the semantic confidence image for this frame.
+         * Returns Success if confidence image was acquired, otherwise returns an error status.
+         * The confidence image contains 8-bit unsigned integers (0-255) representing
+         * the confidence of the semantic label for each pixel.
+         * Caller must delete the returned Image when done.
+         */
+        virtual ImageRetrievalStatus acquireSemanticConfidenceImage(Image **outImage) = 0;
+
+        /*
+         * Get the fraction of pixels with the specified semantic label.
+         * Returns a value in the range [0.0, 1.0] representing the percentage
+         * of pixels classified with the given label.
+         * Returns 0.0 if semantic data is not available.
+         */
+        virtual float getSemanticLabelFraction(SemanticLabel label) = 0;
     };
 
     class PointCloud {

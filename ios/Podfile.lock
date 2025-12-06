@@ -12,6 +12,11 @@ PODS:
     - nanopb (< 3.30911.0, >= 3.30908.0)
   - ARCore/Geospatial (1.51.0):
     - ARCore/GARSession (~> 1.51)
+  - ARCore/Semantics (1.51.0):
+    - ARCore/GARSession (~> 1.51)
+    - ARCore/TFShared (~> 1.51)
+  - ARCore/TFShared (1.51.0):
+    - ARCore/Base (~> 1.51)
   - Firebase/CoreOnly (11.15.0):
     - FirebaseCore (~> 11.15.0)
   - Firebase/RemoteConfig (11.15.0):
@@ -66,6 +71,7 @@ PODS:
 DEPENDENCIES:
   - ARCore/CloudAnchors (~> 1.51.0)
   - ARCore/Geospatial (~> 1.51.0)
+  - ARCore/Semantics (~> 1.51.0)
   - GVRAudioSDK (= 1.140.0)
 
 SPEC REPOS:
@@ -103,6 +109,6 @@ SPEC CHECKSUMS:
   nanopb: fad817b59e0457d11a5dfbde799381cd727c1275
   PromisesObjC: f5707f49cb48b9636751c5b2e7d227e43fba9f47
 
-PODFILE CHECKSUM: 57825abb408d480c75a350a5cd1bd8783e20cdfd
+PODFILE CHECKSUM: 209a072bc18b67c05a44ce55b307315731b32c45
 
 COCOAPODS: 1.16.2
