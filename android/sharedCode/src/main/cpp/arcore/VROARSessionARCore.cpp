@@ -69,12 +69,6 @@ VROARSessionARCore::VROARSessionARCore(std::shared_ptr<VRODriverOpenGL> driver)
   _session = nullptr;
   _frame = nullptr;
   _frameCount = 0;
-
-  // Sync occlusion mode with depth mode default
-  // Since depth mode defaults to Automatic, enable occlusion by default
-  if (_depthMode == arcore::DepthMode::Automatic) {
-    VROARSession::setOcclusionMode(VROOcclusionMode::DepthBased);
-  }
 }
 
 void VROARSessionARCore::setARCoreSession(
@@ -185,11 +179,6 @@ void VROARSessionARCore::resetSession(bool resetTracking, bool removeAnchors) {
 
 bool VROARSessionARCore::setAnchorDetection(
     std::set<VROAnchorDetection> types) {
-  // DEBUG LOGGING - START
-  pinfo("=== VROARSessionARCore::setAnchorDetection called ===");
-  pinfo("  Input types count: %d", (int)types.size());
-  // DEBUG LOGGING - END
-
   std::set<VROAnchorDetection>::iterator it;
 
   bool planesHorizontal = false;
@@ -197,34 +186,24 @@ bool VROARSessionARCore::setAnchorDetection(
 
   for (it = types.begin(); it != types.end(); it++) {
     VROAnchorDetection type = *it;
-    pinfo("  Processing type: %d", (int)type); // DEBUG
     switch (type) {
     case VROAnchorDetection::PlanesHorizontal:
       planesHorizontal = true;
-      pinfo("    -> Set planesHorizontal = true"); // DEBUG
       break;
     case VROAnchorDetection::PlanesVertical:
       planesVertical = true;
-      pinfo("    -> Set planesVertical = true"); // DEBUG
       break;
     }
   }
 
-  pinfo("  Final: planesHorizontal=%d, planesVertical=%d", planesHorizontal,
-        planesVertical); // DEBUG
-
   arcore::PlaneFindingMode newMode;
   if (planesHorizontal && planesVertical) {
-    pinfo("  Setting mode: HorizontalAndVertical"); // DEBUG
     newMode = arcore::PlaneFindingMode::HorizontalAndVertical;
   } else if (planesHorizontal) {
-    pinfo("  Setting mode: Horizontal ONLY"); // DEBUG
     newMode = arcore::PlaneFindingMode::Horizontal;
   } else if (planesVertical) {
-    pinfo("  Setting mode: Vertical ONLY"); // DEBUG
     newMode = arcore::PlaneFindingMode::Vertical;
   } else {
-    pinfo("  Setting mode: DISABLED"); // DEBUG
     newMode = arcore::PlaneFindingMode::Disabled;
   }
 
@@ -333,9 +312,6 @@ bool VROARSessionARCore::updateARCoreConfig() {
     }
   }
 
-  pinfo("updateARCoreConfig: Creating config with semanticMode=%d (0=Disabled, 1=Enabled), effectiveSemanticMode=%d",
-        (int)_semanticMode, (int)effectiveSemanticMode);
-
   arcore::Config *config =
       _session->createConfig(_lightingMode, _planeFindingMode, _updateMode,
                              _cloudAnchorMode, _focusMode, effectiveDepthMode, effectiveSemanticMode, effectiveGeospatialMode);
@@ -352,7 +328,6 @@ bool VROARSessionARCore::updateARCoreConfig() {
   delete (config);
 
   if (status == arcore::ConfigStatus::Success) {
-    pinfo("updateARCoreConfig: Configuration successful");
     _session->resume();
     return true;
   } else {
@@ -1604,14 +1579,7 @@ void VROARSessionARCore::setSemanticModeEnabled(bool enabled) {
 }
 
 void VROARSessionARCore::updateDepthTexture() {
-    // Limit log frequency to avoid spam
-    static int logCounter = 0;
-    if (logCounter++ % 60 == 0) {
-        pinfo("VROARSessionARCore::updateDepthTexture called (sampled)");
-    }
-
     if (!isDepthModeEnabled()) {
-        // pinfo("VROARSessionARCore: Depth mode disabled, skipping update");
         return;
     }
 
@@ -1668,12 +1636,6 @@ void VROARSessionARCore::updateDepthTexture() {
         for (int i = 0; i < numPixels; i++) {
             floatData[i] = (float)depthData16[i] * 0.001f; // mm to meters
         }
-    }
-
-    // DEBUG: Log center depth value
-    if (numPixels > 0) {
-        int centerIdx = (height / 2) * width + (width / 2);
-        // pinfo("VROARSessionARCore: Depth update. Center val: %f, Width: %d, Height: %d", floatData[centerIdx], width, height);
     }
 
     // If texture doesn't exist, create it
