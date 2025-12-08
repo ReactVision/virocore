@@ -28,6 +28,8 @@
 #include "VROARAnchor.h"
 #include "VROGeospatialAnchor.h"
 #include "VROARHitTestResult.h"
+#include "VROTextureSubstrateOpenGL.h"
+#include "VRODriverOpenGL.h"
 #include "VROARImageTargetAndroid.h"
 #include "VROARPlaneAnchor.h"
 #include "VROCameraTexture.h"
@@ -61,11 +63,18 @@ VROARSessionARCore::VROARSessionARCore(std::shared_ptr<VRODriverOpenGL> driver)
       _geospatialMode(arcore::GeospatialMode::Disabled),
       _cameraTextureId(0),
       _displayRotation(VROARDisplayRotation::R0), _rotatedImageDataLength(0),
-      _rotatedImageData(nullptr) {
+      _rotatedImageData(nullptr),
+      _driver(driver) {
 
   _session = nullptr;
   _frame = nullptr;
   _frameCount = 0;
+
+  // Sync occlusion mode with depth mode default
+  // Since depth mode defaults to Automatic, enable occlusion by default
+  if (_depthMode == arcore::DepthMode::Automatic) {
+    VROARSession::setOcclusionMode(VROOcclusionMode::DepthBased);
+  }
 }
 
 void VROARSessionARCore::setARCoreSession(
@@ -717,7 +726,9 @@ std::unique_ptr<VROARFrame> &VROARSessionARCore::updateFrame() {
       std::make_unique<VROARFrameARCore>(_frame, _viewport, shared_from_this());
 
   VROARFrameARCore *arFrame = (VROARFrameARCore *)_currentFrame.get();
+  arFrame->setDriver(_driver.lock());
   processUpdatedAnchors(arFrame);
+  updateDepthTexture();
 
   return _currentFrame;
 }
@@ -1590,4 +1601,125 @@ void VROARSessionARCore::setSemanticModeEnabled(bool enabled) {
         _semanticMode = arcore::SemanticMode::Disabled;
         _semanticModeEnabled = false;
     }
+}
+
+void VROARSessionARCore::updateDepthTexture() {
+    // Limit log frequency to avoid spam
+    static int logCounter = 0;
+    if (logCounter++ % 60 == 0) {
+        pinfo("VROARSessionARCore::updateDepthTexture called (sampled)");
+    }
+
+    if (!isDepthModeEnabled()) {
+        // pinfo("VROARSessionARCore: Depth mode disabled, skipping update");
+        return;
+    }
+
+    // Acquire depth image from ARCore
+    arcore::Image *depthImage = nullptr;
+    arcore::ImageRetrievalStatus status = _frame->acquireDepthImage(&depthImage);
+
+    if (status != arcore::ImageRetrievalStatus::Success || depthImage == nullptr) {
+        // pwarn("VROARSessionARCore: Failed to acquire depth image. Status: %d", (int)status);
+        return;
+    }
+
+    int width = depthImage->getWidth();
+    int height = depthImage->getHeight();
+
+    if (width <= 0 || height <= 0) {
+        pwarn("VROARSessionARCore: Invalid depth image dimensions: %d x %d", width, height);
+        delete depthImage;
+        return;
+    }
+
+    // Get depth data (16-bit depth in millimeters)
+    const uint8_t *depthData = nullptr;
+    int depthDataLength = 0;
+    depthImage->getPlaneData(0, &depthData, &depthDataLength);
+
+    int rowStride = depthImage->getPlaneRowStride(0);
+
+    if (depthData == nullptr || depthDataLength <= 0) {
+        pwarn("VROARSessionARCore: Invalid depth data. Length: %d", depthDataLength);
+        delete depthImage;
+        return;
+    }
+
+    // Convert to float buffer
+    int numPixels = width * height;
+    if (_depthFloatBuffer.size() != numPixels) {
+        _depthFloatBuffer.resize(numPixels);
+    }
+
+    float *floatData = _depthFloatBuffer.data();
+    
+    // Handle row stride (padding)
+    if (rowStride > 0 && rowStride != width * 2) {
+        for (int y = 0; y < height; y++) {
+            const uint16_t *rowStart = reinterpret_cast<const uint16_t*>(depthData + y * rowStride);
+            for (int x = 0; x < width; x++) {
+                floatData[y * width + x] = (float)rowStart[x] * 0.001f;
+            }
+        }
+    } else {
+        // Optimized loop: direct pointer access (packed)
+        const uint16_t *depthData16 = reinterpret_cast<const uint16_t*>(depthData);
+        for (int i = 0; i < numPixels; i++) {
+            floatData[i] = (float)depthData16[i] * 0.001f; // mm to meters
+        }
+    }
+
+    // DEBUG: Log center depth value
+    if (numPixels > 0) {
+        int centerIdx = (height / 2) * width + (width / 2);
+        // pinfo("VROARSessionARCore: Depth update. Center val: %f, Width: %d, Height: %d", floatData[centerIdx], width, height);
+    }
+
+    // If texture doesn't exist, create it
+    if (!_depthTexture || _depthTexture->getWidth() != width || _depthTexture->getHeight() != height) {
+        pinfo("VROARSessionARCore: Creating new depth texture (size %d x %d)", width, height);
+        std::shared_ptr<VROData> depthVROData = std::make_shared<VROData>(
+            (void *)floatData, numPixels * sizeof(float), VRODataOwnership::Copy);
+        std::vector<std::shared_ptr<VROData>> dataVec = { depthVROData };
+
+        _depthTexture = std::make_shared<VROTexture>(VROTextureType::Texture2D,
+                                                      VROTextureFormat::R32F,
+                                                      VROTextureInternalFormat::R32F,
+                                                      false,
+                                                      VROMipmapMode::None,
+                                                      dataVec,
+                                                      width, height,
+                                                      std::vector<uint32_t>());
+        
+        _depthTexture->setMinificationFilter(VROFilterMode::Nearest);
+        _depthTexture->setMagnificationFilter(VROFilterMode::Nearest);
+        // Use Clamp which maps to GL_CLAMP_TO_EDGE for OpenGL ES compatibility
+        _depthTexture->setWrapS(VROWrapMode::Clamp);
+        _depthTexture->setWrapT(VROWrapMode::Clamp);
+    } else {
+        // Update existing texture
+        std::shared_ptr<VRODriver> driver = _driver.lock();
+        if (driver) {
+            VROTextureSubstrate *substrate = _depthTexture->getSubstrate(0, driver, true);
+            if (substrate) {
+                // We need to cast to OpenGL substrate to access GL ID, or use a generic update method if available.
+                // Since we are in VROARSessionARCore (Android specific), we can assume OpenGL.
+                VROTextureSubstrateOpenGL *glSubstrate = (VROTextureSubstrateOpenGL *)substrate;
+                std::pair<GLenum, GLuint> textureInfo = glSubstrate->getTexture();
+                GLenum target = textureInfo.first;
+                GLuint texId = textureInfo.second;
+                
+                glBindTexture(target, texId);
+                glTexSubImage2D(target, 0, 0, 0, width, height, GL_RED, GL_FLOAT, floatData);
+                glBindTexture(target, 0);
+            } else {
+                pwarn("VROARSessionARCore: Failed to get substrate for depth texture update");
+            }
+        } else {
+            pwarn("VROARSessionARCore: Driver expired, cannot update depth texture");
+        }
+    }
+
+    delete depthImage;
 }

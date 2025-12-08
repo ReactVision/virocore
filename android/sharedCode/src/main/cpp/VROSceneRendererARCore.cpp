@@ -228,6 +228,12 @@ void VROSceneRendererARCore::renderWithTracking(const std::shared_ptr<VROARCamer
     if (occlusionMode != VROOcclusionMode::Disabled && frame->hasDepthData()) {
         depthTexture = frame->getDepthTexture();
 
+        // Ensure the depth texture is uploaded to GPU before rendering
+        // This is critical - without this, the texture exists but contains no data on GPU
+        if (depthTexture && !depthTexture->isHydrated()) {
+            depthTexture->prewarm(_driver);
+        }
+
         // Calculate the transform from Screen UV to Depth Texture UV
         // We use the background texture coordinates which match the camera image orientation
         VROVector3f BL, BR, TL, TR;
@@ -242,7 +248,7 @@ void VROSceneRendererARCore::renderWithTracking(const std::shared_ptr<VROARCamer
         m[1] = TR.y - TL.y;  m[5] = BL.y - TL.y;  m[9] = 0;  m[13] = TL.y;
         m[2] = 0;            m[6] = 0;            m[10]= 1;  m[14] = 0;
         m[3] = 0;            m[7] = 0;            m[11]= 0;  m[15] = 1;
-        
+
         depthTransform = VROMatrix4f(m);
     }
 

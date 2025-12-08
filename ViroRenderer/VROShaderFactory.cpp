@@ -1182,8 +1182,8 @@ std::shared_ptr<VROShaderModifier> VROShaderFactory::createOcclusionDepthModifie
      already has the correct texture coordinate transform applied.
      */
     std::vector<std::string> modifierCode = {
-        // Request the ar_depth_texture sampler via marker
-        "// @sampler ar_depth_texture",
+        // Use the AO map sampler which is bound to the depth texture by VROSceneRendererARCore
+        "uniform sampler2D ao_map;",
 
         // Near and far planes - passed as uniforms for dynamic projection matching
         "uniform highp float occlusion_z_near;",
@@ -1191,7 +1191,7 @@ std::shared_ptr<VROShaderModifier> VROShaderFactory::createOcclusionDepthModifie
 
         // Sample real-world depth in meters from the depth texture
         // Use diffuse_texcoord directly - it's already transformed for camera orientation
-        "highp float z = texture(ar_depth_texture, _surface.diffuse_texcoord).r;",
+        "highp float z = texture(ao_map, _surface.diffuse_texcoord).r;",
 
         // Use the uniform values for near/far planes
         "highp float n = occlusion_z_near;",
@@ -1212,6 +1212,18 @@ std::shared_ptr<VROShaderModifier> VROShaderFactory::createOcclusionDepthModifie
     std::shared_ptr<VROShaderModifier> modifier = std::make_shared<VROShaderModifier>(
         VROShaderEntryPoint::Fragment, modifierCode);
     modifier->setName("occlusion_depth");
+
+    modifier->setUniformBinder("occlusion_z_near", VROShaderProperty::Float,
+        [](VROUniform *uniform,
+           const VROGeometry *geometry, const VROMaterial *material) {
+            uniform->setFloat(0.1f);
+        });
+
+    modifier->setUniformBinder("occlusion_z_far", VROShaderProperty::Float,
+        [](VROUniform *uniform,
+           const VROGeometry *geometry, const VROMaterial *material) {
+            uniform->setFloat(100.0f);
+        });
 
     return modifier;
 }

@@ -77,6 +77,9 @@ public:
     void setAutofocus(bool enabled);
     bool isCameraAutoFocusEnabled();
 
+    bool isDepthModeEnabled() const { return _depthMode != arcore::DepthMode::Disabled; }
+    bool isSemanticModeEnabled() const { return _semanticMode != arcore::SemanticMode::Disabled; }
+
     /*
      This function loads the ARCore AugmentedImageDatabase from the given database by overwriting
      the existing one and then adding any individually added targets (from addARImageTarget).
@@ -328,6 +331,21 @@ private:
      */
     int _rotatedImageDataLength;
     uint8_t *_rotatedImageData;
+
+    /*
+     Driver used for creating textures.
+     */
+    std::weak_ptr<VRODriverOpenGL> _driver;
+
+    /*
+     Depth texture management.
+     */
+    std::shared_ptr<VROTexture> _depthTexture;
+    std::vector<float> _depthFloatBuffer; // Reusable buffer for depth conversion
+    void updateDepthTexture();
+
+public:
+    std::shared_ptr<VROTexture> getDepthTexture() { return _depthTexture; }
 
 };
 

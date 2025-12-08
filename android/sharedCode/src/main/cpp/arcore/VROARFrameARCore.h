@@ -112,11 +112,7 @@ private:
     std::weak_ptr<VRODriver> _driver;
 
     // Cached depth texture (refreshed each frame)
-    mutable std::shared_ptr<VROTexture> _depthTexture;
     mutable std::shared_ptr<VROTexture> _depthConfidenceTexture;
-    mutable int _depthWidth = 0;
-    mutable int _depthHeight = 0;
-    mutable bool _depthDataAvailable = false;
     mutable bool _depthDataChecked = false;
 
     // Cached semantic data (refreshed each frame)

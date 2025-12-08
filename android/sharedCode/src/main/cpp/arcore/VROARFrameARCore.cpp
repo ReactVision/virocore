@@ -315,122 +315,43 @@ std::shared_ptr<VROARPointCloud> VROARFrameARCore::getPointCloud() {
 #pragma mark - Depth Data
 
 void VROARFrameARCore::acquireDepthData() const {
-    // Only check once per frame
-    if (_depthDataChecked) {
-        return;
-    }
-    _depthDataChecked = true;
-
-    // Reset state
-    _depthDataAvailable = false;
-    _depthTexture = nullptr;
-    _depthConfidenceTexture = nullptr;
-    _depthWidth = 0;
-    _depthHeight = 0;
-
-    std::shared_ptr<VROARSessionARCore> session = _session.lock();
-    if (!session) {
-        return;
-    }
-    
-    // Check if depth mode is enabled
-    if (!session->isDepthModeEnabled()) {
-        return;
-    }
-
-    std::shared_ptr<VROARSessionARCore> session = _session.lock();
-    std::shared_ptr<VRODriver> driver = _driver.lock();
-    if (!session || !driver) {
-        return;
-    }
-
-    // Acquire depth image from ARCore
-    arcore::Image *depthImage = nullptr;
-    arcore::ImageRetrievalStatus status = _frame->acquireDepthImage(&depthImage);
-
-    if (status != arcore::ImageRetrievalStatus::Success || depthImage == nullptr) {
-        // Depth not available for this frame
-        return;
-    }
-
-    // Get depth image dimensions
-    _depthWidth = depthImage->getWidth();
-    _depthHeight = depthImage->getHeight();
-
-    if (_depthWidth <= 0 || _depthHeight <= 0) {
-        delete depthImage;
-        return;
-    }
-
-    // Get depth data (16-bit depth in millimeters)
-    const uint8_t *depthData = nullptr;
-    int depthDataLength = 0;
-    depthImage->getPlaneData(0, &depthData, &depthDataLength);
-
-    if (depthData == nullptr || depthDataLength <= 0) {
-        delete depthImage;
-        return;
-    }
-
-    // Create depth texture from the raw data
-    // ARCore provides depth as 16-bit unsigned integers in millimeters
-    // Convert to 32-bit float (in meters) for consistency with iOS and shader usage
-    int numPixels = _depthWidth * _depthHeight;
-    std::vector<float> floatDepthData(numPixels);
-
-    const uint16_t *depthData16 = reinterpret_cast<const uint16_t*>(depthData);
-    for (int i = 0; i < numPixels; i++) {
-        // Convert from millimeters (uint16) to meters (float)
-        floatDepthData[i] = static_cast<float>(depthData16[i]) / 1000.0f;
-    }
-
-    // Create VROData from the float depth data
-    std::shared_ptr<VROData> depthVROData = std::make_shared<VROData>(
-        floatDepthData.data(),
-        floatDepthData.size() * sizeof(float),
-        VRODataOwnership::Copy);
-    std::vector<std::shared_ptr<VROData>> dataVec = { depthVROData };
-
-    // Create the depth texture using R32F format
-    _depthTexture = std::make_shared<VROTexture>(VROTextureType::Texture2D,
-                                                  VROTextureFormat::R32F,
-                                                  VROTextureInternalFormat::R32F,
-                                                  false, // not sRGB
-                                                  VROMipmapMode::None,
-                                                  dataVec,
-                                                  _depthWidth, _depthHeight,
-                                                  std::vector<uint32_t>());
-
-    _depthDataAvailable = true;
-
-    // Clean up
-    delete depthImage;
-
-    pinfo("VROARFrameARCore: Acquired depth data %dx%d", _depthWidth, _depthHeight);
+    // Deprecated: Depth data is now managed by VROARSessionARCore
 }
 
 std::shared_ptr<VROTexture> VROARFrameARCore::getDepthTexture() {
-    acquireDepthData();
-    return _depthTexture;
+    std::shared_ptr<VROARSessionARCore> session = _session.lock();
+    if (session) {
+        return session->getDepthTexture();
+    }
+    return nullptr;
 }
 
 std::shared_ptr<VROTexture> VROARFrameARCore::getDepthConfidenceTexture() {
-    // Confidence texture acquisition can be implemented similarly
-    // For now, return nullptr as it's optional
-    return _depthConfidenceTexture;
+    return nullptr;
 }
 
 bool VROARFrameARCore::hasDepthData() const {
-    acquireDepthData();
-    return _depthDataAvailable;
+    std::shared_ptr<VROARSessionARCore> session = _session.lock();
+    if (session) {
+        return session->getDepthTexture() != nullptr;
+    }
+    return false;
 }
 
 int VROARFrameARCore::getDepthImageWidth() const {
-    return _depthWidth;
+    std::shared_ptr<VROARSessionARCore> session = _session.lock();
+    if (session && session->getDepthTexture()) {
+        return session->getDepthTexture()->getWidth();
+    }
+    return 0;
 }
 
 int VROARFrameARCore::getDepthImageHeight() const {
-    return _depthHeight;
+    std::shared_ptr<VROARSessionARCore> session = _session.lock();
+    if (session && session->getDepthTexture()) {
+        return session->getDepthTexture()->getHeight();
+    }
+    return 0;
 }
 
 #pragma mark - Scene Semantics
