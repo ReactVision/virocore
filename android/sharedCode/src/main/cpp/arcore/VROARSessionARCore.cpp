@@ -57,7 +57,7 @@ VROARSessionARCore::VROARSessionARCore(std::shared_ptr<VRODriverOpenGL> driver)
       _cloudAnchorMode(arcore::CloudAnchorMode::Enabled),
       _focusMode(arcore::FocusMode::FIXED_FOCUS),
       _depthMode(arcore::DepthMode::Automatic),
-      _semanticMode(arcore::SemanticMode::Enabled),
+      _semanticMode(arcore::SemanticMode::Disabled),
       _geospatialMode(arcore::GeospatialMode::Disabled),
       _cameraTextureId(0),
       _displayRotation(VROARDisplayRotation::R0), _rotatedImageDataLength(0),
@@ -324,6 +324,9 @@ bool VROARSessionARCore::updateARCoreConfig() {
     }
   }
 
+  pinfo("updateARCoreConfig: Creating config with semanticMode=%d (0=Disabled, 1=Enabled), effectiveSemanticMode=%d",
+        (int)_semanticMode, (int)effectiveSemanticMode);
+
   arcore::Config *config =
       _session->createConfig(_lightingMode, _planeFindingMode, _updateMode,
                              _cloudAnchorMode, _focusMode, effectiveDepthMode, effectiveSemanticMode, effectiveGeospatialMode);
@@ -340,6 +343,7 @@ bool VROARSessionARCore::updateARCoreConfig() {
   delete (config);
 
   if (status == arcore::ConfigStatus::Success) {
+    pinfo("updateARCoreConfig: Configuration successful");
     _session->resume();
     return true;
   } else {
@@ -1551,12 +1555,20 @@ bool VROARSessionARCore::isSemanticModeSupported() const {
 }
 
 void VROARSessionARCore::setSemanticModeEnabled(bool enabled) {
-    if (!_session) return;
+    pinfo("setSemanticModeEnabled called with enabled=%s (current: _semanticMode=%d, _semanticModeEnabled=%s)",
+          enabled ? "true" : "false", (int)_semanticMode, _semanticModeEnabled ? "true" : "false");
+
+    if (!_session) {
+        pwarn("setSemanticModeEnabled: No session, returning early");
+        return;
+    }
 
     arcore::SemanticMode newMode = enabled ? arcore::SemanticMode::Enabled : arcore::SemanticMode::Disabled;
 
     // Avoid unnecessary reconfiguration if mode hasn't changed
-    if (_semanticMode == newMode) {
+    // Check both the ARCore mode AND the enabled flag to handle initialization properly
+    if (_semanticMode == newMode && _semanticModeEnabled == enabled) {
+        pinfo("setSemanticModeEnabled: Mode unchanged, returning early");
         return;
     }
 
@@ -1568,6 +1580,7 @@ void VROARSessionARCore::setSemanticModeEnabled(bool enabled) {
 
     _semanticMode = newMode;
     _semanticModeEnabled = enabled;
+    pinfo("setSemanticModeEnabled: About to call updateARCoreConfig with _semanticMode=%d", (int)_semanticMode);
 
     if (updateARCoreConfig()) {
         pinfo("Scene Semantics mode set to %s", enabled ? "ENABLED" : "DISABLED");

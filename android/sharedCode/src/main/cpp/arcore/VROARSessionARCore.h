@@ -241,6 +241,7 @@ private:
     arcore::DepthMode _depthMode;
     arcore::SemanticMode _semanticMode;
     arcore::GeospatialMode _geospatialMode;
+    bool _semanticModeEnabled = false;
 
     bool updateARCoreConfig();
 

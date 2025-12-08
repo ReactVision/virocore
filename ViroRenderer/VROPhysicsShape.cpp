@@ -29,13 +29,17 @@
 #include "VROLog.h"
 #include "VRONode.h"
 #include <btBulletDynamicsCommon.h>
+#include <BulletCollision/CollisionShapes/btBvhTriangleMeshShape.h>
+#include <BulletCollision/CollisionShapes/btTriangleMesh.h>
+
 const std::string VROPhysicsShape::kSphereTag = "Sphere";
 const std::string VROPhysicsShape::kBoxTag = "Box";
 const std::string VROPhysicsShape::kAutoCompoundTag = "Compound";
+const std::string VROPhysicsShape::kTriangleMeshTag = "TriangleMesh";
 const float kMinBoxSize = 0.001f;
 
 VROPhysicsShape::VROPhysicsShape(VROShapeType type, std::vector<float> params) {
-    if (type != VROShapeType::Sphere || VROShapeType::Box){
+    if (type != VROShapeType::Sphere && type != VROShapeType::Box){
         perror("Attempted to construct unsupported VROPhysicsShape type!");
     }
 
@@ -64,9 +68,22 @@ VROPhysicsShape::VROPhysicsShape(std::shared_ptr<VRONode> node, bool hasCompound
     }
 }
 
+VROPhysicsShape::VROPhysicsShape(const std::vector<VROVector3f>& vertices,
+                                 const std::vector<int>& indices) {
+    _type = VROShapeType::TriangleMesh;
+    _triangleMesh = nullptr;
+    _bulletShape = generateTriangleMeshShape(vertices, indices);
+}
+
 VROPhysicsShape::~VROPhysicsShape() {
-    if (_bulletShape != nullptr){
-        delete(_bulletShape);
+    if (_bulletShape != nullptr) {
+        delete _bulletShape;
+        _bulletShape = nullptr;
+    }
+    // Clean up triangle mesh data (Bullet requires this to persist for shape lifetime)
+    if (_triangleMesh != nullptr) {
+        delete _triangleMesh;
+        _triangleMesh = nullptr;
     }
 }
 
@@ -163,4 +180,72 @@ void VROPhysicsShape::generateCompoundBulletShape(btCompoundShape &compoundShape
     for(std::shared_ptr<VRONode> node: subNodes) {
         generateCompoundBulletShape(compoundShape, rootNode, node);
     }
+}
+
+btCollisionShape* VROPhysicsShape::generateTriangleMeshShape(
+    const std::vector<VROVector3f>& vertices,
+    const std::vector<int>& indices)
+{
+    if (vertices.empty() || indices.empty() || indices.size() % 3 != 0) {
+        pwarn("Invalid mesh data for triangle mesh shape: vertices=%zu, indices=%zu",
+              vertices.size(), indices.size());
+        return nullptr;
+    }
+
+    // Create Bullet triangle mesh (must persist for lifetime of shape)
+    _triangleMesh = new btTriangleMesh();
+
+    int trianglesAdded = 0;
+
+    // Add triangles to the mesh
+    for (size_t i = 0; i < indices.size(); i += 3) {
+        int i0 = indices[i];
+        int i1 = indices[i + 1];
+        int i2 = indices[i + 2];
+
+        // Validate indices
+        if (i0 < 0 || i0 >= static_cast<int>(vertices.size()) ||
+            i1 < 0 || i1 >= static_cast<int>(vertices.size()) ||
+            i2 < 0 || i2 >= static_cast<int>(vertices.size())) {
+            continue;
+        }
+
+        const VROVector3f& v0 = vertices[i0];
+        const VROVector3f& v1 = vertices[i1];
+        const VROVector3f& v2 = vertices[i2];
+
+        // Skip degenerate triangles
+        VROVector3f edge1 = v1 - v0;
+        VROVector3f edge2 = v2 - v0;
+        if (edge1.cross(edge2).magnitude() < 0.0001f) {
+            continue;
+        }
+
+        _triangleMesh->addTriangle(
+            btVector3(v0.x, v0.y, v0.z),
+            btVector3(v1.x, v1.y, v1.z),
+            btVector3(v2.x, v2.y, v2.z),
+            true  // Remove duplicate vertices
+        );
+        trianglesAdded++;
+    }
+
+    if (trianglesAdded == 0) {
+        pwarn("No valid triangles in mesh data");
+        delete _triangleMesh;
+        _triangleMesh = nullptr;
+        return nullptr;
+    }
+
+    // Create BVH triangle mesh shape (optimized for static collision geometry)
+    // BVH (Bounding Volume Hierarchy) provides efficient collision detection
+    bool useQuantizedAabbCompression = true;
+    btBvhTriangleMeshShape* meshShape = new btBvhTriangleMeshShape(
+        _triangleMesh,
+        useQuantizedAabbCompression
+    );
+
+    pinfo("Created triangle mesh physics shape with %d triangles", trianglesAdded);
+
+    return meshShape;
 }

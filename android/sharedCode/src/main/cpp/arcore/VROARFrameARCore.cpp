@@ -36,6 +36,8 @@
 #include "VROData.h"
 #include "VRODriver.h"
 #include "VROLog.h"
+#include "VROFieldOfView.h"
+#include "VROARDepthMesh.h"
 
 VROARFrameARCore::VROARFrameARCore(arcore::Frame *frame,
                                    VROViewport viewport,
@@ -312,13 +314,29 @@ std::shared_ptr<VROARPointCloud> VROARFrameARCore::getPointCloud() {
 
 #pragma mark - Depth Data
 
-void VROARFrameARCore::acquireDepthData() {
+void VROARFrameARCore::acquireDepthData() const {
+    // Only check once per frame
+    if (_depthDataChecked) {
+        return;
+    }
+    _depthDataChecked = true;
+
     // Reset state
     _depthDataAvailable = false;
     _depthTexture = nullptr;
     _depthConfidenceTexture = nullptr;
     _depthWidth = 0;
     _depthHeight = 0;
+
+    std::shared_ptr<VROARSessionARCore> session = _session.lock();
+    if (!session) {
+        return;
+    }
+    
+    // Check if depth mode is enabled
+    if (!session->isDepthModeEnabled()) {
+        return;
+    }
 
     std::shared_ptr<VROARSessionARCore> session = _session.lock();
     std::shared_ptr<VRODriver> driver = _driver.lock();
@@ -392,9 +410,7 @@ void VROARFrameARCore::acquireDepthData() {
 }
 
 std::shared_ptr<VROTexture> VROARFrameARCore::getDepthTexture() {
-    if (!_depthDataAvailable) {
-        acquireDepthData();
-    }
+    acquireDepthData();
     return _depthTexture;
 }
 
@@ -405,6 +421,7 @@ std::shared_ptr<VROTexture> VROARFrameARCore::getDepthConfidenceTexture() {
 }
 
 bool VROARFrameARCore::hasDepthData() const {
+    acquireDepthData();
     return _depthDataAvailable;
 }
 
@@ -511,7 +528,13 @@ VROSemanticConfidenceImage VROARFrameARCore::getSemanticConfidenceImage() {
 float VROARFrameARCore::getSemanticLabelFraction(VROSemanticLabel label) {
     // Query ARCore directly for fraction (more efficient than parsing image)
     arcore::SemanticLabel arcoreLabel = static_cast<arcore::SemanticLabel>(static_cast<int>(label));
-    return _frame->getSemanticLabelFraction(arcoreLabel);
+    float result = _frame->getSemanticLabelFraction(arcoreLabel);
+
+    // Debug: Log non-zero results and periodic status for label 0
+    if (result > 0.0f) {
+        pinfo("Semantic label %d fraction: %.4f", static_cast<int>(label), result);
+    }
+    return result;
 }
 
 int VROARFrameARCore::getSemanticImageWidth() const {
@@ -522,4 +545,188 @@ int VROARFrameARCore::getSemanticImageWidth() const {
 int VROARFrameARCore::getSemanticImageHeight() const {
     acquireSemanticData();
     return _semanticHeight;
+}
+
+#pragma mark - Depth Mesh Generation
+
+std::shared_ptr<VROARDepthMesh> VROARFrameARCore::generateDepthMesh(
+    int stride,
+    float minConfidence,
+    float maxDepth)
+{
+    std::shared_ptr<VROARSessionARCore> session = _session.lock();
+    if (!session) {
+        return nullptr;
+    }
+
+    // Acquire depth image from ARCore
+    arcore::Image *depthImage = nullptr;
+    arcore::ImageRetrievalStatus status = _frame->acquireDepthImage(&depthImage);
+
+    if (status != arcore::ImageRetrievalStatus::Success || depthImage == nullptr) {
+        return nullptr;
+    }
+
+    int depthWidth = depthImage->getWidth();
+    int depthHeight = depthImage->getHeight();
+
+    if (depthWidth <= 0 || depthHeight <= 0) {
+        delete depthImage;
+        return nullptr;
+    }
+
+    // Get depth data (16-bit depth in millimeters)
+    const uint8_t *rawData = nullptr;
+    int dataLength = 0;
+    depthImage->getPlaneData(0, &rawData, &dataLength);
+
+    if (rawData == nullptr || dataLength <= 0) {
+        delete depthImage;
+        return nullptr;
+    }
+
+    const uint16_t *depthData = reinterpret_cast<const uint16_t*>(rawData);
+
+    // Try to get confidence data
+    arcore::Image *confidenceImage = nullptr;
+    const uint8_t *confidenceData = nullptr;
+    status = _frame->acquireDepthConfidenceImage(&confidenceImage);
+    if (status == arcore::ImageRetrievalStatus::Success && confidenceImage != nullptr) {
+        int confLength = 0;
+        confidenceImage->getPlaneData(0, &confidenceData, &confLength);
+    }
+
+    // Get camera for unprojection
+    std::shared_ptr<VROARCamera> camera = getCamera();
+    VROFieldOfView fov;
+    VROMatrix4f projection = camera->getProjection(_viewport, 0.01f, 100.0f, &fov);
+    VROVector3f cameraPos = camera->getPosition();
+    VROMatrix4f cameraRotation = camera->getRotation();
+
+    // Build view matrix
+    VROMatrix4f view = VROMatrix4f::identity();
+    view.translate(cameraPos.scale(-1));
+    view = cameraRotation.invert() * view;
+
+    // Inverse view-projection for unprojecting depth to world space
+    VROMatrix4f invViewProjection = (projection * view).invert();
+
+    // Calculate grid dimensions based on stride
+    int gridWidth = (depthWidth + stride - 1) / stride;
+    int gridHeight = (depthHeight + stride - 1) / stride;
+
+    // Prepare output buffers
+    std::vector<VROVector3f> vertices;
+    std::vector<float> confidences;
+    std::vector<int> indices;
+
+    vertices.reserve(gridWidth * gridHeight);
+    confidences.reserve(gridWidth * gridHeight);
+    indices.reserve(gridWidth * gridHeight * 6);
+
+    // Map from grid position to vertex index (-1 if invalid)
+    std::vector<int> vertexMap(gridWidth * gridHeight, -1);
+
+    // Generate vertices by sampling depth at stride intervals
+    int vertexIndex = 0;
+    for (int gy = 0; gy < gridHeight; gy++) {
+        for (int gx = 0; gx < gridWidth; gx++) {
+            int px = gx * stride;
+            int py = gy * stride;
+
+            if (px >= depthWidth || py >= depthHeight) continue;
+
+            int pixelIndex = py * depthWidth + px;
+            uint16_t depthMm = depthData[pixelIndex];
+
+            // Skip invalid depth (0 means no depth data)
+            if (depthMm == 0) continue;
+
+            float depthMeters = depthMm / 1000.0f;
+            if (depthMeters > maxDepth) continue;
+
+            // Check confidence if available
+            float confidence = 1.0f;
+            if (confidenceData) {
+                confidence = confidenceData[pixelIndex] / 255.0f;
+            }
+            if (confidence < minConfidence) continue;
+
+            // Unproject to world space
+            // NDC coordinates: x from -1 to 1, y from -1 to 1
+            float ndcX = (2.0f * px / depthWidth) - 1.0f;
+            float ndcY = 1.0f - (2.0f * py / depthHeight);  // Flip Y
+
+            // Create clip-space position
+            VROVector4f clipPos(ndcX * depthMeters, ndcY * depthMeters, -depthMeters, depthMeters);
+            VROVector4f worldPos = invViewProjection.multiply(clipPos);
+
+            if (worldPos.w != 0) {
+                worldPos.x /= worldPos.w;
+                worldPos.y /= worldPos.w;
+                worldPos.z /= worldPos.w;
+            }
+
+            vertexMap[gy * gridWidth + gx] = vertexIndex++;
+            vertices.push_back(VROVector3f(worldPos.x, worldPos.y, worldPos.z));
+            confidences.push_back(confidence);
+        }
+    }
+
+    // Generate triangle indices, skipping triangles that span depth discontinuities
+    const float maxDepthDiff = 0.3f; // 30cm threshold
+    for (int gy = 0; gy < gridHeight - 1; gy++) {
+        for (int gx = 0; gx < gridWidth - 1; gx++) {
+            int i00 = vertexMap[gy * gridWidth + gx];
+            int i10 = vertexMap[gy * gridWidth + (gx + 1)];
+            int i01 = vertexMap[(gy + 1) * gridWidth + gx];
+            int i11 = vertexMap[(gy + 1) * gridWidth + (gx + 1)];
+
+            // All four corners must have valid vertices
+            if (i00 >= 0 && i10 >= 0 && i01 >= 0 && i11 >= 0) {
+                // Check for depth discontinuities (to avoid connecting walls to floors, etc.)
+                float d00 = -vertices[i00].z;
+                float d10 = -vertices[i10].z;
+                float d01 = -vertices[i01].z;
+                float d11 = -vertices[i11].z;
+
+                float diff1 = std::abs(d00 - d10);
+                float diff2 = std::abs(d00 - d01);
+                float diff3 = std::abs(d10 - d11);
+                float diff4 = std::abs(d01 - d11);
+                float maxDiff = std::max(std::max(diff1, diff2), std::max(diff3, diff4));
+
+                if (maxDiff < maxDepthDiff) {
+                    // Triangle 1: top-left, top-right, bottom-left
+                    indices.push_back(i00);
+                    indices.push_back(i10);
+                    indices.push_back(i01);
+
+                    // Triangle 2: top-right, bottom-right, bottom-left
+                    indices.push_back(i10);
+                    indices.push_back(i11);
+                    indices.push_back(i01);
+                }
+            }
+        }
+    }
+
+    // Cleanup
+    delete depthImage;
+    if (confidenceImage) {
+        delete confidenceImage;
+    }
+
+    if (vertices.empty() || indices.empty()) {
+        return nullptr;
+    }
+
+    pinfo("VROARFrameARCore: Generated depth mesh with %zu vertices, %zu triangles",
+          vertices.size(), indices.size() / 3);
+
+    return std::make_shared<VROARDepthMesh>(
+        std::move(vertices),
+        std::move(indices),
+        std::move(confidences)
+    );
 }

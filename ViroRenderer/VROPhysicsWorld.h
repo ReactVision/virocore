@@ -99,7 +99,19 @@ public:
      within this world.
      */
     void setDebugDrawVisible(bool isVisible);
-    
+
+    /*
+     Add a raw Bullet rigid body directly to the physics world.
+     This is used for special physics bodies like the world mesh that don't
+     need the full VROPhysicsBody wrapper.
+     */
+    void addRigidBody(btRigidBody* body);
+
+    /*
+     Remove a raw Bullet rigid body from the physics world.
+     */
+    void removeRigidBody(btRigidBody* body);
+
 private:
     
     /*

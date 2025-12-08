@@ -1287,6 +1287,64 @@ public class ARScene extends Scene {
         return nativeGetSemanticLabelFraction(mNativeRef, labelIndex);
     }
 
+    // ========================================================================
+    // World Mesh API
+    // ========================================================================
+
+    /**
+     * Enable or disable the world mesh collision feature. When enabled, depth
+     * sensor data is used to generate a physics collision mesh representing
+     * real-world surfaces. This allows virtual objects to physically interact
+     * with the real world.
+     *
+     * @param enabled true to enable world mesh, false to disable.
+     */
+    public void setWorldMeshEnabled(boolean enabled) {
+        nativeSetWorldMeshEnabled(mNativeRef, enabled);
+    }
+
+    /**
+     * Configure the world mesh generation and physics properties.
+     *
+     * @param stride Sample every Nth pixel from depth image (lower = more detail)
+     * @param minConfidence Minimum confidence threshold for depth samples (0.0-1.0)
+     * @param maxDepth Maximum depth distance in meters
+     * @param updateIntervalMs Minimum time between mesh updates in milliseconds
+     * @param meshPersistenceMs Time to keep mesh after depth data is lost
+     * @param friction Surface friction coefficient (0.0-1.0)
+     * @param restitution Bounciness of the surface (0.0-1.0)
+     * @param collisionTag Tag for identifying world mesh collisions
+     */
+    public void setWorldMeshConfig(int stride, float minConfidence, float maxDepth,
+                                    double updateIntervalMs, double meshPersistenceMs,
+                                    float friction, float restitution, String collisionTag) {
+        nativeSetWorldMeshConfig(mNativeRef, stride, minConfidence, maxDepth,
+                                  updateIntervalMs, meshPersistenceMs,
+                                  friction, restitution, collisionTag, false);
+    }
+
+    /**
+     * Configure the world mesh generation and physics properties with debug visualization.
+     *
+     * @param stride Sample every Nth pixel from depth image (lower = more detail)
+     * @param minConfidence Minimum confidence threshold for depth samples (0.0-1.0)
+     * @param maxDepth Maximum depth distance in meters
+     * @param updateIntervalMs Minimum time between mesh updates in milliseconds
+     * @param meshPersistenceMs Time to keep mesh after depth data is lost
+     * @param friction Surface friction coefficient (0.0-1.0)
+     * @param restitution Bounciness of the surface (0.0-1.0)
+     * @param collisionTag Tag for identifying world mesh collisions
+     * @param debugDrawEnabled Enable wireframe visualization of the depth mesh
+     */
+    public void setWorldMeshConfig(int stride, float minConfidence, float maxDepth,
+                                    double updateIntervalMs, double meshPersistenceMs,
+                                    float friction, float restitution, String collisionTag,
+                                    boolean debugDrawEnabled) {
+        nativeSetWorldMeshConfig(mNativeRef, stride, minConfidence, maxDepth,
+                                  updateIntervalMs, meshPersistenceMs,
+                                  friction, restitution, collisionTag, debugDrawEnabled);
+    }
+
     private native long nativeCreateARSceneController();
     private native long nativeCreateARSceneControllerDeclarative();
     private native long nativeCreateARSceneDelegate(long sceneControllerRef);
@@ -1337,6 +1395,19 @@ public class ARScene extends Scene {
     private native boolean nativeIsSemanticModeSupported(long sceneControllerRef);
     private native void nativeSetSemanticModeEnabled(long sceneControllerRef, boolean enabled);
     private native float nativeGetSemanticLabelFraction(long sceneControllerRef, int labelIndex);
+
+    // World Mesh API native methods
+    private native void nativeSetWorldMeshEnabled(long sceneControllerRef, boolean enabled);
+    private native void nativeSetWorldMeshConfig(long sceneControllerRef,
+                                                  int stride,
+                                                  float minConfidence,
+                                                  float maxDepth,
+                                                  double updateIntervalMs,
+                                                  double meshPersistenceMs,
+                                                  float friction,
+                                                  float restitution,
+                                                  String collisionTag,
+                                                  boolean debugDrawEnabled);
 
     // Called by JNI
 

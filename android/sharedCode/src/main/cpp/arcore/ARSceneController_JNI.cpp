@@ -38,8 +38,10 @@
 #include "arcore/VROARSessionARCore.h"
 #include "arcore/VROARCameraARCore.h"
 #include "ViroContextAndroid_JNI.h"
+#include "VROARWorldMesh.h"
 #include "VROARImageTargetAndroid.h"
 #include "arcore/ARUtils_JNI.h"
+#include "VROARFrame.h"
 
 #if VRO_PLATFORM_ANDROID
 #define VRO_METHOD(return_type, method_name) \
@@ -948,6 +950,113 @@ VRO_METHOD(VRO_BOOL, nativeIsOcclusionModeSupported)(VRO_ARGS
         return session->isOcclusionModeSupported(occlusionMode);
     }
     return false;
+}
+
+// +---------------------------------------------------------------------------+
+// | World Mesh API
+// +---------------------------------------------------------------------------+
+
+VRO_METHOD(void, nativeSetWorldMeshEnabled)(VRO_ARGS
+                                            VRO_REF(VROARSceneController) sceneController_j,
+                                            VRO_BOOL enabled) {
+    std::weak_ptr<VROARScene> scene_w = std::dynamic_pointer_cast<VROARScene>(
+            VRO_REF_GET(VROARSceneController, sceneController_j)->getScene());
+    VROPlatformDispatchAsyncRenderer([scene_w, enabled] {
+        std::shared_ptr<VROARScene> scene = scene_w.lock();
+        if (scene) {
+            scene->setWorldMeshEnabled(enabled);
+        }
+    });
+}
+
+VRO_METHOD(void, nativeSetWorldMeshConfig)(VRO_ARGS
+                                           VRO_REF(VROARSceneController) sceneController_j,
+                                           VRO_INT stride,
+                                           VRO_FLOAT minConfidence,
+                                           VRO_FLOAT maxDepth,
+                                           VRO_DOUBLE updateIntervalMs,
+                                           VRO_DOUBLE meshPersistenceMs,
+                                           VRO_FLOAT friction,
+                                           VRO_FLOAT restitution,
+                                           VRO_STRING collisionTag_j,
+                                           VRO_BOOL debugDrawEnabled) {
+    std::string collisionTag = VRO_STRING_STL(collisionTag_j);
+    std::weak_ptr<VROARScene> scene_w = std::dynamic_pointer_cast<VROARScene>(
+            VRO_REF_GET(VROARSceneController, sceneController_j)->getScene());
+
+    VROPlatformDispatchAsyncRenderer([scene_w, stride, minConfidence, maxDepth,
+                                      updateIntervalMs, meshPersistenceMs,
+                                      friction, restitution, collisionTag, debugDrawEnabled] {
+        std::shared_ptr<VROARScene> scene = scene_w.lock();
+        if (scene) {
+            VROWorldMeshConfig config;
+            config.stride = stride;
+            config.minConfidence = minConfidence;
+            config.maxDepth = maxDepth;
+            config.updateIntervalMs = updateIntervalMs;
+            config.meshPersistenceMs = meshPersistenceMs;
+            config.friction = friction;
+            config.restitution = restitution;
+            config.collisionTag = collisionTag;
+            config.debugDrawEnabled = debugDrawEnabled;
+            scene->setWorldMeshConfig(config);
+        }
+    });
+}
+
+// +---------------------------------------------------------------------------+
+// | Scene Semantics API
+// +---------------------------------------------------------------------------+
+
+VRO_METHOD(jboolean, nativeIsSemanticModeSupported)(VRO_ARGS
+                                                     VRO_REF(VROARSceneController) sceneController_j) {
+    std::shared_ptr<VROARScene> scene = std::dynamic_pointer_cast<VROARScene>(
+            VRO_REF_GET(VROARSceneController, sceneController_j)->getScene());
+    if (!scene) {
+        return false;
+    }
+    std::shared_ptr<VROARSession> session = scene->getARSession();
+    if (session) {
+        return session->isSemanticModeSupported();
+    }
+    return false;
+}
+
+VRO_METHOD(void, nativeSetSemanticModeEnabled)(VRO_ARGS
+                                                VRO_REF(VROARSceneController) sceneController_j,
+                                                jboolean enabled) {
+    std::weak_ptr<VROARScene> scene_w = std::dynamic_pointer_cast<VROARScene>(
+            VRO_REF_GET(VROARSceneController, sceneController_j)->getScene());
+
+    VROPlatformDispatchAsyncRenderer([scene_w, enabled] {
+        std::shared_ptr<VROARScene> scene = scene_w.lock();
+        if (!scene) {
+            return;
+        }
+        std::shared_ptr<VROARSession> session = scene->getARSession();
+        if (session) {
+            session->setSemanticModeEnabled(enabled);
+        }
+    });
+}
+
+VRO_METHOD(jfloat, nativeGetSemanticLabelFraction)(VRO_ARGS
+                                                    VRO_REF(VROARSceneController) sceneController_j,
+                                                    jint labelIndex) {
+    std::shared_ptr<VROARScene> scene = std::dynamic_pointer_cast<VROARScene>(
+            VRO_REF_GET(VROARSceneController, sceneController_j)->getScene());
+    if (!scene) {
+        return 0.0f;
+    }
+    std::shared_ptr<VROARSession> session = scene->getARSession();
+    if (session) {
+        std::unique_ptr<VROARFrame> &frame = session->getLastFrame();
+        if (frame) {
+            VROSemanticLabel label = static_cast<VROSemanticLabel>(labelIndex);
+            return frame->getSemanticLabelFraction(label);
+        }
+    }
+    return 0.0f;
 }
 
 }  // extern "C"

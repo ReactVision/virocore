@@ -32,6 +32,7 @@
 #include "VROScene.h"
 #include "VROAtomic.h"
 #include "VROARCamera.h"
+#include "VROARWorldMesh.h"
 
 class VROARAnchor;
 class VROARDeclarativeSession;
@@ -42,6 +43,7 @@ class VROARSceneDelegate {
 public:
     virtual void onTrackingUpdated(VROARTrackingState state, VROARTrackingStateReason reason) = 0;
     virtual void onAmbientLightUpdate(float ambientLightIntensity, VROVector3f ambientLightColor) = 0;
+    virtual void onWorldMeshUpdated(const VROWorldMeshStats& stats) {}
 };
 
 class VROARScene : public VROScene {
@@ -141,7 +143,25 @@ public:
     }
 
     void updateParticles(const VRORenderContext &context);
-    
+
+    /*
+     World mesh configuration and control.
+     */
+    void setWorldMeshEnabled(bool enabled);
+    bool isWorldMeshEnabled() const;
+    void setWorldMeshConfig(const VROWorldMeshConfig& config);
+    VROWorldMeshStats getWorldMeshStats() const;
+
+    /*
+     Override computePhysics to add world mesh debug drawing.
+     */
+    void computePhysics(const VRORenderContext &context);
+
+    /*
+     Draw the world mesh wireframe for debugging.
+     */
+    void debugDrawWorldMesh(const VRORenderContext &context);
+
 private:
     
     /*
@@ -186,6 +206,18 @@ private:
      Creates an instance of VROFixedParticleEmitter representing the point cloud, if possible.
      */
     void initPointCloudEmitter();
+
+    /*
+     World mesh for depth-based physics collision.
+     */
+    std::shared_ptr<VROARWorldMesh> _worldMesh;
+    VROWorldMeshConfig _worldMeshConfig;
+    bool _worldMeshEnabled = false;
+
+    /*
+     Updates the world mesh from the current AR frame.
+     */
+    void updateWorldMesh();
 };
 
 #endif /* VROARScene_h */

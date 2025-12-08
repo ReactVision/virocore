@@ -33,10 +33,12 @@
 #include <string>
 #include <algorithm>
 #include "VROStringUtil.h"
+#include "VROVector3f.h"
 
 class VRONode;
 class btCollisionShape;
 class btCompoundShape;
+class btTriangleMesh;
 
 /*
  VROPhysicsShape describes the type and dimensions of a physics shape that represents a VROPhysicsBody.
@@ -52,11 +54,13 @@ public:
         Auto = 0,           // Automatically infer a shape from attached geometry.
         AutoCompound = 1,   // Automatically infer a compound shape from attached geometry.
         Sphere = 2,         // _params[0] represents the radius of the sphere
-        Box = 3             // _params[0],[1],[2] represents the X,Y,Z half span of the Box
+        Box = 3,            // _params[0],[1],[2] represents the X,Y,Z half span of the Box
+        TriangleMesh = 4    // Triangle mesh for static collision (e.g., depth mesh)
     };
     static const std::string kSphereTag;
     static const std::string kBoxTag;
     static const std::string kAutoCompoundTag;
+    static const std::string kTriangleMeshTag;
 
     /*
      Returns true of the given string and mass represents a valid representation of
@@ -90,6 +94,18 @@ public:
 
     VROPhysicsShape(VROShapeType type, std::vector<float> params = std::vector<float>());
     VROPhysicsShape(std::shared_ptr<VRONode> node, bool hasCompoundShapes = false);
+
+    /**
+     * Construct a triangle mesh collision shape from vertices and indices.
+     * Used for depth mesh collision against real-world surfaces.
+     * Note: Triangle mesh shapes can only be used with Static physics bodies.
+     *
+     * @param vertices Array of 3D vertex positions
+     * @param indices Triangle indices (every 3 values form a triangle)
+     */
+    VROPhysicsShape(const std::vector<VROVector3f>& vertices,
+                    const std::vector<int>& indices);
+
     virtual ~VROPhysicsShape();
 
     /*
@@ -118,6 +134,12 @@ private:
     btCollisionShape* _bulletShape;
 
     /*
+     Stores triangle mesh data for TriangleMesh shapes.
+     Bullet requires this to persist for the lifetime of the shape.
+     */
+    btTriangleMesh* _triangleMesh = nullptr;
+
+    /*
      Creates an underlying bullet collision shape representing this VROPhysicsShape,
      given the target shape type and associated params.
      */
@@ -137,6 +159,13 @@ private:
     void generateCompoundBulletShape(btCompoundShape &compoundShape,
                                      const std::shared_ptr<VRONode> &rootNode,
                                      const std::shared_ptr<VRONode> &childNode);
+
+    /*
+     Creates a BVH triangle mesh collision shape from vertices and indices.
+     Used for static collision geometry like depth meshes.
+     */
+    btCollisionShape *generateTriangleMeshShape(const std::vector<VROVector3f>& vertices,
+                                                const std::vector<int>& indices);
 
 };
 #endif

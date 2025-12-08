@@ -30,6 +30,7 @@
 #if __IPHONE_OS_VERSION_MAX_ALLOWED >= 110000
 #include "VROARFrame.h"
 #include "VROViewport.h"
+#include "VROARDepthMesh.h"
 #include <ARKit/ARKit.h>
 
 class VROARSessioniOS;
@@ -87,6 +88,12 @@ public:
 
     // Scene Semantics support (requires ARCore SDK with Semantics extension)
     float getSemanticLabelFraction(VROSemanticLabel label) override;
+
+    // Depth mesh generation for physics collision
+    std::shared_ptr<VROARDepthMesh> generateDepthMesh(
+        int stride = 4,
+        float minConfidence = 0.3f,
+        float maxDepth = 5.0f) override;
 
 private:
 

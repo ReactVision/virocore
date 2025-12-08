@@ -39,6 +39,8 @@
 #include "VROCameraTexture.h"
 #include "VROTexture.h"
 #include "VROData.h"
+#include "VROFieldOfView.h"
+#include "VROARDepthMesh.h"
 
 VROARFrameiOS::VROARFrameiOS(ARFrame *frame, VROViewport viewport, VROCameraOrientation orientation,
                              std::shared_ptr<VROARSessioniOS> session) :
@@ -372,6 +374,249 @@ float VROARFrameiOS::getSemanticLabelFraction(VROSemanticLabel label) {
         return session->getSemanticLabelFraction(label);
     }
     return 0.0f;
+}
+
+#pragma mark - Depth Mesh Generation
+
+std::shared_ptr<VROARDepthMesh> VROARFrameiOS::generateDepthMesh(
+    int stride,
+    float minConfidence,
+    float maxDepth)
+{
+    if (@available(iOS 14.0, *)) {
+        // Prefer smoothed depth if available (temporal smoothing reduces noise)
+        ARDepthData *depthData = _frame.smoothedSceneDepth;
+        if (!depthData) {
+            depthData = _frame.sceneDepth;
+        }
+        if (!depthData) {
+            pinfo("VROARFrameiOS: No depth data available");
+            return nullptr;
+        }
+
+        CVPixelBufferRef depthMap = depthData.depthMap;
+        CVPixelBufferRef confidenceMap = depthData.confidenceMap;
+
+        if (!depthMap) {
+            pinfo("VROARFrameiOS: Depth map is null");
+            return nullptr;
+        }
+
+        CVPixelBufferLockBaseAddress(depthMap, kCVPixelBufferLock_ReadOnly);
+        if (confidenceMap) {
+            CVPixelBufferLockBaseAddress(confidenceMap, kCVPixelBufferLock_ReadOnly);
+        }
+
+        int depthWidth = (int)CVPixelBufferGetWidth(depthMap);
+        int depthHeight = (int)CVPixelBufferGetHeight(depthMap);
+
+        pinfo("VROARFrameiOS: Depth map size: %dx%d", depthWidth, depthHeight);
+
+        if (depthWidth <= 0 || depthHeight <= 0) {
+            CVPixelBufferUnlockBaseAddress(depthMap, kCVPixelBufferLock_ReadOnly);
+            if (confidenceMap) {
+                CVPixelBufferUnlockBaseAddress(confidenceMap, kCVPixelBufferLock_ReadOnly);
+            }
+            return nullptr;
+        }
+
+        float *depthValues = (float *)CVPixelBufferGetBaseAddress(depthMap);
+        uint8_t *confidenceValues = confidenceMap ?
+            (uint8_t *)CVPixelBufferGetBaseAddress(confidenceMap) : nullptr;
+
+        // Get camera intrinsics for proper unprojection
+        // ARKit intrinsics are:
+        //   fx  0  cx
+        //   0  fy  cy
+        //   0   0   1
+        // where (fx, fy) are focal lengths in pixels and (cx, cy) is principal point
+        matrix_float3x3 intrinsics = _frame.camera.intrinsics;
+        float fx = intrinsics.columns[0][0];
+        float fy = intrinsics.columns[1][1];
+        float cx = intrinsics.columns[2][0];
+        float cy = intrinsics.columns[2][1];
+
+        // Get camera image resolution (intrinsics are relative to this)
+        CGSize imageRes = _frame.camera.imageResolution;
+        float imageWidth = imageRes.width;
+        float imageHeight = imageRes.height;
+
+        // Scale intrinsics to depth map resolution
+        float scaleX = (float)depthWidth / imageWidth;
+        float scaleY = (float)depthHeight / imageHeight;
+        fx *= scaleX;
+        fy *= scaleY;
+        cx *= scaleX;
+        cy *= scaleY;
+
+        pinfo("VROARFrameiOS: Scaled intrinsics fx=%.2f fy=%.2f cx=%.2f cy=%.2f", fx, fy, cx, cy);
+
+        // Get camera transform (camera-to-world)
+        VROMatrix4f cameraToWorld = VROConvert::toMatrix4f(_frame.camera.transform);
+
+        // Calculate grid dimensions based on stride
+        int gridWidth = (depthWidth + stride - 1) / stride;
+        int gridHeight = (depthHeight + stride - 1) / stride;
+
+        // Prepare output buffers
+        std::vector<VROVector3f> vertices;
+        std::vector<float> confidences;
+        std::vector<int> indices;
+        std::vector<float> depthsAtVertices; // Store original depths for discontinuity check
+
+        vertices.reserve(gridWidth * gridHeight);
+        confidences.reserve(gridWidth * gridHeight);
+        depthsAtVertices.reserve(gridWidth * gridHeight);
+        indices.reserve(gridWidth * gridHeight * 6);
+
+        // Map from grid position to vertex index (-1 if invalid)
+        std::vector<int> vertexMap(gridWidth * gridHeight, -1);
+
+        int skippedInvalid = 0;
+        int skippedConfidence = 0;
+
+        // Generate vertices by sampling depth at stride intervals
+        int vertexIndex = 0;
+        for (int gy = 0; gy < gridHeight; gy++) {
+            for (int gx = 0; gx < gridWidth; gx++) {
+                int px = gx * stride;
+                int py = gy * stride;
+
+                if (px >= depthWidth || py >= depthHeight) continue;
+
+                int pixelIndex = py * depthWidth + px;
+                float depthMeters = depthValues[pixelIndex];
+
+                // Skip invalid depth
+                if (depthMeters <= 0 || depthMeters > maxDepth || std::isnan(depthMeters) || std::isinf(depthMeters)) {
+                    skippedInvalid++;
+                    continue;
+                }
+
+                // Check confidence if available
+                // ARKit confidence: 0=low, 1=medium, 2=high
+                float confidence = 1.0f;
+                if (confidenceValues) {
+                    uint8_t confLevel = confidenceValues[pixelIndex];
+                    confidence = confLevel / 2.0f;  // Normalize to 0-1
+                }
+                if (confidence < minConfidence) {
+                    skippedConfidence++;
+                    continue;
+                }
+
+                // Unproject from depth image coordinates to camera space using intrinsics
+                // In depth image: (0,0) is top-left, Y increases downward
+                // camX: positive to the right of principal point
+                // camY: positive below the principal point (depth image convention)
+                // camZ: depth in meters (positive into the scene)
+                float camX = (px - cx) * depthMeters / fx;
+                float camY = (py - cy) * depthMeters / fy;
+                float camZ = depthMeters;
+
+                // Convert to ARKit camera space:
+                // ARKit: X-right, Y-up, Z-backward (camera looks along -Z)
+                // - X stays the same (right is positive in both)
+                // - Y is negated (depth image has Y-down, ARKit has Y-up)
+                // - Z is negated (depth is forward-positive, ARKit has Z-backward)
+                VROVector4f camPos(camX, -camY, -camZ, 1.0f);
+
+                // Transform to world space
+                VROVector4f worldPos = cameraToWorld.multiply(camPos);
+
+                vertexMap[gy * gridWidth + gx] = vertexIndex++;
+                vertices.push_back(VROVector3f(worldPos.x, worldPos.y, worldPos.z));
+                confidences.push_back(confidence);
+                depthsAtVertices.push_back(depthMeters);
+            }
+        }
+
+        pinfo("VROARFrameiOS: Generated %d vertices (skipped %d invalid, %d low confidence)",
+              (int)vertices.size(), skippedInvalid, skippedConfidence);
+
+        // Debug: Print bounding box of vertices
+        if (!vertices.empty()) {
+            VROVector3f minPt = vertices[0];
+            VROVector3f maxPt = vertices[0];
+            for (const auto& v : vertices) {
+                minPt.x = std::min(minPt.x, v.x);
+                minPt.y = std::min(minPt.y, v.y);
+                minPt.z = std::min(minPt.z, v.z);
+                maxPt.x = std::max(maxPt.x, v.x);
+                maxPt.y = std::max(maxPt.y, v.y);
+                maxPt.z = std::max(maxPt.z, v.z);
+            }
+            pinfo("VROARFrameiOS: Mesh bounds min=(%.2f, %.2f, %.2f) max=(%.2f, %.2f, %.2f)",
+                  minPt.x, minPt.y, minPt.z, maxPt.x, maxPt.y, maxPt.z);
+        }
+
+        // Generate triangle indices, skipping triangles that span depth discontinuities
+        const float maxDepthDiff = 0.3f; // 30cm threshold
+        int skippedDiscontinuity = 0;
+        int triangleCount = 0;
+
+        for (int gy = 0; gy < gridHeight - 1; gy++) {
+            for (int gx = 0; gx < gridWidth - 1; gx++) {
+                int i00 = vertexMap[gy * gridWidth + gx];
+                int i10 = vertexMap[gy * gridWidth + (gx + 1)];
+                int i01 = vertexMap[(gy + 1) * gridWidth + gx];
+                int i11 = vertexMap[(gy + 1) * gridWidth + (gx + 1)];
+
+                // All four corners must have valid vertices
+                if (i00 >= 0 && i10 >= 0 && i01 >= 0 && i11 >= 0) {
+                    // Check for depth discontinuities using original depth values
+                    float d00 = depthsAtVertices[i00];
+                    float d10 = depthsAtVertices[i10];
+                    float d01 = depthsAtVertices[i01];
+                    float d11 = depthsAtVertices[i11];
+
+                    float diff1 = std::abs(d00 - d10);
+                    float diff2 = std::abs(d00 - d01);
+                    float diff3 = std::abs(d10 - d11);
+                    float diff4 = std::abs(d01 - d11);
+                    float maxDiffVal = std::max(std::max(diff1, diff2), std::max(diff3, diff4));
+
+                    if (maxDiffVal < maxDepthDiff) {
+                        // Triangle 1
+                        indices.push_back(i00);
+                        indices.push_back(i10);
+                        indices.push_back(i01);
+
+                        // Triangle 2
+                        indices.push_back(i10);
+                        indices.push_back(i11);
+                        indices.push_back(i01);
+
+                        triangleCount += 2;
+                    } else {
+                        skippedDiscontinuity++;
+                    }
+                }
+            }
+        }
+
+        pinfo("VROARFrameiOS: Generated %d triangles (skipped %d quads due to discontinuity)",
+              triangleCount, skippedDiscontinuity);
+
+        CVPixelBufferUnlockBaseAddress(depthMap, kCVPixelBufferLock_ReadOnly);
+        if (confidenceMap) {
+            CVPixelBufferUnlockBaseAddress(confidenceMap, kCVPixelBufferLock_ReadOnly);
+        }
+
+        if (vertices.empty() || indices.empty()) {
+            pinfo("VROARFrameiOS: No valid mesh generated (vertices=%d, indices=%d)",
+                  (int)vertices.size(), (int)indices.size());
+            return nullptr;
+        }
+
+        return std::make_shared<VROARDepthMesh>(
+            std::move(vertices),
+            std::move(indices),
+            std::move(confidences)
+        );
+    }
+
+    return nullptr;
 }
 
 #endif

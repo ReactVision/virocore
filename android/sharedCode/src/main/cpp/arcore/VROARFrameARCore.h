@@ -30,6 +30,7 @@
 #include "VROARFrame.h"
 #include "VROViewport.h"
 #include "ARCore_API.h"
+#include "VROARDepthMesh.h"
 
 class VROARSessionARCore;
 class VROTexture;
@@ -84,6 +85,14 @@ public:
     int getSemanticImageHeight() const override;
 
     /*
+     * Generate a triangulated mesh from depth data for physics collision.
+     */
+    std::shared_ptr<VROARDepthMesh> generateDepthMesh(
+        int stride = 4,
+        float minConfidence = 0.3f,
+        float maxDepth = 5.0f) override;
+
+    /*
      * Set the driver needed for texture creation.
      */
     void setDriver(std::shared_ptr<VRODriver> driver) {
@@ -103,11 +112,12 @@ private:
     std::weak_ptr<VRODriver> _driver;
 
     // Cached depth texture (refreshed each frame)
-    std::shared_ptr<VROTexture> _depthTexture;
-    std::shared_ptr<VROTexture> _depthConfidenceTexture;
-    int _depthWidth = 0;
-    int _depthHeight = 0;
-    bool _depthDataAvailable = false;
+    mutable std::shared_ptr<VROTexture> _depthTexture;
+    mutable std::shared_ptr<VROTexture> _depthConfidenceTexture;
+    mutable int _depthWidth = 0;
+    mutable int _depthHeight = 0;
+    mutable bool _depthDataAvailable = false;
+    mutable bool _depthDataChecked = false;
 
     // Cached semantic data (refreshed each frame)
     mutable VROSemanticImage _semanticImage;
@@ -120,7 +130,7 @@ private:
     /*
      * Internal method to acquire and convert depth data to texture.
      */
-    void acquireDepthData();
+    void acquireDepthData() const;
 
     /*
      * Internal method to acquire semantic data from ARCore.

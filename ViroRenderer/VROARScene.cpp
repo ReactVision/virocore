@@ -37,6 +37,7 @@
 #include "VROMaterial.h"
 #include "VROImageUtil.h"
 #include "VROARCamera.h"
+#include "VROPencil.h"
 
 VROARScene::~VROARScene() {
     // no-op, we define this here vs in header because for some reason if you want
@@ -137,6 +138,7 @@ void VROARScene::setDriver(std::shared_ptr<VRODriver> driver) {
 
 void VROARScene::updateParticles(const VRORenderContext &context) {
     updatePointCloud();
+    updateWorldMesh();
     VROScene::updateParticles(context);
 }
 
@@ -277,5 +279,83 @@ void VROARScene::willAppear() {
 void VROARScene::willDisappear() {
     if (_declarativeSession) {
         _declarativeSession->sceneWillDisappear();
+    }
+}
+
+#pragma mark - World Mesh
+
+void VROARScene::setWorldMeshEnabled(bool enabled) {
+    _worldMeshEnabled = enabled;
+
+    if (enabled && !_worldMesh) {
+        // Create world mesh manager with our physics world
+        _worldMesh = std::make_shared<VROARWorldMesh>(getPhysicsWorld());
+        _worldMesh->setConfig(_worldMeshConfig);
+
+        // Set up callback to notify delegate
+        std::weak_ptr<VROARSceneDelegate> weakDelegate = _delegate;
+        _worldMesh->setUpdateCallback([weakDelegate](const VROWorldMeshStats& stats) {
+            std::shared_ptr<VROARSceneDelegate> delegate = weakDelegate.lock();
+            if (delegate) {
+                delegate->onWorldMeshUpdated(stats);
+            }
+        });
+    }
+
+    if (_worldMesh) {
+        _worldMesh->setEnabled(enabled);
+    }
+
+    pinfo("VROARScene: World mesh %s", enabled ? "enabled" : "disabled");
+}
+
+bool VROARScene::isWorldMeshEnabled() const {
+    return _worldMeshEnabled;
+}
+
+void VROARScene::setWorldMeshConfig(const VROWorldMeshConfig& config) {
+    _worldMeshConfig = config;
+
+    if (_worldMesh) {
+        _worldMesh->setConfig(config);
+    }
+}
+
+VROWorldMeshStats VROARScene::getWorldMeshStats() const {
+    if (_worldMesh) {
+        return _worldMesh->getStats();
+    }
+    return VROWorldMeshStats();
+}
+
+void VROARScene::updateWorldMesh() {
+    if (!_worldMesh || !_worldMeshEnabled) {
+        return;
+    }
+
+    std::shared_ptr<VROARSession> arSession = _arSession.lock();
+    if (!arSession) {
+        return;
+    }
+
+    std::unique_ptr<VROARFrame> &frame = arSession->getLastFrame();
+    if (!frame) {
+        return;
+    }
+
+    _worldMesh->updateFromFrame(frame);
+}
+
+void VROARScene::computePhysics(const VRORenderContext &context) {
+    // Call base class physics computation
+    VROScene::computePhysics(context);
+
+    // Draw world mesh wireframe if enabled
+    debugDrawWorldMesh(context);
+}
+
+void VROARScene::debugDrawWorldMesh(const VRORenderContext &context) {
+    if (_worldMesh && _worldMeshEnabled) {
+        _worldMesh->debugDraw(context.getPencil());
     }
 }

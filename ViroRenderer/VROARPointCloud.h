@@ -28,8 +28,8 @@
 
 #include <cstdint>
 #include <vector>
+#include "VROVector4f.h"
 
-class VROVector4f;
 class VROMatrix3f;
 
 // TODO: possible need to guard uint64_t usage with #ifdef UINT64_MAX, seems fine on iOS/Android

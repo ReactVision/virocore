@@ -70,6 +70,18 @@ void VROPhysicsWorld::setDebugDrawVisible(bool isVisible) {
     _debugDrawVisible = isVisible;
 }
 
+void VROPhysicsWorld::addRigidBody(btRigidBody* body) {
+    if (body && _dynamicsWorld) {
+        _dynamicsWorld->addRigidBody(body);
+    }
+}
+
+void VROPhysicsWorld::removeRigidBody(btRigidBody* body) {
+    if (body && _dynamicsWorld) {
+        _dynamicsWorld->removeRigidBody(body);
+    }
+}
+
 void VROPhysicsWorld::setGravity(VROVector3f gravity){
     _dynamicsWorld->setGravity({gravity.x, gravity.y, gravity.z});
 }
@@ -174,11 +186,14 @@ void VROPhysicsWorld::computeCollisions() {
             continue;
         }
 
-        // Sanity check ensuring our bullet / VROPhysics bodies are properly constructed
+        // Get the collision objects
         const btCollisionObject *obA = contactManifold->getBody0();
         const btCollisionObject *obB = contactManifold->getBody1();
+
+        // Skip notification if either body doesn't have a VROPhysicsBody attached
+        // (e.g., world mesh collision bodies are raw btRigidBody without VROPhysicsBody)
+        // Note: Physics collision still happens, we just skip delegate notification
         if (obA->getUserPointer() == nullptr || obB->getUserPointer() == nullptr) {
-            perror("Incorrectly constructed bullet rigid body for a VROPhysics body!");
             continue;
         }
 

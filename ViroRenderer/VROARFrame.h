@@ -39,6 +39,7 @@
 class VROARCamera;
 class VROARAnchor;
 class VROARHitTestResult;
+class VROARDepthMesh;
 class VROTexture;
 enum class VROARHitTestResultType;
 enum class VROCameraOrientation;
@@ -147,6 +148,22 @@ public:
      Get the height of the depth image in pixels.
      */
     virtual int getDepthImageHeight() const { return 0; }
+
+    /**
+     * Generate a triangulated mesh from depth data for physics collision.
+     * The mesh vertices are in world space coordinates.
+     *
+     * @param stride Sample every Nth pixel (1=full resolution, 4=recommended for performance)
+     * @param minConfidence Skip pixels with confidence below this threshold (0.0-1.0)
+     * @param maxDepth Skip pixels with depth beyond this distance in meters
+     * @return Shared pointer to depth mesh, or nullptr if depth data is unavailable
+     */
+    virtual std::shared_ptr<VROARDepthMesh> generateDepthMesh(
+        int stride = 4,
+        float minConfidence = 0.3f,
+        float maxDepth = 5.0f) {
+        return nullptr;
+    }
 
     /*
      Returns the transform matrix to convert from camera texture coordinates

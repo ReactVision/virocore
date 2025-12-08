@@ -721,6 +721,12 @@ namespace arcore {
         ArImage *arImage = nullptr;
         ArStatus status = ArFrame_acquireDepthImage16Bits(_session, _frame, &arImage);
 
+        // Log status for debugging
+        if (status != AR_SUCCESS && status != AR_ERROR_NOT_YET_AVAILABLE) {
+             __android_log_print(ANDROID_LOG_WARN, "ViroARCore",
+                "acquireDepthImage failed: status=%d", (int)status);
+        }
+
         if (status == AR_ERROR_INVALID_ARGUMENT) {
             return ImageRetrievalStatus::InvalidArgument;
         } else if (status == AR_ERROR_DEADLINE_EXCEEDED) {
@@ -760,33 +766,47 @@ namespace arcore {
     ImageRetrievalStatus FrameNative::acquireSemanticImage(Image **outImage) {
         // Check if semantic image acquisition is available in the ARCore C API
         // ArFrame_acquireSemanticImage was added in ARCore 1.40+
-        #if defined(AR_SEMANTIC_LABEL_SKY)
+        // #if defined(AR_SEMANTIC_LABEL_SKY)
         ArImage *arImage = nullptr;
         ArStatus status = ArFrame_acquireSemanticImage(_session, _frame, &arImage);
 
+        // Log all status values to help debug
+        __android_log_print(ANDROID_LOG_DEBUG, "ViroARCore",
+            "acquireSemanticImage: status=%d (0=SUCCESS, -1=NOT_YET_AVAILABLE)", (int)status);
+
         if (status == AR_ERROR_INVALID_ARGUMENT) {
+            __android_log_print(ANDROID_LOG_WARN, "ViroARCore", "acquireSemanticImage: AR_ERROR_INVALID_ARGUMENT");
             return ImageRetrievalStatus::InvalidArgument;
         } else if (status == AR_ERROR_DEADLINE_EXCEEDED) {
+            __android_log_print(ANDROID_LOG_WARN, "ViroARCore", "acquireSemanticImage: AR_ERROR_DEADLINE_EXCEEDED");
             return ImageRetrievalStatus::DeadlineExceeded;
         } else if (status == AR_ERROR_RESOURCE_EXHAUSTED) {
+            __android_log_print(ANDROID_LOG_WARN, "ViroARCore", "acquireSemanticImage: AR_ERROR_RESOURCE_EXHAUSTED");
             return ImageRetrievalStatus::ResourceExhausted;
         } else if (status == AR_ERROR_NOT_YET_AVAILABLE) {
+            // This is expected during the first few frames after enabling semantic mode
             return ImageRetrievalStatus::NotYetAvailable;
         } else if (status == AR_SUCCESS && arImage != nullptr) {
+            int width = 0, height = 0;
+            ArImage_getWidth(_session, arImage, &width);
+            ArImage_getHeight(_session, arImage, &height);
+            __android_log_print(ANDROID_LOG_INFO, "ViroARCore",
+                "acquireSemanticImage: SUCCESS (width=%d, height=%d)", width, height);
             *outImage = new ImageNative(arImage, _session);
             return ImageRetrievalStatus::Success;
         } else {
+            __android_log_print(ANDROID_LOG_WARN, "ViroARCore", "acquireSemanticImage: UnknownError (status=%d)", (int)status);
             return ImageRetrievalStatus::UnknownError;
         }
-        #else
-        // ARCore version does not support semantic image acquisition
-        return ImageRetrievalStatus::NotYetAvailable;
-        #endif
+        // #else
+        // // ARCore version does not support semantic image acquisition
+        // return ImageRetrievalStatus::NotYetAvailable;
+        // #endif
     }
 
     ImageRetrievalStatus FrameNative::acquireSemanticConfidenceImage(Image **outImage) {
         // Check if semantic confidence image acquisition is available in the ARCore C API
-        #if defined(AR_SEMANTIC_LABEL_SKY)
+        // #if defined(AR_SEMANTIC_LABEL_SKY)
         ArImage *arImage = nullptr;
         ArStatus status = ArFrame_acquireSemanticConfidenceImage(_session, _frame, &arImage);
 
@@ -804,26 +824,47 @@ namespace arcore {
         } else {
             return ImageRetrievalStatus::UnknownError;
         }
-        #else
-        // ARCore version does not support semantic confidence image acquisition
-        return ImageRetrievalStatus::NotYetAvailable;
-        #endif
+        // #else
+        // // ARCore version does not support semantic confidence image acquisition
+        // return ImageRetrievalStatus::NotYetAvailable;
+        // #endif
     }
 
     float FrameNative::getSemanticLabelFraction(SemanticLabel label) {
         // Check if semantic label fraction query is available in the ARCore C API
-        #if defined(AR_SEMANTIC_LABEL_SKY)
+        // #if defined(AR_SEMANTIC_LABEL_SKY)
         float fraction = 0.0f;
         ArSemanticLabel arLabel = static_cast<ArSemanticLabel>(static_cast<int>(label));
         ArStatus status = ArFrame_getSemanticLabelFraction(_session, _frame, arLabel, &fraction);
+
+        // Log status for first label to understand what ARCore is returning
+        if (static_cast<int>(label) == 0) {
+            __android_log_print(ANDROID_LOG_DEBUG, "ViroARCore",
+                "getSemanticLabelFraction: status=%d (0=SUCCESS, -1=NOT_YET_AVAILABLE), fraction=%.4f",
+                (int)status, fraction);
+        }
+
         if (status == AR_SUCCESS) {
+            // Log non-zero fractions for any label
+            if (fraction > 0.0f) {
+                __android_log_print(ANDROID_LOG_INFO, "ViroARCore",
+                    "Semantic label %d has fraction: %.4f", (int)label, fraction);
+            }
             return fraction;
+        } else if (status == AR_ERROR_NOT_YET_AVAILABLE) {
+            // This is expected during first few frames after enabling semantic mode
+            return 0.0f;
+        } else {
+            // Log unexpected error statuses
+            __android_log_print(ANDROID_LOG_WARN, "ViroARCore",
+                "ArFrame_getSemanticLabelFraction failed for label %d: status=%d",
+                (int)label, (int)status);
         }
         return 0.0f;
-        #else
-        // ARCore version does not support semantic label fraction query
-        return 0.0f;
-        #endif
+        // #else
+        // // ARCore version does not support semantic label fraction query
+        // return 0.0f;
+        // #endif
     }
 
 #pragma mark - PointCloud

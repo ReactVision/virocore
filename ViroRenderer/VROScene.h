@@ -142,9 +142,9 @@ public:
 
     /*
      Computes the physics simulation for the current frame, if a VROPhysicsWorld
-     exists.
+     exists. Virtual to allow subclasses (e.g., VROARScene) to add debug drawing.
      */
-    void computePhysics(const VRORenderContext &context) {
+    virtual void computePhysics(const VRORenderContext &context) {
         if (_physicsWorld != nullptr) {
             _physicsWorld->computePhysics(context);
         }
