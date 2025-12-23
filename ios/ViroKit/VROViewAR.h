@@ -129,4 +129,72 @@ enum class VROCameraPosition;
  */
 - (void)setDepthDebugEnabled:(BOOL)enabled opacity:(float)opacity;
 
+#pragma mark - Monocular Depth Estimation
+
+/*
+ Enable or disable monocular depth estimation for devices without LiDAR.
+ When enabled, the system will use a neural network to estimate depth from
+ the camera image. This provides depth-based occlusion on older devices.
+
+ Note: The depth model must be either bundled with the app or downloaded
+ using downloadMonocularDepthModel. Call setMonocularDepthModelURL first
+ if using on-demand download.
+
+ @param enabled Whether to enable monocular depth estimation
+ */
+- (void)setMonocularDepthEnabled:(BOOL)enabled;
+
+/*
+ Check if monocular depth estimation is supported on this device.
+ Requires iOS 14.0+ and sufficient GPU/Neural Engine capabilities.
+
+ @return YES if supported, NO otherwise
+ */
+- (BOOL)isMonocularDepthSupported;
+
+/*
+ Check if the monocular depth model has been downloaded.
+
+ @return YES if the model is available locally, NO otherwise
+ */
+- (BOOL)isMonocularDepthModelDownloaded;
+
+/*
+ Set the base URL for downloading the depth model.
+ The full URL will be: baseURL/DepthPro.mlmodelc.zip
+
+ @param baseURL The base URL where the model is hosted
+ */
+- (void)setMonocularDepthModelURL:(NSURL *)baseURL;
+
+/*
+ Download the monocular depth model if not already downloaded.
+ This is an asynchronous operation.
+
+ @param progressBlock Called periodically with download progress (0.0-1.0)
+ @param completionBlock Called when download completes or fails
+ */
+- (void)downloadMonocularDepthModelWithProgress:(void (^)(float progress))progressBlock
+                                     completion:(void (^)(BOOL success, NSError *error))completionBlock;
+
+/*
+ When enabled, monocular depth estimation will be used even on devices with LiDAR.
+ This allows using the neural network-based depth on all devices for:
+ - Consistency across device types
+ - Testing/comparison purposes
+ - Getting depth estimates beyond LiDAR's ~5m range
+
+ Default is NO (LiDAR is preferred when available).
+
+ @param prefer Whether to prefer monocular depth over LiDAR
+ */
+- (void)setPreferMonocularDepth:(BOOL)prefer;
+
+/*
+ Check if monocular depth is preferred over LiDAR.
+
+ @return YES if monocular depth is preferred, NO otherwise
+ */
+- (BOOL)isPreferMonocularDepth;
+
 @end

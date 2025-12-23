@@ -79,6 +79,13 @@ public:
     int getDepthImageHeight() const override;
 
     /*
+     Returns true if native LiDAR depth is available from ARKit.
+     This is distinct from hasDepthData() which may return true
+     for monocular depth estimation when LiDAR is not available.
+     */
+    bool hasLiDARDepth() const;
+
+    /*
      Returns the transform matrix to convert from camera texture coordinates
      to depth texture coordinates. The depth map from ARKit may have a different
      orientation/resolution than the camera image, so this transform is needed

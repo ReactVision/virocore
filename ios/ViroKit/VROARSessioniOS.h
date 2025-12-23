@@ -39,6 +39,7 @@
 class VRODriver;
 class VROVideoTextureCacheOpenGL;
 class VROTrackingHelper;
+class VROMonocularDepthEstimator;
 @class VROARKitSessionDelegate;
 @class VROCloudAnchorProviderARCore;
 
@@ -105,6 +106,27 @@ public:
     void setOcclusionMode(VROOcclusionMode mode) override;
     bool isOcclusionSupported() const override;
     bool isOcclusionModeSupported(VROOcclusionMode mode) const override;
+
+    // Monocular depth estimation (for non-LiDAR devices, or as alternative to LiDAR)
+    void setMonocularDepthEnabled(bool enabled);
+    bool isMonocularDepthEnabled() const;
+    bool isMonocularDepthSupported() const;
+    std::shared_ptr<VROMonocularDepthEstimator> getMonocularDepthEstimator() const;
+
+    /*
+     When true, monocular depth estimation will be used even on devices with LiDAR.
+     This allows using the neural network-based depth on all devices for consistency,
+     testing, or to get depth estimates beyond LiDAR's ~5m range.
+     Default is false (LiDAR is preferred when available).
+     */
+    void setPreferMonocularDepth(bool prefer);
+    bool isPreferMonocularDepth() const;
+
+    /*
+     Set the base URL from which to download the depth model.
+     The full URL will be: baseURL/DepthPro.mlmodelc.zip
+     */
+    void setMonocularDepthModelURL(NSURL *baseURL);
 
     // Geospatial API
     void setGeospatialAnchorProvider(VROGeospatialAnchorProvider provider) override;
@@ -233,9 +255,19 @@ private:
     void updateAnchorFromNative(std::shared_ptr<VROARAnchor> vAnchor, ARAnchor *anchor);
     
     std::shared_ptr<VROVisionModel> _visionModel;
-    
+
+    /*
+     Monocular depth estimation for non-LiDAR devices (or as alternative to LiDAR).
+     */
+    std::shared_ptr<VROMonocularDepthEstimator> _monocularDepthEstimator;
+    bool _monocularDepthEnabled;
+    bool _preferMonocularDepth;  // When true, use monocular even on LiDAR devices
+    NSURL *_monocularDepthModelURL;
+    std::shared_ptr<VRODriver> _driver;
+
     void updateTrackingType(VROTrackingType trackingType);
-    
+    void initializeMonocularDepthEstimator(NSString *modelPath);
+
 };
 
 /*

@@ -1,9 +1,14 @@
 platform :ios, '13.0'
 
+# Disable Mac Catalyst - ViroKit uses GLKit and ARCore which are iOS-only
+ENV['ONLY_ACTIVE_ARCH'] = 'NO'
+
 def common_pods
     pod 'GVRAudioSDK', '1.140.0'
     # ARCore SDK for Cloud Anchors, Geospatial, and Semantics support on iOS
-    # Requires Google Cloud API key in Info.plist
+    # These are OPTIONAL - ViroKit is built with weak linking so apps can
+    # choose whether to include ARCore pods based on their needs.
+    # Requires Google Cloud API key in Info.plist when used.
     pod 'ARCore/CloudAnchors', '~> 1.51.0'
     pod 'ARCore/Geospatial', '~> 1.51.0'
     pod 'ARCore/Semantics', '~> 1.51.0'
@@ -16,4 +21,50 @@ end
 target 'ViroKit' do
     use_frameworks!
     common_pods
+end
+
+# Post-install hook to enable weak linking for ARCore frameworks in ViroKit only
+# This allows ViroKit to be used with or without ARCore SDK in the final app
+post_install do |installer|
+    # Note: ARCore is distributed as sub-frameworks, not a single ARCore.framework
+    arcore_frameworks = ['ARCoreBase', 'ARCoreGARSession', 'ARCoreCloudAnchors',
+                         'ARCoreGeospatial', 'ARCoreSemantics', 'ARCoreTFShared']
+
+    # Only modify the ViroKit aggregate target's xcconfig files
+    # This converts strong framework links to weak for ARCore
+    installer.aggregate_targets.each do |aggregate_target|
+        # Only process ViroKit target
+        next unless aggregate_target.name.include?('ViroKit')
+
+        aggregate_target.xcconfigs.each do |config_name, config|
+            xcconfig_path = aggregate_target.xcconfig_path(config_name)
+            if File.exist?(xcconfig_path)
+                xcconfig_content = File.read(xcconfig_path)
+
+                # Replace -framework ARCore* with -weak_framework ARCore*
+                arcore_frameworks.each do |framework|
+                    xcconfig_content.gsub!("-framework \"#{framework}\"", "-weak_framework \"#{framework}\"")
+                    xcconfig_content.gsub!("-framework #{framework}", "-weak_framework #{framework}")
+                end
+
+                File.write(xcconfig_path, xcconfig_content)
+            end
+        end
+    end
+
+    # Also update the Pods-ViroKit xcconfig if it exists
+    pods_dir = installer.sandbox.root
+    ['Debug', 'Release'].each do |config|
+        xcconfig_path = pods_dir.join("Target Support Files/Pods-ViroKit/Pods-ViroKit.#{config.downcase}.xcconfig")
+        if File.exist?(xcconfig_path)
+            xcconfig_content = File.read(xcconfig_path)
+
+            arcore_frameworks.each do |framework|
+                xcconfig_content.gsub!("-framework \"#{framework}\"", "-weak_framework \"#{framework}\"")
+                xcconfig_content.gsub!("-framework #{framework}", "-weak_framework #{framework}")
+            end
+
+            File.write(xcconfig_path, xcconfig_content)
+        end
+    end
 end

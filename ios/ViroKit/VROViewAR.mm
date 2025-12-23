@@ -48,6 +48,7 @@
 #import "VROViewRecorder.h"
 #import "VROARCameraInertial.h"
 #import "VRODeviceUtil.h"
+#import "VROModelDownloader.h"
 #import "VROCameraTexture.h"
 #import "VROShaderFactory.h"
 #import "VROShaderModifier.h"
@@ -905,6 +906,99 @@ static VROVector3f const kZeroVector = VROVector3f();
     // When disabled, the uniform binder sets opacity to 0, making the debug overlay invisible.
     // If depth features are completely disabled (no occlusion and no debug), the modifiers
     // will be removed in updateBackgroundOcclusionWithFrame on the next frame.
+}
+
+#pragma mark - Monocular Depth Estimation
+
+- (void)setMonocularDepthEnabled:(BOOL)enabled {
+    if (self.trackingType == VROTrackingType::DOF6) {
+        std::shared_ptr<VROARSessioniOS> sessioniOS =
+            std::dynamic_pointer_cast<VROARSessioniOS>(_arSession);
+        if (sessioniOS) {
+            sessioniOS->setMonocularDepthEnabled(enabled);
+        }
+    }
+}
+
+- (BOOL)isMonocularDepthSupported {
+    if (self.trackingType == VROTrackingType::DOF6) {
+        std::shared_ptr<VROARSessioniOS> sessioniOS =
+            std::dynamic_pointer_cast<VROARSessioniOS>(_arSession);
+        if (sessioniOS) {
+            return sessioniOS->isMonocularDepthSupported();
+        }
+    }
+    return NO;
+}
+
+- (BOOL)isMonocularDepthModelDownloaded {
+    return [VROModelDownloader isModelDownloaded:@"DepthPro"];
+}
+
+- (void)setMonocularDepthModelURL:(NSURL *)baseURL {
+    if (self.trackingType == VROTrackingType::DOF6) {
+        std::shared_ptr<VROARSessioniOS> sessioniOS =
+            std::dynamic_pointer_cast<VROARSessioniOS>(_arSession);
+        if (sessioniOS) {
+            sessioniOS->setMonocularDepthModelURL(baseURL);
+        }
+    }
+}
+
+- (void)downloadMonocularDepthModelWithProgress:(void (^)(float progress))progressBlock
+                                     completion:(void (^)(BOOL success, NSError *error))completionBlock {
+    // Check if already downloaded
+    if ([VROModelDownloader isModelDownloaded:@"DepthPro"]) {
+        if (completionBlock) {
+            completionBlock(YES, nil);
+        }
+        return;
+    }
+
+    // Get the model URL from session
+    NSURL *baseURL = nil;
+    if (self.trackingType == VROTrackingType::DOF6) {
+        // TODO: Get URL from session or use a default
+        // For now, caller must set URL first via setMonocularDepthModelURL
+    }
+
+    if (!baseURL) {
+        if (completionBlock) {
+            NSError *error = [NSError errorWithDomain:@"com.viro.viewar"
+                                                 code:1
+                                             userInfo:@{NSLocalizedDescriptionKey: @"No model URL configured. Call setMonocularDepthModelURL first."}];
+            completionBlock(NO, error);
+        }
+        return;
+    }
+
+    [VROModelDownloader downloadModelIfNeeded:@"DepthPro"
+                                      fromURL:baseURL
+                                     progress:progressBlock
+                                   completion:^(NSString *localPath, NSError *error) {
+        if (completionBlock) {
+            completionBlock(localPath != nil, error);
+        }
+    }];
+}
+
+- (void)setPreferMonocularDepth:(BOOL)prefer {
+    if (self.trackingType == VROTrackingType::DOF6) {
+        std::shared_ptr<VROARSessioniOS> session = std::dynamic_pointer_cast<VROARSessioniOS>([self getARSession]);
+        if (session) {
+            session->setPreferMonocularDepth(prefer);
+        }
+    }
+}
+
+- (BOOL)isPreferMonocularDepth {
+    if (self.trackingType == VROTrackingType::DOF6) {
+        std::shared_ptr<VROARSessioniOS> session = std::dynamic_pointer_cast<VROARSessioniOS>([self getARSession]);
+        if (session) {
+            return session->isPreferMonocularDepth();
+        }
+    }
+    return NO;
 }
 
 @end
