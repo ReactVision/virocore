@@ -27,8 +27,14 @@ end
 # This allows ViroKit to be used with or without ARCore SDK in the final app
 post_install do |installer|
     # Note: ARCore is distributed as sub-frameworks, not a single ARCore.framework
+    # We also need to weak link Firebase and Google frameworks that ARCore depends on
     arcore_frameworks = ['ARCoreBase', 'ARCoreGARSession', 'ARCoreCloudAnchors',
-                         'ARCoreGeospatial', 'ARCoreSemantics', 'ARCoreTFShared']
+                         'ARCoreGeospatial', 'ARCoreSemantics', 'ARCoreTFShared',
+                         'FirebaseABTesting', 'FirebaseCore', 'FirebaseCoreInternal',
+                         'FirebaseInstallations', 'FirebaseRemoteConfig',
+                         'FirebaseRemoteConfigInterop', 'FirebaseSharedSwift',
+                         'GTMSessionFetcher', 'GoogleToolboxForMac', 'nanopb',
+                         'PromisesObjC']
 
     # Only modify the ViroKit aggregate target's xcconfig files
     # This converts strong framework links to weak for ARCore
