@@ -41,6 +41,7 @@
 #include "VROData.h"
 #include "VROFieldOfView.h"
 #include "VROARDepthMesh.h"
+#include "VROMonocularDepthEstimator.h"
 
 VROARFrameiOS::VROARFrameiOS(ARFrame *frame, VROViewport viewport, VROCameraOrientation orientation,
                              std::shared_ptr<VROARSessioniOS> session) :
@@ -223,6 +224,24 @@ std::shared_ptr<VROARPointCloud> VROARFrameiOS::getPointCloud() {
 }
 
 bool VROARFrameiOS::hasDepthData() const {
+    // Check for LiDAR depth first
+    if (hasLiDARDepth()) {
+        return true;
+    }
+
+    // Check for monocular depth estimation
+    std::shared_ptr<VROARSessioniOS> session = _session.lock();
+    if (session) {
+        auto depthEstimator = session->getMonocularDepthEstimator();
+        if (depthEstimator && depthEstimator->isAvailable()) {
+            return depthEstimator->getDepthTexture() != nullptr;
+        }
+    }
+
+    return false;
+}
+
+bool VROARFrameiOS::hasLiDARDepth() const {
     if (@available(iOS 14.0, *)) {
         return _frame.sceneDepth != nil;
     }
@@ -252,47 +271,63 @@ std::shared_ptr<VROTexture> VROARFrameiOS::getDepthTexture() {
         return _depthTexture;
     }
 
-    if (@available(iOS 14.0, *)) {
-        ARDepthData *sceneDepth = _frame.sceneDepth;
-        if (sceneDepth == nil) {
-            return nullptr;
+    std::shared_ptr<VROARSessioniOS> session = _session.lock();
+    bool preferMonocular = session && session->isPreferMonocularDepth();
+
+    // If preferMonocular is true, skip LiDAR and go directly to monocular depth
+    if (!preferMonocular) {
+        // Priority 1: LiDAR depth from ARKit (highest quality)
+        if (@available(iOS 14.0, *)) {
+            ARDepthData *sceneDepth = _frame.sceneDepth;
+            if (sceneDepth != nil) {
+                CVPixelBufferRef depthMap = sceneDepth.depthMap;
+                if (depthMap != nil) {
+                    // Get the depth map dimensions
+                    size_t width = CVPixelBufferGetWidth(depthMap);
+                    size_t height = CVPixelBufferGetHeight(depthMap);
+
+                    // Lock the buffer to access the data
+                    CVPixelBufferLockBaseAddress(depthMap, kCVPixelBufferLock_ReadOnly);
+                    void *baseAddress = CVPixelBufferGetBaseAddress(depthMap);
+
+                    // The depth map is Float32 format
+                    OSType formatType = CVPixelBufferGetPixelFormatType(depthMap);
+                    if (formatType == kCVPixelFormatType_DepthFloat32 && baseAddress != nullptr) {
+                        // Copy the depth data (we need to copy since the CVPixelBuffer will be released)
+                        size_t dataSize = width * height * sizeof(float);
+                        std::shared_ptr<VROData> depthData = std::make_shared<VROData>(baseAddress, dataSize, VRODataOwnership::Copy);
+                        std::vector<std::shared_ptr<VROData>> dataVec = { depthData };
+
+                        _depthTexture = std::make_shared<VROTexture>(VROTextureType::Texture2D,
+                                                                      VROTextureFormat::R32F,
+                                                                      VROTextureInternalFormat::R32F,
+                                                                      false, // not sRGB
+                                                                      VROMipmapMode::None,
+                                                                      dataVec,
+                                                                      (int)width, (int)height,
+                                                                      std::vector<uint32_t>());
+                    }
+
+                    CVPixelBufferUnlockBaseAddress(depthMap, kCVPixelBufferLock_ReadOnly);
+
+                    if (_depthTexture) {
+                        return _depthTexture;
+                    }
+                }
+            }
         }
-
-        CVPixelBufferRef depthMap = sceneDepth.depthMap;
-        if (depthMap == nil) {
-            return nullptr;
-        }
-
-        // Get the depth map dimensions
-        size_t width = CVPixelBufferGetWidth(depthMap);
-        size_t height = CVPixelBufferGetHeight(depthMap);
-
-        // Lock the buffer to access the data
-        CVPixelBufferLockBaseAddress(depthMap, kCVPixelBufferLock_ReadOnly);
-        void *baseAddress = CVPixelBufferGetBaseAddress(depthMap);
-
-        // The depth map is Float32 format
-        OSType formatType = CVPixelBufferGetPixelFormatType(depthMap);
-        if (formatType == kCVPixelFormatType_DepthFloat32 && baseAddress != nullptr) {
-            // Copy the depth data (we need to copy since the CVPixelBuffer will be released)
-            size_t dataSize = width * height * sizeof(float);
-            std::shared_ptr<VROData> depthData = std::make_shared<VROData>(baseAddress, dataSize, VRODataOwnership::Copy);
-            std::vector<std::shared_ptr<VROData>> dataVec = { depthData };
-
-            _depthTexture = std::make_shared<VROTexture>(VROTextureType::Texture2D,
-                                                          VROTextureFormat::R32F,
-                                                          VROTextureInternalFormat::R32F,
-                                                          false, // not sRGB
-                                                          VROMipmapMode::None,
-                                                          dataVec,
-                                                          (int)width, (int)height,
-                                                          std::vector<uint32_t>());
-        }
-
-        CVPixelBufferUnlockBaseAddress(depthMap, kCVPixelBufferLock_ReadOnly);
     }
 
-    return _depthTexture;
+    // Priority 2: Monocular depth estimation (fallback for non-LiDAR devices, or when preferred)
+    if (session) {
+        auto depthEstimator = session->getMonocularDepthEstimator();
+        if (depthEstimator && depthEstimator->isAvailable()) {
+            _depthTexture = depthEstimator->getDepthTexture();
+            return _depthTexture;
+        }
+    }
+
+    return nullptr;
 }
 
 std::shared_ptr<VROTexture> VROARFrameiOS::getDepthConfidenceTexture() {

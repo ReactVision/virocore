@@ -44,13 +44,26 @@
 @implementation VROCloudAnchorProviderARCore
 
 + (BOOL)isAvailable {
-    pinfo("[ViroAR] ARCore SDK is available (ARCORE_AVAILABLE=1)");
+    // Runtime check for weak-linked ARCore framework
+    // Even if compiled with ARCORE_AVAILABLE=1, the framework may not be present at runtime
+    Class garSessionClass = NSClassFromString(@"GARSession");
+    if (garSessionClass == nil) {
+        pinfo("[ViroAR] ARCore SDK not available at runtime (GARSession class not found)");
+        pinfo("[ViroAR] To enable Cloud Anchors, add ARCore/CloudAnchors pod to your Podfile");
+        return NO;
+    }
+    pinfo("[ViroAR] ARCore SDK is available (runtime check passed)");
     return YES;
 }
 
 - (nullable instancetype)init {
     self = [super init];
     if (self) {
+        // First check if ARCore is available at runtime (weak linking support)
+        if (![VROCloudAnchorProviderARCore isAvailable]) {
+            return nil;
+        }
+
         NSError *error = nil;
 
         pinfo("[ViroAR] Initializing ARCore Cloud Anchors provider...");
@@ -286,7 +299,15 @@
 #if ARCORE_GEOSPATIAL_AVAILABLE
 
 + (BOOL)isGeospatialAvailable {
-    pinfo("[ViroAR] ARCore Geospatial SDK is available (ARCORE_GEOSPATIAL_AVAILABLE=1)");
+    // Runtime check for weak-linked ARCore Geospatial framework
+    // Check for GAREarth class which is part of the Geospatial API
+    Class garEarthClass = NSClassFromString(@"GAREarth");
+    if (garEarthClass == nil) {
+        pinfo("[ViroAR] ARCore Geospatial SDK not available at runtime (GAREarth class not found)");
+        pinfo("[ViroAR] To enable Geospatial, add ARCore/Geospatial pod to your Podfile");
+        return NO;
+    }
+    pinfo("[ViroAR] ARCore Geospatial SDK is available (runtime check passed)");
     return YES;
 }
 
@@ -742,8 +763,35 @@
 
 #pragma mark - Scene Semantics API (with ARCoreSemantics SDK)
 
++ (BOOL)isSemanticsAvailable {
+    // Runtime check for weak-linked ARCore Semantics framework
+    // Check for GARSemanticLabel which is part of the Semantics API
+    // We check if we can use the semantics mode enum
+    Class garFrameClass = NSClassFromString(@"GARFrame");
+    if (garFrameClass == nil) {
+        return NO;
+    }
+    // Additional check - if GARSession doesn't respond to isSemanticModeSupported, SDK is too old
+    Class garSessionClass = NSClassFromString(@"GARSession");
+    if (garSessionClass == nil) {
+        return NO;
+    }
+    // Check if the class responds to the semantics selector
+    SEL semanticSelector = NSSelectorFromString(@"isSemanticModeSupported:");
+    if (![garSessionClass instancesRespondToSelector:semanticSelector]) {
+        pinfo("[ViroAR] ARCore Semantics not available (SDK version too old)");
+        return NO;
+    }
+    pinfo("[ViroAR] ARCore Semantics SDK is available (runtime check passed)");
+    return YES;
+}
+
 - (BOOL)isSemanticModeSupported {
     if (!_garSession) {
+        return NO;
+    }
+    // Runtime check for weak-linked Semantics support
+    if (![VROCloudAnchorProviderARCore isSemanticsAvailable]) {
         return NO;
     }
     // Check if the GARSession supports semantic mode
@@ -809,6 +857,12 @@
 
 #pragma mark - Scene Semantics stubs (no ARCoreSemantics SDK)
 
++ (BOOL)isSemanticsAvailable {
+    pwarn("[ViroAR] ARCore Semantics SDK is NOT available (ARCORE_SEMANTICS_AVAILABLE=0)");
+    pwarn("[ViroAR] To enable Semantics, add to your Podfile: pod 'ARCore/Semantics', '~> 1.51.0'");
+    return NO;
+}
+
 - (BOOL)isSemanticModeSupported {
     return NO;
 }
@@ -840,6 +894,14 @@
 + (BOOL)isAvailable {
     pwarn("[ViroAR] ARCore SDK is NOT available (ARCORE_AVAILABLE=0)");
     pwarn("[ViroAR] To enable Cloud Anchors, add to your Podfile: pod 'ARCore/CloudAnchors', '~> 1.51.0'");
+    return NO;
+}
+
++ (BOOL)isGeospatialAvailable {
+    return NO;
+}
+
++ (BOOL)isSemanticsAvailable {
     return NO;
 }
 

@@ -910,6 +910,10 @@
 		A5EC65B71EBFF5A100FE220E /* VROPhysicsBody.h in Headers */ = {isa = PBXBuildFile; fileRef = A5EC65B41EBFF42100FE220E /* VROPhysicsBody.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		A5EC65B81EC004E100FE220E /* VROPhysicsShape.h in Headers */ = {isa = PBXBuildFile; fileRef = A5EC65941EBD16F000FE220E /* VROPhysicsShape.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		A5F72216C242D40244A5921D /* Pods_ViroKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2D0B4C6A395983278D4D0E37 /* Pods_ViroKit.framework */; };
+		E11308292EF0F574008AB6A1 /* VROModelDownloader.h in Headers */ = {isa = PBXBuildFile; fileRef = E11308272EF0F574008AB6A1 /* VROModelDownloader.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		E113082A2EF0F574008AB6A1 /* VROModelDownloader.mm in Sources */ = {isa = PBXBuildFile; fileRef = E11308282EF0F574008AB6A1 /* VROModelDownloader.mm */; };
+		E113082D2EF0F57D008AB6A1 /* VROMonocularDepthEstimator.h in Headers */ = {isa = PBXBuildFile; fileRef = E113082B2EF0F57D008AB6A1 /* VROMonocularDepthEstimator.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		E113082E2EF0F57D008AB6A1 /* VROMonocularDepthEstimator.mm in Sources */ = {isa = PBXBuildFile; fileRef = E113082C2EF0F57D008AB6A1 /* VROMonocularDepthEstimator.mm */; };
 		E12582562EC58CC0000722C2 /* VROVector2f.h in Headers */ = {isa = PBXBuildFile; fileRef = E12582552EC58CC0000722C2 /* VROVector2f.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		E188BC752EE37644000A427E /* VROCloudAnchorProviderARCore.mm in Sources */ = {isa = PBXBuildFile; fileRef = E188BC742EE37644000A427E /* VROCloudAnchorProviderARCore.mm */; };
 		E188BC772EE37652000A427E /* VROCloudAnchorProviderARCore.h in Headers */ = {isa = PBXBuildFile; fileRef = E188BC762EE37652000A427E /* VROCloudAnchorProviderARCore.h */; settings = {ATTRIBUTES = (Public, ); }; };
@@ -1901,6 +1905,10 @@
 		A5EC65B31EBFF42100FE220E /* VROPhysicsBody.cpp */ = {isa = PBXFileReference; explicitFileType = sourcecode.cpp.objcpp; fileEncoding = 4; path = VROPhysicsBody.cpp; sourceTree = "<group>"; };
 		A5EC65B41EBFF42100FE220E /* VROPhysicsBody.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = VROPhysicsBody.h; sourceTree = "<group>"; };
 		C379EE7048B2068DEB5BE274 /* Pods-ViroKit.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-ViroKit.release.xcconfig"; path = "Target Support Files/Pods-ViroKit/Pods-ViroKit.release.xcconfig"; sourceTree = "<group>"; };
+		E11308272EF0F574008AB6A1 /* VROModelDownloader.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VROModelDownloader.h; sourceTree = "<group>"; };
+		E11308282EF0F574008AB6A1 /* VROModelDownloader.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = VROModelDownloader.mm; sourceTree = "<group>"; };
+		E113082B2EF0F57D008AB6A1 /* VROMonocularDepthEstimator.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VROMonocularDepthEstimator.h; sourceTree = "<group>"; };
+		E113082C2EF0F57D008AB6A1 /* VROMonocularDepthEstimator.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = VROMonocularDepthEstimator.mm; sourceTree = "<group>"; };
 		E12582552EC58CC0000722C2 /* VROVector2f.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VROVector2f.h; sourceTree = "<group>"; };
 		E188BC742EE37644000A427E /* VROCloudAnchorProviderARCore.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = VROCloudAnchorProviderARCore.mm; sourceTree = "<group>"; };
 		E188BC762EE37652000A427E /* VROCloudAnchorProviderARCore.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VROCloudAnchorProviderARCore.h; sourceTree = "<group>"; };
@@ -2413,6 +2421,10 @@
 		8F53D3A61DCBA041001C91A8 /* iOS Impl */ = {
 			isa = PBXGroup;
 			children = (
+				E11308272EF0F574008AB6A1 /* VROModelDownloader.h */,
+				E11308282EF0F574008AB6A1 /* VROModelDownloader.mm */,
+				E113082B2EF0F57D008AB6A1 /* VROMonocularDepthEstimator.h */,
+				E113082C2EF0F57D008AB6A1 /* VROMonocularDepthEstimator.mm */,
 				E188BC762EE37652000A427E /* VROCloudAnchorProviderARCore.h */,
 				E188BC742EE37644000A427E /* VROCloudAnchorProviderARCore.mm */,
 				A526F5B81EFD855E00A8A7A3 /* VROTransformDelegateiOS.h */,
@@ -3319,6 +3331,8 @@
 			isa = PBXHeadersBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E11308292EF0F574008AB6A1 /* VROModelDownloader.h in Headers */,
+				E113082D2EF0F57D008AB6A1 /* VROMonocularDepthEstimator.h in Headers */,
 				E1B267D62EE5228E00F0718C /* VROARDepthMesh.h in Headers */,
 				E1B267D52EE5228E00F0718C /* VROARWorldMesh.h in Headers */,
 				A5B4AF0B20535D460006D970 /* VROPolygon.h in Headers */,
@@ -4425,6 +4439,7 @@
 				8AD76EA5211B7BF10045BD5F /* VROARObjectTargetiOS.cpp in Sources */,
 				8F8751902062C86E002D9BF8 /* VROJenkinsHash.cpp in Sources */,
 				8F201C4F21010E0B00637A75 /* VROPolygonTest.cpp in Sources */,
+				E113082A2EF0F574008AB6A1 /* VROModelDownloader.mm in Sources */,
 				A5DA443321AF473600F86923 /* VROIKRig.cpp in Sources */,
 				8FB30C9E223F5690000C7D68 /* VROBodyIKController.cpp in Sources */,
 				8F1DF5A91F36408700886805 /* VROPortalFrame.cpp in Sources */,
@@ -4480,6 +4495,7 @@
 				A5A10754212D51E8008B2DFB /* gifalloc.c in Sources */,
 				8F129F951ECB41EE00341D83 /* VROSkeletalAnimation.cpp in Sources */,
 				8FAE18C31EE79D470021C7BB /* VROARSessioniOS.cpp in Sources */,
+				E113082E2EF0F57D008AB6A1 /* VROMonocularDepthEstimator.mm in Sources */,
 				8FEACEE1201262EE0082D18B /* VROPBRTexturedTest.cpp in Sources */,
 				8F8751892062C816002D9BF8 /* VROCharmapCoverage.cpp in Sources */,
 				8FDDB4A71DAF134300DE0968 /* VROLineSegment.cpp in Sources */,
@@ -4851,6 +4867,12 @@
 					"\"OpenGLES\"",
 					"-framework",
 					"\"QuartzCore\"",
+					"-weak_framework",
+					"\"FBLPromises\"",
+					"-weak_framework",
+					"\"GoogleDataTransport\"",
+					"-weak_framework",
+					"\"GoogleUtilities\"",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.viro.ViroKit;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -4937,6 +4959,12 @@
 					"\"OpenGLES\"",
 					"-framework",
 					"\"QuartzCore\"",
+					"-weak_framework",
+					"\"FBLPromises\"",
+					"-weak_framework",
+					"\"GoogleDataTransport\"",
+					"-weak_framework",
+					"\"GoogleUtilities\"",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.viro.ViroKit;
 				PRODUCT_NAME = "$(TARGET_NAME)";

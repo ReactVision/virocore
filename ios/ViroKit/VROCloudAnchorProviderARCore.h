@@ -83,8 +83,20 @@ API_AVAILABLE(ios(12.0))
 
 /**
  * Check if the ARCore Cloud Anchors SDK is available.
+ * This performs a runtime check for weak-linked frameworks,
+ * so it will return NO if the ARCore pods are not included in the app.
  */
 + (BOOL)isAvailable;
+
+/**
+ * Check if the ARCore Geospatial SDK is available at runtime.
+ */
++ (BOOL)isGeospatialAvailable;
+
+/**
+ * Check if the ARCore Semantics SDK is available at runtime.
+ */
++ (BOOL)isSemanticsAvailable;
 
 /**
  * Host an anchor to the cloud.

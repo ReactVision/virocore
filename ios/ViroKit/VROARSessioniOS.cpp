@@ -48,9 +48,11 @@
 #include "VROTextureSubstrate.h"
 #include "VROVideoTextureCacheOpenGL.h"
 #include "VROVisionModel.h"
+#include "VROMonocularDepthEstimator.h"
 #include <algorithm>
 
 #import "VROCloudAnchorProviderARCore.h"
+#import "VROModelDownloader.h"
 #import <simd/simd.h>
 
 #pragma mark - Lifecycle and Initialization
@@ -58,7 +60,12 @@
 VROARSessioniOS::VROARSessioniOS(VROTrackingType trackingType,
                                  VROWorldAlignment worldAlignment,
                                  std::shared_ptr<VRODriver> driver)
-    : VROARSession(trackingType, worldAlignment), _sessionPaused(true) {
+    : VROARSession(trackingType, worldAlignment),
+      _sessionPaused(true),
+      _monocularDepthEnabled(false),
+      _preferMonocularDepth(false),
+      _monocularDepthModelURL(nil),
+      _driver(driver) {
 
   if (@available(iOS 11.0, *)) {
     _session = [[ARSession alloc] init];
@@ -565,6 +572,13 @@ std::unique_ptr<VROARFrame> &VROARSessioniOS::updateFrame() {
     _visionModel->update(frameiOS);
   }
 
+  // Update monocular depth estimator if enabled and no LiDAR depth available
+  if (_monocularDepthEnabled && _monocularDepthEstimator) {
+    if (!frameiOS->hasLiDARDepth()) {
+      _monocularDepthEstimator->update(frameiOS);
+    }
+  }
+
   // Update cloud anchor provider to process pending operations
   if (_cloudAnchorProviderARCore != nil) {
     ARFrame *arFrame = frameiOS->getARFrame();
@@ -758,10 +772,18 @@ void VROARSessioniOS::setOcclusionMode(VROOcclusionMode mode) {
 }
 
 bool VROARSessioniOS::isOcclusionSupported() const {
+    // Check for LiDAR support first
     if (@available(iOS 14.0, *)) {
-        // Check if scene depth is supported (requires LiDAR)
-        return [ARWorldTrackingConfiguration supportsFrameSemantics:ARFrameSemanticSceneDepth];
+        if ([ARWorldTrackingConfiguration supportsFrameSemantics:ARFrameSemanticSceneDepth]) {
+            return true;
+        }
     }
+
+    // Fallback: check for monocular depth estimation support
+    if (_monocularDepthEnabled && _monocularDepthEstimator) {
+        return _monocularDepthEstimator->isAvailable();
+    }
+
     return false;
 }
 
@@ -778,6 +800,98 @@ bool VROARSessioniOS::isOcclusionModeSupported(VROOcclusionMode mode) const {
         }
     }
     return false;
+}
+
+#pragma mark - Monocular Depth Estimation
+
+void VROARSessioniOS::setMonocularDepthEnabled(bool enabled) {
+    _monocularDepthEnabled = enabled;
+
+    if (enabled && !_monocularDepthEstimator) {
+        // Check if model is already downloaded
+        if ([VROModelDownloader isModelDownloaded:@"DepthPro"]) {
+            NSString *modelPath = [VROModelDownloader localPathForModel:@"DepthPro"];
+            initializeMonocularDepthEstimator(modelPath);
+        } else if (_monocularDepthModelURL) {
+            // Download the model asynchronously
+            pinfo("VROARSessioniOS: Downloading monocular depth model...");
+
+            std::weak_ptr<VROARSessioniOS> weak_self = shared_from_this();
+            [VROModelDownloader downloadModelIfNeeded:@"DepthPro"
+                                              fromURL:_monocularDepthModelURL
+                                             progress:^(float progress) {
+                                                 pinfo("VROARSessioniOS: Depth model download progress: %.0f%%", progress * 100);
+                                             }
+                                           completion:^(NSString *localPath, NSError *error) {
+                                               if (error) {
+                                                   pwarn("VROARSessioniOS: Failed to download depth model: %s",
+                                                         [[error localizedDescription] UTF8String]);
+                                                   return;
+                                               }
+
+                                               std::shared_ptr<VROARSessioniOS> strong_self = weak_self.lock();
+                                               if (strong_self && strong_self->_monocularDepthEnabled) {
+                                                   strong_self->initializeMonocularDepthEstimator(localPath);
+                                               }
+                                           }];
+        } else {
+            // Try bundled model as fallback
+            NSString *bundledPath = [[NSBundle mainBundle] pathForResource:@"DepthPro" ofType:@"mlmodelc"];
+            if (bundledPath) {
+                initializeMonocularDepthEstimator(bundledPath);
+            } else {
+                pwarn("VROARSessioniOS: No depth model available. Call setMonocularDepthModelURL first.");
+            }
+        }
+    } else if (!enabled && _monocularDepthEstimator) {
+        // Disable - clear the estimator to save resources
+        _monocularDepthEstimator.reset();
+    }
+}
+
+bool VROARSessioniOS::isMonocularDepthEnabled() const {
+    return _monocularDepthEnabled;
+}
+
+bool VROARSessioniOS::isMonocularDepthSupported() const {
+    if (@available(iOS 14.0, *)) {
+        return VROMonocularDepthEstimator::isSupported();
+    }
+    return false;
+}
+
+std::shared_ptr<VROMonocularDepthEstimator> VROARSessioniOS::getMonocularDepthEstimator() const {
+    return _monocularDepthEstimator;
+}
+
+void VROARSessioniOS::setPreferMonocularDepth(bool prefer) {
+    _preferMonocularDepth = prefer;
+    pinfo("VROARSessioniOS: Prefer monocular depth set to %s", prefer ? "true" : "false");
+}
+
+bool VROARSessioniOS::isPreferMonocularDepth() const {
+    return _preferMonocularDepth;
+}
+
+void VROARSessioniOS::setMonocularDepthModelURL(NSURL *baseURL) {
+    _monocularDepthModelURL = baseURL;
+}
+
+void VROARSessioniOS::initializeMonocularDepthEstimator(NSString *modelPath) {
+    if (!_driver) {
+        pwarn("VROARSessioniOS: Cannot initialize depth estimator - no driver");
+        return;
+    }
+
+    _monocularDepthEstimator = std::make_shared<VROMonocularDepthEstimator>(_driver);
+
+    if (!_monocularDepthEstimator->initWithModel(modelPath)) {
+        pwarn("VROARSessioniOS: Failed to initialize monocular depth estimator");
+        _monocularDepthEstimator.reset();
+        return;
+    }
+
+    pinfo("VROARSessioniOS: Monocular depth estimator initialized successfully");
 }
 
 #pragma mark - Internal Methods
