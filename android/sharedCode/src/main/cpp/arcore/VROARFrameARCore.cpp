@@ -106,6 +106,8 @@ std::vector<std::shared_ptr<VROARHitTestResult>> VROARFrameARCore::hitTest(int x
             } else {
                 type = VROARHitTestResultType::EstimatedHorizontalPlane;
             }
+        } else if (trackable != nullptr && trackable->getType() == arcore::TrackableType::DepthPoint) {
+            type = VROARHitTestResultType::DepthPoint;
         } else {
             type = VROARHitTestResultType::FeaturePoint;
         }
@@ -122,6 +124,14 @@ std::vector<std::shared_ptr<VROARHitTestResult>> VROARFrameARCore::hitTest(int x
         std::shared_ptr<VROARHitTestResult> vResult = std::make_shared<VROARHitTestResultARCore>(type, distance, hitResult,
                                                                                                  worldTransform, localTransform,
                                                                                                  session);
+
+        // For depth points, add depth data from the hit result
+        if (type == VROARHitTestResultType::DepthPoint) {
+            // ARCore depth points use the distance as the depth value
+            // Confidence is not provided by ARCore depth API
+            vResult->setDepthData(distance, -1.0f, "arcore");
+        }
+
         toReturn.push_back(vResult);
         delete (pose);
         delete (trackable);
@@ -171,6 +181,8 @@ std::vector<std::shared_ptr<VROARHitTestResult>> VROARFrameARCore::hitTestRay(VR
             } else {
                 type = VROARHitTestResultType::EstimatedHorizontalPlane;
             }
+        } else if (trackable != nullptr && trackable->getType() == arcore::TrackableType::DepthPoint) {
+            type = VROARHitTestResultType::DepthPoint;
         } else {
             type = VROARHitTestResultType::FeaturePoint;
         }
@@ -187,6 +199,14 @@ std::vector<std::shared_ptr<VROARHitTestResult>> VROARFrameARCore::hitTestRay(VR
         std::shared_ptr<VROARHitTestResult> vResult = std::make_shared<VROARHitTestResultARCore>(type, distance, hitResult,
                                                                                                  worldTransform, localTransform,
                                                                                                  session);
+
+        // For depth points, add depth data from the hit result
+        if (type == VROARHitTestResultType::DepthPoint) {
+            // ARCore depth points use the distance as the depth value
+            // Confidence is not provided by ARCore depth API
+            vResult->setDepthData(distance, -1.0f, "arcore");
+        }
+
         toReturn.push_back(vResult);
         delete (pose);
         delete (trackable);

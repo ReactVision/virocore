@@ -332,6 +332,10 @@ namespace arcore {
 
         if (type == AR_TRACKABLE_PLANE) {
             return TrackableType::Plane;
+        } else if (type == AR_TRACKABLE_DEPTH_POINT) {
+            return TrackableType::DepthPoint;
+        } else if (type == AR_TRACKABLE_INSTANT_PLACEMENT_POINT) {
+            return TrackableType::InstantPlacementPoint;
         } else {
             return TrackableType::Point;
         }

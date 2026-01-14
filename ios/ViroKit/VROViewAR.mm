@@ -48,7 +48,6 @@
 #import "VROViewRecorder.h"
 #import "VROARCameraInertial.h"
 #import "VRODeviceUtil.h"
-#import "VROModelDownloader.h"
 #import "VROCameraTexture.h"
 #import "VROShaderFactory.h"
 #import "VROShaderModifier.h"
@@ -931,55 +930,17 @@ static VROVector3f const kZeroVector = VROVector3f();
     return NO;
 }
 
-- (BOOL)isMonocularDepthModelDownloaded {
-    return [VROModelDownloader isModelDownloaded:@"DepthPro"];
-}
-
-- (void)setMonocularDepthModelURL:(NSURL *)baseURL {
-    if (self.trackingType == VROTrackingType::DOF6) {
-        std::shared_ptr<VROARSessioniOS> sessioniOS =
-            std::dynamic_pointer_cast<VROARSessioniOS>(_arSession);
-        if (sessioniOS) {
-            sessioniOS->setMonocularDepthModelURL(baseURL);
-        }
+- (BOOL)isMonocularDepthModelAvailable {
+    // Check framework bundle first (model bundled in ViroKit)
+    NSBundle *frameworkBundle = [NSBundle bundleForClass:[VROViewAR class]];
+    NSString *bundledPath = [frameworkBundle pathForResource:@"DepthPro" ofType:@"mlmodelc"];
+    
+    // Fallback to main app bundle (for custom deployments)
+    if (!bundledPath) {
+        bundledPath = [[NSBundle mainBundle] pathForResource:@"DepthPro" ofType:@"mlmodelc"];
     }
-}
-
-- (void)downloadMonocularDepthModelWithProgress:(void (^)(float progress))progressBlock
-                                     completion:(void (^)(BOOL success, NSError *error))completionBlock {
-    // Check if already downloaded
-    if ([VROModelDownloader isModelDownloaded:@"DepthPro"]) {
-        if (completionBlock) {
-            completionBlock(YES, nil);
-        }
-        return;
-    }
-
-    // Get the model URL from session
-    NSURL *baseURL = nil;
-    if (self.trackingType == VROTrackingType::DOF6) {
-        // TODO: Get URL from session or use a default
-        // For now, caller must set URL first via setMonocularDepthModelURL
-    }
-
-    if (!baseURL) {
-        if (completionBlock) {
-            NSError *error = [NSError errorWithDomain:@"com.viro.viewar"
-                                                 code:1
-                                             userInfo:@{NSLocalizedDescriptionKey: @"No model URL configured. Call setMonocularDepthModelURL first."}];
-            completionBlock(NO, error);
-        }
-        return;
-    }
-
-    [VROModelDownloader downloadModelIfNeeded:@"DepthPro"
-                                      fromURL:baseURL
-                                     progress:progressBlock
-                                   completion:^(NSString *localPath, NSError *error) {
-        if (completionBlock) {
-            completionBlock(localPath != nil, error);
-        }
-    }];
+    
+    return bundledPath != nil;
 }
 
 - (void)setPreferMonocularDepth:(BOOL)prefer {

@@ -52,7 +52,6 @@
 #include <algorithm>
 
 #import "VROCloudAnchorProviderARCore.h"
-#import "VROModelDownloader.h"
 #import <simd/simd.h>
 
 #pragma mark - Lifecycle and Initialization
@@ -64,7 +63,6 @@ VROARSessioniOS::VROARSessioniOS(VROTrackingType trackingType,
       _sessionPaused(true),
       _monocularDepthEnabled(false),
       _preferMonocularDepth(false),
-      _monocularDepthModelURL(nil),
       _driver(driver) {
 
   if (@available(iOS 11.0, *)) {
@@ -572,9 +570,10 @@ std::unique_ptr<VROARFrame> &VROARSessioniOS::updateFrame() {
     _visionModel->update(frameiOS);
   }
 
-  // Update monocular depth estimator if enabled and no LiDAR depth available
+  // Update monocular depth estimator if enabled and either LiDAR is unavailable
+  // or monocular depth is explicitly preferred.
   if (_monocularDepthEnabled && _monocularDepthEstimator) {
-    if (!frameiOS->hasLiDARDepth()) {
+    if (_preferMonocularDepth || !frameiOS->hasLiDARDepth()) {
       _monocularDepthEstimator->update(frameiOS);
     }
   }
@@ -808,40 +807,25 @@ void VROARSessioniOS::setMonocularDepthEnabled(bool enabled) {
     _monocularDepthEnabled = enabled;
 
     if (enabled && !_monocularDepthEstimator) {
-        // Check if model is already downloaded
-        if ([VROModelDownloader isModelDownloaded:@"DepthPro"]) {
-            NSString *modelPath = [VROModelDownloader localPathForModel:@"DepthPro"];
-            initializeMonocularDepthEstimator(modelPath);
-        } else if (_monocularDepthModelURL) {
-            // Download the model asynchronously
-            pinfo("VROARSessioniOS: Downloading monocular depth model...");
-
-            std::weak_ptr<VROARSessioniOS> weak_self = shared_from_this();
-            [VROModelDownloader downloadModelIfNeeded:@"DepthPro"
-                                              fromURL:_monocularDepthModelURL
-                                             progress:^(float progress) {
-                                                 pinfo("VROARSessioniOS: Depth model download progress: %.0f%%", progress * 100);
-                                             }
-                                           completion:^(NSString *localPath, NSError *error) {
-                                               if (error) {
-                                                   pwarn("VROARSessioniOS: Failed to download depth model: %s",
-                                                         [[error localizedDescription] UTF8String]);
-                                                   return;
-                                               }
-
-                                               std::shared_ptr<VROARSessioniOS> strong_self = weak_self.lock();
-                                               if (strong_self && strong_self->_monocularDepthEnabled) {
-                                                   strong_self->initializeMonocularDepthEstimator(localPath);
-                                               }
-                                           }];
+        // Try framework bundle first (model bundled in ViroKit)
+        NSBundle *frameworkBundle = [NSBundle bundleForClass:[VROARKitSessionDelegate class]];
+        
+        // Fallback to main app bundle (for custom deployments)
+        if (!frameworkBundle) {
+            frameworkBundle = [NSBundle mainBundle];
+        }
+        
+        NSString *bundledPath = [frameworkBundle pathForResource:@"DepthPro" ofType:@"mlmodelc"];
+        
+        // Fallback to main app bundle (for custom deployments)
+        if (!bundledPath) {
+            bundledPath = [[NSBundle mainBundle] pathForResource:@"DepthPro" ofType:@"mlmodelc"];
+        }
+        
+        if (bundledPath) {
+            initializeMonocularDepthEstimator(bundledPath);
         } else {
-            // Try bundled model as fallback
-            NSString *bundledPath = [[NSBundle mainBundle] pathForResource:@"DepthPro" ofType:@"mlmodelc"];
-            if (bundledPath) {
-                initializeMonocularDepthEstimator(bundledPath);
-            } else {
-                pwarn("VROARSessioniOS: No depth model available. Call setMonocularDepthModelURL first.");
-            }
+            pwarn("VROARSessioniOS: No bundled depth model found (DepthPro.mlmodelc)");
         }
     } else if (!enabled && _monocularDepthEstimator) {
         // Disable - clear the estimator to save resources
@@ -871,10 +855,6 @@ void VROARSessioniOS::setPreferMonocularDepth(bool prefer) {
 
 bool VROARSessioniOS::isPreferMonocularDepth() const {
     return _preferMonocularDepth;
-}
-
-void VROARSessioniOS::setMonocularDepthModelURL(NSURL *baseURL) {
-    _monocularDepthModelURL = baseURL;
 }
 
 void VROARSessioniOS::initializeMonocularDepthEstimator(NSString *modelPath) {
@@ -1491,3 +1471,4 @@ float VROARSessioniOS::getSemanticLabelFraction(VROSemanticLabel label) const {
 @end
 
 #endif
+

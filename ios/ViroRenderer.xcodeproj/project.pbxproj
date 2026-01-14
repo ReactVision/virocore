@@ -915,6 +915,10 @@
 		E113082D2EF0F57D008AB6A1 /* VROMonocularDepthEstimator.h in Headers */ = {isa = PBXBuildFile; fileRef = E113082B2EF0F57D008AB6A1 /* VROMonocularDepthEstimator.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		E113082E2EF0F57D008AB6A1 /* VROMonocularDepthEstimator.mm in Sources */ = {isa = PBXBuildFile; fileRef = E113082C2EF0F57D008AB6A1 /* VROMonocularDepthEstimator.mm */; };
 		E12582562EC58CC0000722C2 /* VROVector2f.h in Headers */ = {isa = PBXBuildFile; fileRef = E12582552EC58CC0000722C2 /* VROVector2f.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		E15075852F185C5700653622 /* VROARHitTestResultiOS.mm in Sources */ = {isa = PBXBuildFile; fileRef = E15075842F185C5700653622 /* VROARHitTestResultiOS.mm */; };
+		E15075862F185C5700653622 /* VROARHitTestResultiOS.h in Headers */ = {isa = PBXBuildFile; fileRef = E15075832F185C5700653622 /* VROARHitTestResultiOS.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		E18858EF2F0F2F0C0025DC5A /* DepthPro.mlmodelc in Resources */ = {isa = PBXBuildFile; fileRef = E18858EE2F0F2F0C0025DC5A /* DepthPro.mlmodelc */; };
+		E18858F02F0F2F260025DC5A /* DepthPro.mlmodelc in Sources */ = {isa = PBXBuildFile; fileRef = E18858EE2F0F2F0C0025DC5A /* DepthPro.mlmodelc */; };
 		E188BC752EE37644000A427E /* VROCloudAnchorProviderARCore.mm in Sources */ = {isa = PBXBuildFile; fileRef = E188BC742EE37644000A427E /* VROCloudAnchorProviderARCore.mm */; };
 		E188BC772EE37652000A427E /* VROCloudAnchorProviderARCore.h in Headers */ = {isa = PBXBuildFile; fileRef = E188BC762EE37652000A427E /* VROCloudAnchorProviderARCore.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		E19926002EE3B7E900328B9D /* VROGeospatial.h in Headers */ = {isa = PBXBuildFile; fileRef = E19925FF2EE3B7E900328B9D /* VROGeospatial.h */; settings = {ATTRIBUTES = (Public, ); }; };
@@ -1910,6 +1914,9 @@
 		E113082B2EF0F57D008AB6A1 /* VROMonocularDepthEstimator.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VROMonocularDepthEstimator.h; sourceTree = "<group>"; };
 		E113082C2EF0F57D008AB6A1 /* VROMonocularDepthEstimator.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = VROMonocularDepthEstimator.mm; sourceTree = "<group>"; };
 		E12582552EC58CC0000722C2 /* VROVector2f.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VROVector2f.h; sourceTree = "<group>"; };
+		E15075832F185C5700653622 /* VROARHitTestResultiOS.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VROARHitTestResultiOS.h; sourceTree = "<group>"; };
+		E15075842F185C5700653622 /* VROARHitTestResultiOS.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = VROARHitTestResultiOS.mm; sourceTree = "<group>"; };
+		E18858EE2F0F2F0C0025DC5A /* DepthPro.mlmodelc */ = {isa = PBXFileReference; lastKnownFileType = wrapper; path = DepthPro.mlmodelc; sourceTree = "<group>"; };
 		E188BC742EE37644000A427E /* VROCloudAnchorProviderARCore.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = VROCloudAnchorProviderARCore.mm; sourceTree = "<group>"; };
 		E188BC762EE37652000A427E /* VROCloudAnchorProviderARCore.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VROCloudAnchorProviderARCore.h; sourceTree = "<group>"; };
 		E19925FF2EE3B7E900328B9D /* VROGeospatial.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VROGeospatial.h; sourceTree = "<group>"; };
@@ -2421,6 +2428,8 @@
 		8F53D3A61DCBA041001C91A8 /* iOS Impl */ = {
 			isa = PBXGroup;
 			children = (
+				E15075832F185C5700653622 /* VROARHitTestResultiOS.h */,
+				E15075842F185C5700653622 /* VROARHitTestResultiOS.mm */,
 				E11308272EF0F574008AB6A1 /* VROModelDownloader.h */,
 				E11308282EF0F574008AB6A1 /* VROModelDownloader.mm */,
 				E113082B2EF0F57D008AB6A1 /* VROMonocularDepthEstimator.h */,
@@ -2954,6 +2963,7 @@
 		8FD4DECE1C18ECD4003DC425 /* ViroKit */ = {
 			isa = PBXGroup;
 			children = (
+				E18858EE2F0F2F0C0025DC5A /* DepthPro.mlmodelc */,
 				8F53D3A61DCBA041001C91A8 /* iOS Impl */,
 				8FB659241CD9082000D036EB /* Platforms */,
 				8FD4DECF1C18ECD4003DC425 /* ViroKit.h */,
@@ -3331,6 +3341,7 @@
 			isa = PBXHeadersBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E15075862F185C5700653622 /* VROARHitTestResultiOS.h in Headers */,
 				E11308292EF0F574008AB6A1 /* VROModelDownloader.h in Headers */,
 				E113082D2EF0F57D008AB6A1 /* VROMonocularDepthEstimator.h in Headers */,
 				E1B267D62EE5228E00F0718C /* VROARDepthMesh.h in Headers */,
@@ -4043,6 +4054,7 @@
 				8FEACF0820182D240082D18B /* irradiance_convolution_vsh.glsl in Resources */,
 				8FC6E1C61CEBB31C008EFD5F /* lighting_general_functions_fsh.glsl in Resources */,
 				8FC6E1DA1CECB376008EFD5F /* constant_functions_fsh.glsl in Resources */,
+				E18858EF2F0F2F0C0025DC5A /* DepthPro.mlmodelc in Resources */,
 				8FC6E1D91CECB376008EFD5F /* constant_fsh.glsl in Resources */,
 				8FC542A8229DD3DB00D2AFBB /* test_uv.npy in Resources */,
 				8FC5429F22988EAA00D2AFBB /* vbml_m_uv_mask.npy in Resources */,
@@ -4239,6 +4251,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E18858F02F0F2F260025DC5A /* DepthPro.mlmodelc in Sources */,
 				8FE52F3721E82A8400BA63D4 /* VROObjectRecognitionTest.cpp in Sources */,
 				A57CA8DC20ADFDB700DE85A1 /* VROGLTFTest.cpp in Sources */,
 				A5B433EE204E65B600E9EE53 /* VROFixedParticleEmitter.cpp in Sources */,
@@ -4371,6 +4384,7 @@
 				8FD2A54F1F813C4100E831A6 /* VROHDRTest.cpp in Sources */,
 				8FC542872296144F00D2AFBB /* VROVisionEngine.cpp in Sources */,
 				8FD4DF121C18ED44003DC425 /* Matrix3x3d.mm in Sources */,
+				E15075852F185C5700653622 /* VROARHitTestResultiOS.mm in Sources */,
 				8FD4DEFA1C18ED19003DC425 /* VROMatrix4f.cpp in Sources */,
 				8FA9D6D42226EED70003C9D2 /* VROPoseFilterBoneDistance.cpp in Sources */,
 				8FC5428B2297297300D2AFBB /* bodymesh.mlmodel in Sources */,
