@@ -119,7 +119,9 @@ namespace arcore {
     enum class TrackableType {
         Image,
         Plane,
-        Point
+        Point,
+        DepthPoint,
+        InstantPlacementPoint
     };
 
     enum class PlaneType {

@@ -209,10 +209,13 @@ VRO_OBJECT ARUtilsCreateARHitTestResult(std::shared_ptr<VROARHitTestResult> resu
     VRO_FLOAT_ARRAY_SET(jrotation, 0, 3, rotation);
 
     const char *type;
-    // Note: ARCore currently only supports Plane & FeaturePoint. See VROARFrameARCore::hitTest.
+    // Note: ARCore supports Plane, FeaturePoint, and DepthPoint. See VROARFrameARCore::hitTest.
     switch (result->getType()) {
         case VROARHitTestResultType::ExistingPlaneUsingExtent:
             type = "ExistingPlaneUsingExtent";
+            break;
+        case VROARHitTestResultType::DepthPoint:
+            type = "DepthPoint";
             break;
         default: // FeaturePoint
             type = "FeaturePoint";
@@ -220,10 +223,18 @@ VRO_OBJECT ARUtilsCreateARHitTestResult(std::shared_ptr<VROARHitTestResult> resu
     }
 
     jtype = VRO_NEW_STRING(type);
+
+    // Add depth data if available
+    jboolean hasDepthData = result->hasDepthData();
+    jfloat depthValue = result->getDepthValue();
+    jfloat depthConfidence = result->getDepthConfidence();
+    jstring depthSource = VRO_NEW_STRING(result->getDepthSource().c_str());
+
     VRO_REF(VROARHitTestResult) ref = VRO_REF_NEW(VROARHitTestResult, result);
     return VROPlatformConstructHostObject("com/viro/core/ARHitTestResult",
-                                          "(JLjava/lang/String;[F[F[F)V",
-                                          ref, jtype, jposition, jscale, jrotation);
+                                          "(JLjava/lang/String;[F[F[FZFFLjava/lang/String;)V",
+                                          ref, jtype, jposition, jscale, jrotation,
+                                          hasDepthData, depthValue, depthConfidence, depthSource);
 }
 
 VRO_OBJECT ARUtilsCreateARPointCloud(std::shared_ptr<VROARPointCloud> pointCloud) {

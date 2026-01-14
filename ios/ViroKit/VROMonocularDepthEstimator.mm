@@ -33,6 +33,7 @@
 #include "VROLog.h"
 #include "VROTime.h"
 #include "VROConvert.h"
+#import <Metal/Metal.h>
 #include <cmath>
 
 #pragma mark - Lifecycle
@@ -189,7 +190,8 @@ bool VROMonocularDepthEstimator::isAvailable() const {
 
 bool VROMonocularDepthEstimator::isSupported() {
     if (@available(iOS 14.0, *)) {
-        return true;
+        id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+        return device != nil;
     }
     return false;
 }
@@ -331,12 +333,22 @@ void VROMonocularDepthEstimator::runInference(CVPixelBufferRef image,
 void VROMonocularDepthEstimator::processDepthOutput(VNCoreMLFeatureValueObservation *result,
                                                      VROMatrix4f transform) {
     if (!result || !result.featureValue) {
+        // Always release processing image, even on error
+        if (_processingImage) {
+            CVBufferRelease(_processingImage);
+            _processingImage = nullptr;
+        }
         return;
     }
 
     MLMultiArray *depthArray = result.featureValue.multiArrayValue;
     if (!depthArray) {
         pwarn("VROMonocularDepthEstimator: No depth array in result");
+        // Always release processing image, even on error
+        if (_processingImage) {
+            CVBufferRelease(_processingImage);
+            _processingImage = nullptr;
+        }
         return;
     }
 
@@ -353,6 +365,11 @@ void VROMonocularDepthEstimator::processDepthOutput(VNCoreMLFeatureValueObservat
     } else {
         pwarn("VROMonocularDepthEstimator: Unexpected shape with %lu dimensions",
               (unsigned long)shape.count);
+        // Always release processing image, even on error
+        if (_processingImage) {
+            CVBufferRelease(_processingImage);
+            _processingImage = nullptr;
+        }
         return;
     }
 
@@ -388,6 +405,13 @@ void VROMonocularDepthEstimator::processDepthOutput(VNCoreMLFeatureValueObservat
     updateDepthTexture(_depthBuffer.data(), width, height);
 
     _lastInferenceTime = VROTimeCurrentMillis();
+
+    // CRITICAL: Release the processing image now that we're done with it
+    // This prevents ARFrame retention that freezes the camera
+    if (_processingImage) {
+        CVBufferRelease(_processingImage);
+        _processingImage = nullptr;
+    }
 }
 
 void VROMonocularDepthEstimator::applyTemporalFilter(float *depthData, int width, int height) {
@@ -511,6 +535,14 @@ VROMatrix4f VROMonocularDepthEstimator::getDepthTextureTransform() const {
 void VROMonocularDepthEstimator::getDepthDimensions(int *outWidth, int *outHeight) const {
     if (outWidth) *outWidth = _depthWidth;
     if (outHeight) *outHeight = _depthHeight;
+}
+
+const float* VROMonocularDepthEstimator::getDepthBufferData() const {
+    std::lock_guard<std::mutex> lock(_depthMutex);
+    if (_depthBuffer.empty()) {
+        return nullptr;
+    }
+    return _depthBuffer.data();
 }
 
 #pragma mark - Configuration
