@@ -245,7 +245,7 @@ public class ARHitTestResult {
             if (nodeRef == 0) {
                 return null;
             } else {
-                mARNode = new ARNode(nativeCreateAnchoredNode(mNativeRef));
+                mARNode = new ARNode(nodeRef);
             }
         }
         return mARNode;
