@@ -170,6 +170,7 @@ std::vector<std::shared_ptr<VROARHitTestResult>> VROARFrameiOS::hitTest(int x, i
     // Enhance all hit test results with depth data if available
     std::shared_ptr<VROTexture> depthTexture = getDepthTexture();
     if (depthTexture && hasDepthData()) {
+        pinfo("Depth texture available, enhancing %zu hit results with depth data", vResults.size());
         // Determine depth source
         std::string depthSource = "none";
         bool preferMonocular = session && session->isPreferMonocularDepth();
@@ -205,7 +206,35 @@ std::vector<std::shared_ptr<VROARHitTestResult>> VROARFrameiOS::hitTest(int x, i
             // Set depth data on result if valid
             if (depthValue > 0.0f) {
                 vResult->setDepthData(depthValue, confidence, depthSource);
+
+                // Upgrade result type to DepthPoint when depth data is available
+                // For LiDAR: Use confidence threshold of > 0.3 (lowered for better detection)
+                // For Monocular: Always upgrade when depth available
+                bool shouldUpgradeToDepthPoint = false;
+                if (depthSource == "lidar") {
+                    // LiDAR: Upgrade if confidence is unavailable or > 0.3
+                    shouldUpgradeToDepthPoint = (confidence < 0.0f || confidence > 0.3f);
+                    pinfo("LiDAR depth: %.2fm, confidence: %.2f, upgrading: %s",
+                          depthValue, confidence, shouldUpgradeToDepthPoint ? "YES" : "NO");
+                } else if (depthSource == "monocular") {
+                    // Monocular: Always use depth data when available
+                    shouldUpgradeToDepthPoint = true;
+                    pinfo("Monocular depth: %.2fm, upgrading to DepthPoint", depthValue);
+                }
+
+                if (shouldUpgradeToDepthPoint) {
+                    pinfo("Upgrading hit result to DepthPoint type");
+                    vResult->setType(VROARHitTestResultType::DepthPoint);
+                } else {
+                    pinfo("Keeping original type, depth confidence too low");
+                }
             }
+        }
+    } else {
+        if (!depthTexture) {
+            pwarn("No depth texture available for hit test enhancement");
+        } else if (!hasDepthData()) {
+            pwarn("Frame reports no depth data available");
         }
     }
 
