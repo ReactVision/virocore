@@ -762,13 +762,18 @@ static VROVector3f const kZeroVector = VROVector3f();
     VROOcclusionMode occlusionMode = _arSession->getOcclusionMode();
     std::shared_ptr<VROTexture> depthTexture = nullptr;
     VROMatrix4f depthTextureTransform = VROMatrix4f::identity();
-    if (occlusionMode != VROOcclusionMode::Disabled && frame->hasDepthData()) {
+    
+    // Check if we have any depth texture (LiDAR or Monocular)
+    // Note: frame->hasDepthData() only checks for LiDAR, so we explicitly try getDepthTexture()
+    if (occlusionMode != VROOcclusionMode::Disabled) {
         depthTexture = frame->getDepthTexture();
-        depthTextureTransform = frame->getDepthTextureTransform();
+        if (depthTexture) {
+            depthTextureTransform = frame->getDepthTextureTransform();
 
-        // Ensure the depth texture is uploaded to GPU before rendering
-        if (depthTexture && !depthTexture->isHydrated()) {
-            depthTexture->prewarm(_driver);
+            // Ensure the depth texture is uploaded to GPU before rendering
+            if (!depthTexture->isHydrated()) {
+                depthTexture->prewarm(_driver);
+            }
         }
     }
 
@@ -804,8 +809,8 @@ static VROVector3f const kZeroVector = VROVector3f();
     // Check if we have depth data available for debug visualization
     // NOTE: Occlusion is now handled on 3D objects via the shader factory, not on the background.
     // The background camera image should NOT write to the depth buffer.
-    bool hasDepth = frame->hasDepthData();
-    std::shared_ptr<VROTexture> depthTexture = hasDepth ? frame->getDepthTexture() : nullptr;
+    std::shared_ptr<VROTexture> depthTexture = frame->getDepthTexture();
+    bool hasDepth = (depthTexture != nullptr);
 
     // Only add depth debug visualization if enabled and depth data is available
     bool needsDebugVisualization = _depthDebugEnabled && depthTexture;

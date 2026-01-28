@@ -396,8 +396,16 @@ std::shared_ptr<VROTexture> VROARFrameiOS::getDepthTexture() {
     if (session) {
         auto depthEstimator = session->getMonocularDepthEstimator();
         if (depthEstimator && depthEstimator->isAvailable()) {
+            pinfo("Monocular depth texture available, using ML estimator");
             _depthTexture = depthEstimator->getDepthTexture();
+            if (_depthTexture) {
+                pinfo("Monocular depth texture available for rendering");
+            } else {
+                pwarn("Monocular depth estimator available but no texture ready yet");
+            }
             return _depthTexture;
+        } else if (depthEstimator) {
+            pwarn("Monocular depth estimator present but not available (still loading?)");
         }
     }
 
