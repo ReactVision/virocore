@@ -149,6 +149,11 @@ bool VROMonocularDepthEstimator::initWithModel(NSString *modelPath) {
             if (requestError) {
                 pwarn("VROMonocularDepthEstimator: Inference error: %s",
                       [[requestError localizedDescription] UTF8String]);
+                // Ensure we release the processing image on error to avoid retaining ARFrames
+                if (estimator && estimator->_processingImage) {
+                    CVBufferRelease(estimator->_processingImage);
+                    estimator->_processingImage = nullptr;
+                }
                 return;
             }
 
@@ -156,6 +161,11 @@ bool VROMonocularDepthEstimator::initWithModel(NSString *modelPath) {
             NSArray *results = request.results;
             if (results.count == 0) {
                 pwarn("VROMonocularDepthEstimator: No results from inference");
+                // Ensure we release the processing image on error to avoid retaining ARFrames
+                if (estimator && estimator->_processingImage) {
+                    CVBufferRelease(estimator->_processingImage);
+                    estimator->_processingImage = nullptr;
+                }
                 return;
             }
 
@@ -200,6 +210,12 @@ bool VROMonocularDepthEstimator::isSupported() {
 
 void VROMonocularDepthEstimator::update(const VROARFrame *frame) {
     if (!isAvailable()) {
+        pwarn("VROMonocularDepthEstimator: update skipped, model not available");
+        return;
+    }
+
+    // Skip if already processing or frame already queued to avoid ARFrame accumulation
+    if (_isProcessing) {
         return;
     }
 
@@ -208,6 +224,7 @@ void VROMonocularDepthEstimator::update(const VROARFrame *frame) {
     if (_targetFPS > 0) {
         double targetInterval = 1000.0 / _targetFPS;
         if ((currentTime - _lastInferenceTime) < targetInterval) {
+            // Rate-limited to avoid overloading inference
             return;
         }
     }
@@ -224,34 +241,46 @@ void VROMonocularDepthEstimator::update(const VROARFrame *frame) {
     }
 
     // Store the image and transform for processing
+    bool shouldDispatch = false;
     {
         std::lock_guard<std::mutex> lock(_imageMutex);
 
-        // Release previous next image if any
-        if (_nextImage) {
-            CVBufferRelease(_nextImage);
+        // Only queue a new frame if there isn't one already pending
+        if (!_nextImage) {
+            _nextImage = CVBufferRetain(image);
+            _nextTransform = frame->getViewportToCameraImageTransform().invert();
+            _nextOrientation = frameiOS->getImageOrientation();
+            shouldDispatch = true;
+            pinfo("VROMonocularDepthEstimator: Queued new frame for inference");
+        } else {
+            pinfo("VROMonocularDepthEstimator: Skipped frame (already queued)");
         }
-
-        _nextImage = CVBufferRetain(image);
-        _nextTransform = frame->getViewportToCameraImageTransform().invert();
-        _nextOrientation = frameiOS->getImageOrientation();
     }
 
-    // Dispatch inference to depth queue
-    std::weak_ptr<VROMonocularDepthEstimator> weak_self = shared_from_this();
+    // Only dispatch if we actually queued a new frame
+    if (shouldDispatch) {
+        // Update inference time NOW to prevent multiple dispatches
+        _lastInferenceTime = currentTime;
+        NSLog(@"[Monocular Depth] Dispatching inference frame to background queue");
+        pinfo("Dispatching depth inference to background queue");
+        
+        std::weak_ptr<VROMonocularDepthEstimator> weak_self = shared_from_this();
 
-    dispatch_async(_depthQueue, ^{
-        std::shared_ptr<VROMonocularDepthEstimator> strong_self = weak_self.lock();
-        if (strong_self) {
-            strong_self->nextImage();
-        }
-    });
+        dispatch_async(_depthQueue, ^{
+            std::shared_ptr<VROMonocularDepthEstimator> strong_self = weak_self.lock();
+            if (strong_self) {
+                strong_self->nextImage();
+            }
+        });
+    }
 }
 
 void VROMonocularDepthEstimator::nextImage() {
     // Check if we're already processing
     bool expected = false;
     if (!_isProcessing.compare_exchange_strong(expected, true)) {
+        // Already processing, skip this frame
+        pinfo("VROMonocularDepthEstimator: Already processing, skipping");
         return; // Already processing, skip this frame
     }
 
@@ -265,6 +294,7 @@ void VROMonocularDepthEstimator::nextImage() {
 
         if (!_nextImage) {
             _isProcessing = false;
+            pinfo("VROMonocularDepthEstimator: No image queued, returning");
             return;
         }
 
@@ -272,15 +302,20 @@ void VROMonocularDepthEstimator::nextImage() {
         _nextImage = nullptr;
         transform = _nextTransform;
         orientation = _nextOrientation;
+        pinfo("VROMonocularDepthEstimator: Got queued image, cleared queue");
     }
 
     // Store as processing image (we own this reference now)
     if (_processingImage) {
         CVBufferRelease(_processingImage);
+        NSLog(@"[Monocular Depth] Released previous processing image");
+        pinfo("Released previous depth processing image");
     }
     _processingImage = imageToProcess;
 
     // Run inference
+    NSLog(@"[Monocular Depth] Running CoreML inference on frame");
+    pinfo("Starting CoreML depth inference");
     runInference(imageToProcess, transform, orientation);
 }
 
@@ -306,6 +341,12 @@ void VROMonocularDepthEstimator::runInference(CVPixelBufferRef image,
     if (error) {
         pwarn("VROMonocularDepthEstimator: Request failed: %s",
               [[error localizedDescription] UTF8String]);
+        // If the request failed, ensure we release the processing image to avoid retaining ARFrames
+        if (_processingImage) {
+            CVBufferRelease(_processingImage);
+            _processingImage = nullptr;
+            pinfo("VROMonocularDepthEstimator: Released processing image after error");
+        }
     }
 
     // Update diagnostics
@@ -314,18 +355,32 @@ void VROMonocularDepthEstimator::runInference(CVPixelBufferRef image,
 
     // Mark as done processing
     _isProcessing = false;
+    pinfo("Depth inference complete in %.0fms", inferenceTime);
 
-    // Check if there's another frame waiting
-    std::weak_ptr<VROMonocularDepthEstimator> weak_self = shared_from_this();
-    dispatch_async(_depthQueue, ^{
-        std::shared_ptr<VROMonocularDepthEstimator> strong_self = weak_self.lock();
-        if (strong_self) {
-            std::lock_guard<std::mutex> lock(strong_self->_imageMutex);
-            if (strong_self->_nextImage) {
+    // Check if there's another frame waiting and process it
+    // IMPORTANT: Do NOT call nextImage() while holding _imageMutex to avoid deadlock
+    // nextImage() will acquire the mutex, so we must be unlocked here.
+    bool shouldTriggerNext = false;
+    {
+        std::lock_guard<std::mutex> lock(_imageMutex);
+        if (_nextImage) {
+            shouldTriggerNext = true;
+        }
+    }
+
+    if (shouldTriggerNext) {
+        pinfo("Triggering processing for next queued frame");
+        
+        // Dispatch to self (on same serial queue) to process next frame
+        // This avoids recursion and ensures we don't hold any locks
+        std::weak_ptr<VROMonocularDepthEstimator> weak_self = shared_from_this();
+        dispatch_async(_depthQueue, ^{
+            std::shared_ptr<VROMonocularDepthEstimator> strong_self = weak_self.lock();
+            if (strong_self) {
                 strong_self->nextImage();
             }
-        }
-    });
+        });
+    }
 }
 
 #pragma mark - Depth Output Processing
@@ -379,12 +434,74 @@ void VROMonocularDepthEstimator::processDepthOutput(VNCoreMLFeatureValueObservat
         _depthBuffer.resize(bufferSize);
         _previousDepthBuffer.clear(); // Reset temporal filter
     }
-
-    // Copy and scale depth data
-    float *rawDepth = (float *)depthArray.dataPointer;
-    for (size_t i = 0; i < bufferSize; i++) {
-        _depthBuffer[i] = rawDepth[i] * _depthScaleFactor;
+    
+    // Log info about the array type and strides once
+    static bool loggedArrayInfo = false;
+    if (!loggedArrayInfo) {
+        NSLog(@"[VIRO_MONO] MLMultiArray DataType: %ld (1=Double, 2=Float32, 3=Float16)", (long)depthArray.dataType);
+        NSLog(@"[VIRO_MONO] MLMultiArray Strides: %@", depthArray.strides);
+        loggedArrayInfo = true;
     }
+
+    // Copy and process depth data for Depth Anything V2
+    // Model outputs inverse relative depth (disparity): High = Close, Low = Far.
+    // Renderer expects linear metric depth (meters): Low = Close, High = Far.
+    // Conversion: Meters = Scale / Disparity
+    
+    // Check type to cast correctly
+    float *rawDepthFloat = nullptr;
+    double *rawDepthDouble = nullptr;
+    
+    if (depthArray.dataType == MLMultiArrayDataTypeFloat32) {
+        rawDepthFloat = (float *)depthArray.dataPointer;
+    } else if (depthArray.dataType == MLMultiArrayDataTypeDouble) {
+        rawDepthDouble = (double *)depthArray.dataPointer;
+    } else {
+        // Fallback for other types (Float16) using subscripting is slow, but we can add handling if needed.
+        // For now logging is key.
+    }
+
+    float minRaw = FLT_MAX;
+    float maxRaw = -FLT_MAX;
+    
+    for (size_t i = 0; i < bufferSize; i++) {
+        float rawVal = 0.0f;
+        
+        if (rawDepthFloat) {
+            rawVal = rawDepthFloat[i];
+        } else if (rawDepthDouble) {
+            rawVal = (float)rawDepthDouble[i];
+        } else {
+            // Slow fallback
+            rawVal = [depthArray objectAtIndexedSubscript:i].floatValue;
+        }
+        
+        // Collect stats on first 1000 pixels
+        if (i < 1000) {
+            if (rawVal < minRaw) minRaw = rawVal;
+            if (rawVal > maxRaw) maxRaw = rawVal;
+        }
+
+        // Clamp to prevent division by zero or negative values
+        // Depth Anything values are usually > 0.
+        if (rawVal < 0.001f) rawVal = 0.001f;
+        
+        // Polarity Inversion for Depth Anything
+        // _depthScaleFactor now acts as the "focal_length * baseline" constant.
+        // Try starting with a scale factor of ~0.5 to 1.0 in JS.
+        _depthBuffer[i] = _depthScaleFactor / rawVal;
+    }
+    
+    // Log depth stats occasionally
+    static int logCounter = 0;
+    if (logCounter++ % 30 == 0) {
+        NSLog(@"[VIRO_MONO] DepthAnything Stats: Raw Min=%.4f, Max=%.4f", minRaw, maxRaw);
+        // Also log the converted values to sanity check
+        float convertedSample = _depthBuffer[bufferSize/2]; // Center pixel
+        NSLog(@"[VIRO_MONO] Converted Center Depth: %.2fm (using scale %.2f)", 
+              convertedSample, _depthScaleFactor);
+    }
+
 
     // Apply temporal filtering if enabled
     if (_temporalFilteringEnabled) {
@@ -404,13 +521,13 @@ void VROMonocularDepthEstimator::processDepthOutput(VNCoreMLFeatureValueObservat
     // Update GPU texture
     updateDepthTexture(_depthBuffer.data(), width, height);
 
-    _lastInferenceTime = VROTimeCurrentMillis();
-
     // CRITICAL: Release the processing image now that we're done with it
     // This prevents ARFrame retention that freezes the camera
     if (_processingImage) {
         CVBufferRelease(_processingImage);
         _processingImage = nullptr;
+        NSLog(@"[VIRO_MONO] Released processing image after depth output");
+        pinfo("VROMonocularDepthEstimator: Released processing image");
     }
 }
 
@@ -487,11 +604,16 @@ void VROMonocularDepthEstimator::updateDepthTexture(const float *depthData, int 
     } else {
         // Update existing texture data
         // Note: VROTexture doesn't have updateData, so we recreate
-        // TODO: Add updateData method to VROTexture for efficiency
         size_t dataSize = width * height * sizeof(float);
         std::shared_ptr<VROData> depthVROData = std::make_shared<VROData>(
             (void *)depthData, dataSize, VRODataOwnership::Copy);
         std::vector<std::shared_ptr<VROData>> dataVec = { depthVROData };
+
+        // CAUTION: Destructing the old texture on this background thread (DepthQueue)
+        // can cause a freeze/crash if it holds OpenGL resources (TextureSubstrate)
+        // and this thread has no GL context. We must ensure the old texture is lived
+        // until we can release it on the main thread (which usually shares GL context).
+        std::shared_ptr<VROTexture> oldTexture = _currentDepthTexture;
 
         _currentDepthTexture = std::make_shared<VROTexture>(
             VROTextureType::Texture2D,
@@ -507,6 +629,15 @@ void VROMonocularDepthEstimator::updateDepthTexture(const float *depthData, int 
         _currentDepthTexture->setMagnificationFilter(VROFilterMode::Linear);
         _currentDepthTexture->setWrapS(VROWrapMode::Clamp);
         _currentDepthTexture->setWrapT(VROWrapMode::Clamp);
+        
+        // Dispatch release of old texture to main thread to ensure safe GL cleanup
+        if (oldTexture) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                // Capturing oldTexture keeps it alive until this block runs on main thread
+                // When block finishes, oldTexture is destroyed here on main thread
+                volatile auto keepAlive = oldTexture;
+            });
+        }
     }
 }
 
@@ -588,6 +719,9 @@ void VROMonocularDepthEstimator::updateDiagnostics(double inferenceTimeMs) {
     if (_frameCount >= 10) {
         _averageLatencyMs = _latencyAccumulator / _frameCount;
         _currentFPS = 1000.0f / _averageLatencyMs;
+
+        pinfo("VROMonocularDepthEstimator: avg latency %.2f ms, fps %.2f, depth=%dx%d",
+              _averageLatencyMs, _currentFPS, _depthWidth, _depthHeight);
 
         _frameCount = 0;
         _latencyAccumulator = 0;
