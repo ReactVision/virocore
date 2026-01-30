@@ -36,6 +36,41 @@
 #import <Metal/Metal.h>
 #include <cmath>
 
+// IEEE 754 half-precision float (16-bit) to 32-bit float conversion
+static inline float float16ToFloat32(uint16_t h) {
+    uint32_t sign = (h & 0x8000) << 16;
+    uint32_t exponent = (h >> 10) & 0x1F;
+    uint32_t mantissa = h & 0x03FF;
+
+    if (exponent == 0) {
+        if (mantissa == 0) {
+            // Zero
+            uint32_t result = sign;
+            float f;
+            memcpy(&f, &result, sizeof(f));
+            return f;
+        }
+        // Subnormal: normalize
+        while (!(mantissa & 0x0400)) {
+            mantissa <<= 1;
+            exponent--;
+        }
+        exponent++;
+        mantissa &= ~0x0400;
+    } else if (exponent == 31) {
+        // Inf/NaN
+        uint32_t result = sign | 0x7F800000 | (mantissa << 13);
+        float f;
+        memcpy(&f, &result, sizeof(f));
+        return f;
+    }
+
+    uint32_t result = sign | ((exponent + 112) << 23) | (mantissa << 13);
+    float f;
+    memcpy(&f, &result, sizeof(f));
+    return f;
+}
+
 #pragma mark - Lifecycle
 
 VROMonocularDepthEstimator::VROMonocularDepthEstimator(std::shared_ptr<VRODriver> driver) :
@@ -49,7 +84,7 @@ VROMonocularDepthEstimator::VROMonocularDepthEstimator(std::shared_ptr<VRODriver
     _isProcessing(false),
     _depthWidth(0),
     _depthHeight(0),
-    _depthScaleFactor(1.0f),
+    _depthScaleFactor(10.0f),
     _temporalFilteringEnabled(true),
     _temporalFilterAlpha(0.3f),
     _targetFPS(15),
@@ -169,6 +204,58 @@ bool VROMonocularDepthEstimator::initWithModel(NSString *modelPath) {
                 return;
             }
 
+            // Log all results to find the correct output
+            static bool loggedResults = false;
+            if (!loggedResults) {
+                loggedResults = true;
+                NSLog(@"[VIRO_MONO_DEBUG] === Inference Results: %lu observations ===", (unsigned long)results.count);
+                for (NSUInteger i = 0; i < results.count; i++) {
+                    VNObservation *obs = results[i];
+                    NSLog(@"[VIRO_MONO_DEBUG] Result[%lu]: class=%@, confidence=%.4f",
+                          (unsigned long)i, NSStringFromClass([obs class]), obs.confidence);
+                    if ([obs isKindOfClass:[VNCoreMLFeatureValueObservation class]]) {
+                        VNCoreMLFeatureValueObservation *fvo = (VNCoreMLFeatureValueObservation *)obs;
+                        NSLog(@"[VIRO_MONO_DEBUG]   featureName='%@'", fvo.featureName);
+                        if (fvo.featureValue.multiArrayValue) {
+                            MLMultiArray *arr = fvo.featureValue.multiArrayValue;
+                            NSLog(@"[VIRO_MONO_DEBUG]   shape=%@, dataType=%ld, strides=%@",
+                                  arr.shape, (long)arr.dataType, arr.strides);
+                            // Sample a few raw bytes to verify data exists
+                            NSLog(@"[VIRO_MONO_DEBUG]   dataPointer=%p, total elements=%ld",
+                                  arr.dataPointer, (long)(arr.count));
+                            if (arr.dataPointer && arr.count > 0) {
+                                uint8_t *bytes = (uint8_t *)arr.dataPointer;
+                                NSLog(@"[VIRO_MONO_DEBUG]   First 16 bytes: %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
+                                      bytes[0], bytes[1], bytes[2], bytes[3],
+                                      bytes[4], bytes[5], bytes[6], bytes[7],
+                                      bytes[8], bytes[9], bytes[10], bytes[11],
+                                      bytes[12], bytes[13], bytes[14], bytes[15]);
+                                // Also check bytes at offset 1000 (middle of buffer)
+                                size_t midOffset = arr.count; // element count, check byte at ~mid
+                                if (midOffset > 100) midOffset = 1000;
+                                NSLog(@"[VIRO_MONO_DEBUG]   Bytes at offset %zu: %02X %02X %02X %02X %02X %02X %02X %02X",
+                                      midOffset,
+                                      bytes[midOffset], bytes[midOffset+1], bytes[midOffset+2], bytes[midOffset+3],
+                                      bytes[midOffset+4], bytes[midOffset+5], bytes[midOffset+6], bytes[midOffset+7]);
+                            }
+                        }
+                        if (fvo.featureValue.imageBufferValue) {
+                            CVPixelBufferRef pb = fvo.featureValue.imageBufferValue;
+                            NSLog(@"[VIRO_MONO_DEBUG]   pixelBuffer: %zux%zu, format=%u",
+                                  CVPixelBufferGetWidth(pb), CVPixelBufferGetHeight(pb),
+                                  (unsigned)CVPixelBufferGetPixelFormatType(pb));
+                        }
+                    } else if ([obs isKindOfClass:[VNPixelBufferObservation class]]) {
+                        VNPixelBufferObservation *pbo = (VNPixelBufferObservation *)obs;
+                        CVPixelBufferRef pb = pbo.pixelBuffer;
+                        NSLog(@"[VIRO_MONO_DEBUG]   VNPixelBufferObservation: %zux%zu, format=%u",
+                              CVPixelBufferGetWidth(pb), CVPixelBufferGetHeight(pb),
+                              (unsigned)CVPixelBufferGetPixelFormatType(pb));
+                    }
+                }
+                NSLog(@"[VIRO_MONO_DEBUG] === End Results ===");
+            }
+
             VNCoreMLFeatureValueObservation *observation =
                 (VNCoreMLFeatureValueObservation *)results.firstObject;
 
@@ -181,6 +268,32 @@ bool VROMonocularDepthEstimator::initWithModel(NSString *modelPath) {
 
     // Configure the request for optimal depth estimation
     _visionRequest.imageCropAndScaleOption = VNImageCropAndScaleOptionScaleFill;
+
+    // Log model input/output descriptions for debugging
+    NSLog(@"[VIRO_MONO_DEBUG] === Model Description ===");
+    for (NSString *inputName in _model.modelDescription.inputDescriptionsByName) {
+        MLFeatureDescription *desc = _model.modelDescription.inputDescriptionsByName[inputName];
+        NSLog(@"[VIRO_MONO_DEBUG] Input '%@': type=%ld", inputName, (long)desc.type);
+        if (desc.imageConstraint) {
+            NSLog(@"[VIRO_MONO_DEBUG]   Image: %zux%zu, pixelFormat=%u",
+                  desc.imageConstraint.pixelsWide,
+                  desc.imageConstraint.pixelsHigh,
+                  (unsigned)desc.imageConstraint.pixelFormatType);
+        }
+        if (desc.multiArrayConstraint) {
+            NSLog(@"[VIRO_MONO_DEBUG]   MultiArray shape: %@, dataType=%ld",
+                  desc.multiArrayConstraint.shape, (long)desc.multiArrayConstraint.dataType);
+        }
+    }
+    for (NSString *outputName in _model.modelDescription.outputDescriptionsByName) {
+        MLFeatureDescription *desc = _model.modelDescription.outputDescriptionsByName[outputName];
+        NSLog(@"[VIRO_MONO_DEBUG] Output '%@': type=%ld", outputName, (long)desc.type);
+        if (desc.multiArrayConstraint) {
+            NSLog(@"[VIRO_MONO_DEBUG]   MultiArray shape: %@, dataType=%ld",
+                  desc.multiArrayConstraint.shape, (long)desc.multiArrayConstraint.dataType);
+        }
+    }
+    NSLog(@"[VIRO_MONO_DEBUG] === End Model Description ===");
 
     _modelLoaded = true;
     pinfo("VROMonocularDepthEstimator: Model loaded successfully");
@@ -251,6 +364,19 @@ void VROMonocularDepthEstimator::update(const VROARFrame *frame) {
             _nextTransform = frame->getViewportToCameraImageTransform().invert();
             _nextOrientation = frameiOS->getImageOrientation();
             shouldDispatch = true;
+            
+            // DEBUG: Log input details
+            static bool loggedInput = false;
+            if (!loggedInput) {
+                size_t w = CVPixelBufferGetWidth(image);
+                size_t h = CVPixelBufferGetHeight(image);
+                OSType type = CVPixelBufferGetPixelFormatType(image);
+                // Correctly swap bytes for 4CC printing if needed, but simple cast is okay for debug
+                // type is typically '420f' or similar
+                NSLog(@"[VIRO_MONO_DEBUG] Input Image: %zux%zu, Format: %u", w, h, (unsigned int)type);
+                loggedInput = true;
+            }
+
             pinfo("VROMonocularDepthEstimator: Queued new frame for inference");
         } else {
             pinfo("VROMonocularDepthEstimator: Skipped frame (already queued)");
@@ -449,57 +575,125 @@ void VROMonocularDepthEstimator::processDepthOutput(VNCoreMLFeatureValueObservat
     // Conversion: Meters = Scale / Disparity
     
     // Check type to cast correctly
+    // MLMultiArrayDataType values:
+    //   Float16 = 65568, Float32 = 65600, Double = 65664
     float *rawDepthFloat = nullptr;
     double *rawDepthDouble = nullptr;
-    
+    uint16_t *rawDepthFloat16 = nullptr;
+
     if (depthArray.dataType == MLMultiArrayDataTypeFloat32) {
         rawDepthFloat = (float *)depthArray.dataPointer;
     } else if (depthArray.dataType == MLMultiArrayDataTypeDouble) {
         rawDepthDouble = (double *)depthArray.dataPointer;
-    } else {
-        // Fallback for other types (Float16) using subscripting is slow, but we can add handling if needed.
-        // For now logging is key.
+    } else if (depthArray.dataType == 65568 /* MLMultiArrayDataTypeFloat16 */) {
+        rawDepthFloat16 = (uint16_t *)depthArray.dataPointer;
+    }
+    
+    // Determine strides based on shape
+    NSInteger strideY = width; // fallback default
+    NSInteger strideX = 1;     // fallback default
+    
+    if (depthArray.strides.count >= 2) {
+        // MLMultiArray strides are in elements.
+        // For [H, W], strides[0] is strideY, strides[1] is strideX.
+        // For [1, H, W], strides[1] is strideY, strides[2] is strideX.
+        if (shape.count == 3 && depthArray.strides.count >= 3) {
+            strideY = [depthArray.strides[1] integerValue];
+            strideX = [depthArray.strides[2] integerValue];
+        } else {
+            strideY = [depthArray.strides[depthArray.strides.count - 2] integerValue];
+            strideX = [depthArray.strides[depthArray.strides.count - 1] integerValue];
+        }
+        
+        // Sanity check: if strideY is very large or zero, fallback
+        if (strideY < width || strideY > width * 2) {
+             NSLog(@"[VIRO_MONO] Warning: Unusual StrideY detected: %ld (Width: %d). Falling back to packed stride.", (long)strideY, width);
+             strideY = width;
+             strideX = 1;
+        }
     }
 
     float minRaw = FLT_MAX;
     float maxRaw = -FLT_MAX;
     
-    for (size_t i = 0; i < bufferSize; i++) {
-        float rawVal = 0.0f;
-        
-        if (rawDepthFloat) {
-            rawVal = rawDepthFloat[i];
-        } else if (rawDepthDouble) {
-            rawVal = (float)rawDepthDouble[i];
-        } else {
-            // Slow fallback
-            rawVal = [depthArray objectAtIndexedSubscript:i].floatValue;
-        }
-        
-        // Collect stats on first 1000 pixels
-        if (i < 1000) {
+    // Use y, x loop to respect strides
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            // Calculate index in the raw buffer
+            // For MLMultiArray [1, H, W] or [H, W]:
+            // rawIndex = y * strideY + x * strideX
+            NSInteger rawIndex = y * strideY + x * strideX;
+            
+            // Calculate index in our packed buffer
+            size_t packedIndex = y * width + x;
+            
+            float rawVal = 0.0f;
+            if (rawDepthFloat) {
+                rawVal = rawDepthFloat[rawIndex];
+            } else if (rawDepthFloat16) {
+                rawVal = float16ToFloat32(rawDepthFloat16[rawIndex]);
+            } else if (rawDepthDouble) {
+                rawVal = (float)rawDepthDouble[rawIndex];
+            } else {
+                // Slow fallback using stride-aware multi-index subscript
+                @try {
+                    NSArray *key = (shape.count == 3) ? @[@0, @(y), @(x)] : @[@(y), @(x)];
+                    rawVal = [[depthArray objectForKeyedSubscript:key] floatValue];
+                } @catch (NSException *e) {
+                    rawVal = 0.0f;
+                }
+            }
+            
+            // DEBUG: Log center pixel details occasionally
+            if (y == height/2 && x == width/2) {
+                 static int debugLogCounter = 0;
+                 if (debugLogCounter++ % 30 == 0) {
+                     NSLog(@"[VIRO_MONO_DEBUG] Center Pixel: y=%d x=%d", y, x);
+                     NSLog(@"[VIRO_MONO_DEBUG] StrideY=%ld StrideX=%ld", (long)strideY, (long)strideX);
+                     NSLog(@"[VIRO_MONO_DEBUG] RawIndex=%ld PackedIndex=%zu", (long)rawIndex, packedIndex);
+                     NSLog(@"[VIRO_MONO_DEBUG] RawValue Float=%.6f", rawVal);
+                     if (rawDepthFloat) {
+                         NSLog(@"[VIRO_MONO_DEBUG] Pointer Value (F32)=%.6f", rawDepthFloat[rawIndex]);
+                     } else if (rawDepthFloat16) {
+                         NSLog(@"[VIRO_MONO_DEBUG] Pointer Value (F16)=%.6f", float16ToFloat32(rawDepthFloat16[rawIndex]));
+                         NSLog(@"[VIRO_MONO_DEBUG] Raw F16 bits=0x%04X", rawDepthFloat16[rawIndex]);
+                     }
+                     
+                     // Try to read using multi-index subscript to verify authoritative CoreML value
+                     @try {
+                         NSArray *key = (shape.count == 3) ? @[@0, @(y), @(x)] : @[@(y), @(x)];
+                         NSNumber *objVal = [depthArray objectForKeyedSubscript:key];
+                         NSLog(@"[VIRO_MONO_DEBUG] Object Value (Multi-Index)=%.6f", objVal.floatValue);
+                         
+                         // Also try flat index as fallback
+                         NSNumber *flatVal = [depthArray objectAtIndexedSubscript:packedIndex];
+                         NSLog(@"[VIRO_MONO_DEBUG] Object Value (Flat-Index)=%.6f", flatVal.floatValue);
+                     } @catch (NSException *e) {
+                         NSLog(@"[VIRO_MONO_DEBUG] Object Subscript Failed: %@", e);
+                     }
+                 }
+            }
+
+            // Collect stats on ALL pixels to be sure
+            // (Optimize: maybe stride this if too slow, but for 518x518 on A-series chip, it's fine)
             if (rawVal < minRaw) minRaw = rawVal;
             if (rawVal > maxRaw) maxRaw = rawVal;
-        }
 
-        // Clamp to prevent division by zero or negative values
-        // Depth Anything values are usually > 0.
-        if (rawVal < 0.001f) rawVal = 0.001f;
-        
-        // Polarity Inversion for Depth Anything
-        // _depthScaleFactor now acts as the "focal_length * baseline" constant.
-        // Try starting with a scale factor of ~0.5 to 1.0 in JS.
-        _depthBuffer[i] = _depthScaleFactor / rawVal;
+            // DepthAnythingV2 "Metrics" variant outputs metric depth directly in meters.
+            // No inversion needed — the raw value IS the depth in meters.
+            // Clamp negative/zero values to a small positive number.
+            if (rawVal < 0.0f) rawVal = 0.0f;
+
+            _depthBuffer[packedIndex] = rawVal;
+        }
     }
     
     // Log depth stats occasionally
     static int logCounter = 0;
     if (logCounter++ % 30 == 0) {
-        NSLog(@"[VIRO_MONO] DepthAnything Stats: Raw Min=%.4f, Max=%.4f", minRaw, maxRaw);
-        // Also log the converted values to sanity check
-        float convertedSample = _depthBuffer[bufferSize/2]; // Center pixel
-        NSLog(@"[VIRO_MONO] Converted Center Depth: %.2fm (using scale %.2f)", 
-              convertedSample, _depthScaleFactor);
+        NSLog(@"[VIRO_MONO] DepthAnything Stats: Min=%.4fm, Max=%.4fm", minRaw, maxRaw);
+        float centerSample = _depthBuffer[bufferSize/2];
+        NSLog(@"[VIRO_MONO] Center Depth: %.2fm (metric, no inversion)", centerSample);
     }
 
 
@@ -644,12 +838,18 @@ void VROMonocularDepthEstimator::updateDepthTexture(const float *depthData, int 
 VROMatrix4f VROMonocularDepthEstimator::computeDepthTextureTransform(VROMatrix4f imageTransform,
                                                                       int imageWidth, int imageHeight,
                                                                       int depthWidth, int depthHeight) {
-    // The depth texture may have a different resolution than the camera image.
-    // We need to compose the image-to-screen transform with a scaling transform.
-
-    // For now, assume same aspect ratio and just use the image transform
-    // TODO: Handle different aspect ratios properly
-    return imageTransform;
+    // For monocular depth, the depth texture maps directly to the camera view.
+    // Vision's VNCoreMLRequest already handled crop/scale to feed the model,
+    // so the depth output covers the same field of view as the camera image.
+    //
+    // The occlusion shader computes screen UV as:
+    //   screenUV = gl_FragCoord.xy / viewport_size;
+    //   screenUV.y = 1.0 - screenUV.y;  // flip Y to top-left origin
+    //   depthUV = (transform * vec4(screenUV, 0, 1)).xy;
+    //
+    // With identity transform, depthUV = screenUV, which directly samples
+    // the depth texture in the correct orientation.
+    return VROMatrix4f::identity();
 }
 
 #pragma mark - Depth Output Accessors

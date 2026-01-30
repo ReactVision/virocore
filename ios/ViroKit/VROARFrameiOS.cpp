@@ -454,32 +454,54 @@ std::shared_ptr<VROTexture> VROARFrameiOS::getDepthConfidenceTexture() {
 
 VROMatrix4f VROARFrameiOS::getDepthTextureTransform() const {
     /*
-     For 3D objects, we calculate screen-space UV from gl_FragCoord.xy / viewport_size.
-     This gives us normalized screen coordinates (0,0 at bottom-left, 1,1 at top-right).
+     ARKit's displayTransformForOrientation maps FROM camera image (normalized) TO screen.
+     We need the inverse: FROM screen UV TO depth texture UV.
 
-     The depth texture from ARKit's sceneDepth is in camera sensor space, which may be
-     rotated/flipped relative to the screen based on device orientation.
-
-     ARKit's displayTransformForOrientation maps FROM camera sensor coordinates TO screen
-     display coordinates. We need the inverse: mapping FROM screen UV TO depth texture UV.
-
-     This is the same transform we use for the camera background texture coordinates
-     (getTexcoordTransform), since both the camera image and depth texture are in the
-     same sensor coordinate space.
+     For LiDAR: depth map matches camera image space, so the ARKit inverse is sufficient.
+     For monocular: depth texture is 518x518 (ScaleFill crop of camera image), so we
+     need to compose the ARKit inverse with a crop correction.
      */
     UIInterfaceOrientation orientation = VROConvert::toDeviceOrientation(_orientation);
-    CGSize viewportSize = CGSizeMake(_viewport.getWidth(), _viewport.getHeight());
+    CGSize viewportSize = CGSizeMake(_viewport.getWidth()  / _viewport.getContentScaleFactor(),
+                                     _viewport.getHeight() / _viewport.getContentScaleFactor());
 
-    // Get the inverse of displayTransform to map from screen coordinates to texture coordinates
-    CGAffineTransform transform = CGAffineTransformInvert([_frame displayTransformForOrientation:orientation viewportSize:viewportSize]);
+    CGAffineTransform arkitInverse = CGAffineTransformInvert(
+        [_frame displayTransformForOrientation:orientation viewportSize:viewportSize]);
+
+    // Check if monocular depth is active
+    std::shared_ptr<VROARSessioniOS> session = _session.lock();
+    bool isMonocular = session && session->isPreferMonocularDepth();
+    if (!isMonocular) {
+        // Also check: no LiDAR but monocular available
+        if (@available(iOS 14.0, *)) {
+            isMonocular = (_frame.sceneDepth == nil) && session &&
+                          session->getMonocularDepthEstimator() != nullptr;
+        }
+    }
+
+    CGAffineTransform finalTransform = arkitInverse;
+
+    if (isMonocular) {
+        /*
+         The MLMultiArray output is in the raw camera buffer layout (landscape).
+         Use the ARKit inverse transform for rotation (screen → camera sensor space).
+
+         NOTE: No additional ScaleFill crop correction is applied here. Vision's
+         VNImageCropAndScaleOptionScaleFill with orientation hint may handle the
+         mapping differently than a raw pixel crop. The ARKit inverse transform
+         already provides the correct screen ↔ camera coordinate mapping.
+         */
+        // Just use the ARKit inverse transform (same as LiDAR)
+        // finalTransform is already set to arkitInverse
+    }
 
     VROMatrix4f matrix;
-    matrix[0] = transform.a;
-    matrix[1] = transform.b;
-    matrix[4] = transform.c;
-    matrix[5] = transform.d;
-    matrix[12] = transform.tx;
-    matrix[13] = transform.ty;
+    matrix[0] = finalTransform.a;
+    matrix[1] = finalTransform.b;
+    matrix[4] = finalTransform.c;
+    matrix[5] = finalTransform.d;
+    matrix[12] = finalTransform.tx;
+    matrix[13] = finalTransform.ty;
     return matrix;
 }
 
