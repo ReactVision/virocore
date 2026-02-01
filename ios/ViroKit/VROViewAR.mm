@@ -78,6 +78,8 @@ static VROVector3f const kZeroVector = VROVector3f();
     bool _depthDebugModifierAdded;
     bool _depthDebugEnabled;
     float _depthDebugOpacity;
+    VROMatrix4f _depthTextureTransform;
+    VROViewport _currentViewport;
 }
 
 @property (readwrite, nonatomic) VROTrackingType trackingType;
@@ -666,6 +668,7 @@ static VROVector3f const kZeroVector = VROVector3f();
     } else {
         viewport = _viewport;
     }
+    _currentViewport = viewport;
     
     /*
      Attempt to initialize the ARSession if we have not yet done so.
@@ -775,8 +778,12 @@ static VROVector3f const kZeroVector = VROVector3f();
             if (!depthTexture->isHydrated()) {
                 depthTexture->prewarm(_driver);
             }
+
         }
     }
+
+    // Store for debug modifier uniform binders
+    _depthTextureTransform = depthTextureTransform;
 
     // CRITICAL: Set occlusion info on the render context BEFORE prepareFrame
     // so that shader capability keys include arOcclusion during scene traversal.
@@ -845,9 +852,8 @@ static VROVector3f const kZeroVector = VROVector3f();
             depthTexture->prewarm(_driver);
         }
 
-        // Set the depth texture on the material for the debug modifier
-        material->getAmbientOcclusion().setTexture(depthTexture);
-        material->updateSubstrateTextures();
+        // Debug modifier now uses ar_occlusion_depth_texture (global ARDepthMap binding)
+        // No need to set depth texture on the material's AO slot.
 
         // Add the debug modifier if not already added
         if (!_depthDebugModifierAdded) {
@@ -862,6 +868,27 @@ static VROVector3f const kZeroVector = VROVector3f();
                         uniform->setFloat(strongSelf->_depthDebugEnabled ? strongSelf->_depthDebugOpacity : 0.0f);
                     } else {
                         uniform->setFloat(0.0f);
+                    }
+                });
+
+            // Bind viewport size and depth transform directly on the modifier.
+            // These are normally bound by bindOcclusionUniforms via the render context,
+            // but the camera background may not go through that path reliably.
+            _depthDebugModifier->setUniformBinder("ar_viewport_size", VROShaderProperty::Vec3,
+                [weakSelf](VROUniform *uniform, const VROGeometry *geometry, const VROMaterial *material) {
+                    VROViewAR *strongSelf = weakSelf;
+                    if (strongSelf) {
+                        VROVector3f size((float)strongSelf->_currentViewport.getWidth(),
+                                        (float)strongSelf->_currentViewport.getHeight(), 0.0f);
+                        uniform->setVec3(size);
+                    }
+                });
+
+            _depthDebugModifier->setUniformBinder("ar_depth_texture_transform", VROShaderProperty::Mat4,
+                [weakSelf](VROUniform *uniform, const VROGeometry *geometry, const VROMaterial *material) {
+                    VROViewAR *strongSelf = weakSelf;
+                    if (strongSelf) {
+                        uniform->setMat4(strongSelf->_depthTextureTransform);
                     }
                 });
 

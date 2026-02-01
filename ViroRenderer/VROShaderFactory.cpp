@@ -331,7 +331,8 @@ std::shared_ptr<VROShaderProgram> VROShaderFactory::buildShader(VROShaderCapabil
     // to avoid duplicate uniform declarations
     bool hasDepthTextureModifier = false;
     for (const std::shared_ptr<VROShaderModifier> &modifier : modifiers_in) {
-        if (modifier->getBodySource().find("ar_depth_texture") != std::string::npos) {
+        if (modifier->getBodySource().find("ar_depth_texture") != std::string::npos ||
+            modifier->getBodySource().find("ar_occlusion_depth_texture") != std::string::npos) {
             hasDepthTextureModifier = true;
             break;
         }
@@ -1276,25 +1277,26 @@ std::shared_ptr<VROShaderModifier> VROShaderFactory::createOcclusionMaskModifier
         "screenUV.y = 1.0 - screenUV.y;",
 
         // Apply depth texture transform for correct orientation
-        // The depth texture may have different orientation than the camera image
         "highp vec2 depthUV = (ar_depth_texture_transform * vec4(screenUV, 0.0, 1.0)).xy;",
-        "depthUV = clamp(depthUV, 0.0, 1.0);",
+
+        // DEBUG: Tint green to confirm occlusion modifier is active
+        "_output_color.rgb = mix(_output_color.rgb, vec3(0.0, 1.0, 0.0), 0.3);",
+
+        // Skip occlusion if depth UV is out of bounds (no depth data for this screen position,
+        // e.g. monocular depth ScaleFill crop doesn't cover the full screen)
+        "if (depthUV.x >= 0.0 && depthUV.x <= 1.0 && depthUV.y >= 0.0 && depthUV.y <= 1.0) {",
 
         // Sample real-world depth at this screen position (in meters)
-        // ARKit depth is the perpendicular distance from the camera plane
         "highp float realWorldDepth = texture(ar_occlusion_depth_texture, depthUV).r;",
 
         // Calculate virtual object's distance from camera (Planar Depth)
-        // We use the view matrix to transform the world position to view space.
-        // In OpenGL view space, the camera looks down the negative Z axis, so depth is -Z.
         "highp float virtualDepth = -(view_matrix * vec4(_surface.position, 1.0)).z;",
 
-        // Apply Occlusion
-        // If the virtual object is behind the real-world surface (virtualDepth > realWorldDepth),
-        // we discard the fragment. We add a small bias (e.g. 1cm) to prevent self-occlusion artifacts
-        // or z-fighting when the object is very close to the surface.
-        "if (realWorldDepth > 0.0 && virtualDepth > (realWorldDepth + 0.01)) {",
-        "    discard;",
+        // DEBUG: Tint red where occlusion would fire
+        "highp float occlusionBias = realWorldDepth * 0.08;",
+        "if (realWorldDepth > 0.0 && virtualDepth > (realWorldDepth + occlusionBias)) {",
+        "    _output_color.rgb = vec3(1.0, 0.0, 0.0);",
+        "}",
         "}"
     };
 
@@ -1336,9 +1338,9 @@ std::shared_ptr<VROShaderModifier> VROShaderFactory::createDepthDebugModifier() 
      */
     std::vector<std::string> modifierCode = {
         // Declare the AR depth texture sampler uniform
-        "uniform sampler2D ar_depth_texture;",
-        // Also add @sampler marker for texture binding
-        "// @sampler ar_depth_texture",
+        // Use ar_occlusion_depth_texture which always binds to the global ARDepthMap
+        "uniform sampler2D ar_occlusion_depth_texture;",
+        "// @sampler ar_occlusion_depth_texture",
         "uniform highp float depth_debug_opacity;",
         
         // Uniforms for correct coordinate mapping
@@ -1351,36 +1353,29 @@ std::shared_ptr<VROShaderModifier> VROShaderFactory::createDepthDebugModifier() 
 
         // Apply depth texture transform for correct orientation
         "highp vec2 depthUV = (ar_depth_texture_transform * vec4(screenUV, 0.0, 1.0)).xy;",
+
+        // Check if UV is out of bounds (no depth data for this region)
+        "bool depthOutOfBounds = depthUV.x < 0.0 || depthUV.x > 1.0 || depthUV.y < 0.0 || depthUV.y > 1.0;",
         "depthUV = clamp(depthUV, 0.0, 1.0);",
 
         // Sample depth in meters using the correct depth UVs
-        "highp float depth = texture(ar_depth_texture, depthUV).r;",
+        "highp float depth = depthOutOfBounds ? 0.0 : texture(ar_occlusion_depth_texture, depthUV).r;",
 
-        // Create color based on depth value
+        // Normalize depth to 0-1 using inverse (close=1, far=0) for Turbo-like colormap
+        "highp float maxDepth = 10.0;",
+        "highp float t = (depthOutOfBounds || depth <= 0.001) ? -1.0 : 1.0 - clamp(depth / maxDepth, 0.0, 1.0);",
+
+        // Turbo colormap approximation (Google Research)
         "highp vec3 depthColor;",
-        "if (depth <= 0.001) {",
-        "    // No depth data - show as magenta (highly visible for debugging)",
-        "    depthColor = vec3(1.0, 0.0, 1.0);",
-        "} else if (depth < 1.0) {",
-        "    // Very close (0-1m) - red to yellow",
-        "    depthColor = mix(vec3(1.0, 0.0, 0.0), vec3(1.0, 1.0, 0.0), depth);",
-        "} else if (depth < 3.0) {",
-        "    // Medium (1-3m) - yellow to green",
-        "    depthColor = mix(vec3(1.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0), (depth - 1.0) / 2.0);",
-        "} else if (depth < 5.0) {",
-        "    // Medium-far (3-5m) - green to cyan",
-        "    depthColor = mix(vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 1.0), (depth - 3.0) / 2.0);",
-        "} else if (depth < 10.0) {",
-        "    // Far (5-10m) - cyan to blue",
-        "    depthColor = mix(vec3(0.0, 1.0, 1.0), vec3(0.0, 0.0, 1.0), (depth - 5.0) / 5.0);",
+        "if (t < 0.0) {",
+        "    depthColor = vec3(1.0, 0.0, 1.0);",  // magenta = no data
         "} else {",
-        "    // Very far (10m+) - dark blue to purple",
-        "    highp float t = clamp((depth - 10.0) / 40.0, 0.0, 1.0);",
-        "    depthColor = mix(vec3(0.0, 0.0, 1.0), vec3(0.5, 0.0, 0.5), t);",
+        "    highp float r = clamp(0.13572 + t * (4.61539 + t * (-42.6603 + t * (132.13 + t * (-152.548 + t * 56.3014)))), 0.0, 1.0);",
+        "    highp float g = clamp(0.09140 + t * (2.26400 + t * ( -7.9399 + t * ( 12.15  + t * (  -5.160 + t * 0.0000)))), 0.0, 1.0);",
+        "    highp float b = clamp(0.10667 + t * (12.7520 + t * (-60.5820 + t * (132.87  + t * (-134.650 + t * 51.2130)))), 0.0, 1.0);",
+        "    depthColor = vec3(r, g, b);",
         "}",
 
-        // Blend depth visualization with camera image
-        // depth_debug_opacity controls the blend: 0 = camera, 1 = depth only
         "_surface.diffuse_color.rgb = mix(_surface.diffuse_color.rgb, depthColor, depth_debug_opacity);"
     };
 
