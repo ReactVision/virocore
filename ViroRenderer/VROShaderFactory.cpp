@@ -1279,9 +1279,6 @@ std::shared_ptr<VROShaderModifier> VROShaderFactory::createOcclusionMaskModifier
         // Apply depth texture transform for correct orientation
         "highp vec2 depthUV = (ar_depth_texture_transform * vec4(screenUV, 0.0, 1.0)).xy;",
 
-        // DEBUG: Tint green to confirm occlusion modifier is active
-        "_output_color.rgb = mix(_output_color.rgb, vec3(0.0, 1.0, 0.0), 0.3);",
-
         // Skip occlusion if depth UV is out of bounds (no depth data for this screen position,
         // e.g. monocular depth ScaleFill crop doesn't cover the full screen)
         "if (depthUV.x >= 0.0 && depthUV.x <= 1.0 && depthUV.y >= 0.0 && depthUV.y <= 1.0) {",
@@ -1292,10 +1289,10 @@ std::shared_ptr<VROShaderModifier> VROShaderFactory::createOcclusionMaskModifier
         // Calculate virtual object's distance from camera (Planar Depth)
         "highp float virtualDepth = -(view_matrix * vec4(_surface.position, 1.0)).z;",
 
-        // DEBUG: Tint red where occlusion would fire
+        // Apply occlusion: discard fragment if virtual object is behind real-world surface
         "highp float occlusionBias = realWorldDepth * 0.08;",
         "if (realWorldDepth > 0.0 && virtualDepth > (realWorldDepth + occlusionBias)) {",
-        "    _output_color.rgb = vec3(1.0, 0.0, 0.0);",
+        "    discard;",
         "}",
         "}"
     };
