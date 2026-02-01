@@ -396,16 +396,8 @@ std::shared_ptr<VROTexture> VROARFrameiOS::getDepthTexture() {
     if (session) {
         auto depthEstimator = session->getMonocularDepthEstimator();
         if (depthEstimator && depthEstimator->isAvailable()) {
-            pinfo("Monocular depth texture available, using ML estimator");
             _depthTexture = depthEstimator->getDepthTexture();
-            if (_depthTexture) {
-                pinfo("Monocular depth texture available for rendering");
-            } else {
-                pwarn("Monocular depth estimator available but no texture ready yet");
-            }
             return _depthTexture;
-        } else if (depthEstimator) {
-            pwarn("Monocular depth estimator present but not available (still loading?)");
         }
     }
 
@@ -483,16 +475,73 @@ VROMatrix4f VROARFrameiOS::getDepthTextureTransform() const {
 
     if (isMonocular) {
         /*
-         The MLMultiArray output is in the raw camera buffer layout (landscape).
-         Use the ARKit inverse transform for rotation (screen → camera sensor space).
+         Monocular depth texture transform: screenUV → depth texture UV.
 
-         NOTE: No additional ScaleFill crop correction is applied here. Vision's
-         VNImageCropAndScaleOptionScaleFill with orientation hint may handle the
-         mapping differently than a raw pixel crop. The ARKit inverse transform
-         already provides the correct screen ↔ camera coordinate mapping.
+         The monocular depth buffer is in PORTRAIT orientation because Vision applies
+         kCGImagePropertyOrientationRight (90° CW rotation) before feeding the model.
+         LiDAR depth is in landscape camera space.
+
+         Chain: screenUV → arkitInverse → landscape camera UV → portrait UV → ScaleFill crop → depth texture UV
+
+         Step 1: arkitInverse gives landscape camera UV (same as LiDAR)
+         Step 2: Landscape → Portrait (90° CW rotation): portrait_u = 1 - landscape_v, portrait_v = landscape_u
+         Step 3: ScaleFill center-crop correction on portrait_v (model crops tall portrait to square)
          */
-        // Just use the ARKit inverse transform (same as LiDAR)
-        // finalTransform is already set to arkitInverse
+
+        // Get arkitInverse components
+        float ai_a = arkitInverse.a, ai_b = arkitInverse.b;
+        float ai_c = arkitInverse.c, ai_d = arkitInverse.d;
+        float ai_tx = arkitInverse.tx, ai_ty = arkitInverse.ty;
+        // landscape_u = ai_a * sx + ai_c * sy + ai_tx
+        // landscape_v = ai_b * sx + ai_d * sy + ai_ty
+
+        // Step 2: portrait_u = 1 - landscape_v, portrait_v = landscape_u
+        // portrait_u = -ai_b * sx - ai_d * sy + (1 - ai_ty)
+        // portrait_v = ai_a * sx + ai_c * sy + ai_tx
+
+        // Step 3: ScaleFill crop correction
+        // Portrait image: camLandscapeH x camLandscapeW (e.g. 2160 x 3840)
+        // Model input: depthW x depthH (e.g. 518 x 518)
+        CGSize imageRes = _frame.camera.imageResolution;
+        float portraitW = imageRes.height;  // 2160
+        float portraitH = imageRes.width;   // 3840
+
+        int depthW = 518, depthH = 518;
+        if (session) {
+            auto est = session->getMonocularDepthEstimator();
+            if (est) {
+                depthW = est->getDepthBufferWidth();
+                depthH = est->getDepthBufferHeight();
+                if (depthW <= 0 || depthH <= 0) { depthW = 518; depthH = 518; }
+            }
+        }
+
+        float scale = std::max((float)depthW / portraitW, (float)depthH / portraitH);
+        float scaledW = portraitW * scale;
+        float scaledH = portraitH * scale;
+        float cropU = (scaledW - depthW) / (2.0f * scaledW);  // crop in portrait u (should be ~0)
+        float cropV = (scaledH - depthH) / (2.0f * scaledH);  // crop in portrait v (~0.219)
+        float visU = 1.0f - 2.0f * cropU;
+        float visV = 1.0f - 2.0f * cropV;
+
+        // depth_u = (portrait_u - cropU) / visU
+        // depth_v = (portrait_v - cropV) / visV
+        float du_sx = -ai_b / visU;
+        float du_sy = -ai_d / visU;
+        float du_c  = (1.0f - ai_ty - cropU) / visU;
+
+        float dv_sx = ai_a / visV;
+        float dv_sy = ai_c / visV;
+        float dv_c  = (ai_tx - cropV) / visV;
+
+        VROMatrix4f matrix;
+        matrix[0]  = du_sx;    // col 0, row 0
+        matrix[1]  = dv_sx;    // col 0, row 1
+        matrix[4]  = du_sy;    // col 1, row 0
+        matrix[5]  = dv_sy;    // col 1, row 1
+        matrix[12] = du_c;     // tx
+        matrix[13] = dv_c;     // ty
+        return matrix;
     }
 
     VROMatrix4f matrix;

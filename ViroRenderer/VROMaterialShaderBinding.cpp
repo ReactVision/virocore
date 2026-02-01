@@ -119,10 +119,16 @@ void VROMaterialShaderBinding::loadTextures() {
     const std::vector<std::string> &samplers = _program->getSamplers();
 
     for (const std::string &sampler : samplers) {
-        if (sampler == "diffuse_texture" || sampler == "diffuse_texture_y" || sampler == "diffuse_texture_cbcr") {
-            // For YCbCr textures, both _y and _cbcr samplers use the same diffuse texture
-            // (the texture has multiple substrates for Y and CbCr planes)
+        if (sampler == "diffuse_texture" || sampler == "diffuse_texture_y") {
             _textures.emplace_back(_material.getDiffuse().getTexture());
+        }
+        else if (sampler == "diffuse_texture_cbcr") {
+            // For YCbCr textures, the _y entry already added the multi-substrate texture
+            // which binds both Y (substrate 0) and CbCr (substrate 1) to consecutive
+            // texture units. We must NOT add another reference here, as that would
+            // double-bind and shift all subsequent texture unit assignments.
+            // Skip — no texture reference added.
+            continue;
         }
         else if (sampler == "specular_texture") {
             _textures.emplace_back(_material.getSpecular().getTexture());
