@@ -380,8 +380,8 @@ void VROSceneRendererARCore::onRotateEvent(int rotateState, float rotateRadians,
 
 void VROSceneRendererARCore::onPause() {
     _session->pause();
-
     std::shared_ptr<VROSceneRendererARCore> shared = shared_from_this();
+
     VROPlatformDispatchAsyncRenderer([shared] {
         shared->_renderer->getInputController()->onPause();
         shared->_driver->pause();

@@ -776,6 +776,7 @@ public class ViroViewARCore extends ViroView {
         if (mWeakActivity.get() != activity) {
             return;
         }
+
         // Note that the order matters - GLSurfaceView is paused first so that it does not try
         // to query the session. If Session is paused before GLSurfaceView, GLSurfaceView may
         // still call mSession.update() and get a SessionPausedException.
@@ -796,13 +797,15 @@ public class ViroViewARCore extends ViroView {
             return;
         }
 
-        if (!CameraPermissionHelper.hasCameraPermission(activity) && mRequestedCameraPermissions) {
+        boolean hasCameraPermission = CameraPermissionHelper.hasCameraPermission(activity);
+
+        if (!hasCameraPermission && mRequestedCameraPermissions) {
             notifyRendererFailed(StartupError.CAMERA_PERMISSIONS_NOT_GRANTED, "Error: " +
                     "Attempted to resume an ARCore experience without the required camera permissions!");
             return;
         }
 
-        if (!CameraPermissionHelper.hasCameraPermission(activity)) {
+        if (!hasCameraPermission) {
             CameraPermissionHelper.requestCameraPermission(activity);
             mRequestedCameraPermissions = true;
             return;
