@@ -25,6 +25,7 @@ package com.viro.core;
 
 import android.content.Context;
 import android.content.res.AssetManager;
+import android.util.Log;
 
 import com.viro.core.internal.PlatformUtil;
 
