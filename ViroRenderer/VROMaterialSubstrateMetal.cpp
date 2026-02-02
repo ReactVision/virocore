@@ -68,8 +68,21 @@ VROMaterialSubstrateMetal::VROMaterialSubstrateMetal(const VROMaterial &material
     id <MTLDevice> device = driver.getDevice();
     id <MTLLibrary> library = driver.getLibrary();
     
+    _dynamicLibrary = nil;
+    if (!material.getShaderModifiers().empty()) {
+        std::string source = driver.getLibrarySource();
+        if (!source.empty()) {
+           inflateModifiers(source, material.getShaderModifiers());
+           _dynamicLibrary = driver.newLibraryWithSource(source);
+           if (_dynamicLibrary) {
+               library = _dynamicLibrary;
+           }
+        }
+    }
+
     _lightingUniformsBuffer = new VROConcurrentBuffer(sizeof(VROSceneLightingUniforms), @"VROSceneLightingUniformBuffer", device);
     _materialUniformsBuffer = new VROConcurrentBuffer(sizeof(VROMaterialUniforms), @"VROMaterialUniformBuffer", device);
+    _customUniformsBuffer = new VROConcurrentBuffer(1024, @"VROCustomUniformBuffer", device);
     
     switch (material.getLightingModel()) {
         case VROLightingModel::Constant:
@@ -88,6 +101,11 @@ VROMaterialSubstrateMetal::VROMaterialSubstrateMetal(const VROMaterial &material
             loadPhongLighting(material, library, device, driver);
             break;
             
+        case VROLightingModel::PhysicallyBased:
+            // Fallback to Blinn/Phong for PBR on Metal until native PBR is implemented
+            loadBlinnLighting(material, library, device, driver);
+            break;
+
         default:
             break;
     }
@@ -98,8 +116,73 @@ VROMaterialSubstrateMetal::VROMaterialSubstrateMetal(const VROMaterial &material
 VROMaterialSubstrateMetal::~VROMaterialSubstrateMetal() {
     delete (_materialUniformsBuffer);
     delete (_lightingUniformsBuffer);
+    delete (_customUniformsBuffer);
     
     ALLOCATION_TRACKER_SUB(MaterialSubstrates, 1);
+}
+
+void VROMaterialSubstrateMetal::inflateModifiers(std::string &source, const std::vector<std::shared_ptr<VROShaderModifier>> &modifiers) {
+    std::string customUniformsMembers;
+    std::string customDefines;
+
+    // 1. Process all uniforms to build the struct and defines
+    for (const auto &modifier : modifiers) {
+        std::string rawUniforms = modifier->getUniformsSource();
+        std::stringstream ss(rawUniforms);
+        std::string line;
+        while (std::getline(ss, line)) {
+            line = VROStringUtil::trim(line);
+            if (line.empty() || line.find("#pragma") != std::string::npos) continue;
+            
+            // Basic GLSL to Metal type conversion for common types
+            VROStringUtil::replaceAll(line, "vec2 ", "float2 ");
+            VROStringUtil::replaceAll(line, "vec3 ", "float3 ");
+            VROStringUtil::replaceAll(line, "vec4 ", "float4 ");
+            VROStringUtil::replaceAll(line, "mat4 ", "float4x4 ");
+            VROStringUtil::replaceAll(line, "uniform ", "");
+            
+            customUniformsMembers += "    " + line + "\n";
+            
+            // Generate define for direct access: #define u_time _custom.u_time
+            size_t semi = line.find(';');
+            if (semi != std::string::npos) {
+                std::string decl = line.substr(0, semi);
+                size_t lastSpace = decl.find_last_of(" \t");
+                if (lastSpace != std::string::npos) {
+                    std::string varName = decl.substr(lastSpace + 1);
+                    customDefines += "#define " + varName + " _custom." + varName + "\n";
+                }
+            }
+        }
+    }
+
+    if (customUniformsMembers.empty()) {
+        customUniformsMembers = "    float _unused_padding;";
+    }
+    VROStringUtil::replaceAll(source, "#pragma custom_uniforms", customUniformsMembers);
+
+    // 2. Inject modifier bodies
+    for (const auto &modifier : modifiers) {
+        std::string bodyDirective = modifier->getDirective(VROShaderSection::Body);
+        std::string body = modifier->getBodySource();
+        
+        // Prepend defines to the body so they can access _custom members directly
+        body = customDefines + "\n" + body;
+
+        size_t bodyPos = source.find(bodyDirective);
+        while (bodyPos != std::string::npos) {
+            source.replace(bodyPos, bodyDirective.length(), body);
+            bodyPos = source.find(bodyDirective, bodyPos + body.length());
+        }
+    }
+    
+    // 3. Remove any remaining uniforms pragmas (as we put them in the struct)
+    VROStringUtil::replaceAll(source, "#pragma geometry_modifier_uniforms", "");
+    VROStringUtil::replaceAll(source, "#pragma vertex_modifier_uniforms", "");
+    VROStringUtil::replaceAll(source, "#pragma surface_modifier_uniforms", "");
+    VROStringUtil::replaceAll(source, "#pragma fragment_modifier_uniforms", "");
+    VROStringUtil::replaceAll(source, "#pragma lighting_model_modifier_uniforms", "");
+    VROStringUtil::replaceAll(source, "#pragma image_modifier_uniforms", "");
 }
 
 void VROMaterialSubstrateMetal::loadConstantLighting(const VROMaterial &material,
@@ -260,7 +343,57 @@ VROConcurrentBuffer &VROMaterialSubstrateMetal::bindMaterialUniforms(float opaci
     uniforms->diffuse_intensity = _material.getDiffuse().getIntensity();
     uniforms->shininess = _material.getShininess();
     uniforms->alpha = _material.getTransparency() * opacity;
-    
+    uniforms->roughness = _material.getRoughness().getColor().x;
+    uniforms->metalness = _material.getMetalness().getColor().x;
+    uniforms->ao = _material.getAmbientOcclusion().getColor().x;
+
+    // Fill custom uniforms buffer if we have modifiers
+    if (!_material.getShaderModifiers().empty()) {
+        uint8_t *customBuffer = (uint8_t *)_customUniformsBuffer->getWritableContents(eye, frame);
+        size_t offset = 0;
+
+        // Pack floats (sorted by name to match GLSL/Metal deterministic layout)
+        std::map<std::string, float> floats = _material.getShaderUniformFloats();
+        for (auto const& [name, val] : floats) {
+            if (offset + sizeof(float) <= 1024) {
+                memcpy(customBuffer + offset, &val, sizeof(float));
+                offset += sizeof(float);
+            }
+        }
+
+        // Align to 16 bytes for vector types
+        offset = (offset + 15) & ~15;
+
+        // Pack Vec3s (packed as float4 for Metal alignment)
+        std::map<std::string, VROVector3f> vec3s = _material.getShaderUniformVec3s();
+        for (auto const& [name, val] : vec3s) {
+            if (offset + sizeof(float) * 4 <= 1024) {
+                simd_float4 vec = { val.x, val.y, val.z, 0.0f };
+                memcpy(customBuffer + offset, &vec, sizeof(float) * 4);
+                offset += sizeof(float) * 4;
+            }
+        }
+
+        // Pack Vec4s
+        std::map<std::string, VROVector4f> vec4s = _material.getShaderUniformVec4s();
+        for (auto const& [name, val] : vec4s) {
+            if (offset + sizeof(float) * 4 <= 1024) {
+                simd_float4 vec = { val.x, val.y, val.z, val.w };
+                memcpy(customBuffer + offset, &vec, sizeof(float) * 4);
+                offset += sizeof(float) * 4;
+            }
+        }
+
+        // Pack Mat4s
+        std::map<std::string, VROMatrix4f> mat4s = _material.getShaderUniformMat4s();
+        for (auto const& [name, val] : mat4s) {
+            if (offset + sizeof(float) * 16 <= 1024) {
+                memcpy(customBuffer + offset, val.getArray(), sizeof(float) * 16);
+                offset += sizeof(float) * 16;
+            }
+        }
+    }
+
     return *_materialUniformsBuffer;
 }
 
@@ -315,10 +448,10 @@ void VROMaterialSubstrateMetal::bindLights(int lightsHash,
     
     [renderEncoder setVertexBuffer:_lightingUniformsBuffer->getMTLBuffer(eyeType)
                             offset:_lightingUniformsBuffer->getWriteOffset(frame)
-                           atIndex:3];
+                           atIndex:4];
     [renderEncoder setFragmentBuffer:_lightingUniformsBuffer->getMTLBuffer(eyeType)
                               offset:_lightingUniformsBuffer->getWriteOffset(frame)
-                             atIndex:0];
+                             atIndex:4];
 }
 
 uint32_t VROMaterialSubstrateMetal::hashTextures(const std::vector<std::shared_ptr<VROTexture>> &textures) const {

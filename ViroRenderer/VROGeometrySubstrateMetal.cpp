@@ -321,6 +321,8 @@ void VROGeometrySubstrateMetal::render(const VROGeometry &geometry,
     viewUniforms->model_matrix = toMatrixFloat4x4(transform);
     viewUniforms->modelview_matrix = toMatrixFloat4x4(modelview);
     viewUniforms->modelview_projection_matrix = toMatrixFloat4x4(projectionMatrix.multiply(modelview));
+    viewUniforms->view_matrix = toMatrixFloat4x4(viewMatrix);
+    viewUniforms->projection_matrix = toMatrixFloat4x4(projectionMatrix);
     viewUniforms->camera_position = toVectorFloat3(context.getCamera().getPosition());
     
     [renderEncoder setVertexBuffer:_viewUniformsBuffer->getMTLBuffer(eyeType)
@@ -370,6 +372,20 @@ void VROGeometrySubstrateMetal::renderMaterial(VROMaterialSubstrateMetal *materi
     [renderEncoder setVertexBuffer:materialBuffer.getMTLBuffer(eyeType)
                             offset:materialBuffer.getWriteOffset(frame)
                            atIndex:2];
+    [renderEncoder setFragmentBuffer:materialBuffer.getMTLBuffer(eyeType)
+                              offset:materialBuffer.getWriteOffset(frame)
+                             atIndex:2];
+    
+    // Bind custom uniforms at index 3
+    VROConcurrentBuffer *customBuffer = material->getCustomUniformsBuffer();
+    if (customBuffer) {
+        [renderEncoder setVertexBuffer:customBuffer->getMTLBuffer(eyeType)
+                                offset:customBuffer->getWriteOffset(frame)
+                               atIndex:3];
+        [renderEncoder setFragmentBuffer:customBuffer->getMTLBuffer(eyeType)
+                                  offset:customBuffer->getWriteOffset(frame)
+                                 atIndex:3];
+    }
     
     const std::vector<std::shared_ptr<VROTexture>> &textures = material->getTextures();
     for (int j = 0; j < textures.size(); ++j) {

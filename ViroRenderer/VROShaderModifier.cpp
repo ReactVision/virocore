@@ -73,6 +73,28 @@ VROShaderModifier::VROShaderModifier(VROShaderEntryPoint entryPoint, std::vector
     ALLOCATION_TRACKER_ADD(ShaderModifiers, 1);
 }
 
+VROShaderModifier::VROShaderModifier(VROShaderEntryPoint entryPoint, std::string body) :
+    _shaderModifierId(++sShaderModifierId),
+    _attributes(0),
+    _entryPoint(entryPoint) {
+
+    std::stringstream ss(body);
+    std::string line;
+    while (std::getline(ss, line, '\n')) {
+        if (isVariableDeclaration(line)) {
+            _uniforms = _uniforms + line + "\n";
+        }
+        else {
+            _body = _body + line + "\n";
+        }
+    }
+
+    _uniforms = _uniforms + getDirective(VROShaderSection::Uniforms) + "\n";
+    _body = _body + "\n" + getDirective(VROShaderSection::Body) + "\n";
+
+    ALLOCATION_TRACKER_ADD(ShaderModifiers, 1);
+}
+
 VROShaderModifier::~VROShaderModifier() {
     for (auto kv : _uniformBinders) {
         delete (kv.second);

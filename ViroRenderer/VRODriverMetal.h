@@ -58,6 +58,11 @@ public:
         NSString *shaders = [bundle pathForResource:@"default" ofType:@"metallib"];
         
         _library = [device newLibraryWithFile:shaders error:nil];
+        
+        NSString *shadersSrcPath = [bundle pathForResource:@"Shaders" ofType:@"metal"];
+        if (shadersSrcPath) {
+            _librarySource = std::string([[NSString stringWithContentsOfFile:shadersSrcPath encoding:NSUTF8StringEncoding error:nil] UTF8String]);
+        }
     }
     
     void willRenderFrame(VRORenderContext &context) {
@@ -80,6 +85,22 @@ public:
     id <MTLLibrary> getLibrary() const {
         return _library;
     }
+    
+    std::string getLibrarySource() const {
+        return _librarySource;
+    }
+
+    id <MTLLibrary> newLibraryWithSource(std::string source) {
+        NSError *error = nil;
+        id <MTLLibrary> library = [_device newLibraryWithSource:[NSString stringWithUTF8String:source.c_str()]
+                                                       options:nil
+                                                         error:&error];
+        if (!library) {
+            NSLog(@"Failed to compile shader library: %@", error);
+        }
+        return library;
+    }
+
     std::shared_ptr<VRORenderTarget> getRenderTarget() const {
         return _renderTarget;
     }
@@ -129,6 +150,7 @@ private:
     id <MTLDevice> _device;
     id <MTLCommandQueue> _commandQueue;
     id <MTLLibrary> _library;
+    std::string _librarySource;
     
     std::shared_ptr<VRORenderTarget> _renderTarget;
     

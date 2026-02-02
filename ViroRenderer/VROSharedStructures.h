@@ -51,15 +51,54 @@ typedef struct {
     matrix_float4x4 modelview_matrix;
     matrix_float4x4 model_matrix;
     matrix_float4x4 normal_matrix;
+    matrix_float4x4 view_matrix;
+    matrix_float4x4 projection_matrix;
     vector_float3   camera_position;
 } VROViewUniforms;
 
 typedef struct {
-    vector_float4    diffuse_surface_color;
+    simd_float4    diffuse_surface_color;
     float            diffuse_intensity;
     float            shininess;
     float            alpha;
+    float            roughness;
+    float            metalness;
+    float            ao;
 } VROMaterialUniforms;
+
+typedef struct {
+    simd_float3 position;
+    simd_float3 normal;
+    simd_float2 texcoord;
+    simd_float4 color;
+    simd_float3 tangent;
+} VROShaderGeometry;
+
+typedef struct {
+    simd_float4 position;
+} VROShaderVertex;
+
+typedef struct {
+    simd_float4 diffuse_color;
+    simd_float4 specular_color;
+    float shininess;
+    float roughness;
+    float metalness;
+    float ao;
+    simd_float3 normal;
+    simd_float3 view;
+    simd_float2 diffuse_texcoord;
+    simd_float2 specular_texcoord;
+    float alpha;
+} VROSurface;
+
+typedef struct {
+    simd_float4x4 model_matrix;
+    simd_float4x4 view_matrix;
+    simd_float4x4 projection_matrix;
+    simd_float4x4 normal_matrix;
+    simd_float4x4 modelview_matrix;
+} VROTransforms;
 
 typedef struct {
     vector_float3    ambient_light_color;
