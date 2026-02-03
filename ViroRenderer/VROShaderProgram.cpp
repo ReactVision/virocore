@@ -38,6 +38,7 @@
 #include "VROStringUtil.h"
 #include "VRODriverOpenGL.h"
 #include <atomic>
+#include <sstream>
 
 #define kDebugShaders 0
 
@@ -423,7 +424,7 @@ void VROShaderProgram::findUniformLocations() {
 void VROShaderProgram::addModifierUniforms() {
     for (const std::shared_ptr<VROShaderModifier> &modifier : _modifiers) {
         std::vector<std::string> uniformNames = modifier->getUniforms();
-        
+
         for (std::string &uniformName : uniformNames) {
             VROUniformBinder *binder = modifier->getUniformBinder(uniformName);
             if (binder != nullptr) {
@@ -431,6 +432,104 @@ void VROShaderProgram::addModifierUniforms() {
                 _uniforms.push_back(uniform);
             }
         }
+
+        // Parse custom shader uniforms from the uniform declarations
+        std::string uniformsSource = modifier->getUniformsSource();
+        parseCustomUniforms(uniformsSource);
+    }
+}
+
+void VROShaderProgram::parseCustomUniforms(const std::string &uniformsSource) {
+    // Parse uniform declarations like "uniform highp float time;"
+    std::istringstream stream(uniformsSource);
+    std::string line;
+
+    while (std::getline(stream, line)) {
+        // Trim whitespace
+        size_t start = line.find_first_not_of(" \t\r\n");
+        if (start == std::string::npos) continue;
+        line = line.substr(start);
+
+        // Check if it's a uniform declaration
+        if (!VROStringUtil::startsWith(line, "uniform ")) {
+            continue;
+        }
+
+        // Parse: "uniform highp float time;" or "uniform sampler2D tex;"
+        // Format: uniform [precision] type name;
+        std::istringstream lineStream(line);
+        std::string token, precision, type, name;
+
+        lineStream >> token; // "uniform"
+        lineStream >> precision; // might be precision qualifier or type
+        lineStream >> type; // might be name if no precision
+
+        // If we got 3 tokens, precision is actually the type
+        if (type.empty() || type == ";") {
+            type = precision;
+            precision = "";
+        } else {
+            lineStream >> name;
+        }
+
+        // If name is empty, type is the name
+        if (name.empty()) {
+            name = type;
+            lineStream >> type; // Try to get actual type
+        }
+
+        // Clean up name (remove semicolon)
+        size_t semicolon = name.find(';');
+        if (semicolon != std::string::npos) {
+            name = name.substr(0, semicolon);
+        }
+
+        if (name.empty() || type.empty()) {
+            continue;
+        }
+
+        // Skip samplers (they're handled separately)
+        if (VROStringUtil::startsWith(type, "sampler")) {
+            continue;
+        }
+
+        // Check if this uniform already exists (from binders)
+        bool exists = false;
+        for (VROUniform *uniform : _uniforms) {
+            if (uniform->getName() == name) {
+                exists = true;
+                break;
+            }
+        }
+        if (exists) {
+            continue;
+        }
+
+        // Determine type
+        VROShaderProperty shaderType;
+        if (type == "float") {
+            shaderType = VROShaderProperty::Float;
+        } else if (type == "vec2") {
+            shaderType = VROShaderProperty::Vec2;
+        } else if (type == "vec3") {
+            shaderType = VROShaderProperty::Vec3;
+        } else if (type == "vec4") {
+            shaderType = VROShaderProperty::Vec4;
+        } else if (type == "int") {
+            shaderType = VROShaderProperty::Int;
+        } else if (type == "mat4") {
+            shaderType = VROShaderProperty::Mat4;
+        } else if (type == "mat3") {
+            shaderType = VROShaderProperty::Mat3;
+        } else if (type == "mat2") {
+            shaderType = VROShaderProperty::Mat2;
+        } else {
+            // Unknown type, skip
+            continue;
+        }
+
+        VROUniform *uniform = VROUniform::newUniformForType(name, shaderType, 1);
+        _uniforms.push_back(uniform);
     }
 }
 

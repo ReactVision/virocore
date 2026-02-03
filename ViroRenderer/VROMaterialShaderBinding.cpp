@@ -250,6 +250,43 @@ void VROMaterialShaderBinding::bindMaterialUniforms(const VROMaterial &material,
         }
         _emissiveColorUniform->setVec3({emissiveColor.x, emissiveColor.y, emissiveColor.z});
     }
+
+    // Bind custom shader uniforms (floats, vec3s, vec4s, mat4s)
+    // Bind float uniforms
+    std::map<std::string, float> floats = material.getShaderUniformFloats();
+    for (const auto &uniformPair : floats) {
+        VROUniform *uniform = _program->getUniform(uniformPair.first);
+        if (uniform != nullptr) {
+            uniform->setFloat(uniformPair.second);
+        }
+    }
+
+    // Bind vec3 uniforms
+    std::map<std::string, VROVector3f> vec3s = material.getShaderUniformVec3s();
+    for (const auto &uniformPair : vec3s) {
+        VROUniform *uniform = _program->getUniform(uniformPair.first);
+        if (uniform != nullptr) {
+            uniform->setVec3(uniformPair.second);
+        }
+    }
+
+    // Bind vec4 uniforms
+    std::map<std::string, VROVector4f> vec4s = material.getShaderUniformVec4s();
+    for (const auto &uniformPair : vec4s) {
+        VROUniform *uniform = _program->getUniform(uniformPair.first);
+        if (uniform != nullptr) {
+            uniform->setVec4(uniformPair.second);
+        }
+    }
+
+    // Bind mat4 uniforms
+    std::map<std::string, VROMatrix4f> mat4s = material.getShaderUniformMat4s();
+    for (const auto &uniformPair : mat4s) {
+        VROUniform *uniform = _program->getUniform(uniformPair.first);
+        if (uniform != nullptr) {
+            uniform->setMat4(uniformPair.second);
+        }
+    }
 }
 
 void VROMaterialShaderBinding::bindGeometryUniforms(float opacity, const VROGeometry &geometry, const VROMaterial &material) {
