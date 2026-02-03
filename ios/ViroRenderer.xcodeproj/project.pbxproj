@@ -923,6 +923,7 @@
 		E188BC772EE37652000A427E /* VROCloudAnchorProviderARCore.h in Headers */ = {isa = PBXBuildFile; fileRef = E188BC762EE37652000A427E /* VROCloudAnchorProviderARCore.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		E19926002EE3B7E900328B9D /* VROGeospatial.h in Headers */ = {isa = PBXBuildFile; fileRef = E19925FF2EE3B7E900328B9D /* VROGeospatial.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		E19926022EE3B7F700328B9D /* VROGeospatialAnchor.h in Headers */ = {isa = PBXBuildFile; fileRef = E19926012EE3B7F700328B9D /* VROGeospatialAnchor.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		E19DDA302F31A0D50097814B /* Shaders.metal in Resources */ = {isa = PBXBuildFile; fileRef = 8F517BC21BCDA2BD0017C70B /* Shaders.metal */; };
 		E1B267D52EE5228E00F0718C /* VROARWorldMesh.h in Headers */ = {isa = PBXBuildFile; fileRef = E1B267D12EE5228E00F0718C /* VROARWorldMesh.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		E1B267D62EE5228E00F0718C /* VROARDepthMesh.h in Headers */ = {isa = PBXBuildFile; fileRef = E1B267CF2EE5228E00F0718C /* VROARDepthMesh.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		E1B267D92EE5263A00F0718C /* VROARWorldMesh.mm in Sources */ = {isa = PBXBuildFile; fileRef = E1B267D82EE5263A00F0718C /* VROARWorldMesh.mm */; };
@@ -4032,6 +4033,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E19DDA302F31A0D50097814B /* Shaders.metal in Resources */,
 				A547DB6C2022ED0700C8FE67 /* brdf_fsh.glsl in Resources */,
 				A547DB6D2022ED0700C8FE67 /* brdf_vsh.glsl in Resources */,
 				A597F8E8201AB9EE007EE387 /* prefilter_convolution_fsh.glsl in Resources */,

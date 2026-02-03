@@ -112,8 +112,13 @@ VROMaterial::VROMaterial(std::shared_ptr<VROMaterial> material) : VROThreadRestr
  _chromaKeyFilteringColor(material->_chromaKeyFilteringColor),
  _needsToneMapping(material->needsToneMapping()),
  _renderingOrder(material->_renderingOrder),
- _substrate(nullptr) {
- 
+ _substrate(nullptr),
+ _shaderModifiers(material->_shaderModifiers),
+ _shaderUniformFloats(material->_shaderUniformFloats),
+ _shaderUniformVec3s(material->_shaderUniformVec3s),
+ _shaderUniformVec4s(material->_shaderUniformVec4s),
+ _shaderUniformMat4s(material->_shaderUniformMat4s) {
+
      _diffuse = new VROMaterialVisual(*this, *material->_diffuse);
      _roughness = new VROMaterialVisual(*this, *material->_roughness);
      _metalness = new VROMaterialVisual(*this, *material->_metalness);
@@ -181,7 +186,14 @@ void VROMaterial::copyFrom(std::shared_ptr<VROMaterial> material) {
     _renderingOrder = material->_renderingOrder;
     
     _substrate = nullptr;
-    
+
+    // Copy shader modifiers (DEBUG: if substrate doesn't see them, this is the problem)
+    _shaderModifiers = material->_shaderModifiers;
+    _shaderUniformFloats = material->_shaderUniformFloats;
+    _shaderUniformVec3s = material->_shaderUniformVec3s;
+    _shaderUniformVec4s = material->_shaderUniformVec4s;
+    _shaderUniformMat4s = material->_shaderUniformMat4s;
+
     _diffuse->copyFrom(*material->_diffuse);
     _roughness->copyFrom(*material->_roughness);
     _metalness->copyFrom(*material->_metalness);
@@ -294,48 +306,6 @@ void VROMaterial::fadeSnapshot() {
                     }, previousTransparency, 0.0));
         }
     }
-}
-
-void VROMaterial::addShaderModifier(std::shared_ptr<VROShaderModifier> modifier) {
-    _shaderModifiers.push_back(modifier);
-    updateSubstrate();
-}
-
-void VROMaterial::removeShaderModifier(std::shared_ptr<VROShaderModifier> modifier) {
-    _shaderModifiers.erase(std::remove_if(_shaderModifiers.begin(), _shaderModifiers.end(),
-                                 [modifier](std::shared_ptr<VROShaderModifier> candidate) {
-                                     return candidate == modifier;
-                                 }), _shaderModifiers.end());
-    updateSubstrate();
-}
-
-bool VROMaterial::hasShaderModifier(std::shared_ptr<VROShaderModifier> modifier) {
-    for (std::shared_ptr<VROShaderModifier> &candidate : _shaderModifiers) {
-        if (modifier == candidate) {
-            return true;
-        }
-    }
-    return false;
-}
-
-void VROMaterial::setShaderUniform(std::string name, float value) {
-    _shaderUniformFloats[name] = value;
-}
-
-void VROMaterial::setShaderUniform(std::string name, VROVector3f value) {
-    _shaderUniformVec3s[name] = value;
-}
-
-void VROMaterial::setShaderUniform(std::string name, VROVector4f value) {
-    _shaderUniformVec4s[name] = value;
-}
-
-void VROMaterial::setShaderUniform(std::string name, VROMatrix4f value) {
-    _shaderUniformMat4s[name] = value;
-}
-
-void VROMaterial::setShaderUniform(std::string name, std::shared_ptr<VROTexture> texture) {
-    _shaderUniformTextures[name] = texture;
 }
 
 void VROMaterial::removeOutgoingMaterial() {

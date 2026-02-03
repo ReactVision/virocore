@@ -37,6 +37,9 @@
 #include "VROConcurrentBuffer.h"
 #include "VROSortKey.h"
 #include "VRORenderContext.h"
+#include <set>
+#include <sstream>
+#include <algorithm>
 
 static std::map<std::string, std::shared_ptr<VROMetalShader>> _sharedPrograms;
 
@@ -67,17 +70,35 @@ VROMaterialSubstrateMetal::VROMaterialSubstrateMetal(const VROMaterial &material
 
     id <MTLDevice> device = driver.getDevice();
     id <MTLLibrary> library = driver.getLibrary();
-    
+
     _dynamicLibrary = nil;
-    if (!material.getShaderModifiers().empty()) {
+
+    size_t modifierCount = material.getShaderModifiers().size();
+
+    if (modifierCount > 0) {
         std::string source = driver.getLibrarySource();
         if (!source.empty()) {
-           inflateModifiers(source, material.getShaderModifiers());
-           _dynamicLibrary = driver.newLibraryWithSource(source);
-           if (_dynamicLibrary) {
-               library = _dynamicLibrary;
-           }
+            NSLog(@"VROMaterialSubstrateMetal: Inflating %lu modifiers", material.getShaderModifiers().size());
+            // Log a bit of the source to verify pragmas exist
+            NSLog(@"VROMaterialSubstrateMetal: Source prefix: %s", source.substr(0, 100).c_str());
+            if (source.find("#pragma surface_modifier_body") == std::string::npos) {
+                NSLog(@"VROMaterialSubstrateMetal: Warning: Pragmas not found in source!");
+            }
+            
+            inflateModifiers(source, material.getShaderModifiers());
+            _dynamicLibrary = driver.newLibraryWithSource(source);
+            if (_dynamicLibrary) {
+                NSLog(@"VROMaterialSubstrateMetal: Successfully compiled dynamic shader library");
+                library = _dynamicLibrary;
+            } else {
+                NSLog(@"VROMaterialSubstrateMetal: Failed to compile dynamic shader library. Source length: %lu", source.length());
+                // The error is already logged in VRODriverMetal::newLibraryWithSource
+            }
+        } else {
+            NSLog(@"VROMaterialSubstrateMetal: Warning: Driver library source is empty");
         }
+    } else {
+        NSLog(@"VROMaterialSubstrateMetal: Material has NO modifiers");
     }
 
     _lightingUniformsBuffer = new VROConcurrentBuffer(sizeof(VROSceneLightingUniforms), @"VROSceneLightingUniformBuffer", device);
@@ -122,38 +143,69 @@ VROMaterialSubstrateMetal::~VROMaterialSubstrateMetal() {
 }
 
 void VROMaterialSubstrateMetal::inflateModifiers(std::string &source, const std::vector<std::shared_ptr<VROShaderModifier>> &modifiers) {
-    std::string customUniformsMembers;
-    std::string customDefines;
-
-    // 1. Process all uniforms to build the struct and defines
+    // 1. Gather all unique uniform declarations and group by type
+    std::set<std::string> seenUniforms;
     for (const auto &modifier : modifiers) {
-        std::string rawUniforms = modifier->getUniformsSource();
-        std::stringstream ss(rawUniforms);
+        std::stringstream ss(modifier->getUniformsSource());
         std::string line;
         while (std::getline(ss, line)) {
             line = VROStringUtil::trim(line);
-            if (line.empty() || line.find("#pragma") != std::string::npos) continue;
+            if (line.empty() || line.find("uniform") == std::string::npos) continue;
             
-            // Basic GLSL to Metal type conversion for common types
-            VROStringUtil::replaceAll(line, "vec2 ", "float2 ");
-            VROStringUtil::replaceAll(line, "vec3 ", "float3 ");
-            VROStringUtil::replaceAll(line, "vec4 ", "float4 ");
-            VROStringUtil::replaceAll(line, "mat4 ", "float4x4 ");
-            VROStringUtil::replaceAll(line, "uniform ", "");
+            // Extract type and name: uniform type name;
+            std::vector<std::string> parts = VROStringUtil::split(line, " \t;");
+            if (parts.size() < 3) continue;
             
-            customUniformsMembers += "    " + line + "\n";
+            std::string type = parts[1];
+            std::string name = parts[2];
             
-            // Generate define for direct access: #define u_time _custom.u_time
-            size_t semi = line.find(';');
-            if (semi != std::string::npos) {
-                std::string decl = line.substr(0, semi);
-                size_t lastSpace = decl.find_last_of(" \t");
-                if (lastSpace != std::string::npos) {
-                    std::string varName = decl.substr(lastSpace + 1);
-                    customDefines += "#define " + varName + " _custom." + varName + "\n";
-                }
-            }
+            if (seenUniforms.find(name) != seenUniforms.end()) continue;
+            seenUniforms.insert(name);
+            
+            if (type == "float") _customLayout.floats.push_back(name);
+            else if (type == "vec2") _customLayout.vec4s.push_back(name); // map vec2 to vec4 for easier alignment
+            else if (type == "vec3") _customLayout.vec3s.push_back(name);
+            else if (type == "vec4") _customLayout.vec4s.push_back(name);
+            else if (type == "mat4") _customLayout.mat4s.push_back(name);
         }
+    }
+    
+    // Sort for deterministic layout
+    std::sort(_customLayout.floats.begin(), _customLayout.floats.end());
+    std::sort(_customLayout.vec3s.begin(), _customLayout.vec3s.end());
+    std::sort(_customLayout.vec4s.begin(), _customLayout.vec4s.end());
+    std::sort(_customLayout.mat4s.begin(), _customLayout.mat4s.end());
+    
+    // 2. Build MSL struct and defines
+    std::string customUniformsMembers;
+    std::string customDefines;
+    size_t offset = 0;
+    
+    for (const auto &name : _customLayout.floats) {
+        customUniformsMembers += "    float " + name + ";\n";
+        customDefines += "#define " + name + " _custom." + name + "\n";
+        offset += 4;
+    }
+    // Aligns to 16 bytes for next group (float3/float4)
+    if (offset % 16 != 0) {
+        int padFloats = (16 - (offset % 16)) / 4;
+        customUniformsMembers += "    float _pad[" + std::to_string(padFloats) + "];\n";
+    }
+    
+    for (const auto &name : _customLayout.vec3s) {
+        customUniformsMembers += "    float3 " + name + ";\n";
+        customUniformsMembers += "    float _pad_" + name + ";\n"; // float3 is 12 bytes, but occupies 16 in constant buffers usually
+        customDefines += "#define " + name + " _custom." + name + "\n";
+    }
+    
+    for (const auto &name : _customLayout.vec4s) {
+        customUniformsMembers += "    float4 " + name + ";\n";
+        customDefines += "#define " + name + " _custom." + name + "\n";
+    }
+    
+    for (const auto &name : _customLayout.mat4s) {
+        customUniformsMembers += "    float4x4 " + name + ";\n";
+        customDefines += "#define " + name + " _custom." + name + "\n";
     }
 
     if (customUniformsMembers.empty()) {
@@ -161,22 +213,29 @@ void VROMaterialSubstrateMetal::inflateModifiers(std::string &source, const std:
     }
     VROStringUtil::replaceAll(source, "#pragma custom_uniforms", customUniformsMembers);
 
-    // 2. Inject modifier bodies
+    // 3. Inject modifier bodies, combining multiple modifiers for same directive
+    std::map<std::string, std::string> combinedBodies;
     for (const auto &modifier : modifiers) {
         std::string bodyDirective = modifier->getDirective(VROShaderSection::Body);
         std::string body = modifier->getBodySource();
         
-        // Prepend defines to the body so they can access _custom members directly
-        body = customDefines + "\n" + body;
-
-        size_t bodyPos = source.find(bodyDirective);
-        while (bodyPos != std::string::npos) {
-            source.replace(bodyPos, bodyDirective.length(), body);
-            bodyPos = source.find(bodyDirective, bodyPos + body.length());
-        }
+        // Basic GLSL to Metal type conversion for common types in the body
+        VROStringUtil::replaceAll(body, "vec2", "float2");
+        VROStringUtil::replaceAll(body, "vec3", "float3");
+        VROStringUtil::replaceAll(body, "vec4", "float4");
+        VROStringUtil::replaceAll(body, "mat4", "float4x4");
+        
+        combinedBodies[bodyDirective] += "\n{ // Modifier Start\n" + body + "\n} // Modifier End\n";
     }
     
-    // 3. Remove any remaining uniforms pragmas (as we put them in the struct)
+    for (auto const& it : combinedBodies) {
+        std::string directive = it.first;
+        std::string body = it.second;
+        std::string fullInjection = customDefines + body;
+        VROStringUtil::replaceAll(source, directive, fullInjection);
+    }
+    
+    // 4. Remove any remaining uniforms pragmas
     VROStringUtil::replaceAll(source, "#pragma geometry_modifier_uniforms", "");
     VROStringUtil::replaceAll(source, "#pragma vertex_modifier_uniforms", "");
     VROStringUtil::replaceAll(source, "#pragma surface_modifier_uniforms", "");
@@ -347,14 +406,15 @@ VROConcurrentBuffer &VROMaterialSubstrateMetal::bindMaterialUniforms(float opaci
     uniforms->metalness = _material.getMetalness().getColor().x;
     uniforms->ao = _material.getAmbientOcclusion().getColor().x;
 
-    // Fill custom uniforms buffer if we have modifiers
+    // Fill custom uniforms buffer based on the layout created during inflation
     if (!_material.getShaderModifiers().empty()) {
         uint8_t *customBuffer = (uint8_t *)_customUniformsBuffer->getWritableContents(eye, frame);
         size_t offset = 0;
 
-        // Pack floats (sorted by name to match GLSL/Metal deterministic layout)
         std::map<std::string, float> floats = _material.getShaderUniformFloats();
-        for (auto const& [name, val] : floats) {
+        for (const std::string &name : _customLayout.floats) {
+            float val = 0;
+            if (floats.count(name)) val = floats[name];
             if (offset + sizeof(float) <= 1024) {
                 memcpy(customBuffer + offset, &val, sizeof(float));
                 offset += sizeof(float);
@@ -364,9 +424,10 @@ VROConcurrentBuffer &VROMaterialSubstrateMetal::bindMaterialUniforms(float opaci
         // Align to 16 bytes for vector types
         offset = (offset + 15) & ~15;
 
-        // Pack Vec3s (packed as float4 for Metal alignment)
         std::map<std::string, VROVector3f> vec3s = _material.getShaderUniformVec3s();
-        for (auto const& [name, val] : vec3s) {
+        for (const std::string &name : _customLayout.vec3s) {
+            VROVector3f val;
+            if (vec3s.count(name)) val = vec3s[name];
             if (offset + sizeof(float) * 4 <= 1024) {
                 simd_float4 vec = { val.x, val.y, val.z, 0.0f };
                 memcpy(customBuffer + offset, &vec, sizeof(float) * 4);
@@ -374,9 +435,10 @@ VROConcurrentBuffer &VROMaterialSubstrateMetal::bindMaterialUniforms(float opaci
             }
         }
 
-        // Pack Vec4s
         std::map<std::string, VROVector4f> vec4s = _material.getShaderUniformVec4s();
-        for (auto const& [name, val] : vec4s) {
+        for (const std::string &name : _customLayout.vec4s) {
+            VROVector4f val;
+            if (vec4s.count(name)) val = vec4s[name];
             if (offset + sizeof(float) * 4 <= 1024) {
                 simd_float4 vec = { val.x, val.y, val.z, val.w };
                 memcpy(customBuffer + offset, &vec, sizeof(float) * 4);
@@ -384,9 +446,10 @@ VROConcurrentBuffer &VROMaterialSubstrateMetal::bindMaterialUniforms(float opaci
             }
         }
 
-        // Pack Mat4s
         std::map<std::string, VROMatrix4f> mat4s = _material.getShaderUniformMat4s();
-        for (auto const& [name, val] : mat4s) {
+        for (const std::string &name : _customLayout.mat4s) {
+            VROMatrix4f val;
+            if (mat4s.count(name)) val = mat4s[name];
             if (offset + sizeof(float) * 16 <= 1024) {
                 memcpy(customBuffer + offset, val.getArray(), sizeof(float) * 16);
                 offset += sizeof(float) * 16;

@@ -85,6 +85,14 @@ public:
     void updateSortKey(VROSortKey &key) const;
     
 private:
+    struct VROUniformLayout {
+        std::vector<std::string> floats;
+        std::vector<std::string> vec3s;
+        std::vector<std::string> vec4s;
+        std::vector<std::string> mat4s;
+    };
+    VROUniformLayout _customLayout;
+
     id <MTLLibrary> _dynamicLibrary;
 
     static std::shared_ptr<VROMetalShader> getPooledShader(std::string vertexShader,

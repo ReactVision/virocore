@@ -61,7 +61,11 @@ public:
         
         NSString *shadersSrcPath = [bundle pathForResource:@"Shaders" ofType:@"metal"];
         if (shadersSrcPath) {
+            NSLog(@"VRODriverMetal: Found shaders at %@, loading source", shadersSrcPath);
             _librarySource = std::string([[NSString stringWithContentsOfFile:shadersSrcPath encoding:NSUTF8StringEncoding error:nil] UTF8String]);
+            NSLog(@"VRODriverMetal: Loaded %lu bytes of shader source", _librarySource.length());
+        } else {
+            NSLog(@"VRODriverMetal: Warning! Could not find Shaders.metal in ViroKit bundle");
         }
     }
     

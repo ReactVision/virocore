@@ -55,11 +55,19 @@ VROShaderModifier::VROShaderModifier(VROShaderEntryPoint entryPoint, std::vector
     _entryPoint(entryPoint) {
 
     for (std::string source : input) {
-        if (isVariableDeclaration(source)) {
-            _uniforms = _uniforms + source + "\n";
+        // Trim whitespace to handle template literal indentation
+        std::string trimmedSource = VROStringUtil::trim(source);
+
+        // Skip empty lines
+        if (trimmedSource.empty()) {
+            continue;
+        }
+
+        if (isVariableDeclaration(trimmedSource)) {
+            _uniforms = _uniforms + trimmedSource + "\n";
         }
         else {
-            _body = _body + source + "\n";
+            _body = _body + trimmedSource + "\n";
         }
     }
 
@@ -81,11 +89,19 @@ VROShaderModifier::VROShaderModifier(VROShaderEntryPoint entryPoint, std::string
     std::stringstream ss(body);
     std::string line;
     while (std::getline(ss, line, '\n')) {
-        if (isVariableDeclaration(line)) {
-            _uniforms = _uniforms + line + "\n";
+        // Trim whitespace to handle template literal indentation
+        std::string trimmedLine = VROStringUtil::trim(line);
+
+        // Skip empty lines
+        if (trimmedLine.empty()) {
+            continue;
+        }
+
+        if (isVariableDeclaration(trimmedLine)) {
+            _uniforms = _uniforms + trimmedLine + "\n";
         }
         else {
-            _body = _body + line + "\n";
+            _body = _body + trimmedLine + "\n";
         }
     }
 
