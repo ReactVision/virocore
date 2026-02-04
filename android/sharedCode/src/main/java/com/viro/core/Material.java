@@ -506,6 +506,19 @@ public class Material {
     }
 
     /**
+     * Copy constructor - creates a new material copying all properties from the source material.
+     * This includes textures, shader modifiers, and uniforms.
+     *
+     * @param source The material to copy from.
+     */
+    public Material(Material source) {
+        if (source == null) {
+            throw new IllegalArgumentException("Source material cannot be null");
+        }
+        mNativeRef = nativeCopyMaterial(source.mNativeRef);
+    }
+
+    /**
      * Construct a new Material with a passed in ref.
      *
      * @hide
@@ -1274,7 +1287,94 @@ public class Material {
         return mChromaKeyFilteringColor;
     }
 
+    /**
+     * Add a shader modifier with the specified entry point. Shader modifiers allow custom GLSL
+     * code to be injected at specific points in the rendering pipeline.
+     *
+     * @param entryPoint The entry point where the shader code will be injected (e.g., "geometry",
+     *                   "surface", "fragment", "lightingModel", "vertex", "image").
+     * @param shaderCode The GLSL shader code to inject. May include uniform declarations and body code.
+     */
+    public void addShaderModifier(String entryPoint, String shaderCode) {
+        nativeAddShaderModifier(mNativeRef, entryPoint, shaderCode);
+    }
+
+    /**
+     * Set a custom float uniform for shader modifiers.
+     *
+     * @param uniformName The name of the uniform variable in the shader code.
+     * @param value The float value to set.
+     */
+    public void setShaderUniform(String uniformName, float value) {
+        nativeSetShaderUniformFloat(mNativeRef, uniformName, value);
+    }
+
+    /**
+     * Set a custom vec3 uniform for shader modifiers.
+     *
+     * @param uniformName The name of the uniform variable in the shader code.
+     * @param x The x component.
+     * @param y The y component.
+     * @param z The z component.
+     */
+    public void setShaderUniform(String uniformName, float x, float y, float z) {
+        nativeSetShaderUniformVec3(mNativeRef, uniformName, x, y, z);
+    }
+
+    /**
+     * Set a custom vec4 uniform for shader modifiers.
+     *
+     * @param uniformName The name of the uniform variable in the shader code.
+     * @param x The x component.
+     * @param y The y component.
+     * @param z The z component.
+     * @param w The w component.
+     */
+    public void setShaderUniform(String uniformName, float x, float y, float z, float w) {
+        nativeSetShaderUniformVec4(mNativeRef, uniformName, x, y, z, w);
+    }
+
+    /**
+     * Set a custom mat4 uniform for shader modifiers.
+     *
+     * @param uniformName The name of the uniform variable in the shader code.
+     * @param matrix A float array containing 16 elements in column-major order.
+     */
+    public void setShaderUniform(String uniformName, float[] matrix) {
+        if (matrix == null || matrix.length != 16) {
+            throw new IllegalArgumentException("Matrix must be a float array with 16 elements");
+        }
+        nativeSetShaderUniformMat4(mNativeRef, uniformName, matrix);
+    }
+
+    /**
+     * Copy all shader uniforms from another material to this material.
+     * Used for shader override uniform synchronization.
+     *
+     * @param sourceMaterial The material to copy uniforms from.
+     */
+    public void copyShaderUniforms(Material sourceMaterial) {
+        if (sourceMaterial == null) {
+            return;
+        }
+        nativeCopyShaderUniforms(mNativeRef, sourceMaterial.mNativeRef);
+    }
+
+    /**
+     * Copy all shader modifiers from another material to this material.
+     * Used for merging shader overrides with existing materials.
+     *
+     * @param sourceMaterial The material to copy shader modifiers from.
+     */
+    public void copyShaderModifiers(Material sourceMaterial) {
+        if (sourceMaterial == null) {
+            return;
+        }
+        nativeCopyShaderModifiers(mNativeRef, sourceMaterial.mNativeRef);
+    }
+
     private native long nativeCreateMaterial();
+    private native long nativeCopyMaterial(long sourceNativeRef);
     private native long nativeCreateImmutableMaterial(String lightingModel, long diffuseColor, long diffuseTexture, float diffuseIntensity, long specularTexture,
                                                       float shininess, float fresnelExponent, long normalMap, String cullMode,
                                                       String transparencyMode, String blendMode, float bloomThreshold,
@@ -1299,6 +1399,13 @@ public class Material {
     private native void nativeSetChromaKeyFilteringEnabled(long nativeRef, boolean enabled);
     private native void nativeSetChromaKeyFilteringColor(long nativeRef, int color);
     private native void nativeSetColorWriteMask(long nativeRef, String[] masks);
+    private native void nativeAddShaderModifier(long nativeRef, String entryPoint, String shaderCode);
+    private native void nativeSetShaderUniformFloat(long nativeRef, String uniformName, float value);
+    private native void nativeSetShaderUniformVec3(long nativeRef, String uniformName, float x, float y, float z);
+    private native void nativeSetShaderUniformVec4(long nativeRef, String uniformName, float x, float y, float z, float w);
+    private native void nativeSetShaderUniformMat4(long nativeRef, String uniformName, float[] matrix);
+    private native void nativeCopyShaderUniforms(long destNativeRef, long sourceNativeRef);
+    private native void nativeCopyShaderModifiers(long destNativeRef, long sourceNativeRef);
 
     /**
      * Builder for creating {@link Material} objects.
