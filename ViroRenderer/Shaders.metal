@@ -152,9 +152,10 @@ typedef struct {
     float4 position [[ position ]];
     float4 color;
     float2 texcoord;
-    
+
     float3 surface_position;
-    
+    float3 camera_position;
+
     float3 ambient_color;
     float4 material_color;
     float  diffuse_intensity;
@@ -199,7 +200,8 @@ vertex VROConstantLightingVertexOut constant_lighting_vertex(VRORendererAttribut
     out.diffuse_intensity = material.diffuse_intensity;
     out.material_alpha = material.alpha;
     out.surface_position = v_position;
-    
+    out.camera_position = view.camera_position;
+
     return out;
 }
 
