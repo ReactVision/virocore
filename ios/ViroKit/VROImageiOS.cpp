@@ -30,7 +30,25 @@
 #include "VROTime.h"
 
 VROImageiOS::VROImageiOS(UIImage *image, VROTextureInternalFormat internalFormat) {
+    if (!image) {
+        pwarn("VROImageiOS: Received nil UIImage");
+        _width = 0;
+        _height = 0;
+        _data = nullptr;
+        _dataLength = 0;
+        return;
+    }
+
     CGImageRef imageRef = [image CGImage];
+    if (!imageRef) {
+        pwarn("VROImageiOS: Failed to get CGImage from UIImage");
+        _width = 0;
+        _height = 0;
+        _data = nullptr;
+        _dataLength = 0;
+        return;
+    }
+
     _width = (int) CGImageGetWidth(imageRef);
     _height = (int) CGImageGetHeight(imageRef);
     
@@ -53,7 +71,15 @@ VROImageiOS::VROImageiOS(UIImage *image, VROTextureInternalFormat internalFormat
             .renderingIntent = kCGRenderingIntentDefault,
         };
         vImage_Error ret = vImageBuffer_InitWithCGImage(&srcBuffer, &format, NULL, imageRef, kvImageNoAllocate);
-        passert (ret == kvImageNoError);
+        if (ret != kvImageNoError) {
+            pwarn("vImageBuffer_InitWithCGImage failed with error code: %ld, width=%d, height=%d", (long)ret, _width, _height);
+            free(srcBuffer.data);
+            _width = 0;
+            _height = 0;
+            _data = nullptr;
+            _dataLength = 0;
+            return;
+        }
         
         _dataLength = _height * _width * (int)bytesPerPixel * sizeof(unsigned char);
         _data = (unsigned char *)srcBuffer.data;
@@ -82,7 +108,15 @@ VROImageiOS::VROImageiOS(UIImage *image, VROTextureInternalFormat internalFormat
         };
         
         vImage_Error ret = vImageBuffer_InitWithCGImage(&srcBuffer, &format, NULL, imageRef, kvImageNoAllocate);
-        passert (ret == kvImageNoError);
+        if (ret != kvImageNoError) {
+            pwarn("vImageBuffer_InitWithCGImage failed with error code: %ld, width=%d, height=%d", (long)ret, _width, _height);
+            free(srcBuffer.data);
+            _width = 0;
+            _height = 0;
+            _data = nullptr;
+            _dataLength = 0;
+            return;
+        }
         
         _dataLength = _height * _width * (int)bytesPerPixel * sizeof(unsigned char);
         _data = (unsigned char *)srcBuffer.data;

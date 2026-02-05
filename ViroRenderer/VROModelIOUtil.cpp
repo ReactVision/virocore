@@ -52,10 +52,13 @@ void VROModelIOUtil::loadTextureAsync(const std::string &name, const std::string
     std::string textureFile;
     if (resourceMap == nullptr) {
         textureFile = base + "/" + name;
+        pinfo("[VRX TEX DEBUG] No resource map, using base path: %s", textureFile.c_str());
     } else {
         textureFile = VROPlatformFindValueInResourceMap(name, *resourceMap);
+        pinfo("[VRX TEX DEBUG] Found in resource map - name: %s -> path: %s", name.c_str(), textureFile.c_str());
     }
 
+    pinfo("[VRX TEX DEBUG] Calling retrieveResourceAsync with type: %d, file: %s", (int)type, textureFile.c_str());
     retrieveResourceAsync(textureFile, type,
           [name, sRGB, onFinished, textureCache](std::string path, bool isTemp) {
               // Abort (return empty texture) if the file wasn't found
@@ -128,17 +131,21 @@ void VROModelIOUtil::retrieveResourceAsync(std::string resource, VROResourceType
     }
 
     if (type == VROResourceType::BundledResource) {
+        pinfo("[VRX RETRIEVE] BundledResource path: %s", resource.c_str());
         bool temp;
         std::string path = VROPlatformCopyResourceToFile(resource, &temp);
         onSuccess(path, temp);
     }
     else if (type == VROResourceType::URL) {
+        pinfo("[VRX RETRIEVE] URL download starting: %s", resource.c_str());
         if (!VROStringUtil::startsWith(resource, kAssetURLPrefix)) {
             resource = VROStringUtil::encodeURL(resource);
+            pinfo("[VRX RETRIEVE] URL after encoding: %s", resource.c_str());
         }
         VROPlatformDownloadURLToFileAsync(resource, onSuccess, onFailure);
     }
     else {
+        pinfo("[VRX RETRIEVE] LocalFile (passthrough): %s", resource.c_str());
         onSuccess(resource, false);
     }
 }
@@ -179,7 +186,12 @@ std::shared_ptr<std::map<std::string, std::string>> VROModelIOUtil::createResour
         return resources;
     }
     else if (type == VROResourceType::URL) {
-        pabort();
+        // For URL resources (e.g., Metro bundler), keep URLs as-is
+        // Texture loader will download them when needed
+        for (auto &kv : resourceMap) {
+            (*resources)[kv.first] = kv.second;
+        }
+        return resources;
     }
     else {
         for (auto &kv : resourceMap) {

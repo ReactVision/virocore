@@ -268,9 +268,7 @@ void VROFBXLoader::readFBXProtobufAsync(std::string resource, VROResourceType ty
 
                             std::shared_ptr<std::map<std::string, std::shared_ptr<VROTexture>>> textureCache = std::make_shared<std::map<std::string, std::shared_ptr<VROTexture>>>();
                             std::shared_ptr<VRONode> fbxNode = loadFBX(*node_pb, node, base,
-                                                                       loadingTexturesFromResourceMap
-                                                                       ? VROResourceType::LocalFile
-                                                                       : type,
+                                                                       type,  // Use the actual resource type (URL, LocalFile, etc.)
                                                                        loadingTexturesFromResourceMap
                                                                        ? fileMap : nullptr,
                                                                        textureCache, taskQueue, driver);
@@ -500,16 +498,19 @@ std::shared_ptr<VROGeometry> VROFBXLoader::loadFBXGeometry(const viro::Node_Geom
             std::weak_ptr<VROTaskQueue> taskQueue_w = taskQueue;
             
             if (!diffuse_pb.texture().empty()) {
+                pinfo("[VRX TEXTURE] Requesting diffuse texture: %s", diffuse_pb.texture().c_str());
                 taskQueue->addTask([material_w, &diffuse_pb, lightingModel, base, type, resourceMap, textureCache, taskQueue_w] {
                     VROModelIOUtil::loadTextureAsync(diffuse_pb.texture(), base, type, true, resourceMap, textureCache,
                        [material_w, &diffuse_pb, lightingModel, taskQueue_w](std::shared_ptr<VROTexture> texture) {
                            std::shared_ptr<VROMaterial> material_s = material_w.lock();
                            if (material_s) {
                                if (texture) {
+                                   pinfo("[VRX TEXTURE] ✅ Successfully loaded diffuse texture: %s (size: %dx%d)",
+                                         diffuse_pb.texture().c_str(), texture->getWidth(), texture->getHeight());
                                    material_s->getDiffuse().setTexture(texture);
                                    setTextureProperties(lightingModel, diffuse_pb, texture);
                                } else {
-                                   pinfo("FBX failed to load diffuse texture [%s]", diffuse_pb.texture().c_str());
+                                   pinfo("[VRX TEXTURE] ❌ FAILED to load diffuse texture [%s]", diffuse_pb.texture().c_str());
                                }
                            }
                            std::shared_ptr<VROTaskQueue> taskQueue = taskQueue_w.lock();
@@ -670,6 +671,15 @@ std::shared_ptr<VROGeometry> VROFBXLoader::loadFBXGeometry(const viro::Node_Geom
         
         materials.push_back(material);
     }
+
+    pinfo("[VRX MATERIALS] Setting %zu materials on geometry", materials.size());
+    for (size_t i = 0; i < materials.size(); i++) {
+        auto mat = materials[i];
+        bool hasDiffuseTex = mat->getDiffuse().getTexture() != nullptr;
+        pinfo("[VRX MATERIALS]   Material %zu: diffuse texture = %s",
+              i, hasDiffuseTex ? "YES" : "NO");
+    }
+
     geo->setMaterials(materials);
     
     VROBoundingBox bounds = geo->getBoundingBox();

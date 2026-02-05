@@ -177,6 +177,11 @@ void VROPlatformDeleteFile(std::string filename) {
 }
 
 std::string VROPlatformFindValueInResourceMap(std::string key, std::map<std::string, std::string> resourceMap) {
+    // iOS: Use exact key matching (keys are already clean filenames from VRT3DObject.mm)
+    auto it = resourceMap.find(key);
+    if (it != resourceMap.end()) {
+        return it->second;
+    }
     return "";
 }
 
@@ -301,6 +306,10 @@ NSURLSessionDataTask *VROPlatformDownloadDataWithURL(NSURL *url, void (^completi
 std::shared_ptr<VROImage> VROPlatformLoadImageFromFile(std::string filename,
                                                        VROTextureInternalFormat format) {
     UIImage *image = [UIImage imageWithContentsOfFile:[NSString stringWithUTF8String:filename.c_str()]];
+    if (!image) {
+        pwarn("Failed to load UIImage from file: %s", filename.c_str());
+        return nullptr;
+    }
     return std::make_shared<VROImageiOS>(image, format);
 }
 

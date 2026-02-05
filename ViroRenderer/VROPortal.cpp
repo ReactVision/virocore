@@ -251,7 +251,9 @@ void VROPortal::setPortalEntrance(std::shared_ptr<VROPortalFrame> entrance) {
         _portalEntrance->removeFromParentNode();
     }
     _portalEntrance = entrance;
-    addChildNode(_portalEntrance);
+    if (_portalEntrance) {
+        addChildNode(_portalEntrance);
+    }
 }
 
 void VROPortal::renderPortalSilhouette(std::shared_ptr<VROMaterial> &material,
