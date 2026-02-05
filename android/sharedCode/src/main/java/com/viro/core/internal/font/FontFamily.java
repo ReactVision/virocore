@@ -127,9 +127,7 @@ public class FontFamily {
 
         // Otherwise ensure this font is of the right typeface
         else if (!mTypeface.equals(typeface)) {
-            Log.w(TAG, "Attempted to add font [file: " + fontFileName + ", typeface: " + typeface +
-                    "] to font family with typeface [" + mTypeface +
-                    "] -- typefaces do not match, font will be ignored");
+            // Font typeface mismatch - silently ignore
             return;
         }
 

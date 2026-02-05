@@ -556,9 +556,6 @@ VRO_METHOD(void, nativeAddShaderModifier)(VRO_ARGS
     std::string entryPointStr = VRO_STRING_STL(entryPoint_j);
     std::string shaderCodeStr = VRO_STRING_STL(shaderCode_j);
 
-    pinfo("Material_JNI: Adding shader modifier, entry point: %s, code length: %zu",
-          entryPointStr.c_str(), shaderCodeStr.length());
-
     VROShaderEntryPoint entryPoint = parseShaderEntryPoint(entryPointStr);
 
     // Split shader code into lines
@@ -569,19 +566,14 @@ VRO_METHOD(void, nativeAddShaderModifier)(VRO_ARGS
         lines.push_back(line);
     }
 
-    pinfo("Material_JNI: Split into %zu lines", lines.size());
-
     // Add shader modifiers synchronously during material creation to avoid race conditions.
     // Temporarily disable thread restrictions like the immutable constructor does.
     std::shared_ptr<VROMaterial> material = VRO_REF_GET(VROMaterial, material_j);
     if (material) {
-        pinfo("Material_JNI: Creating VROShaderModifier and adding to material '%s'",
-              material->getName().c_str());
         material->setThreadRestrictionEnabled(false);
         auto modifier = std::make_shared<VROShaderModifier>(entryPoint, lines);
         material->addShaderModifier(modifier);
         material->setThreadRestrictionEnabled(true);
-        pinfo("Material_JNI: Shader modifier added successfully");
     } else {
         pwarn("Material_JNI: Material reference is null!");
     }
@@ -595,14 +587,11 @@ VRO_METHOD(void, nativeSetShaderUniformFloat)(VRO_ARGS
 
     std::string uniformName = VRO_STRING_STL(uniformName_j);
 
-    pinfo("Material_JNI: Setting float uniform '%s' = %f", uniformName.c_str(), value);
-
     std::weak_ptr<VROMaterial> material_w = VRO_REF_GET(VROMaterial, material_j);
     VROPlatformDispatchAsyncRenderer([material_w, uniformName, value] {
         std::shared_ptr<VROMaterial> material = material_w.lock();
         if (material) {
             material->setShaderUniform(uniformName, value);
-            pinfo("Material_JNI: Float uniform '%s' set successfully", uniformName.c_str());
         }
     });
 }
@@ -740,9 +729,6 @@ VRO_METHOD(void, nativeCopyShaderModifiers)(VRO_ARGS
         return;
     }
 
-    pinfo("Material_JNI: Copying %zu shader modifiers from source to destination",
-          source->getShaderModifiers().size());
-
     // Copy shader modifiers synchronously (during material setup)
     // Disable thread restrictions temporarily
     dest->setThreadRestrictionEnabled(false);
@@ -770,8 +756,6 @@ VRO_METHOD(void, nativeCopyShaderModifiers)(VRO_ARGS
     }
 
     dest->setThreadRestrictionEnabled(true);
-
-    pinfo("Material_JNI: Copied shader modifiers successfully");
 }
 
 }  // extern "C"
