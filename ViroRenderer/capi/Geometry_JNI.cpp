@@ -197,4 +197,15 @@ VRO_METHOD(void, nativeSetTextureCoordinates)(VRO_ARGS
     VRO_FLOAT_ARRAY_RELEASE_ELEMENTS(texCoords_j, texcoords_c);
 }
 
+VRO_METHOD(void, nativeUpdateSubstrate)(VRO_ARGS
+                                        VRO_REF(VROGeometry) geo_j) {
+    std::weak_ptr<VROGeometry> geo_w = VRO_REF_GET(VROGeometry, geo_j);
+    VROPlatformDispatchAsyncRenderer([geo_w] {
+        std::shared_ptr<VROGeometry> geo = geo_w.lock();
+        if (geo) {
+            geo->updateSubstrate();
+        }
+    });
+}
+
 }

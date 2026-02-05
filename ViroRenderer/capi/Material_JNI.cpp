@@ -758,4 +758,21 @@ VRO_METHOD(void, nativeCopyShaderModifiers)(VRO_ARGS
     dest->setThreadRestrictionEnabled(true);
 }
 
+VRO_METHOD(void, nativeRemoveAllShaderModifiers)(VRO_ARGS
+                                                  VRO_REF(VROMaterial) material_j) {
+    VRO_METHOD_PREAMBLE;
+
+    std::shared_ptr<VROMaterial> material = VRO_REF_GET(VROMaterial, material_j);
+    if (!material) {
+        return;
+    }
+
+    // Remove shader modifiers synchronously (during material setup)
+    // This matches the synchronous behavior of copyShaderModifiers
+    // Disable thread restrictions temporarily
+    material->setThreadRestrictionEnabled(false);
+    material->removeAllShaderModifiers();
+    material->setThreadRestrictionEnabled(true);
+}
+
 }  // extern "C"

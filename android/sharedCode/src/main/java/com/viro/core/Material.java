@@ -1373,6 +1373,14 @@ public class Material {
         nativeCopyShaderModifiers(mNativeRef, sourceMaterial.mNativeRef);
     }
 
+    /**
+     * Remove all shader modifiers from this material.
+     * This ensures shader modifiers REPLACE instead of STACK when switching shaders.
+     */
+    public void removeAllShaderModifiers() {
+        nativeRemoveAllShaderModifiers(mNativeRef);
+    }
+
     private native long nativeCreateMaterial();
     private native long nativeCopyMaterial(long sourceNativeRef);
     private native long nativeCreateImmutableMaterial(String lightingModel, long diffuseColor, long diffuseTexture, float diffuseIntensity, long specularTexture,
@@ -1406,6 +1414,7 @@ public class Material {
     private native void nativeSetShaderUniformMat4(long nativeRef, String uniformName, float[] matrix);
     private native void nativeCopyShaderUniforms(long destNativeRef, long sourceNativeRef);
     private native void nativeCopyShaderModifiers(long destNativeRef, long sourceNativeRef);
+    private native void nativeRemoveAllShaderModifiers(long nativeRef);
 
     /**
      * Builder for creating {@link Material} objects.

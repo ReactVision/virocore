@@ -226,6 +226,14 @@ public class Geometry {
         }
         nativeCopyAndSetMaterials(mNativeRef, materialRefs);
     }
+
+    /**
+     * Force geometry substrate to reset. This is necessary when shader modifiers change
+     * to clear cached rendering state (especially for geometry shaders that modify vertices).
+     */
+    public void updateSubstrate() {
+        nativeUpdateSubstrate(mNativeRef);
+    }
     //#ENDIF
 
     private native long nativeCreateGeometry();
@@ -236,6 +244,7 @@ public class Geometry {
     private native void nativeSetVertices(long nativeRef, float[] vertices);
     private native void nativeSetNormals(long nativeRef, float[] vertices);
     private native void nativeSetTextureCoordinates(long nativeRef, float[] vertices);
+    private native void nativeUpdateSubstrate(long nativeRef);
 
     /**
      * Retrieve a builder for creating {@link Geometry} objects.
