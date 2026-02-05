@@ -228,12 +228,12 @@ fragment float4 constant_lighting_fragment_c(VROConstantLightingVertexOut in [[ 
     
 #pragma surface_modifier_body
 
-    float4 frag_color = float4(_surface.diffuse_color.xyz * lighting.ambient_light_color + _surface.diffuse_color.xyz * in.diffuse_intensity,
-                               _surface.alpha * _surface.diffuse_color.a);
+    float4 _output_color = float4(_surface.diffuse_color.xyz * lighting.ambient_light_color + _surface.diffuse_color.xyz * in.diffuse_intensity,
+                                  _surface.alpha * _surface.diffuse_color.a);
 
 #pragma fragment_modifier_body
 
-    return frag_color;
+    return _output_color;
 }
 
 fragment float4 constant_lighting_fragment_t(VROConstantLightingVertexOut in [[ stage_in ]],
@@ -256,12 +256,12 @@ fragment float4 constant_lighting_fragment_t(VROConstantLightingVertexOut in [[ 
 
 #pragma surface_modifier_body
 
-    float4 frag_color = float4(_surface.diffuse_color.xyz * lighting.ambient_light_color + _surface.diffuse_color.xyz * in.diffuse_intensity,
-                               _surface.alpha * _surface.diffuse_color.a);
+    float4 _output_color = float4(_surface.diffuse_color.xyz * lighting.ambient_light_color + _surface.diffuse_color.xyz * in.diffuse_intensity,
+                                  _surface.alpha * _surface.diffuse_color.a);
 
 #pragma fragment_modifier_body
 
-    return frag_color;
+    return _output_color;
 }
 
 fragment float4 constant_lighting_fragment_q(VROConstantLightingVertexOut in [[ stage_in ]],
@@ -285,11 +285,11 @@ fragment float4 constant_lighting_fragment_q(VROConstantLightingVertexOut in [[ 
 
 #pragma surface_modifier_body
 
-    float4 frag_color = float4(_surface.diffuse_color.xyz * lighting.ambient_light_color + _surface.diffuse_color.xyz * in.diffuse_intensity, _surface.alpha);
+    float4 _output_color = float4(_surface.diffuse_color.xyz * lighting.ambient_light_color + _surface.diffuse_color.xyz * in.diffuse_intensity, _surface.alpha);
 
 #pragma fragment_modifier_body
 
-    return frag_color;
+    return _output_color;
 }
 
 /* ---------------------------------------
@@ -448,11 +448,11 @@ fragment float4 lambert_lighting_fragment_c(VROLambertLightingVertexOut in [[ st
                                                       material_diffuse_color);
     }
     
-    float4 frag_color = float4(ambient_light_color + diffuse_light_color, _surface.alpha);
+    float4 _output_color = float4(ambient_light_color + diffuse_light_color, _surface.alpha);
 
 #pragma fragment_modifier_body
 
-    return frag_color;
+    return _output_color;
 }
 
 fragment float4 lambert_lighting_fragment_c_reflect(VROLambertLightingVertexOut in [[ stage_in ]],
@@ -485,11 +485,11 @@ fragment float4 lambert_lighting_fragment_c_reflect(VROLambertLightingVertexOut 
     }
     float4 lighting_color = float4(in.ambient_color * _surface.diffuse_color.xyz + diffuse_light_color, _surface.alpha);
     
-    float4 frag_color = float4(lighting_color.xyz + reflective_color.xyz, lighting_color.a);
+    float4 _output_color = float4(lighting_color.xyz + reflective_color.xyz, lighting_color.a);
 
 #pragma fragment_modifier_body
 
-    return frag_color;
+    return _output_color;
 }
 
 fragment float4 lambert_lighting_fragment_t(VROLambertLightingVertexOut in [[ stage_in ]],
@@ -523,11 +523,11 @@ fragment float4 lambert_lighting_fragment_t(VROLambertLightingVertexOut in [[ st
                                                       material_diffuse_color);
     }
     
-    float4 frag_color = float4(ambient_light_color + diffuse_light_color, _surface.alpha);
+    float4 _output_color = float4(ambient_light_color + diffuse_light_color, _surface.alpha);
 
 #pragma fragment_modifier_body
 
-    return frag_color;
+    return _output_color;
 }
 
 fragment float4 lambert_lighting_fragment_t_reflect(VROLambertLightingVertexOut in [[ stage_in ]],
@@ -563,11 +563,11 @@ fragment float4 lambert_lighting_fragment_t_reflect(VROLambertLightingVertexOut 
     }
     float4 lighting_color = float4(in.ambient_color * _surface.diffuse_color.xyz + diffuse_light_color, _surface.alpha);
     
-    float4 frag_color = float4(lighting_color.xyz + reflective_color.xyz, lighting_color.a);
+    float4 _output_color = float4(lighting_color.xyz + reflective_color.xyz, lighting_color.a);
 
 #pragma fragment_modifier_body
 
-    return frag_color;
+    return _output_color;
 }
 
 /* ---------------------------------------
@@ -767,11 +767,11 @@ fragment float4 phong_lighting_fragment_c(VROPhongLightingVertexOut in [[ stage_
                                                     _surface.shininess);
     }
     
-    float4 frag_color = float4(ambient_light_color + diffuse_light_color, _surface.alpha);
+    float4 _output_color = float4(ambient_light_color + diffuse_light_color, _surface.alpha);
 
 #pragma fragment_modifier_body
 
-    return frag_color;
+    return _output_color;
 }
 
 fragment float4 phong_lighting_fragment_c_reflect(VROPhongLightingVertexOut in [[ stage_in ]],
@@ -808,11 +808,11 @@ fragment float4 phong_lighting_fragment_c_reflect(VROPhongLightingVertexOut in [
     }
     float4 lighting_color = float4(in.ambient_color * _surface.diffuse_color.xyz + diffuse_light_color, _surface.alpha);
     
-    float4 frag_color = float4(lighting_color.xyz + reflective_color.xyz, lighting_color.a);
+    float4 _output_color = float4(lighting_color.xyz + reflective_color.xyz, lighting_color.a);
 
 #pragma fragment_modifier_body
 
-    return frag_color;
+    return _output_color;
 }
 
 fragment float4 phong_lighting_fragment_t(VROPhongLightingVertexOut in [[ stage_in ]],
@@ -851,11 +851,11 @@ fragment float4 phong_lighting_fragment_t(VROPhongLightingVertexOut in [[ stage_
                                                     _surface.shininess);
     }
     
-    float4 frag_color = float4(ambient_light_color + diffuse_light_color, _surface.alpha);
+    float4 _output_color = float4(ambient_light_color + diffuse_light_color, _surface.alpha);
 
 #pragma fragment_modifier_body
 
-    return frag_color;
+    return _output_color;
 }
 
 fragment float4 phong_lighting_fragment_t_reflect(VROPhongLightingVertexOut in [[ stage_in ]],
@@ -895,11 +895,11 @@ fragment float4 phong_lighting_fragment_t_reflect(VROPhongLightingVertexOut in [
     }
     float4 lighting_color = float4(in.ambient_color * _surface.diffuse_color.xyz + diffuse_light_color, _surface.alpha);
     
-    float4 frag_color = float4(lighting_color.xyz + reflective_color.xyz, lighting_color.a);
+    float4 _output_color = float4(lighting_color.xyz + reflective_color.xyz, lighting_color.a);
 
 #pragma fragment_modifier_body
 
-    return frag_color;
+    return _output_color;
    --------------------------------------- */
 
 typedef struct {
@@ -1095,11 +1095,11 @@ fragment float4 blinn_lighting_fragment_c(VROBlinnLightingVertexOut in [[ stage_
                                                     _surface.shininess);
     }
     
-    float4 frag_color = float4(ambient_light_color + diffuse_light_color, _surface.alpha);
+    float4 _output_color = float4(ambient_light_color + diffuse_light_color, _surface.alpha);
 
 #pragma fragment_modifier_body
 
-    return frag_color;
+    return _output_color;
 }
 
 fragment float4 blinn_lighting_fragment_c_reflect(VROBlinnLightingVertexOut in [[ stage_in ]],
@@ -1136,11 +1136,11 @@ fragment float4 blinn_lighting_fragment_c_reflect(VROBlinnLightingVertexOut in [
     }
     float4 lighting_color = float4(in.ambient_color * _surface.diffuse_color.xyz + diffuse_light_color, _surface.alpha);
     
-    float4 frag_color = float4(lighting_color.xyz + reflective_color.xyz, lighting_color.a);
+    float4 _output_color = float4(lighting_color.xyz + reflective_color.xyz, lighting_color.a);
 
 #pragma fragment_modifier_body
 
-    return frag_color;
+    return _output_color;
 }
 
 fragment float4 blinn_lighting_fragment_t(VROBlinnLightingVertexOut in [[ stage_in ]],
@@ -1179,11 +1179,11 @@ fragment float4 blinn_lighting_fragment_t(VROBlinnLightingVertexOut in [[ stage_
                                                     _surface.shininess);
     }
     
-    float4 frag_color = float4(ambient_light_color + diffuse_light_color, _surface.alpha);
+    float4 _output_color = float4(ambient_light_color + diffuse_light_color, _surface.alpha);
 
 #pragma fragment_modifier_body
 
-    return frag_color;
+    return _output_color;
 }
 
 fragment float4 blinn_lighting_fragment_t_reflect(VROBlinnLightingVertexOut in [[ stage_in ]],
@@ -1223,11 +1223,11 @@ fragment float4 blinn_lighting_fragment_t_reflect(VROBlinnLightingVertexOut in [
     }
     float4 lighting_color = float4(in.ambient_color * _surface.diffuse_color.xyz + diffuse_light_color, _surface.alpha);
     
-    float4 frag_color = float4(lighting_color.xyz + reflective_color.xyz, lighting_color.a);
+    float4 _output_color = float4(lighting_color.xyz + reflective_color.xyz, lighting_color.a);
 
 #pragma fragment_modifier_body
 
-    return frag_color;
+    return _output_color;
 }
 
 /* ---------------------------------------
