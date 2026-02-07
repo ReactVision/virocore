@@ -362,8 +362,6 @@ static VROVector3f const kZeroVector = VROVector3f();
 }
 
 - (void)dealloc {
-    NSLog(@"[ViroMemory] VROViewAR dealloc CALLED - instance %p being destroyed", self);
-
     // Invalidate display link first to stop render loop
     if (_displayLink) {
         [_displayLink invalidate];
@@ -373,7 +371,6 @@ static VROVector3f const kZeroVector = VROVector3f();
     // Ensure all GL resources are cleaned up if not already done
     // This acts as a safety net in case deleteGL wasn't called
     if (_renderer || _driver || _arSession) {
-        NSLog(@"[ViroMemory] VROViewAR dealloc calling deleteGL as safety net");
         [self deleteGL];
     }
 
@@ -382,13 +379,9 @@ static VROVector3f const kZeroVector = VROVector3f();
 
     // Remove notification observers
     [[NSNotificationCenter defaultCenter] removeObserver:self];
-
-    NSLog(@"[ViroMemory] VROViewAR dealloc COMPLETED for instance %p", self);
 }
 
 - (void)deleteGL {
-    NSLog(@"[ViroMemory] VROViewAR deleteGL STARTING - releasing GPU resources");
-
     // Clean up view recorder first
     [self.viewRecorder deleteGL];
 
@@ -400,38 +393,19 @@ static VROVector3f const kZeroVector = VROVector3f();
 
     // Reset camera background surface (holds camera texture)
     _cameraBackground.reset();
-    if (_driver) {
-        NSLog(@"[ViroMemory] VROViewAR deleteGL - driver ref count AFTER camera background reset: %ld", _driver.use_count());
-    }
-    NSLog(@"[ViroMemory] VROViewAR deleteGL - cleared camera background");
 
     // Clean up scene controller and its node tree
     if (_sceneController) {
         if (_sceneController->getScene()) {
             // CRITICAL: Remove all children FIRST to release their shared_ptrs
             // This must happen BEFORE deleteGL to actually destroy the objects
-            NSLog(@"[ViroMemory] VROViewAR deleteGL - removing all scene children to release objects");
             _sceneController->getScene()->getRootNode()->removeAllChildren();
 
-            if (_driver) {
-                NSLog(@"[ViroMemory] VROViewAR deleteGL - driver ref count AFTER removing children: %ld", _driver.use_count());
-            }
-
             // Now call deleteGL to release GPU resources
-            NSLog(@"[ViroMemory] VROViewAR deleteGL - calling deleteGL on root node");
             _sceneController->getScene()->getRootNode()->deleteGL();
-
-            if (_driver) {
-                NSLog(@"[ViroMemory] VROViewAR deleteGL - driver ref count AFTER deleteGL: %ld", _driver.use_count());
-            }
         }
         _sceneController.reset();
-
-        if (_driver) {
-            NSLog(@"[ViroMemory] VROViewAR deleteGL - driver ref count AFTER scene controller reset: %ld", _driver.use_count());
-        }
     }
-    NSLog(@"[ViroMemory] VROViewAR deleteGL - reset scene controller");
 
     // Reset render delegate wrapper
     _renderDelegateWrapper.reset();
@@ -444,32 +418,17 @@ static VROVector3f const kZeroVector = VROVector3f();
 
     // Reset renderer (holds significant GPU state including frame synchronizer,
     // choreographer, and cached rendering state)
-    if (_driver) {
-        NSLog(@"[ViroMemory] VROViewAR deleteGL - driver ref count BEFORE renderer reset: %ld", _driver.use_count());
-    }
     _renderer.reset();
-    if (_driver) {
-        NSLog(@"[ViroMemory] VROViewAR deleteGL - driver ref count AFTER renderer reset: %ld", _driver.use_count());
-    }
-    NSLog(@"[ViroMemory] VROViewAR deleteGL - reset renderer");
 
     // Pause and reset AR session
     if (_arSession) {
         _arSession->pause();
         _arSession.reset();
-        if (_driver) {
-            NSLog(@"[ViroMemory] VROViewAR deleteGL - driver ref count AFTER AR session reset: %ld", _driver.use_count());
-        }
     }
-    NSLog(@"[ViroMemory] VROViewAR deleteGL - reset AR session");
 
     // Reset driver LAST as other objects may have dependencies on it
     // The driver holds the OpenGL context state, texture caches, and GPU resources
-    if (_driver) {
-        NSLog(@"[ViroMemory] VROViewAR deleteGL - driver ref count BEFORE driver reset: %ld (should be 1!)", _driver.use_count());
-    }
     _driver.reset();
-    NSLog(@"[ViroMemory] VROViewAR deleteGL COMPLETED - driver reset (destructor should have been called)");
 }
 
 - (void)setPaused:(BOOL)paused {
