@@ -48,5 +48,46 @@ VRODriverOpenGL::VRODriverOpenGL() :
 }
 
 VRODriverOpenGL::~VRODriverOpenGL() {
+    // Delete all moribund (pending deletion) GPU resources
+    std::lock_guard<std::recursive_mutex> lock(_deletionMutex);
 
+    if (!_moribundTextures.empty()) {
+        GL( glDeleteTextures(_moribundTextures.size(), &_moribundTextures[0]) );
+        _moribundTextures.clear();
+    }
+
+    if (!_moribundFramebuffers.empty()) {
+        GL( glDeleteFramebuffers(_moribundFramebuffers.size(), &_moribundFramebuffers[0]) );
+        _moribundFramebuffers.clear();
+    }
+
+    if (!_moribundRenderbuffers.empty()) {
+        GL( glDeleteRenderbuffers(_moribundRenderbuffers.size(), &_moribundRenderbuffers[0]) );
+        _moribundRenderbuffers.clear();
+    }
+
+    if (!_moribundBuffers.empty()) {
+        GL( glDeleteBuffers(_moribundBuffers.size(), &_moribundBuffers[0]) );
+        _moribundBuffers.clear();
+    }
+
+    if (!_moribundShaders.empty()) {
+        for (auto shader : _moribundShaders) {
+            GL( glDeleteShader(shader) );
+        }
+        _moribundShaders.clear();
+    }
+
+    if (!_moribundPrograms.empty()) {
+        for (auto program : _moribundPrograms) {
+            GL( glDeleteProgram(program) );
+        }
+        _moribundPrograms.clear();
+    }
+
+    // Clear shader factory to release compiled shaders
+    _shaderFactory.reset();
+
+    // Clear lighting UBOs
+    _lightingUBOs.clear();
 }

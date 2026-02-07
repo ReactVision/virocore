@@ -40,16 +40,25 @@ VROVideoTextureCacheMetal::VROVideoTextureCacheMetal(id <MTLDevice> device) {
 }
 
 VROVideoTextureCacheMetal::~VROVideoTextureCacheMetal() {
-    
+    // Flush the cache to release all cached textures
+    // This is critical to prevent memory accumulation from AR camera frames
+    if (_cache) {
+        CVMetalTextureCacheFlush(_cache, 0);
+        CFRelease(_cache);
+        _cache = nullptr;
+    }
 }
 
 std::unique_ptr<VROTextureSubstrate> VROVideoTextureCacheMetal::createTextureSubstrate(CMSampleBufferRef sampleBuffer) {
     CVReturn error;
-    
+
+    // Flush cache periodically to prevent accumulation
+    CVMetalTextureCacheFlush(_cache, 0);
+
     CVImageBufferRef sourceImageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer);
     size_t width = CVPixelBufferGetWidth(sourceImageBuffer);
     size_t height = CVPixelBufferGetHeight(sourceImageBuffer);
-    
+
     CVMetalTextureRef textureRef;
     error = CVMetalTextureCacheCreateTextureFromImage(kCFAllocatorDefault, _cache, sourceImageBuffer,
                                                       NULL, MTLPixelFormatBGRA8Unorm, width, height, 0, &textureRef);
@@ -71,10 +80,13 @@ std::unique_ptr<VROTextureSubstrate> VROVideoTextureCacheMetal::createTextureSub
 
 std::unique_ptr<VROTextureSubstrate> VROVideoTextureCacheMetal::createTextureSubstrate(CVPixelBufferRef pixelBuffer) {
     CVReturn error;
-    
+
+    // Flush cache periodically to prevent accumulation
+    CVMetalTextureCacheFlush(_cache, 0);
+
     size_t width = CVPixelBufferGetWidth(pixelBuffer);
     size_t height = CVPixelBufferGetHeight(pixelBuffer);
-    
+
     CVMetalTextureRef textureRef;
     error = CVMetalTextureCacheCreateTextureFromImage(kCFAllocatorDefault, _cache, pixelBuffer,
                                                       NULL, MTLPixelFormatBGRA8Unorm, width, height, 0, &textureRef);
@@ -108,10 +120,13 @@ std::vector<std::unique_ptr<VROTextureSubstrate>> VROVideoTextureCacheMetal::cre
 std::unique_ptr<VROTextureSubstrate> VROVideoTextureCacheMetal::createTextureSubstrate(CVPixelBufferRef pixelBuffer, MTLPixelFormat pixelFormat,
                                                                                        int planeIndex) {
     CVReturn error;
-    
+
+    // Flush cache periodically to prevent accumulation
+    CVMetalTextureCacheFlush(_cache, 0);
+
     size_t width = CVPixelBufferGetWidthOfPlane(pixelBuffer, planeIndex);
     size_t height = CVPixelBufferGetHeightOfPlane(pixelBuffer, planeIndex);
-    
+
     CVMetalTextureRef textureRef;
     error = CVMetalTextureCacheCreateTextureFromImage(kCFAllocatorDefault, _cache, pixelBuffer,
                                                       NULL, pixelFormat, width, height, planeIndex, &textureRef);

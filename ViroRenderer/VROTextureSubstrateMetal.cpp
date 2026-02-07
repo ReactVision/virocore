@@ -62,7 +62,10 @@ VROTextureSubstrateMetal::VROTextureSubstrateMetal(VROTextureType type, std::vec
         [commandEncoder generateMipmapsForTexture:_texture];
         [commandEncoder endEncoding];
         [textureCommandBuffer addCompletedHandler:^(id<MTLCommandBuffer> buffer) {
-
+            // Mipmap generation completed
+            // NOTE: If VROTextureSubstrateMetal is destroyed before this completes,
+            // _texture may be released while GPU is still using it. To prevent this,
+            // ensure proper synchronization in VROViewMetal dealloc.
         }];
         [textureCommandBuffer commit];
     }
