@@ -131,21 +131,21 @@ void VROModelIOUtil::retrieveResourceAsync(std::string resource, VROResourceType
     }
 
     if (type == VROResourceType::BundledResource) {
-        pinfo("[VRX RETRIEVE] BundledResource path: %s", resource.c_str());
+        // DEBUG: BundledResource path retrieval
         bool temp;
         std::string path = VROPlatformCopyResourceToFile(resource, &temp);
         onSuccess(path, temp);
     }
     else if (type == VROResourceType::URL) {
-        pinfo("[VRX RETRIEVE] URL download starting: %s", resource.c_str());
+        // DEBUG: URL download starting
         if (!VROStringUtil::startsWith(resource, kAssetURLPrefix)) {
             resource = VROStringUtil::encodeURL(resource);
-            pinfo("[VRX RETRIEVE] URL after encoding: %s", resource.c_str());
+            // DEBUG: URL after encoding
         }
         VROPlatformDownloadURLToFileAsync(resource, onSuccess, onFailure);
     }
     else {
-        pinfo("[VRX RETRIEVE] LocalFile (passthrough): %s", resource.c_str());
+        // DEBUG: LocalFile (passthrough)
         onSuccess(resource, false);
     }
 }

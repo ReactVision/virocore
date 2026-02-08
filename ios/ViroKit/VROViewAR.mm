@@ -799,27 +799,30 @@ static VROVector3f const kZeroVector = VROVector3f();
     _pointOfView->getCamera()->setPosition(position);
     _renderer->prepareFrame(_frame, viewport, fov, rotation, projection, _driver);
 
+    // DEBUG: Occlusion debug logging (every 60 frames)
+    // Uncomment for debugging: occlusionMode, depthTexture, transform, viewport, camera image dimensions
+    /*
     static int occDebugCounter = 0;
     if (occDebugCounter++ % 60 == 0) {
-        NSLog(@"[VIRO_OCC_DEBUG] occlusionMode=%d, depthTexture=%p, hydrated=%d",
+        NSLog(@"DEBUG occlusionMode=%d, depthTexture=%p, hydrated=%d",
               (int)occlusionMode, depthTexture.get(),
               depthTexture ? depthTexture->isHydrated() : -1);
         if (depthTexture) {
-            NSLog(@"[VIRO_OCC_DEBUG] depthTexture size=%dx%d", depthTexture->getWidth(), depthTexture->getHeight());
-            NSLog(@"[VIRO_OCC_DEBUG] transform: [%.3f, %.3f, 0, 0]", depthTextureTransform[0], depthTextureTransform[1]);
-            NSLog(@"[VIRO_OCC_DEBUG]           [%.3f, %.3f, 0, 0]", depthTextureTransform[4], depthTextureTransform[5]);
-            NSLog(@"[VIRO_OCC_DEBUG]           tx=%.3f, ty=%.3f", depthTextureTransform[12], depthTextureTransform[13]);
-            NSLog(@"[VIRO_OCC_DEBUG] viewport=%dx%d", viewport.getWidth(), viewport.getHeight());
-            // Log camera image dimensions to verify crop calculation
+            NSLog(@"DEBUG depthTexture size=%dx%d", depthTexture->getWidth(), depthTexture->getHeight());
+            NSLog(@"DEBUG transform: [%.3f, %.3f, 0, 0]", depthTextureTransform[0], depthTextureTransform[1]);
+            NSLog(@"DEBUG           [%.3f, %.3f, 0, 0]", depthTextureTransform[4], depthTextureTransform[5]);
+            NSLog(@"DEBUG           tx=%.3f, ty=%.3f", depthTextureTransform[12], depthTextureTransform[13]);
+            NSLog(@"DEBUG viewport=%dx%d", viewport.getWidth(), viewport.getHeight());
             const VROARFrameiOS *frameiOS = dynamic_cast<const VROARFrameiOS *>(frame.get());
             if (frameiOS) {
                 CVPixelBufferRef camImg = frameiOS->getImage();
                 if (camImg) {
-                    NSLog(@"[VIRO_OCC_DEBUG] camImage=%zux%zu", CVPixelBufferGetWidth(camImg), CVPixelBufferGetHeight(camImg));
+                    NSLog(@"DEBUG camImage=%zux%zu", CVPixelBufferGetWidth(camImg), CVPixelBufferGetHeight(camImg));
                 }
             }
         }
     }
+    */
 
     _renderer->renderEye(VROEyeType::Monocular, _renderer->getLookAtMatrix(), projection, viewport, _driver);
     _renderer->renderHUD(VROEyeType::Monocular, VROMatrix4f::identity(), projection, _driver);
