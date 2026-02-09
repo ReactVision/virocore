@@ -460,28 +460,64 @@ VROConcurrentBuffer &VROMaterialSubstrateMetal::bindMaterialUniforms(float opaci
     return *_materialUniformsBuffer;
 }
 
-void VROMaterialSubstrateMetal::updateSortKey(VROSortKey &key) const {
+void VROMaterialSubstrateMetal::updateSortKey(VROSortKey &key, const std::vector<std::shared_ptr<VROLight>> &lights,
+                                              const VRORenderContext &context,
+                                              std::shared_ptr<VRODriver> driver) {
     key.shader = _program->getShaderId();
     key.textures = hashTextures(_textures);
 }
 
+bool VROMaterialSubstrateMetal::bindShader(int lightsHash,
+                                           const std::vector<std::shared_ptr<VROLight>> &lights,
+                                           const VRORenderContext &context,
+                                           std::shared_ptr<VRODriver> &driver) {
+    // In Metal, pipeline state is bound by the geometry substrate, not the material substrate.
+    // However, we need to bind the lighting uniforms here, similar to OpenGL.
+    // This is the CRITICAL FIX: bindLights was defined but never called!
+    NSLog(@"[METAL LIGHTING] bindShader() called with %zu lights, hash=%d", lights.size(), lightsHash);
+    bindLights(lightsHash, lights, context, driver);
+    NSLog(@"[METAL LIGHTING] bindLights() completed");
+    return true;
+}
+
+void VROMaterialSubstrateMetal::bindProperties(std::shared_ptr<VRODriver> &driver) {
+    // In Metal, material properties are bound via bindMaterialUniforms in the geometry substrate
+    // This is called from VROGeometrySubstrateMetal::renderMaterial
+}
+
+void VROMaterialSubstrateMetal::bindGeometry(float opacity, const VROGeometry &geometry) {
+    // In Metal, geometry-specific properties are handled in the geometry substrate
+}
+
+void VROMaterialSubstrateMetal::bindView(VROMatrix4f modelMatrix, VROMatrix4f viewMatrix,
+                                         VROMatrix4f projectionMatrix, VROMatrix4f normalMatrix,
+                                         VROVector3f cameraPosition, VROEyeType eyeType,
+                                         const VRORenderContext &context) {
+    // In Metal, view uniforms are bound in VROGeometrySubstrateMetal::render
+}
+
+void VROMaterialSubstrateMetal::updateTextures() {
+    // Textures are managed through the _textures vector and updated when materials change
+}
+
 void VROMaterialSubstrateMetal::bindShader() {
-    // Do nothing in Metal, consider changing this to binding pipeline state?
-    // The problem is that pipeline state in metal emcompasses both shader and
-    // vertex layout
+    // Legacy method kept for compatibility
+    // The virtual bindShader(int lightsHash, ...) should be used instead
 }
 
 void VROMaterialSubstrateMetal::bindLights(int lightsHash,
                                            const std::vector<std::shared_ptr<VROLight>> &lights,
                                            const VRORenderContext &context,
                                            std::shared_ptr<VRODriver> &driver) {
-    
+
+    NSLog(@"[METAL LIGHTING] bindLights() starting - received %zu lights", lights.size());
+
     VRODriverMetal &metal = (VRODriverMetal &)(*driver.get());
     id <MTLRenderCommandEncoder> renderEncoder = metal.getRenderTarget()->getRenderEncoder();
-    
+
     VROEyeType eyeType = context.getEyeType();
     int frame = context.getFrame();
-    
+
     VROSceneLightingUniforms *uniforms = (VROSceneLightingUniforms *)_lightingUniformsBuffer->getWritableContents(eyeType,
                                                                                                                   frame);
     uniforms->num_lights = 0;
@@ -508,13 +544,21 @@ void VROMaterialSubstrateMetal::bindLights(int lightsHash,
     }
     
     uniforms->ambient_light_color = toVectorFloat3(ambientLight);
-    
+
+    NSLog(@"[METAL LIGHTING] Final values - num_lights=%d, ambient=(%f,%f,%f)",
+          uniforms->num_lights,
+          uniforms->ambient_light_color.x,
+          uniforms->ambient_light_color.y,
+          uniforms->ambient_light_color.z);
+
     [renderEncoder setVertexBuffer:_lightingUniformsBuffer->getMTLBuffer(eyeType)
                             offset:_lightingUniformsBuffer->getWriteOffset(frame)
                            atIndex:4];
     [renderEncoder setFragmentBuffer:_lightingUniformsBuffer->getMTLBuffer(eyeType)
                               offset:_lightingUniformsBuffer->getWriteOffset(frame)
                              atIndex:4];
+
+    NSLog(@"[METAL LIGHTING] Lighting buffer bound at index 4 for vertex and fragment shaders");
 }
 
 uint32_t VROMaterialSubstrateMetal::hashTextures(const std::vector<std::shared_ptr<VROTexture>> &textures) const {

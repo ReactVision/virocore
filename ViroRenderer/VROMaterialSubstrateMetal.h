@@ -56,13 +56,30 @@ public:
     VROMaterialSubstrateMetal(const VROMaterial &material,
                               VRODriverMetal &driver);
     virtual ~VROMaterialSubstrateMetal();
-    
+
+    // Override VROMaterialSubstrate virtual methods
+    bool bindShader(int lightsHash,
+                    const std::vector<std::shared_ptr<VROLight>> &lights,
+                    const VRORenderContext &context,
+                    std::shared_ptr<VRODriver> &driver) override;
+    void bindProperties(std::shared_ptr<VRODriver> &driver) override;
+    void bindGeometry(float opacity, const VROGeometry &geometry) override;
+    void bindView(VROMatrix4f modelMatrix, VROMatrix4f viewMatrix,
+                  VROMatrix4f projectionMatrix, VROMatrix4f normalMatrix,
+                  VROVector3f cameraPosition, VROEyeType eyeType,
+                  const VRORenderContext &context) override;
+    void updateTextures() override;
+    void updateSortKey(VROSortKey &key, const std::vector<std::shared_ptr<VROLight>> &lights,
+                       const VRORenderContext &context,
+                       std::shared_ptr<VRODriver> driver) override;
+
+    // Metal-specific methods
     void bindShader();
     void bindLights(int lightsHash,
                     const std::vector<std::shared_ptr<VROLight>> &lights,
                     const VRORenderContext &context,
                     std::shared_ptr<VRODriver> &driver);
-    
+
     /*
      Set the uniforms required to render this material, and return the buffer.
      */
@@ -81,8 +98,6 @@ public:
     VROConcurrentBuffer *getCustomUniformsBuffer() const {
         return _customUniformsBuffer;
     }
-
-    void updateSortKey(VROSortKey &key) const;
     
 private:
     struct VROUniformLayout {
