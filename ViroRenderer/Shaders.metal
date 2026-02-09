@@ -221,6 +221,7 @@ fragment float4 constant_lighting_fragment_c(VROConstantLightingVertexOut in [[ 
     _surface.metalness = material.metalness;
     _surface.ao = material.ao;
     _surface.normal = float3(0, 0, 1);
+    _surface.position = in.surface_position;
     _surface.view = normalize(in.camera_position - in.surface_position);
     _surface.diffuse_texcoord = float2(0, 0);
     _surface.specular_texcoord = float2(0, 0);
@@ -252,6 +253,8 @@ fragment float4 constant_lighting_fragment_t(VROConstantLightingVertexOut in [[ 
     _surface.specular_color = float4(0, 0, 0, 0);
     _surface.shininess = material.shininess;
     _surface.normal = float3(0, 0, 1);
+    _surface.position = in.surface_position;
+    _surface.view = normalize(in.camera_position - in.surface_position);
     _surface.alpha = in.material_alpha;
 
 #pragma surface_modifier_body
@@ -281,6 +284,8 @@ fragment float4 constant_lighting_fragment_q(VROConstantLightingVertexOut in [[ 
     _surface.specular_color = float4(0, 0, 0, 0);
     _surface.shininess = material.shininess;
     _surface.normal = float3(0, 0, 1);
+    _surface.position = in.surface_position;
+    _surface.view = normalize(in.camera_position - in.surface_position);
     _surface.alpha = in.material_alpha;
 
 #pragma surface_modifier_body
@@ -433,6 +438,8 @@ fragment float4 lambert_lighting_fragment_c(VROLambertLightingVertexOut in [[ st
     _surface.specular_color = float4(0, 0, 0, 0);
     _surface.shininess = 0;
     _surface.normal = in.normal;
+    _surface.position = in.surface_position;
+    _surface.view = normalize(in.camera_position - in.surface_position);
     _surface.alpha = in.material_alpha * in.material_color.a;
 
 #pragma surface_modifier_body
@@ -469,6 +476,8 @@ fragment float4 lambert_lighting_fragment_c_reflect(VROLambertLightingVertexOut 
     _surface.specular_color = float4(0, 0, 0, 0);
     _surface.shininess = material.shininess;
     _surface.normal = in.normal;
+    _surface.position = in.surface_position;
+    _surface.view = normalize(in.camera_position - in.surface_position);
     _surface.alpha = in.material_alpha * in.material_color.a;
 
 #pragma surface_modifier_body
@@ -508,6 +517,8 @@ fragment float4 lambert_lighting_fragment_t(VROLambertLightingVertexOut in [[ st
     _surface.specular_color = float4(0, 0, 0, 0);
     _surface.shininess = 0;
     _surface.normal = in.normal;
+    _surface.position = in.surface_position;
+    _surface.view = normalize(in.camera_position - in.surface_position);
     _surface.alpha = in.material_alpha * diffuse_texture_color.a * in.material_color.a;
 
 #pragma surface_modifier_body
@@ -547,6 +558,8 @@ fragment float4 lambert_lighting_fragment_t_reflect(VROLambertLightingVertexOut 
     _surface.specular_color = float4(0, 0, 0, 0);
     _surface.shininess = material.shininess;
     _surface.normal = in.normal;
+    _surface.position = in.surface_position;
+    _surface.view = normalize(in.camera_position - in.surface_position);
     _surface.alpha = in.material_alpha * diffuse_texture_color.a * in.material_color.a;
 
 #pragma surface_modifier_body
@@ -748,6 +761,8 @@ fragment float4 phong_lighting_fragment_c(VROPhongLightingVertexOut in [[ stage_
     _surface.specular_color = specular_texture.sample(s, in.texcoord);
     _surface.shininess = material.shininess;
     _surface.normal = in.normal;
+    _surface.position = in.surface_position;
+    _surface.view = normalize(in.camera_position - in.surface_position);
     _surface.alpha = in.material_alpha * in.material_color.a;
 
 #pragma surface_modifier_body
@@ -789,6 +804,8 @@ fragment float4 phong_lighting_fragment_c_reflect(VROPhongLightingVertexOut in [
     _surface.specular_color = specular_texture.sample(s, in.texcoord);
     _surface.shininess = material.shininess;
     _surface.normal = in.normal;
+    _surface.position = in.surface_position;
+    _surface.view = normalize(in.camera_position - in.surface_position);
     _surface.alpha = in.material_alpha * in.material_color.a;
 
 #pragma surface_modifier_body
@@ -832,6 +849,8 @@ fragment float4 phong_lighting_fragment_t(VROPhongLightingVertexOut in [[ stage_
     _surface.specular_color = specular_texture.sample(s, in.texcoord);
     _surface.shininess = material.shininess;
     _surface.normal = in.normal;
+    _surface.position = in.surface_position;
+    _surface.view = normalize(in.camera_position - in.surface_position);
     _surface.alpha = in.material_alpha * diffuse_texture_color.a * in.material_color.a;
 
 #pragma surface_modifier_body
@@ -876,6 +895,8 @@ fragment float4 phong_lighting_fragment_t_reflect(VROPhongLightingVertexOut in [
     _surface.specular_color = specular_texture.sample(s, in.texcoord);
     _surface.shininess = material.shininess;
     _surface.normal = in.normal;
+    _surface.position = in.surface_position;
+    _surface.view = normalize(in.camera_position - in.surface_position);
     _surface.alpha = in.material_alpha * diffuse_texture_color.a * in.material_color.a;
 
 #pragma surface_modifier_body
@@ -1076,6 +1097,8 @@ fragment float4 blinn_lighting_fragment_c(VROBlinnLightingVertexOut in [[ stage_
     _surface.specular_color = specular_texture.sample(s, in.texcoord);
     _surface.shininess = material.shininess;
     _surface.normal = in.normal;
+    _surface.position = in.surface_position;
+    _surface.view = normalize(in.camera_position - in.surface_position);
     _surface.alpha = in.material_alpha * in.material_color.a;
 
 #pragma surface_modifier_body
@@ -1117,6 +1140,8 @@ fragment float4 blinn_lighting_fragment_c_reflect(VROBlinnLightingVertexOut in [
     _surface.specular_color = specular_texture.sample(s, in.texcoord);
     _surface.shininess = material.shininess;
     _surface.normal = in.normal;
+    _surface.position = in.surface_position;
+    _surface.view = normalize(in.camera_position - in.surface_position);
     _surface.alpha = in.material_alpha * in.material_color.a;
 
 #pragma surface_modifier_body
@@ -1160,6 +1185,8 @@ fragment float4 blinn_lighting_fragment_t(VROBlinnLightingVertexOut in [[ stage_
     _surface.specular_color = specular_texture.sample(s, in.texcoord);
     _surface.shininess = material.shininess;
     _surface.normal = in.normal;
+    _surface.position = in.surface_position;
+    _surface.view = normalize(in.camera_position - in.surface_position);
     _surface.alpha = in.material_alpha * diffuse_texture_color.a * in.material_color.a;
 
 #pragma surface_modifier_body
@@ -1204,6 +1231,8 @@ fragment float4 blinn_lighting_fragment_t_reflect(VROBlinnLightingVertexOut in [
     _surface.specular_color = specular_texture.sample(s, in.texcoord);
     _surface.shininess = material.shininess;
     _surface.normal = in.normal;
+    _surface.position = in.surface_position;
+    _surface.view = normalize(in.camera_position - in.surface_position);
     _surface.alpha = in.material_alpha * diffuse_texture_color.a * in.material_color.a;
 
 #pragma surface_modifier_body
