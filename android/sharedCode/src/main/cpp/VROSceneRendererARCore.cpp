@@ -163,23 +163,33 @@ void VROSceneRendererARCore::renderFrame() {
 
 void VROSceneRendererARCore::updateARBackground(std::unique_ptr<VROARFrame> &frame,
                                                 bool forceReset) {
-    // Only update the rendered camera background if need be.
-    if (!forceReset && !((VROARFrameARCore *) frame.get())->hasDisplayGeometryChanged()) {
-        return;
+    // Check if occlusion mode has changed - if so, force update
+    VROOcclusionMode currentOcclusionMode = _session->getOcclusionMode();
+    bool occlusionModeChanged = (currentOcclusionMode != _lastOcclusionMode);
+    if (occlusionModeChanged) {
+        _lastOcclusionMode = currentOcclusionMode;
+        forceReset = true;
     }
 
-    VROVector3f BL, BR, TL, TR;
-    ((VROARFrameARCore *)frame.get())->getBackgroundTexcoords(&BL, &BR, &TL, &TR);
+    bool geometryChanged = ((VROARFrameARCore *) frame.get())->hasDisplayGeometryChanged();
 
-    _cameraBackground->setTextureCoordinates(BL, BR, TL, TR);
+    // Only update texture coordinates if geometry changed or forced
+    if (forceReset || geometryChanged) {
+        VROVector3f BL, BR, TL, TR;
+        ((VROARFrameARCore *)frame.get())->getBackgroundTexcoords(&BL, &BR, &TL, &TR);
 
-    // Wait until we have these proper texture coordinates before installing the background
-    if (!_sceneController->getScene()->getRootNode()->getBackground()) {
-        _sceneController->getScene()->getRootNode()->setBackground(_cameraBackground);
+        _cameraBackground->setTextureCoordinates(BL, BR, TL, TR);
+
+        // Wait until we have these proper texture coordinates before installing the background
+        if (!_sceneController->getScene()->getRootNode()->getBackground()) {
+            _sceneController->getScene()->getRootNode()->setBackground(_cameraBackground);
+        }
     }
 
-    // Update occlusion settings on the camera background
-    updateBackgroundOcclusion(frame);
+    // Always update occlusion settings if occlusion mode changed, even if geometry didn't change
+    if (occlusionModeChanged || forceReset || geometryChanged) {
+        updateBackgroundOcclusion(frame);
+    }
 }
 
 void VROSceneRendererARCore::updateBackgroundOcclusion(std::unique_ptr<VROARFrame> &frame) {
