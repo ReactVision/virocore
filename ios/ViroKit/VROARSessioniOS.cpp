@@ -63,7 +63,8 @@ VROARSessioniOS::VROARSessioniOS(VROTrackingType trackingType,
       _sessionPaused(true),
       _monocularDepthEnabled(false),
       _preferMonocularDepth(false),
-  _monocularDepthLoading(false),
+      _monocularDepthLoading(false),
+      _needsGeospatialModeApply(false),
       _driver(driver) {
 
   if (@available(iOS 11.0, *)) {
@@ -204,6 +205,13 @@ void VROARSessioniOS::run() {
   _session.delegate = _delegateAR;
 
   [_session runWithConfiguration:_sessionConfiguration];
+
+  // Apply pending geospatial mode if it was set before session started
+  if (_needsGeospatialModeApply && _cloudAnchorProviderARCore) {
+    pinfo("Applying pending geospatial mode after session start");
+    [_cloudAnchorProviderARCore setGeospatialModeEnabled:YES];
+    _needsGeospatialModeApply = false;
+  }
 }
 
 void VROARSessioniOS::pause() {
@@ -1306,10 +1314,25 @@ void VROARSessioniOS::setGeospatialAnchorProvider(VROGeospatialAnchorProvider pr
       }
     }
 
-    // Enable geospatial mode
-    if (_cloudAnchorProviderARCore) {
-      [_cloudAnchorProviderARCore setGeospatialModeEnabled:YES];
+    // Defer geospatial mode activation if session is paused (not yet started)
+    // This prevents crashes from accessing ARKit session before it's ready
+    if (_sessionPaused || _session == nil) {
+      pinfo("ARSession not running yet, geospatial mode will be enabled when session starts");
+      _needsGeospatialModeApply = true;
+    } else {
+      // Session is running, enable geospatial mode immediately
+      if (_cloudAnchorProviderARCore) {
+        [_cloudAnchorProviderARCore setGeospatialModeEnabled:YES];
+        pinfo("ARCore Geospatial mode enabled");
+      }
     }
+  } else {
+    // Disable geospatial mode
+    if (_cloudAnchorProviderARCore) {
+      [_cloudAnchorProviderARCore setGeospatialModeEnabled:NO];
+      pinfo("ARCore Geospatial mode disabled");
+    }
+    _needsGeospatialModeApply = false;
   }
 }
 
