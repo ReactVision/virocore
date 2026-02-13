@@ -160,6 +160,7 @@ private:
 
     std::shared_ptr<VROSurface> _cameraBackground;
     bool _occlusionModifierAdded = false;
+    VROOcclusionMode _lastOcclusionMode = VROOcclusionMode::Disabled;
     gvr::Sizei _surfaceSize;
     bool _arcoreInstalled;
     bool _destroyed;

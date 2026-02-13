@@ -58,7 +58,7 @@ VROARSessionARCore::VROARSessionARCore(std::shared_ptr<VRODriverOpenGL> driver)
       _updateMode(arcore::UpdateMode::Blocking),
       _cloudAnchorMode(arcore::CloudAnchorMode::Enabled),
       _focusMode(arcore::FocusMode::FIXED_FOCUS),
-      _depthMode(arcore::DepthMode::Automatic),
+      _depthMode(arcore::DepthMode::Disabled),
       _semanticMode(arcore::SemanticMode::Disabled),
       _geospatialMode(arcore::GeospatialMode::Disabled),
       _cameraTextureId(0),
@@ -1255,9 +1255,16 @@ void VROARSessionARCore::setOcclusionMode(VROOcclusionMode mode) {
 
   if (newDepthMode != _depthMode) {
     _depthMode = newDepthMode;
-    updateARCoreConfig();
-    pinfo("VROARSessionARCore: Occlusion mode set to %d, depth mode set to %d",
-          (int)mode, (int)_depthMode);
+
+    // Only update config if session is ready
+    if (_session != nullptr) {
+      updateARCoreConfig();
+      pinfo("VROARSessionARCore: Occlusion mode set to %d, depth mode set to %d",
+            (int)mode, (int)_depthMode);
+    } else {
+      pinfo("VROARSessionARCore: Occlusion mode will be applied when session is ready (mode=%d, depth=%d)",
+            (int)mode, (int)_depthMode);
+    }
   }
 }
 

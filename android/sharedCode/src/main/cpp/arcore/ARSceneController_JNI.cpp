@@ -906,18 +906,25 @@ VRO_METHOD(void, nativeResolveCloudAnchor)(VRO_ARGS
 VRO_METHOD(void, nativeSetOcclusionMode)(VRO_ARGS
                                           VRO_REF(VROARSceneController) sceneController_j,
                                           VRO_INT mode) {
+    pinfo("[OCCLUSION JNI] nativeSetOcclusionMode called with mode: %d", mode);
+
     std::weak_ptr<VROARScene> scene_w = std::dynamic_pointer_cast<VROARScene>(
             VRO_REF_GET(VROARSceneController, sceneController_j)->getScene());
 
     VROPlatformDispatchAsyncRenderer([scene_w, mode] {
         std::shared_ptr<VROARScene> scene = scene_w.lock();
         if (!scene) {
+            pinfo("[OCCLUSION JNI] Scene is null, cannot set occlusion mode");
             return;
         }
+        pinfo("[OCCLUSION JNI] Scene valid, getting AR session");
         std::shared_ptr<VROARSession> session = scene->getARSession();
         if (session) {
+            pinfo("[OCCLUSION JNI] Session valid, calling setOcclusionMode with mode %d", mode);
             VROOcclusionMode occlusionMode = static_cast<VROOcclusionMode>(mode);
             session->setOcclusionMode(occlusionMode);
+        } else {
+            pinfo("[OCCLUSION JNI] Session is null, cannot set occlusion mode");
         }
     });
 }
