@@ -3,7 +3,7 @@
 //  ViroRenderer
 //
 //  Created by Raj Advani on 4/22/16.
-//  Copyright © 2016 Viro Media. All rights reserved.
+//  Copyright Â© 2016 Viro Media. All rights reserved.
 //
 //  Permission is hereby granted, free of charge, to any person obtaining
 //  a copy of this software and associated documentation files (the
