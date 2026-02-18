@@ -34,6 +34,7 @@
 #include "VROARPlaneAnchor.h"
 #include "VROCameraTexture.h"
 #include "VROCloudAnchorProviderARCore.h"
+#include "VROCloudAnchorProviderReactVision.h"
 #include "VRODriver.h"
 #include "VROFrameSynchronizer.h"
 #include "VROLog.h"
@@ -216,8 +217,37 @@ bool VROARSessionARCore::setAnchorDetection(
   return updateARCoreConfig();
 }
 
+void VROARSessionARCore::setReactVisionConfig(const std::string &apiKey,
+                                              const std::string &projectId) {
+  _rvApiKey    = apiKey;
+  _rvProjectId = projectId;
+  // Credentials supplied — activate the ReactVision cloud anchor provider.
+  setCloudAnchorProvider(VROCloudAnchorProvider::ReactVision);
+}
+
 void VROARSessionARCore::setCloudAnchorProvider(
     VROCloudAnchorProvider provider) {
+
+  if (provider == VROCloudAnchorProvider::ReactVision) {
+    // ReactVision uses its own backend — keep ARCore cloud anchors disabled
+    if (_cloudAnchorMode != arcore::CloudAnchorMode::Disabled) {
+      _cloudAnchorMode = arcore::CloudAnchorMode::Disabled;
+      updateARCoreConfig();
+    }
+    // Create provider if we have credentials
+    if (!_cloudAnchorProviderRV && !_rvApiKey.empty() && !_rvProjectId.empty()) {
+      _cloudAnchorProviderRV = std::make_shared<VROCloudAnchorProviderReactVision>(
+          shared_from_this(), _rvApiKey, _rvProjectId);
+    } else if (_rvApiKey.empty()) {
+      pwarn("VROARSessionARCore: setReactVisionConfig() has not been called — "
+            "ReactVision Cloud Anchors unavailable.");
+    }
+    return;
+  }
+
+  // Tear down RV provider when switching to ARCore or None
+  _cloudAnchorProviderRV.reset();
+
   arcore::CloudAnchorMode newMode = (provider == VROCloudAnchorProvider::None)
     ? arcore::CloudAnchorMode::Disabled
     : arcore::CloudAnchorMode::Enabled;
@@ -671,6 +701,13 @@ void VROARSessionARCore::hostCloudAnchor(
     int ttlDays,
     std::function<void(std::shared_ptr<VROARAnchor>)> onSuccess,
     std::function<void(std::string error)> onFailure) {
+
+  // ReactVision path — bypasses ARCore cloud anchors entirely
+  if (_cloudAnchorProviderRV) {
+    _cloudAnchorProviderRV->hostCloudAnchor(anchor, ttlDays, onSuccess, onFailure);
+    return;
+  }
+
   if (_cloudAnchorMode == arcore::CloudAnchorMode::Disabled) {
     pwarn("Cloud anchors are disabled, ignoring anchor host request");
     return;
@@ -682,6 +719,13 @@ void VROARSessionARCore::resolveCloudAnchor(
     std::string cloudAnchorId,
     std::function<void(std::shared_ptr<VROARAnchor> anchor)> onSuccess,
     std::function<void(std::string error)> onFailure) {
+
+  // ReactVision path — bypasses ARCore cloud anchors entirely
+  if (_cloudAnchorProviderRV) {
+    _cloudAnchorProviderRV->resolveCloudAnchor(cloudAnchorId, onSuccess, onFailure);
+    return;
+  }
+
   if (_cloudAnchorMode == arcore::CloudAnchorMode::Disabled) {
     pwarn("Cloud anchors are disabled, ignoring anchor resolve request");
     return;

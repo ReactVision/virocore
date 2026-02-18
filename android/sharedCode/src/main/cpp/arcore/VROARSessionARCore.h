@@ -48,6 +48,7 @@ enum class VROARDisplayRotation {
 
 class VRODriverOpenGL;
 class VROCloudAnchorProviderARCore;
+class VROCloudAnchorProviderReactVision;
 
 class VROARSessionARCore : public VROARSession,
                            public std::enable_shared_from_this<VROARSessionARCore> {
@@ -74,6 +75,13 @@ public:
     void setDelegate(std::shared_ptr<VROARSessionDelegate> delegate);
     bool setAnchorDetection(std::set<VROAnchorDetection> types);
     void setCloudAnchorProvider(VROCloudAnchorProvider provider);
+
+    /*
+     Configure the ReactVision backend credentials.
+     Must be called before setCloudAnchorProvider(ReactVision).
+     Reads RVApiKey / RVProjectId from AndroidManifest meta-data if not called.
+     */
+    void setReactVisionConfig(const std::string &apiKey, const std::string &projectId);
     void setAutofocus(bool enabled);
     bool isCameraAutoFocusEnabled();
 
@@ -283,9 +291,17 @@ private:
     std::map<std::string, std::shared_ptr<VROARAnchorARCore>> _nativeAnchorMap;
 
     /*
-     Hosts and resolves cloud anchors.
+     Hosts and resolves cloud anchors via ARCore.
      */
     std::shared_ptr<VROCloudAnchorProviderARCore> _cloudAnchorProvider;
+
+    /*
+     Hosts and resolves cloud anchors via ReactVision backend.
+     Active when setCloudAnchorProvider(ReactVision) is called.
+     */
+    std::shared_ptr<VROCloudAnchorProviderReactVision> _cloudAnchorProviderRV;
+    std::string _rvApiKey;
+    std::string _rvProjectId;
 
     /*
      Per-frame anchor and trackable update handling.

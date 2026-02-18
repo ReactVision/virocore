@@ -97,6 +97,7 @@ enum class VROImageTrackingImpl {
 enum class VROCloudAnchorProvider {
     None,
     ARCore,
+    ReactVision,  // ReactVision custom backend (ReactVisionCCA)
 };
 
 enum class VROGeospatialAnchorProvider {

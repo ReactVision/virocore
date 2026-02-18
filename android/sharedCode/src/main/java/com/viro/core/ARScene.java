@@ -904,6 +904,10 @@ public class ARScene extends Scene {
      * @param callback The callback to invoke on success or failure.
      * @hide
      */
+    public void setReactVisionConfig(String apiKey, String projectId) {
+        nativeSetReactVisionConfig(mNativeRef, apiKey, projectId);
+    }
+
     public void hostCloudAnchorById(String anchorId, int ttlDays, CloudAnchorHostListener callback) {
         if (mCloudAnchorHostCallbacks.containsKey(anchorId)) {
             Log.e("Viro", "Ignoring redundant cloud anchor hosting request: we are already processing anchor ["
@@ -1366,6 +1370,7 @@ public class ARScene extends Scene {
     private native void nativeRemoveARImageTargetDeclarative(long sceneControllerRef, long arImageTargetRef);
     private native void nativeHostCloudAnchor(long sceneControllerRef, String anchorId, int ttlDays);
     private native void nativeResolveCloudAnchor(long sceneControllerRef, String cloudAnchorId);
+    private native void nativeSetReactVisionConfig(long sceneControllerRef, String apiKey, String projectId);
     private native float nativeGetAmbientLightIntensity(long sceneControllerRef);
     private native long nativeCreateAnchoredNode(long sceneControllerRef, float px, float py, float pz,
                                                  float qx, float qy, float qz, float qw);
