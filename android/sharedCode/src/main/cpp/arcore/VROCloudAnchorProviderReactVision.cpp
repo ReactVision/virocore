@@ -10,6 +10,7 @@
 #include "VROARSessionARCore.h"
 #include "VROARFrame.h"
 #include "VROARAnchor.h"
+#include "VROARFrameSnapshot.h"
 #include "VROLog.h"
 
 // ReactVisionCCA C++ library
@@ -71,21 +72,31 @@ void VROCloudAnchorProviderReactVision::hostCloudAnchor(
         return;
     }
 
-    // Capture current frame from ARCore session
+    // Capture current frame from ARCore session.
+    // We snapshot the point cloud data here, on the renderer thread, before
+    // spawning any background work.  The session can advance to the next frame
+    // at any time (every ~16 ms), so we must NOT hold a raw pointer across
+    // thread boundaries — the underlying VROARFrameARCore would be destroyed.
     auto sess = _impl->session.lock();
     if (!sess) {
         onFailure("AR session no longer available");
         return;
     }
 
-    // getLastFrame() returns unique_ptr<VROARFrame>&; wrap raw pointer in a
-    // shared_ptr with a no-op deleter — the session owns the frame lifetime.
     auto &frameUniq = sess->getLastFrame();
     if (!frameUniq) {
         onFailure("No AR frame available for feature extraction");
         return;
     }
-    std::shared_ptr<VROARFrame> frame(frameUniq.get(), [](VROARFrame*){});
+
+    // Build a self-contained snapshot frame that owns copies of all data the
+    // background thread will need.  This avoids the race condition where
+    // updateFrame() destroys the original VROARFrameARCore mid-operation.
+    std::shared_ptr<VROARFrame> frame = VROARFrameSnapshot::fromFrame(*frameUniq);
+    if (!frame) {
+        onFailure("Failed to snapshot AR frame");
+        return;
+    }
 
     _impl->provider->hostCloudAnchor(
         anchor, frame, ttlDays,
@@ -122,7 +133,11 @@ void VROCloudAnchorProviderReactVision::resolveCloudAnchor(
         onFailure("No AR frame available for localisation");
         return;
     }
-    std::shared_ptr<VROARFrame> frame2(frameUniq2.get(), [](VROARFrame*){});
+    std::shared_ptr<VROARFrame> frame2 = VROARFrameSnapshot::fromFrame(*frameUniq2);
+    if (!frame2) {
+        onFailure("Failed to snapshot AR frame for localisation");
+        return;
+    }
 
     _impl->provider->resolveCloudAnchor(
         cloudAnchorId, frame2,

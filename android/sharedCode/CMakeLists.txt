@@ -224,6 +224,8 @@ add_library( # Sets the name of the library.
              ${VIRO_ANDROID_SRC}/arcore/VROARHitTestResultARCore.cpp
              ${VIRO_ANDROID_SRC}/arcore/VROYuvImageConverter.cpp
              ${VIRO_ANDROID_SRC}/arcore/VROCloudAnchorProviderARCore.cpp
+             ${VIRO_ANDROID_SRC}/arcore/VROCloudAnchorProviderReactVision.cpp
+             ${VIRO_ANDROID_SRC}/arcore/VROARFrameSnapshot.cpp
              ${VIRO_ANDROID_SRC}/arcore/ARUtils_JNI.cpp
              ${VIRO_ANDROID_SRC}/arcore/ARNode_JNI.cpp
              ${VIRO_ANDROID_SRC}/arcore/ARDeclarativeNode_JNI.cpp
