@@ -903,6 +903,7 @@
 		A5EC65871EB3ECE200FE220E /* libBulletDynamics.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A5EC65831EB3ECE200FE220E /* libBulletDynamics.a */; };
 		A5EC65881EB3ECE200FE220E /* libBulletSoftBody.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A5EC65841EB3ECE200FE220E /* libBulletSoftBody.a */; };
 		A5EC65891EB3ECE200FE220E /* libLinearMath.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A5EC65851EB3ECE200FE220E /* libLinearMath.a */; };
+		E1AAAA0000000002BBBBBBBB /* libreactvisioncca.a in Frameworks */ = {isa = PBXBuildFile; fileRef = E1AAAA0000000001BBBBBBBB /* libreactvisioncca.a */; };
 		A5EC659C1EBD34C000FE220E /* VROPhysicsShape.cpp in Sources */ = {isa = PBXBuildFile; fileRef = A5EC65931EBD16F000FE220E /* VROPhysicsShape.cpp */; };
 		A5EC659E1EBD34C000FE220E /* VROPhysicsWorld.cpp in Sources */ = {isa = PBXBuildFile; fileRef = A5EC65951EBD16F000FE220E /* VROPhysicsWorld.cpp */; };
 		A5EC659F1EBD34C000FE220E /* VROPhysicsWorld.h in Headers */ = {isa = PBXBuildFile; fileRef = A5EC65961EBD16F000FE220E /* VROPhysicsWorld.h */; settings = {ATTRIBUTES = (Public, ); }; };
@@ -1901,6 +1902,7 @@
 		A5EC65831EB3ECE200FE220E /* libBulletDynamics.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libBulletDynamics.a; path = Libraries/bullet/libBulletDynamics.a; sourceTree = "<group>"; };
 		A5EC65841EB3ECE200FE220E /* libBulletSoftBody.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libBulletSoftBody.a; path = Libraries/bullet/libBulletSoftBody.a; sourceTree = "<group>"; };
 		A5EC65851EB3ECE200FE220E /* libLinearMath.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libLinearMath.a; path = Libraries/bullet/libLinearMath.a; sourceTree = "<group>"; };
+		E1AAAA0000000001BBBBBBBB /* libreactvisioncca.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libreactvisioncca.a; path = Libraries/reactvisioncca/libreactvisioncca.a; sourceTree = "<group>"; };
 		A5EC65931EBD16F000FE220E /* VROPhysicsShape.cpp */ = {isa = PBXFileReference; explicitFileType = sourcecode.cpp.objcpp; fileEncoding = 4; path = VROPhysicsShape.cpp; sourceTree = "<group>"; };
 		A5EC65941EBD16F000FE220E /* VROPhysicsShape.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = VROPhysicsShape.h; sourceTree = "<group>"; };
 		A5EC65951EBD16F000FE220E /* VROPhysicsWorld.cpp */ = {isa = PBXFileReference; explicitFileType = sourcecode.cpp.objcpp; fileEncoding = 4; path = VROPhysicsWorld.cpp; sourceTree = "<group>"; };
@@ -1955,6 +1957,7 @@
 				A5EC65871EB3ECE200FE220E /* libBulletDynamics.a in Frameworks */,
 				A5EC65881EB3ECE200FE220E /* libBulletSoftBody.a in Frameworks */,
 				A5EC65891EB3ECE200FE220E /* libLinearMath.a in Frameworks */,
+				E1AAAA0000000002BBBBBBBB /* libreactvisioncca.a in Frameworks */,
 				8F1664A61E5E43260062EBCE /* Accelerate.framework in Frameworks */,
 				8FDDE2121CD00F2600674DE2 /* CoreText.framework in Frameworks */,
 				EAD7E32D2DFA518AEAAB48C2 /* (null) in Frameworks */,
@@ -3293,6 +3296,7 @@
 				A5EC65831EB3ECE200FE220E /* libBulletDynamics.a */,
 				A5EC65841EB3ECE200FE220E /* libBulletSoftBody.a */,
 				A5EC65851EB3ECE200FE220E /* libLinearMath.a */,
+				E1AAAA0000000001BBBBBBBB /* libreactvisioncca.a */,
 				2D0B4C6A395983278D4D0E37 /* Pods_ViroKit.framework */,
 				71CFD9348F08872142AFB019 /* Pods_ViroSample.framework */,
 			);
@@ -3717,6 +3721,7 @@
 			buildConfigurationList = 8FD4DEE41C18ECD4003DC425 /* Build configuration list for PBXNativeTarget "ViroKit" */;
 			buildPhases = (
 				B31028429A1A7BF8A56724FA /* [CP] Check Pods Manifest.lock */,
+				E1AAAA0000000003BBBBBBBB /* Ensure ReactVisionCCA placeholders exist */,
 				8FD4DEC81C18ECD4003DC425 /* Sources */,
 				8FD4DEC91C18ECD4003DC425 /* Frameworks */,
 				8FD4DECA1C18ECD4003DC425 /* Headers */,
@@ -4224,6 +4229,23 @@
 			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-ViroKit/Pods-ViroKit-resources.sh\"\n";
 			showEnvVarsInLog = 0;
 		};
+		E1AAAA0000000003BBBBBBBB /* ReactVisionCCA placeholder */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Ensure ReactVisionCCA placeholders exist";
+			outputPaths = (
+				"$(PROJECT_DIR)/Libraries/reactvisioncca/arm64/libreactvisioncca.a",
+				"$(PROJECT_DIR)/Libraries/reactvisioncca/arm64_simulator/libreactvisioncca.a",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# ReactVisionCCA is an optional proprietary library.\n# If the real .a files have not been deployed by scripts/build_ios.sh,\n# create empty placeholder archives so the link step succeeds.\n# Source code detects availability via __has_include at compile time.\n\nRVCCA_DIR=\"$PROJECT_DIR/Libraries/reactvisioncca\"\nmkdir -p \"$RVCCA_DIR/arm64\" \"$RVCCA_DIR/arm64_simulator\"\n\nfor ARCH_DIR in arm64 arm64_simulator; do\n    LIB=\"$RVCCA_DIR/$ARCH_DIR/libreactvisioncca.a\"\n    if [ ! -f \"$LIB\" ]; then\n        echo \"note: ReactVisionCCA ($ARCH_DIR): not found \\u2014 creating empty placeholder (ReactVision Cloud Anchors disabled)\"\n        ar rc \"$LIB\"\n        ranlib \"$LIB\"\n    fi\ndone\n";
+			showEnvVarsInLog = 0;
+		};
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -4593,6 +4615,7 @@
 					"$(SRCROOT)/Libraries/bullet/include",
 					"$(SRCROOT)/Libraries/harfbuzz/include",
 					"$(SRCROOT)/../ViroRenderer/",
+					"$(SRCROOT)/../../reactvisioncca/include",
 				);
 				IPHONEOS_DEPLOYMENT_TARGET = 10.0;
 				MTL_ENABLE_DEBUG_INFO = YES;
@@ -4653,6 +4676,7 @@
 					"$(SRCROOT)/Libraries/bullet/include",
 					"$(SRCROOT)/Libraries/harfbuzz/include",
 					"$(SRCROOT)/../ViroRenderer/",
+					"$(SRCROOT)/../../reactvisioncca/include",
 				);
 				IPHONEOS_DEPLOYMENT_TARGET = 10.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
@@ -4828,6 +4852,7 @@
 					"$(PROJECT_DIR)/Libraries/protobuf/armv7_arm64",
 					"$(PROJECT_DIR)/Libraries/bullet/armv7_arm64",
 					"$(PROJECT_DIR)/Libraries/harfbuzz/armv7_arm64",
+					"$(PROJECT_DIR)/Libraries/reactvisioncca/arm64",
 				);
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = (
 					"$(inherited)",
@@ -4835,6 +4860,7 @@
 					"$(PROJECT_DIR)/Libraries/protobuf/x86_64",
 					"$(PROJECT_DIR)/Libraries/bullet/x86_64",
 					"$(PROJECT_DIR)/Libraries/harfbuzz/x86_64",
+					"$(PROJECT_DIR)/Libraries/reactvisioncca/arm64_simulator",
 				);
 				ONLY_ACTIVE_ARCH = YES;
 				OTHER_CFLAGS = (
@@ -4931,6 +4957,7 @@
 					"$(PROJECT_DIR)/Libraries/protobuf/armv7_arm64",
 					"$(PROJECT_DIR)/Libraries/bullet/armv7_arm64",
 					"$(PROJECT_DIR)/Libraries/harfbuzz/armv7_arm64",
+					"$(PROJECT_DIR)/Libraries/reactvisioncca/arm64",
 				);
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = (
 					"$(inherited)",
@@ -4938,6 +4965,7 @@
 					"$(PROJECT_DIR)/Libraries/protobuf/x86_64",
 					"$(PROJECT_DIR)/Libraries/bullet/x86_64",
 					"$(PROJECT_DIR)/Libraries/harfbuzz/x86_64",
+					"$(PROJECT_DIR)/Libraries/reactvisioncca/arm64_simulator",
 				);
 				OTHER_LDFLAGS = (
 					"$(inherited)",

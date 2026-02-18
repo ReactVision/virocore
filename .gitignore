@@ -121,3 +121,4 @@ ios/fastlane/report.xml
 ios/fastlane/README.md
 
 /.vscode
+/android/scripts

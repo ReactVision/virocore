@@ -8,22 +8,47 @@
 //  iOS bridge: converts ViroCore / ARKit types to ReactVisionCCA C++ types,
 //  delegates to RVCCACloudAnchorProvider, and returns results back.
 //
+//  ReactVisionCCA is an optional proprietary library.  When its headers are
+//  not on the HEADER_SEARCH_PATHS (i.e. the .a has not been deployed via
+//  scripts/build_ios.sh), this file compiles stub implementations that report
+//  the feature as unavailable.  Open-source builds of ViroCore are unaffected.
+//
 
 #import "VROCloudAnchorProviderReactVision.h"
 
-// ReactVisionCCA C++ headers
-#include "ReactVisionCCA/RVCCACloudAnchorProvider.h"
-#include "ReactVisionCCA/RVCCATypes.h"
+// Detect ReactVisionCCA availability at compile time.
+// The build_ios.sh script deploys libreactvisioncca.a to
+//   virocore/ios/Libraries/reactvisioncca/{arch}/
+// and the headers live in reactvisioncca/include/ (sibling repo).
+// HEADER_SEARCH_PATHS includes $(SRCROOT)/../../reactvisioncca/include so
+// __has_include returns true only when the SDK is actually present.
+#if __has_include("ReactVisionCCA/RVCCACloudAnchorProvider.h")
+#  define RVCCA_AVAILABLE 1
+#  include "ReactVisionCCA/RVCCACloudAnchorProvider.h"
+#  include "ReactVisionCCA/RVCCATypes.h"
+#else
+#  define RVCCA_AVAILABLE 0
+#endif
 
 #include <memory>
 #include <string>
 
 // ============================================================================
-// Helpers: ARKit ↔ ReactVisionCCA type conversion
+// Full implementation — compiled only when ReactVisionCCA SDK is present
 // ============================================================================
 
-// Build a flat float[16] column-major matrix from simd_float4x4.
-// simd_float4x4 columns are .columns[0..3], each simd_float4.
+#if RVCCA_AVAILABLE
+
+#include "VROARFrame.h"
+#include "VROARCamera.h"
+#include "VROARPointCloud.h"
+#include "VROMatrix4f.h"
+#include "VROVector3f.h"
+#include "VROVector4f.h"
+#include "VROViewport.h"
+
+// ── Helpers: ARKit ↔ ReactVisionCCA type conversion ──────────────────────────
+
 static void simdToFloatArray(const simd_float4x4 &m, float out[16]) {
     out[0]  = m.columns[0].x; out[1]  = m.columns[0].y;
     out[2]  = m.columns[0].z; out[3]  = m.columns[0].w;
@@ -35,7 +60,6 @@ static void simdToFloatArray(const simd_float4x4 &m, float out[16]) {
     out[14] = m.columns[3].z; out[15] = m.columns[3].w;
 }
 
-// Build a simd_float4x4 from a flat float[16] column-major array.
 static simd_float4x4 floatArrayToSimd(const float m[16]) {
     simd_float4x4 r;
     r.columns[0] = simd_make_float4(m[0],  m[1],  m[2],  m[3]);
@@ -45,30 +69,10 @@ static simd_float4x4 floatArrayToSimd(const float m[16]) {
     return r;
 }
 
-// ============================================================================
-// Thin VROARFrame / VROARCamera shims for RVCCACloudAnchorProvider
-//
-// Rather than rebuilding all of ViroCore's AR session stack, we implement
-// lightweight shims that satisfy RVCCACloudAnchorProvider's expectations:
-//   - VROARCamera:  position + rotation + projection + imageSize
-//   - VROARFrame:   camera + pointCloud + timestamp
-//
-// These are compiled only into this translation unit via anonymous namespace.
-// ============================================================================
-
-#include "VROARFrame.h"
-#include "VROARCamera.h"
-#include "VROARPointCloud.h"
-#include "VROMatrix4f.h"
-#include "VROVector3f.h"
-#include "VROVector4f.h"
-#include "VROViewport.h"
+// ── ARKit shims ───────────────────────────────────────────────────────────────
 
 namespace {
 
-// --------------------------------------------------------------------------
-// ARKitCamera: wraps ARCamera and satisfies VROARCamera
-// --------------------------------------------------------------------------
 class ARKitCamera : public VROARCamera {
 public:
     ARKitCamera(ARCamera *cam, CGSize imageSize)
@@ -87,12 +91,10 @@ public:
         return VROARTrackingStateReason::None;
     }
 
-    // Rotation-only (upper-left 3x3) portion of camera transform
     VROMatrix4f getRotation() const override {
         float m[16];
         simdToFloatArray(_cam.transform, m);
         VROMatrix4f mat(m);
-        // Zero translation so the caller can set it via getPosition()
         mat[12] = 0; mat[13] = 0; mat[14] = 0;
         return mat;
     }
@@ -104,10 +106,6 @@ public:
             _cam.transform.columns[3].z);
     }
 
-    // Build GL projection matrix from ARCamera intrinsics.
-    // ARCamera.intrinsics is a 3x3 matrix:
-    //   intrinsics[0][0]=fx, intrinsics[1][1]=fy, intrinsics[2][0]=cx, intrinsics[2][1]=cy
-    // (column-major simd convention)
     VROMatrix4f getProjection(VROViewport viewport, float near, float far,
                               VROFieldOfView *outFOV) override {
         float fx = _cam.intrinsics.columns[0].x;
@@ -117,7 +115,6 @@ public:
         float W  = static_cast<float>(_imageSize.width);
         float H  = static_cast<float>(_imageSize.height);
 
-        // Standard GL projection from camera intrinsics
         float m[16] = {};
         m[0]  = 2.0f * fx / W;
         m[5]  = 2.0f * fy / H;
@@ -136,13 +133,10 @@ public:
     }
 
 private:
-    ARCamera *_cam;  // __weak-like; frame keeps it alive
+    ARCamera *_cam;
     CGSize    _imageSize;
 };
 
-// --------------------------------------------------------------------------
-// ARKitPointCloud: wraps ARPointCloud and satisfies VROARPointCloud
-// --------------------------------------------------------------------------
 class ARKitPointCloud : public VROARPointCloud {
 public:
     explicit ARKitPointCloud(ARPointCloud *pc) {
@@ -162,9 +156,6 @@ private:
     std::vector<uint64_t>    _ids;
 };
 
-// --------------------------------------------------------------------------
-// ARKitFrame: wraps ARFrame and satisfies VROARFrame
-// --------------------------------------------------------------------------
 class ARKitFrame : public VROARFrame {
 public:
     explicit ARKitFrame(ARFrame *frame) {
@@ -185,9 +176,8 @@ public:
         return _pointCloud;
     }
 
-    // Stubs for methods not needed by RVCCACloudAnchorProvider
     VROCameraOrientation getOrientation() const override {
-        return VROCameraOrientation::Portrait; // placeholder
+        return VROCameraOrientation::Portrait;
     }
     std::vector<std::shared_ptr<VROARHitTestResult>>
     hitTest(int, int, std::set<VROARHitTestResultType>) override { return {}; }
@@ -212,9 +202,7 @@ private:
 
 } // anonymous namespace
 
-// ============================================================================
-// VROCloudAnchorProviderReactVision implementation
-// ============================================================================
+// ── ObjC class — full implementation ─────────────────────────────────────────
 
 @interface VROCloudAnchorProviderReactVision () {
     std::shared_ptr<ReactVisionCCA::RVCCACloudAnchorProvider> _provider;
@@ -254,14 +242,12 @@ private:
          onSuccess:(void (^)(NSString *))onSuccess
          onFailure:(void (^)(NSString *))onFailure {
 
-    // Wrap ARAnchor in a VROARAnchor
     auto vroAnchor = std::make_shared<VROARAnchor>();
     float m[16];
     simdToFloatArray(anchor.transform, m);
     vroAnchor->setTransform(VROMatrix4f(m));
     vroAnchor->setId(anchor.identifier.UUIDString.UTF8String);
 
-    // Wrap ARFrame
     auto vroFrame = std::make_shared<ARKitFrame>(frame);
 
     _provider->hostCloudAnchor(
@@ -285,7 +271,6 @@ private:
     _provider->resolveCloudAnchor(
         cloudAnchorId.UTF8String, vroFrame,
         [onSuccess, cloudAnchorId](std::shared_ptr<VROARAnchor> resolved) {
-            // Convert VROMatrix4f back to simd_float4x4
             VROMatrix4f t = resolved->getTransform();
             simd_float4x4 sim;
             sim.columns[0] = simd_make_float4(t[0],  t[1],  t[2],  t[3]);
@@ -305,3 +290,45 @@ private:
 }
 
 @end
+
+// ============================================================================
+// Stub implementation — compiled when ReactVisionCCA SDK is absent
+// ============================================================================
+
+#else // !RVCCA_AVAILABLE
+
+@implementation VROCloudAnchorProviderReactVision
+
++ (BOOL)isAvailable {
+    return NO;
+}
+
+- (nullable instancetype)initWithApiKey:(NSString *)apiKey
+                              projectId:(NSString *)projectId
+                               endpoint:(nullable NSString *)endpoint {
+    NSLog(@"[ViroKit] ReactVision Cloud Anchors not available: "
+          @"ReactVisionCCA library not linked. "
+          @"Run scripts/build_ios.sh and rebuild ViroKit.framework to enable.");
+    return nil;
+}
+
+- (void)hostAnchor:(ARAnchor *)anchor
+             frame:(ARFrame *)frame
+           ttlDays:(NSInteger)ttlDays
+         onSuccess:(void (^)(NSString *))onSuccess
+         onFailure:(void (^)(NSString *))onFailure {
+    onFailure(@"ReactVision Cloud Anchors not available: ReactVisionCCA library not linked");
+}
+
+- (void)resolveCloudAnchorWithId:(NSString *)cloudAnchorId
+                           frame:(ARFrame *)frame
+                       onSuccess:(void (^)(NSString *, simd_float4x4))onSuccess
+                       onFailure:(void (^)(NSString *))onFailure {
+    onFailure(@"ReactVision Cloud Anchors not available: ReactVisionCCA library not linked");
+}
+
+- (void)cancelAllOperations {}
+
+@end
+
+#endif // RVCCA_AVAILABLE
