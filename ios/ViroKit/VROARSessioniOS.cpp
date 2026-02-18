@@ -52,6 +52,7 @@
 #include <algorithm>
 
 #import "VROCloudAnchorProviderARCore.h"
+#import "VROCloudAnchorProviderReactVision.h"
 #import <simd/simd.h>
 
 #pragma mark - Lifecycle and Initialization
@@ -383,6 +384,11 @@ void VROARSessioniOS::setCloudAnchorProvider(VROCloudAnchorProvider provider) {
   _cloudAnchorProvider = provider;
 
   if (provider == VROCloudAnchorProvider::ARCore) {
+    // Tear down ReactVision provider if switching away from it
+    if (_cloudAnchorProviderRV != nil) {
+      [_cloudAnchorProviderRV cancelAllOperations];
+      _cloudAnchorProviderRV = nil;
+    }
     // Initialize ARCore cloud anchor provider if not already done
     if (_cloudAnchorProviderARCore == nil) {
       if ([VROCloudAnchorProviderARCore isAvailable]) {
@@ -396,11 +402,39 @@ void VROARSessioniOS::setCloudAnchorProvider(VROCloudAnchorProvider provider) {
         pwarn("ARCore SDK not available. Add ARCore/CloudAnchors pod to enable cloud anchors.");
       }
     }
-  } else {
-    // Clean up cloud anchor provider if switching to None
+
+  } else if (provider == VROCloudAnchorProvider::ReactVision) {
+    // Tear down ARCore provider if switching away from it
     if (_cloudAnchorProviderARCore != nil) {
       [_cloudAnchorProviderARCore cancelAllOperations];
       _cloudAnchorProviderARCore = nil;
+    }
+    // Initialize ReactVision provider; reads RVApiKey / RVProjectId from Info.plist
+    if (_cloudAnchorProviderRV == nil) {
+      NSString *apiKey   = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"RVApiKey"];
+      NSString *projectId = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"RVProjectId"];
+      if (apiKey.length && projectId.length) {
+        _cloudAnchorProviderRV = [[VROCloudAnchorProviderReactVision alloc]
+            initWithApiKey:apiKey projectId:projectId endpoint:nil];
+        if (_cloudAnchorProviderRV) {
+          pinfo("ReactVision Cloud Anchor provider initialized successfully");
+        } else {
+          pwarn("Failed to initialize ReactVision Cloud Anchor provider.");
+        }
+      } else {
+        pwarn("RVApiKey or RVProjectId missing from Info.plist — ReactVision Cloud Anchors unavailable.");
+      }
+    }
+
+  } else {
+    // VROCloudAnchorProvider::None — tear down all providers
+    if (_cloudAnchorProviderARCore != nil) {
+      [_cloudAnchorProviderARCore cancelAllOperations];
+      _cloudAnchorProviderARCore = nil;
+    }
+    if (_cloudAnchorProviderRV != nil) {
+      [_cloudAnchorProviderRV cancelAllOperations];
+      _cloudAnchorProviderRV = nil;
     }
   }
 }
@@ -448,9 +482,52 @@ void VROARSessioniOS::hostCloudAnchor(
     int ttlDays,
     std::function<void(std::shared_ptr<VROARAnchor>)> onSuccess,
     std::function<void(std::string error)> onFailure) {
+
+  // ---- ReactVision path ----
+  if (_cloudAnchorProvider == VROCloudAnchorProvider::ReactVision) {
+    if (_cloudAnchorProviderRV == nil) {
+      if (onFailure) onFailure("ReactVision Cloud Anchor provider not initialized.");
+      return;
+    }
+
+    // Get the current native ARFrame for feature extraction
+    ARFrame *arFrame = nil;
+    if (_currentFrame) {
+      VROARFrameiOS *frameiOS = (VROARFrameiOS *)_currentFrame.get();
+      arFrame = frameiOS->getARFrame();
+    }
+    if (!arFrame) {
+      if (onFailure) onFailure("No AR frame available for feature extraction.");
+      return;
+    }
+
+    // Build a synthetic ARAnchor from the VROARAnchor's world transform
+    VROMatrix4f mat = anchor->getTransform();
+    simd_float4x4 sim;
+    sim.columns[0] = simd_make_float4(mat[0], mat[1], mat[2],  mat[3]);
+    sim.columns[1] = simd_make_float4(mat[4], mat[5], mat[6],  mat[7]);
+    sim.columns[2] = simd_make_float4(mat[8], mat[9], mat[10], mat[11]);
+    sim.columns[3] = simd_make_float4(mat[12],mat[13],mat[14], mat[15]);
+    ARAnchor *syntheticAnchor = [[ARAnchor alloc] initWithTransform:sim];
+
+    std::shared_ptr<VROARAnchor> anchorCopy = anchor;
+    [_cloudAnchorProviderRV hostAnchor:syntheticAnchor
+                                 frame:arFrame
+                               ttlDays:ttlDays
+                             onSuccess:^(NSString *cloudAnchorId) {
+      anchorCopy->setCloudAnchorId(std::string([cloudAnchorId UTF8String]));
+      if (onSuccess) onSuccess(anchorCopy);
+    }
+                             onFailure:^(NSString *error) {
+      if (onFailure) onFailure(std::string([error UTF8String]));
+    }];
+    return;
+  }
+
+  // ---- ARCore path (original) ----
   if (_cloudAnchorProvider != VROCloudAnchorProvider::ARCore) {
     if (onFailure) {
-      onFailure("Cloud anchor provider not configured. Set cloudAnchorProvider='arcore' to enable.");
+      onFailure("Cloud anchor provider not configured. Set cloudAnchorProvider='arcore' or 'reactvision' to enable.");
     }
     return;
   }
@@ -522,9 +599,60 @@ void VROARSessioniOS::resolveCloudAnchor(
     std::string cloudAnchorId,
     std::function<void(std::shared_ptr<VROARAnchor> anchor)> onSuccess,
     std::function<void(std::string error)> onFailure) {
+
+  // ---- ReactVision path ----
+  if (_cloudAnchorProvider == VROCloudAnchorProvider::ReactVision) {
+    if (_cloudAnchorProviderRV == nil) {
+      if (onFailure) onFailure("ReactVision Cloud Anchor provider not initialized.");
+      return;
+    }
+
+    ARFrame *arFrame = nil;
+    if (_currentFrame) {
+      VROARFrameiOS *frameiOS = (VROARFrameiOS *)_currentFrame.get();
+      arFrame = frameiOS->getARFrame();
+    }
+    if (!arFrame) {
+      if (onFailure) onFailure("No AR frame available for localisation.");
+      return;
+    }
+
+    NSString *cloudIdNS = [NSString stringWithUTF8String:cloudAnchorId.c_str()];
+    std::weak_ptr<VROARSessioniOS> weakSelf = shared_from_this();
+    std::string cloudIdCopy = cloudAnchorId;
+
+    [_cloudAnchorProviderRV resolveCloudAnchorWithId:cloudIdNS
+                                               frame:arFrame
+                                           onSuccess:^(NSString * /*resolvedId*/, simd_float4x4 transform) {
+      auto strongSelf = weakSelf.lock();
+      if (!strongSelf) return;
+
+      auto viroAnchor = std::make_shared<VROARAnchor>();
+      viroAnchor->setCloudAnchorId(cloudIdCopy);
+      // Build VROMatrix4f from simd column-major transform
+      float m[16];
+      m[0]=transform.columns[0].x; m[1]=transform.columns[0].y;
+      m[2]=transform.columns[0].z; m[3]=transform.columns[0].w;
+      m[4]=transform.columns[1].x; m[5]=transform.columns[1].y;
+      m[6]=transform.columns[1].z; m[7]=transform.columns[1].w;
+      m[8]=transform.columns[2].x; m[9]=transform.columns[2].y;
+      m[10]=transform.columns[2].z;m[11]=transform.columns[2].w;
+      m[12]=transform.columns[3].x;m[13]=transform.columns[3].y;
+      m[14]=transform.columns[3].z;m[15]=transform.columns[3].w;
+      viroAnchor->setTransform(VROMatrix4f(m));
+      strongSelf->addAnchor(viroAnchor);
+      if (onSuccess) onSuccess(viroAnchor);
+    }
+                                           onFailure:^(NSString *error) {
+      if (onFailure) onFailure(std::string([error UTF8String]));
+    }];
+    return;
+  }
+
+  // ---- ARCore path (original) ----
   if (_cloudAnchorProvider != VROCloudAnchorProvider::ARCore) {
     if (onFailure) {
-      onFailure("Cloud anchor provider not configured. Set cloudAnchorProvider='arcore' to enable.");
+      onFailure("Cloud anchor provider not configured. Set cloudAnchorProvider='arcore' or 'reactvision' to enable.");
     }
     return;
   }

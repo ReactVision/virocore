@@ -903,6 +903,28 @@ VRO_METHOD(void, nativeResolveCloudAnchor)(VRO_ARGS
     });
 }
 
+VRO_METHOD(void, nativeSetReactVisionConfig)(VRO_ARGS
+                                             VRO_REF(VROARSceneController) sceneController_j,
+                                             VRO_STRING apiKey_j,
+                                             VRO_STRING projectId_j) {
+    VRO_METHOD_PREAMBLE;
+
+    std::string apiKey    = VRO_STRING_STL(apiKey_j);
+    std::string projectId = VRO_STRING_STL(projectId_j);
+
+    std::weak_ptr<VROARScene> scene_w = std::dynamic_pointer_cast<VROARScene>(
+            VRO_REF_GET(VROARSceneController, sceneController_j)->getScene());
+
+    VROPlatformDispatchAsyncRenderer([scene_w, apiKey, projectId] {
+        std::shared_ptr<VROARScene> scene = scene_w.lock();
+        if (!scene) return;
+        std::shared_ptr<VROARSessionARCore> session =
+            std::dynamic_pointer_cast<VROARSessionARCore>(scene->getARSession());
+        if (!session) return;
+        session->setReactVisionConfig(apiKey, projectId);
+    });
+}
+
 VRO_METHOD(void, nativeSetOcclusionMode)(VRO_ARGS
                                           VRO_REF(VROARSceneController) sceneController_j,
                                           VRO_INT mode) {
