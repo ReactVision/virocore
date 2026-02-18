@@ -13,8 +13,17 @@
 #include "VROARFrameSnapshot.h"
 #include "VROLog.h"
 
-// ReactVisionCCA C++ library
-#include "ReactVisionCCA/RVCCACloudAnchorProvider.h"
+// ReactVisionCCA is an optional proprietary library.
+// CMakeLists.txt defines RVCCA_AVAILABLE=1 automatically when the prebuilt
+// libreactvisioncca.so is found in jniLibs/.  Open-source builds of ViroCore
+// compile stubs that report the feature as unavailable.
+#ifndef RVCCA_AVAILABLE
+#  define RVCCA_AVAILABLE 0
+#endif
+
+#if RVCCA_AVAILABLE
+#  include "ReactVisionCCA/RVCCACloudAnchorProvider.h"
+#endif
 
 #include <stdexcept>
 
@@ -22,9 +31,11 @@
 // Impl
 // ============================================================================
 
+#if RVCCA_AVAILABLE
+
 class VROCloudAnchorProviderReactVision::Impl {
 public:
-    std::weak_ptr<VROARSessionARCore>                       session;
+    std::weak_ptr<VROARSessionARCore>                         session;
     std::shared_ptr<ReactVisionCCA::RVCCACloudAnchorProvider> provider;
 
     Impl(std::shared_ptr<VROARSessionARCore> sess,
@@ -42,6 +53,13 @@ public:
     }
 };
 
+#else // !RVCCA_AVAILABLE
+
+// Minimal stub so std::unique_ptr<Impl> compiles without RVCCA headers.
+class VROCloudAnchorProviderReactVision::Impl {};
+
+#endif // RVCCA_AVAILABLE
+
 // ============================================================================
 // Public API
 // ============================================================================
@@ -52,11 +70,17 @@ VROCloudAnchorProviderReactVision::VROCloudAnchorProviderReactVision(
     const std::string &projectId,
     const std::string &endpoint)
 {
+#if RVCCA_AVAILABLE
     try {
         _impl = std::make_unique<Impl>(session, apiKey, projectId, endpoint);
     } catch (const std::exception &e) {
         pwarn("VROCloudAnchorProviderReactVision init failed: %s", e.what());
     }
+#else
+    pwarn("VROCloudAnchorProviderReactVision: ReactVisionCCA library not available. "
+          "Build reactvisioncca and deploy libreactvisioncca.so to "
+          "android/sharedCode/src/main/jniLibs/ before building ViroCore.");
+#endif
 }
 
 VROCloudAnchorProviderReactVision::~VROCloudAnchorProviderReactVision() = default;
@@ -67,16 +91,12 @@ void VROCloudAnchorProviderReactVision::hostCloudAnchor(
     std::function<void(std::shared_ptr<VROARAnchor>)> onSuccess,
     std::function<void(std::string)>                  onFailure)
 {
+#if RVCCA_AVAILABLE
     if (!_impl || !_impl->provider) {
         onFailure("ReactVisionCCA provider not initialised");
         return;
     }
 
-    // Capture current frame from ARCore session.
-    // We snapshot the point cloud data here, on the renderer thread, before
-    // spawning any background work.  The session can advance to the next frame
-    // at any time (every ~16 ms), so we must NOT hold a raw pointer across
-    // thread boundaries — the underlying VROARFrameARCore would be destroyed.
     auto sess = _impl->session.lock();
     if (!sess) {
         onFailure("AR session no longer available");
@@ -89,9 +109,6 @@ void VROCloudAnchorProviderReactVision::hostCloudAnchor(
         return;
     }
 
-    // Build a self-contained snapshot frame that owns copies of all data the
-    // background thread will need.  This avoids the race condition where
-    // updateFrame() destroys the original VROARFrameARCore mid-operation.
     std::shared_ptr<VROARFrame> frame = VROARFrameSnapshot::fromFrame(*frameUniq);
     if (!frame) {
         onFailure("Failed to snapshot AR frame");
@@ -101,7 +118,6 @@ void VROCloudAnchorProviderReactVision::hostCloudAnchor(
     _impl->provider->hostCloudAnchor(
         anchor, frame, ttlDays,
         [anchor, onSuccess](const std::string &cloudId) {
-            // Attach the cloud anchor ID to the original anchor object
             anchor->setCloudAnchorId(cloudId);
             anchor->setId(cloudId);
             onSuccess(anchor);
@@ -110,6 +126,9 @@ void VROCloudAnchorProviderReactVision::hostCloudAnchor(
                     ReactVisionCCA::RVCCACloudAnchorProvider::ErrorCode) {
             onFailure(error);
         });
+#else
+    onFailure("ReactVision Cloud Anchors not available: ReactVisionCCA library not linked");
+#endif
 }
 
 void VROCloudAnchorProviderReactVision::resolveCloudAnchor(
@@ -117,6 +136,7 @@ void VROCloudAnchorProviderReactVision::resolveCloudAnchor(
     std::function<void(std::shared_ptr<VROARAnchor>)> onSuccess,
     std::function<void(std::string)>                  onFailure)
 {
+#if RVCCA_AVAILABLE
     if (!_impl || !_impl->provider) {
         onFailure("ReactVisionCCA provider not initialised");
         return;
@@ -148,4 +168,7 @@ void VROCloudAnchorProviderReactVision::resolveCloudAnchor(
                     ReactVisionCCA::RVCCACloudAnchorProvider::ErrorCode) {
             onFailure(error);
         });
+#else
+    onFailure("ReactVision Cloud Anchors not available: ReactVisionCCA library not linked");
+#endif
 }
