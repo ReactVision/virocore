@@ -897,7 +897,7 @@ void VROARSessioniOS::setOcclusionMode(VROOcclusionMode mode) {
         if ([_sessionConfiguration isKindOfClass:[ARWorldTrackingConfiguration class]]) {
             ARWorldTrackingConfiguration *config = (ARWorldTrackingConfiguration *)_sessionConfiguration;
 
-            if (mode == VROOcclusionMode::DepthBased) {
+            if (mode == VROOcclusionMode::DepthBased || mode == VROOcclusionMode::DepthOnly) {
               // Enable scene depth if supported (requires LiDAR)
               if (lidarSupported) {
                 config.frameSemantics = ARFrameSemanticSceneDepth;
@@ -919,9 +919,11 @@ void VROARSessioniOS::setOcclusionMode(VROOcclusionMode mode) {
     }
 
         // Transparent monocular fallback for depth-based occlusion on non-LiDAR devices
-        if (mode == VROOcclusionMode::DepthBased && !lidarSupported) {
-          NSLog(@"Occlusion mode DepthBased set on non-LiDAR device - auto-enabling monocular depth");
-          pinfo("Occlusion mode: Depth-based requested on non-LiDAR device, auto-enabling monocular depth");
+        // Also enable monocular for DepthOnly so hit tests with depth data work on all devices
+        if ((mode == VROOcclusionMode::DepthBased || mode == VROOcclusionMode::DepthOnly) && !lidarSupported) {
+          NSLog(@"Occlusion mode %s set on non-LiDAR device - auto-enabling monocular depth",
+                mode == VROOcclusionMode::DepthOnly ? "DepthOnly" : "DepthBased");
+          pinfo("Occlusion mode: Depth requested on non-LiDAR device, auto-enabling monocular depth");
           if (!_monocularDepthEnabled) {
             setMonocularDepthEnabled(true);
           }
@@ -959,7 +961,7 @@ bool VROARSessioniOS::isOcclusionModeSupported(VROOcclusionMode mode) const {
     }
 
     if (@available(iOS 14.0, *)) {
-        if (mode == VROOcclusionMode::DepthBased) {
+        if (mode == VROOcclusionMode::DepthBased || mode == VROOcclusionMode::DepthOnly) {
       if ([ARWorldTrackingConfiguration supportsFrameSemantics:ARFrameSemanticSceneDepth]) {
         return true;
       }

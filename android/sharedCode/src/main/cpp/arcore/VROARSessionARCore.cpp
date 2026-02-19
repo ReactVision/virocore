@@ -1287,7 +1287,8 @@ void VROARSessionARCore::setOcclusionMode(VROOcclusionMode mode) {
   switch (mode) {
     case VROOcclusionMode::DepthBased:
     case VROOcclusionMode::PeopleOnly:
-      // Enable automatic depth for occlusion
+    case VROOcclusionMode::DepthOnly:
+      // Enable automatic depth for occlusion or depth-only mode
       newDepthMode = arcore::DepthMode::Automatic;
       break;
     case VROOcclusionMode::Disabled:
@@ -1329,6 +1330,7 @@ bool VROARSessionARCore::isOcclusionModeSupported(VROOcclusionMode mode) const {
     case VROOcclusionMode::Disabled:
       return true;
     case VROOcclusionMode::DepthBased:
+    case VROOcclusionMode::DepthOnly:
       return _session->isDepthModeSupported(arcore::DepthMode::Automatic);
     case VROOcclusionMode::PeopleOnly:
       // People-only occlusion requires both depth and semantic segmentation

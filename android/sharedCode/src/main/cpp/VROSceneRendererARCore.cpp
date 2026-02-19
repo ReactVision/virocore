@@ -200,7 +200,11 @@ void VROSceneRendererARCore::updateBackgroundOcclusion(std::unique_ptr<VROARFram
     bool hasDepth = frame->hasDepthData();
     std::shared_ptr<VROTexture> depthTexture = hasDepth ? frame->getDepthTexture() : nullptr;
 
-    if (occlusionMode != VROOcclusionMode::Disabled && depthTexture) {
+    bool shouldApplyOcclusionRendering =
+        (occlusionMode == VROOcclusionMode::DepthBased ||
+         occlusionMode == VROOcclusionMode::PeopleOnly) && depthTexture != nullptr;
+
+    if (shouldApplyOcclusionRendering) {
         // Enable depth writing so virtual objects can be occluded
         material->setWritesToDepthBuffer(true);
 
@@ -215,7 +219,7 @@ void VROSceneRendererARCore::updateBackgroundOcclusion(std::unique_ptr<VROARFram
             _occlusionModifierAdded = true;
         }
     } else {
-        // Disable depth writing when occlusion is off
+        // Disable depth writing when occlusion is off (includes DepthOnly mode)
         material->setWritesToDepthBuffer(false);
     }
 }
@@ -320,9 +324,10 @@ void VROSceneRendererARCore::initARSession(VROViewport viewport, std::shared_ptr
     material->setWritesToDepthBuffer(false);
     material->setNeedsToneMapping(false);
 
-    // If occlusion mode is already set, add the shader modifier now
+    // If occlusion rendering mode is already set, add the shader modifier now
+    // Note: DepthOnly does NOT apply occlusion rendering, so skip modifier for it
     VROOcclusionMode occlusionMode = _session->getOcclusionMode();
-    if (occlusionMode != VROOcclusionMode::Disabled) {
+    if (occlusionMode == VROOcclusionMode::DepthBased || occlusionMode == VROOcclusionMode::PeopleOnly) {
         std::shared_ptr<VROShaderModifier> occlusionModifier = VROShaderFactory::createOcclusionDepthModifier();
         material->addShaderModifier(occlusionModifier);
         _occlusionModifierAdded = true;

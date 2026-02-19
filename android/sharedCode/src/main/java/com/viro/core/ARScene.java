@@ -429,7 +429,14 @@ public class ARScene extends Scene {
          * people occlusion and may be more efficient than full depth-based occlusion.
          * Requires device support for person segmentation.
          */
-        PEOPLE_ONLY(2);
+        PEOPLE_ONLY(2),
+
+        /**
+         * Activates depth sensing WITHOUT occlusion rendering. Virtual objects will NOT be
+         * occluded by real-world surfaces, but depth data will be available for hit tests
+         * (DepthPoint type) and distance measurement. Requires ARCore Depth API support.
+         */
+        DEPTH_ONLY(3);
 
         private int mTypeId;
         OcclusionMode(int id) {
