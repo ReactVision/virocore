@@ -1523,7 +1523,7 @@ void VROARSessioniOS::setGeospatialModeEnabled(bool enabled) {
 VROEarthTrackingState VROARSessioniOS::getEarthTrackingState() const {
 #if RVCCA_AVAILABLE
   if (getGeospatialAnchorProvider() == VROGeospatialAnchorProvider::ReactVision) {
-    return _geospatialProviderRV ? VROEarthTrackingState::Tracking
+    return _geospatialProviderRV ? VROEarthTrackingState::Enabled
                                  : VROEarthTrackingState::Stopped;
   }
 #endif
