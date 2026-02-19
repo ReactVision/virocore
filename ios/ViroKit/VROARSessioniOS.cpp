@@ -536,7 +536,7 @@ void VROARSessioniOS::hostCloudAnchor(
   }
 
   // ---- ARCore path (original) ----
-  if (_cloudAnchorProvider != VROCloudAnchorProvider::ARCore) {
+  if (_cloudAnchorProvider == VROCloudAnchorProvider::None) {
     if (onFailure) {
       onFailure("Cloud anchor provider not configured. Set cloudAnchorProvider='arcore' or 'reactvision' to enable.");
     }
@@ -661,7 +661,7 @@ void VROARSessioniOS::resolveCloudAnchor(
   }
 
   // ---- ARCore path (original) ----
-  if (_cloudAnchorProvider != VROCloudAnchorProvider::ARCore) {
+  if (_cloudAnchorProvider == VROCloudAnchorProvider::None) {
     if (onFailure) {
       onFailure("Cloud anchor provider not configured. Set cloudAnchorProvider='arcore' or 'reactvision' to enable.");
     }
