@@ -41,7 +41,9 @@
 
 #include "VROARFrame.h"
 #include "VROARCamera.h"
+#include "VROARAnchor.h"
 #include "VROARPointCloud.h"
+#include "VROCameraTexture.h"
 #include "VROMatrix4f.h"
 #include "VROVector3f.h"
 #include "VROVector4f.h"
@@ -137,24 +139,21 @@ private:
     CGSize    _imageSize;
 };
 
-class ARKitPointCloud : public VROARPointCloud {
-public:
-    explicit ARKitPointCloud(ARPointCloud *pc) {
-        if (!pc) return;
-        _pts.reserve(pc.count);
+static std::shared_ptr<VROARPointCloud> makeARKitPointCloud(ARPointCloud *pc) {
+    std::vector<VROVector4f> pts;
+    std::vector<uint64_t>    ids;
+    if (pc) {
+        pts.reserve(pc.count);
         for (NSUInteger i = 0; i < pc.count; ++i) {
             simd_float3 p = pc.points[i];
-            _pts.push_back(VROVector4f(p.x, p.y, p.z, 1.0f));
+            pts.push_back(VROVector4f(p.x, p.y, p.z, 1.0f));
+        }
+        for (NSUInteger i = 0; i < pc.count; ++i) {
+            ids.push_back(pc.identifiers[i]);
         }
     }
-
-    const std::vector<VROVector4f> &getPoints() const override { return _pts; }
-    const std::vector<uint64_t>   &getIds()    const override { return _ids;  }
-
-private:
-    std::vector<VROVector4f> _pts;
-    std::vector<uint64_t>    _ids;
-};
+    return std::make_shared<VROARPointCloud>(pts, ids);
+}
 
 class ARKitFrame : public VROARFrame {
 public:
@@ -163,7 +162,7 @@ public:
         _camera = std::make_shared<ARKitCamera>(
             frame.camera,
             frame.camera.imageResolution);
-        _pointCloud = std::make_shared<ARKitPointCloud>(frame.rawFeaturePoints);
+        _pointCloud = makeARKitPointCloud(frame.rawFeaturePoints);
     }
 
     double getTimestamp() const override { return _timestamp; }
