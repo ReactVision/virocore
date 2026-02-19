@@ -55,6 +55,17 @@
 #import "VROCloudAnchorProviderReactVision.h"
 #import <simd/simd.h>
 
+#ifndef RVCCA_AVAILABLE
+#  if __has_include("ReactVisionCCA/RVCCAGeospatialProvider.h")
+#    define RVCCA_AVAILABLE 1
+#  else
+#    define RVCCA_AVAILABLE 0
+#  endif
+#endif
+#if RVCCA_AVAILABLE
+#  include "ReactVisionCCA/RVCCAGeospatialProvider.h"
+#endif
+
 #pragma mark - Lifecycle and Initialization
 
 VROARSessioniOS::VROARSessioniOS(VROTrackingType trackingType,
@@ -1429,6 +1440,36 @@ void VROARSessioniOS::removeAnchor(ARAnchor *anchor) {
 void VROARSessioniOS::setGeospatialAnchorProvider(VROGeospatialAnchorProvider provider) {
   VROARSession::setGeospatialAnchorProvider(provider);
 
+  if (provider == VROGeospatialAnchorProvider::ReactVision) {
+#if RVCCA_AVAILABLE
+    if (!_geospatialProviderRV) {
+      NSString *apiKey    = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"RVApiKey"];
+      NSString *projectId = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"RVProjectId"];
+      if (apiKey.length && projectId.length) {
+        ReactVisionCCA::RVCCAGeospatialProvider::Config cfg;
+        cfg.apiKey    = std::string([apiKey UTF8String]);
+        cfg.projectId = std::string([projectId UTF8String]);
+        _rvGeoProjectId = cfg.projectId;
+        _geospatialProviderRV =
+            std::make_shared<ReactVisionCCA::RVCCAGeospatialProvider>(cfg);
+        pinfo("ReactVision Geospatial provider initialized");
+      } else {
+        pwarn("RVApiKey or RVProjectId missing from Info.plist — "
+              "ReactVision Geospatial unavailable.");
+      }
+    }
+#else
+    pwarn("ReactVision Geospatial not available in this build.");
+#endif
+    _needsGeospatialModeApply = false;
+    return;
+  }
+
+  // Reset RV provider when switching away
+#if RVCCA_AVAILABLE
+  _geospatialProviderRV.reset();
+#endif
+
   if (provider == VROGeospatialAnchorProvider::ARCoreGeospatial) {
     // Initialize ARCore provider if not already done (same instance as cloud anchors)
     if (_cloudAnchorProviderARCore == nil) {
@@ -1480,6 +1521,12 @@ void VROARSessioniOS::setGeospatialModeEnabled(bool enabled) {
 }
 
 VROEarthTrackingState VROARSessioniOS::getEarthTrackingState() const {
+#if RVCCA_AVAILABLE
+  if (getGeospatialAnchorProvider() == VROGeospatialAnchorProvider::ReactVision) {
+    return _geospatialProviderRV ? VROEarthTrackingState::Tracking
+                                 : VROEarthTrackingState::Stopped;
+  }
+#endif
   if (_cloudAnchorProviderARCore) {
     return [_cloudAnchorProviderARCore getEarthTrackingState];
   }
@@ -1495,6 +1542,14 @@ VROGeospatialPose VROARSessioniOS::getCameraGeospatialPose() const {
 
 void VROARSessioniOS::checkVPSAvailability(double latitude, double longitude,
                                            std::function<void(VROVPSAvailability)> callback) {
+#if RVCCA_AVAILABLE
+  if (getGeospatialAnchorProvider() == VROGeospatialAnchorProvider::ReactVision) {
+    if (callback) callback(_geospatialProviderRV
+                           ? VROVPSAvailability::Available
+                           : VROVPSAvailability::Unknown);
+    return;
+  }
+#endif
   if (_cloudAnchorProviderARCore) {
     [_cloudAnchorProviderARCore checkVPSAvailability:latitude
                                            longitude:longitude
@@ -1512,6 +1567,38 @@ void VROARSessioniOS::createGeospatialAnchor(double latitude, double longitude, 
                                              VROQuaternion quaternion,
                                              std::function<void(std::shared_ptr<VROGeospatialAnchor>)> onSuccess,
                                              std::function<void(std::string error)> onFailure) {
+#if RVCCA_AVAILABLE
+  if (getGeospatialAnchorProvider() == VROGeospatialAnchorProvider::ReactVision) {
+    if (!_geospatialProviderRV) {
+      if (onFailure) onFailure("ReactVision geospatial provider not initialized");
+      return;
+    }
+    ReactVisionCCA::GeospatialCreateRequest req;
+    req.projectId    = _rvGeoProjectId;
+    req.lat          = latitude;
+    req.lng          = longitude;
+    req.alt          = altitude;
+    req.altitudeMode = "street_level";
+    std::weak_ptr<VROARSessioniOS> weakSelf = shared_from_this();
+    _geospatialProviderRV->createAnchor(req,
+        [weakSelf, latitude, longitude, altitude, quaternion, onSuccess, onFailure]
+        (ReactVisionCCA::ApiResult<ReactVisionCCA::GeospatialAnchorRecord> result) {
+            auto self = weakSelf.lock();
+            if (!self) return;
+            if (result.success) {
+                auto geoAnchor = std::make_shared<VROGeospatialAnchor>(
+                    VROGeospatialAnchorType::WGS84, latitude, longitude, altitude, quaternion);
+                geoAnchor->setId(result.data.id);
+                geoAnchor->setResolveState(VROGeospatialAnchorResolveState::Success);
+                self->addAnchor(geoAnchor);
+                if (onSuccess) onSuccess(geoAnchor);
+            } else {
+                if (onFailure) onFailure(result.error.message);
+            }
+        });
+    return;
+  }
+#endif
   if (!_cloudAnchorProviderARCore) {
     if (onFailure) {
       onFailure("Geospatial provider not initialized. Set geospatialAnchorProvider='arcore-geospatial'.");
@@ -1542,6 +1629,38 @@ void VROARSessioniOS::createTerrainAnchor(double latitude, double longitude, dou
                                           VROQuaternion quaternion,
                                           std::function<void(std::shared_ptr<VROGeospatialAnchor>)> onSuccess,
                                           std::function<void(std::string error)> onFailure) {
+#if RVCCA_AVAILABLE
+  if (getGeospatialAnchorProvider() == VROGeospatialAnchorProvider::ReactVision) {
+    if (!_geospatialProviderRV) {
+      if (onFailure) onFailure("ReactVision geospatial provider not initialized");
+      return;
+    }
+    ReactVisionCCA::GeospatialCreateRequest req;
+    req.projectId    = _rvGeoProjectId;
+    req.lat          = latitude;
+    req.lng          = longitude;
+    req.alt          = altitudeAboveTerrain;
+    req.altitudeMode = "street_level";
+    std::weak_ptr<VROARSessioniOS> weakSelf = shared_from_this();
+    _geospatialProviderRV->createAnchor(req,
+        [weakSelf, latitude, longitude, altitudeAboveTerrain, quaternion, onSuccess, onFailure]
+        (ReactVisionCCA::ApiResult<ReactVisionCCA::GeospatialAnchorRecord> result) {
+            auto self = weakSelf.lock();
+            if (!self) return;
+            if (result.success) {
+                auto geoAnchor = std::make_shared<VROGeospatialAnchor>(
+                    VROGeospatialAnchorType::Terrain, latitude, longitude, altitudeAboveTerrain, quaternion);
+                geoAnchor->setId(result.data.id);
+                geoAnchor->setResolveState(VROGeospatialAnchorResolveState::Success);
+                self->addAnchor(geoAnchor);
+                if (onSuccess) onSuccess(geoAnchor);
+            } else {
+                if (onFailure) onFailure(result.error.message);
+            }
+        });
+    return;
+  }
+#endif
   if (!_cloudAnchorProviderARCore) {
     if (onFailure) {
       onFailure("Geospatial provider not initialized. Set geospatialAnchorProvider='arcore-geospatial'.");
@@ -1572,6 +1691,38 @@ void VROARSessioniOS::createRooftopAnchor(double latitude, double longitude, dou
                                           VROQuaternion quaternion,
                                           std::function<void(std::shared_ptr<VROGeospatialAnchor>)> onSuccess,
                                           std::function<void(std::string error)> onFailure) {
+#if RVCCA_AVAILABLE
+  if (getGeospatialAnchorProvider() == VROGeospatialAnchorProvider::ReactVision) {
+    if (!_geospatialProviderRV) {
+      if (onFailure) onFailure("ReactVision geospatial provider not initialized");
+      return;
+    }
+    ReactVisionCCA::GeospatialCreateRequest req;
+    req.projectId    = _rvGeoProjectId;
+    req.lat          = latitude;
+    req.lng          = longitude;
+    req.alt          = altitudeAboveRooftop;
+    req.altitudeMode = "rooftop_level";
+    std::weak_ptr<VROARSessioniOS> weakSelf = shared_from_this();
+    _geospatialProviderRV->createAnchor(req,
+        [weakSelf, latitude, longitude, altitudeAboveRooftop, quaternion, onSuccess, onFailure]
+        (ReactVisionCCA::ApiResult<ReactVisionCCA::GeospatialAnchorRecord> result) {
+            auto self = weakSelf.lock();
+            if (!self) return;
+            if (result.success) {
+                auto geoAnchor = std::make_shared<VROGeospatialAnchor>(
+                    VROGeospatialAnchorType::Rooftop, latitude, longitude, altitudeAboveRooftop, quaternion);
+                geoAnchor->setId(result.data.id);
+                geoAnchor->setResolveState(VROGeospatialAnchorResolveState::Success);
+                self->addAnchor(geoAnchor);
+                if (onSuccess) onSuccess(geoAnchor);
+            } else {
+                if (onFailure) onFailure(result.error.message);
+            }
+        });
+    return;
+  }
+#endif
   if (!_cloudAnchorProviderARCore) {
     if (onFailure) {
       onFailure("Geospatial provider not initialized. Set geospatialAnchorProvider='arcore-geospatial'.");
@@ -1599,7 +1750,17 @@ void VROARSessioniOS::createRooftopAnchor(double latitude, double longitude, dou
 }
 
 void VROARSessioniOS::removeGeospatialAnchor(std::shared_ptr<VROGeospatialAnchor> anchor) {
-  if (_cloudAnchorProviderARCore && anchor) {
+  if (!anchor) return;
+#if RVCCA_AVAILABLE
+  if (getGeospatialAnchorProvider() == VROGeospatialAnchorProvider::ReactVision
+          && _geospatialProviderRV) {
+    _geospatialProviderRV->deleteAnchor(anchor->getId(),
+        [](bool, ReactVisionCCA::ApiError) { /* fire-and-forget */ });
+    removeAnchor(anchor);
+    return;
+  }
+#endif
+  if (_cloudAnchorProviderARCore) {
     NSString *anchorId = [NSString stringWithUTF8String:anchor->getId().c_str()];
     [_cloudAnchorProviderARCore removeGeospatialAnchor:anchorId];
   }

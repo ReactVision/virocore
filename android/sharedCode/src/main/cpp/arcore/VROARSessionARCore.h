@@ -49,6 +49,7 @@ enum class VROARDisplayRotation {
 class VRODriverOpenGL;
 class VROCloudAnchorProviderARCore;
 class VROCloudAnchorProviderReactVision;
+namespace ReactVisionCCA { class RVCCAGeospatialProvider; }
 
 class VROARSessionARCore : public VROARSession,
                            public std::enable_shared_from_this<VROARSessionARCore> {
@@ -148,6 +149,7 @@ public:
     /*
      Geospatial API.
      */
+    void setGeospatialAnchorProvider(VROGeospatialAnchorProvider provider) override;
     bool isGeospatialModeSupported() const override;
     void setGeospatialModeEnabled(bool enabled) override;
     VROEarthTrackingState getEarthTrackingState() const override;
@@ -302,6 +304,12 @@ private:
     std::shared_ptr<VROCloudAnchorProviderReactVision> _cloudAnchorProviderRV;
     std::string _rvApiKey;
     std::string _rvProjectId;
+
+    /*
+     Manages geospatial anchors via ReactVision backend.
+     Active when setGeospatialAnchorProvider(ReactVision) is called.
+     */
+    std::shared_ptr<ReactVisionCCA::RVCCAGeospatialProvider> _geospatialProviderRV;
 
     /*
      Per-frame anchor and trackable update handling.
