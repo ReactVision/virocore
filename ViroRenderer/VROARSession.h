@@ -103,6 +103,7 @@ enum class VROCloudAnchorProvider {
 enum class VROGeospatialAnchorProvider {
     None,
     ARCoreGeospatial,
+    ReactVision,  // ReactVision custom backend (RVCCAGeospatialProvider)
 };
 
 /*
