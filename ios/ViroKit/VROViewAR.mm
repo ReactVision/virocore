@@ -246,8 +246,10 @@ static VROVector3f const kZeroVector = VROVector3f();
 #if !VRO_POSEMOJI
     AVAudioSession *session = [AVAudioSession sharedInstance];
     [session setCategory:AVAudioSessionCategoryPlayAndRecord
-             withOptions:AVAudioSessionCategoryOptionDefaultToSpeaker
+                    mode:AVAudioSessionModeVideoRecording
+                 options:AVAudioSessionCategoryOptionDefaultToSpeaker
                    error:nil];
+    [session setActive:YES error:nil];
 #endif
     /*
      Create AR session checking if an ARKit class and one of our classes have been defined. If not, then load VROARSessionInertial,
