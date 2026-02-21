@@ -745,6 +745,9 @@ VRO_METHOD(VRO_REF(TransformDelegate_JNI), nativeSetTransformDelegate)(VRO_ARGS
     std::shared_ptr<TransformDelegate_JNI> delegate = std::make_shared<TransformDelegate_JNI>(obj, distanceFilter);
     VROPlatformDispatchAsyncRenderer([node_w, delegate] {
         std::shared_ptr<VRONode> node = node_w.lock();
+        if (!node) {
+            return;
+        }
         node->setTransformDelegate(delegate);
     });
     return VRO_REF_NEW(TransformDelegate_JNI, delegate);
@@ -756,6 +759,9 @@ VRO_METHOD(void, nativeRemoveTransformDelegate)(VRO_ARGS
     std::weak_ptr<VRONode> node_w = VRO_REF_GET(VRONode, nativeRef);
     VROPlatformDispatchAsyncRenderer([node_w] {
         std::shared_ptr<VRONode> node = node_w.lock();
+        if (!node) {
+            return;
+        }
         node->setTransformDelegate(nullptr);
     });
 
