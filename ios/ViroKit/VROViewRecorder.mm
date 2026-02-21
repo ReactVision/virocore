@@ -365,20 +365,27 @@
     // First grab the audio files, if any.
     AVURLAsset *audioAsset = NULL;
     if (audioPath != NULL) {
-        // Ensure the provided audio file path exists.
         NSFileManager *fileManager = [NSFileManager defaultManager];
-        if (![fileManager fileExistsAtPath:[audioPath path]] || ![fileManager fileExistsAtPath:[videoPath path]]) {
-            NSLog(@"[Recording] Audio/Video merge failed because required audio file does not exist");
+
+        // If the video file itself doesn't exist, that is unrecoverable.
+        if (![fileManager fileExistsAtPath:[videoPath path]]) {
+            NSLog(@"[Recording] Merge failed: video file does not exist at %@", videoPath);
             handler(NO);
             return;
         }
-        
-        // And that it is playable.
-        audioAsset = [[AVURLAsset alloc] initWithURL:audioPath options:nil];
-        if (![audioAsset isPlayable]) {
-            NSLog(@"[Recording] Audio/Video merge failed because audio file is not playable");
-            handler(NO);
-            return;
+
+        // If the audio file is missing or unplayable, fall back to video-only rather
+        // than failing the whole recording. This can happen when ARKit holds the audio
+        // session (iOS 17+) or the session is not fully active before record() is called.
+        if (![fileManager fileExistsAtPath:[audioPath path]]) {
+            NSLog(@"[Recording] Audio file does not exist; producing video-only output");
+            audioPath = NULL;
+        } else {
+            audioAsset = [[AVURLAsset alloc] initWithURL:audioPath options:nil];
+            if (![audioAsset isPlayable]) {
+                NSLog(@"[Recording] Audio file is not playable; producing video-only output");
+                audioAsset = NULL;
+            }
         }
     }
     
@@ -460,8 +467,18 @@
     NSError *error;
     _audioRecorder = [[AVAudioRecorder alloc] initWithURL:url settings:audioRecordSettings error:&error];
 
+    if (!_audioRecorder) {
+        NSLog(@"[Recording] Failed to create AVAudioRecorder: %@", [error localizedDescription]);
+        return nil;
+    }
+
     if ([_audioRecorder prepareToRecord]) {
-        [_audioRecorder record];
+        if (![_audioRecorder record]) {
+            // record can return NO if the audio session is not active (e.g. ARKit holds it).
+            // Return the URL anyway; generateFinalVideoFile will fall back to video-only if
+            // the resulting file is empty or unplayable.
+            NSLog(@"[Recording] AVAudioRecorder -record returned NO; audio session may not be active");
+        }
         return url;
     } else {
         NSLog(@"[Recording] Preparing to record audio failed with error: %@", [error localizedDescription]);
@@ -509,7 +526,15 @@
         width  = _videoOutputDimensions.first;
         height = _videoOutputDimensions.second;
     }
-      
+
+    if (width <= 0 || height <= 0) {
+        NSLog(@"[Recording] Invalid video dimensions (%dx%d); view may not be laid out yet", width, height);
+        if (_errorBlock) {
+            _errorBlock(kVROViewErrorInitialization);
+        }
+        return;
+    }
+
     /*
      * https://stackoverflow.com/questions/29505631/crop-video-in-ios-see-weird-green-line-around-video
      * The video width & height need to be even
@@ -540,11 +565,35 @@
                                       assetWriterInputPixelBufferAdaptorWithAssetWriterInput:_videoWriterInput
                                       sourcePixelBufferAttributes:pixelBufferAttributes];
     [_videoWriter addInput:_videoWriterInput];
-    [_videoWriter startWriting];
+    if (![_videoWriter startWriting]) {
+        NSLog(@"[Recording] Failed to start AVAssetWriter: %@", _videoWriter.error.localizedDescription);
+        if (_errorBlock) {
+            _errorBlock(kVROViewErrorInitialization);
+        }
+        return;
+    }
     [_videoWriter startSessionAtSourceTime:kCMTimeZero];
-    
+
     CVPixelBufferPoolRef pixelBufferPool = [_videoWriterPixelBufferAdaptor pixelBufferPool];
-    CVPixelBufferPoolCreatePixelBuffer(NULL, pixelBufferPool, &_videoPixelBuffer);
+    if (!pixelBufferPool) {
+        NSLog(@"[Recording] Pixel buffer pool is nil after startWriting; cannot record");
+        if (_errorBlock) {
+            _errorBlock(kVROViewErrorInitialization);
+        }
+        [_videoWriterInput markAsFinished];
+        [_videoWriter cancelWriting];
+        return;
+    }
+    CVReturn cvStatus = CVPixelBufferPoolCreatePixelBuffer(NULL, pixelBufferPool, &_videoPixelBuffer);
+    if (cvStatus != kCVReturnSuccess || !_videoPixelBuffer) {
+        NSLog(@"[Recording] Failed to create pixel buffer from pool (CVReturn %d)", cvStatus);
+        if (_errorBlock) {
+            _errorBlock(kVROViewErrorInitialization);
+        }
+        [_videoWriterInput markAsFinished];
+        [_videoWriter cancelWriting];
+        return;
+    }
     
     if (!_videoTextureCache) {
         _videoTextureCache = _driver->newVideoTextureCache();
