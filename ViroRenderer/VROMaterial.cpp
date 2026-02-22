@@ -80,7 +80,8 @@ VROMaterial::VROMaterial() : VROThreadRestricted(VROThreadName::Renderer),
         
     // TODO These are not yet implemented
     _emission         = new VROMaterialVisual(*this, (int)VROTextureType::None |
-                                                     (int)VROTextureType::Texture2D);
+                                                     (int)VROTextureType::Texture2D,
+                                              { 0, 0, 0, 1.0 }); // Default black: no emission unless explicitly set
     _multiply         = new VROMaterialVisual(*this, (int)VROTextureType::None |
                                                      (int)VROTextureType::Texture2D);
     _selfIllumination = new VROMaterialVisual(*this, (int)VROTextureType::None |

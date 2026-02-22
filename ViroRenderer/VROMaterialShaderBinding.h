@@ -111,6 +111,8 @@ private:
     VROUniform *_roughnessIntensityUniform;
     VROUniform *_metalnessIntensityUniform;
     VROUniform *_aoUniform;
+    VROUniform *_alphaCutoffUniform;
+    VROUniform *_emissiveColorUniform;
 
     VROUniform *_normalMatrixUniform;
     VROUniform *_modelMatrixUniform;
