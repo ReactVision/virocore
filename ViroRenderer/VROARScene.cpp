@@ -47,7 +47,18 @@ VROARScene::~VROARScene() {
 }
 
 void VROARScene::initDeclarativeSession() {
-    passert (_imperativeSession == nullptr);
+    // Guard against double-init: Fabric (New Architecture) pre-allocates views via
+    // PreAllocateViewMountItem before the renderer is ready, which can invoke this
+    // function a second time on the same scene. ReactVisionCCA's .so loading also
+    // introduces a runtime interaction that can trigger this path unexpectedly.
+    // Return safely if already initialized instead of crashing via passert.
+    if (_declarativeSession != nullptr) {
+        return;
+    }
+    if (_imperativeSession != nullptr) {
+        pwarn("[Viro] initDeclarativeSession called but imperative session already exists — skipping");
+        return;
+    }
     _declarativeSession = std::make_shared<VROARDeclarativeSession>();
     _declarativeSession->init();
     std::shared_ptr<VROARSession> session = _arSession.lock();
@@ -57,8 +68,14 @@ void VROARScene::initDeclarativeSession() {
 }
 
 void VROARScene::initImperativeSession() {
-    passert (_declarativeSession == nullptr);
-
+    // Guard against double-init (see initDeclarativeSession comment above).
+    if (_imperativeSession != nullptr) {
+        return;
+    }
+    if (_declarativeSession != nullptr) {
+        pwarn("[Viro] initImperativeSession called but declarative session already exists — skipping");
+        return;
+    }
     std::shared_ptr<VROARScene> scene = std::dynamic_pointer_cast<VROARScene>(shared_from_this());
     _imperativeSession = std::make_shared<VROARImperativeSession>(scene);
     std::shared_ptr<VROARSession> session = _arSession.lock();
@@ -76,21 +93,10 @@ std::shared_ptr<VROARSessionDelegate> VROARScene::getSessionDelegate() {
 }
 
 void VROARScene::setAnchorDetectionTypes(std::set<VROAnchorDetection> detectionTypes) {
-    // DEBUG LOGGING - START
-    pinfo("=== VROARScene::setAnchorDetectionTypes called ===");
-    pinfo("  Detection types count: %d", (int)detectionTypes.size());
-    for (auto type : detectionTypes) {
-        pinfo("    Type: %d", (int)type);
-    }
-    // DEBUG LOGGING - END
-
     _detectionTypes = detectionTypes;
     std::shared_ptr<VROARSession> arSession = _arSession.lock();
     if (arSession) {
-        pinfo("  ARSession EXISTS - calling setAnchorDetection"); // DEBUG
         arSession->setAnchorDetection(_detectionTypes);
-    } else {
-        pwarn("  ARSession is NULL - detection types stored but not applied!"); // DEBUG
     }
 }
 
@@ -99,14 +105,6 @@ void VROARScene::addNode(std::shared_ptr<VRONode> node) {
 }
 
 void VROARScene::setARSession(std::shared_ptr<VROARSession> arSession) {
-    // DEBUG LOGGING - START
-    pinfo("=== VROARScene::setARSession called ===");
-    pinfo("  Current _detectionTypes count: %d", (int)_detectionTypes.size());
-    for (auto type : _detectionTypes) {
-        pinfo("    Stored type: %d", (int)type);
-    }
-    // DEBUG LOGGING - END
-
     _arSession = arSession;
 
     // If there wasn't already a emitter, then reset _displayPointCloud
@@ -122,7 +120,6 @@ void VROARScene::setARSession(std::shared_ptr<VROARSession> arSession) {
         _imperativeSession->setARSession(arSession);
     }
 
-    pinfo("  Applying stored detection types to ARSession"); // DEBUG
     arSession->setAnchorDetection(_detectionTypes);
 }
 
