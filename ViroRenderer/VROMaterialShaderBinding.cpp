@@ -46,14 +46,12 @@ VROMaterialShaderBinding::VROMaterialShaderBinding(std::shared_ptr<VROShaderProg
     _diffuseSurfaceColorUniform(nullptr),
     _diffuseIntensityUniform(nullptr),
     _alphaUniform(nullptr),
-    _alphaCutoffUniform(nullptr),
     _shininessUniform(nullptr),
     _roughnessUniform(nullptr),
     _roughnessIntensityUniform(nullptr),
     _metalnessUniform(nullptr),
     _metalnessIntensityUniform(nullptr),
     _aoUniform(nullptr),
-    _emissiveColorUniform(nullptr),
     _normalMatrixUniform(nullptr),
     _modelMatrixUniform(nullptr),
     _viewMatrixUniform(nullptr),
@@ -75,15 +73,13 @@ void VROMaterialShaderBinding::loadUniforms() {
     _diffuseSurfaceColorUniform = program->getUniform("material_diffuse_surface_color");
     _diffuseIntensityUniform = program->getUniform("material_diffuse_intensity");
     _alphaUniform = program->getUniform("material_alpha");
-    _alphaCutoffUniform = program->getUniform("material_alpha_cutoff");
     _shininessUniform = program->getUniform("material_shininess");
     _roughnessUniform = program->getUniform("material_roughness");
     _roughnessIntensityUniform = program->getUniform("material_roughness_intensity");
     _metalnessUniform = program->getUniform("material_metalness");
     _metalnessIntensityUniform = program->getUniform("material_metalness_intensity");
     _aoUniform = program->getUniform("material_ao");
-    _emissiveColorUniform = program->getUniform("material_emissive_color");
-    
+
     _normalMatrixUniform = program->getUniform("normal_matrix");
     _modelMatrixUniform = program->getUniform("model_matrix");
     _projectionMatrixUniform = program->getUniform("projection_matrix");
@@ -243,13 +239,6 @@ void VROMaterialShaderBinding::bindMaterialUniforms(const VROMaterial &material,
     if (_aoUniform != nullptr) {
         _aoUniform->setFloat(material.getAmbientOcclusion().getColor().x);
     }
-    if (_emissiveColorUniform != nullptr) {
-        VROVector4f emissiveColor = material.getEmission().getColor();
-        if (driver->isLinearRenderingEnabled()) {
-            emissiveColor = VROMathConvertSRGBToLinearColor(emissiveColor);
-        }
-        _emissiveColorUniform->setVec3({emissiveColor.x, emissiveColor.y, emissiveColor.z});
-    }
 
     // Bind custom shader uniforms (floats, vec3s, vec4s, mat4s)
     // Bind float uniforms
@@ -292,9 +281,6 @@ void VROMaterialShaderBinding::bindMaterialUniforms(const VROMaterial &material,
 void VROMaterialShaderBinding::bindGeometryUniforms(float opacity, const VROGeometry &geometry, const VROMaterial &material) {
     if (_alphaUniform != nullptr) {
         _alphaUniform->setFloat(material.getTransparency() * opacity);
-    }
-    if (_alphaCutoffUniform != nullptr) {
-        _alphaCutoffUniform->setFloat(material.getAlphaCutoff());
     }
     for (auto binder_uniform : _modifierUniformBinders) {
         binder_uniform.first->setForMaterial(binder_uniform.second, &geometry, &material);

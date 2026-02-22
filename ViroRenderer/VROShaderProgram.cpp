@@ -619,15 +619,13 @@ void VROShaderProgram::addStandardUniforms() {
     addUniform(VROShaderProperty::Vec4, 1, "material_diffuse_surface_color");
     addUniform(VROShaderProperty::Float, 1, "material_diffuse_intensity");
     addUniform(VROShaderProperty::Float, 1, "material_alpha");
-    addUniform(VROShaderProperty::Float, 1, "material_alpha_cutoff");
     addUniform(VROShaderProperty::Float, 1, "material_shininess");
-    
+
     addUniform(VROShaderProperty::Float, 1, "material_roughness");
     addUniform(VROShaderProperty::Float, 1, "material_roughness_intensity");
     addUniform(VROShaderProperty::Float, 1, "material_metalness");
     addUniform(VROShaderProperty::Float, 1, "material_metalness_intensity");
     addUniform(VROShaderProperty::Float, 1, "material_ao");
-    addUniform(VROShaderProperty::Vec3, 1, "material_emissive_color");
 
     // AR Occlusion uniforms (used by occlusion mask modifier for depth-based occlusion)
     addUniform(VROShaderProperty::Vec3, 1, "ar_camera_position");

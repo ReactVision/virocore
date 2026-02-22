@@ -105,15 +105,13 @@ private:
     VROUniform *_diffuseSurfaceColorUniform;
     VROUniform *_diffuseIntensityUniform;
     VROUniform *_alphaUniform;
-    VROUniform *_alphaCutoffUniform;
     VROUniform *_shininessUniform;
     VROUniform *_roughnessUniform;
     VROUniform *_metalnessUniform;
     VROUniform *_roughnessIntensityUniform;
     VROUniform *_metalnessIntensityUniform;
     VROUniform *_aoUniform;
-    VROUniform *_emissiveColorUniform;
-    
+
     VROUniform *_normalMatrixUniform;
     VROUniform *_modelMatrixUniform;
     VROUniform *_modelViewMatrixUniform;
