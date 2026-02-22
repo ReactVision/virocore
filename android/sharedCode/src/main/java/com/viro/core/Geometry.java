@@ -217,6 +217,9 @@ public class Geometry {
      */
     //#IFDEF 'viro_react'
     public void copyAndSetMaterials(List<Material> materials) {
+        if (mNativeRef == 0) {
+            return;
+        }
         long[] materialRefs = new long[materials.size()];
         for (int i = 0; i < materials.size(); i++) {
             materialRefs[i] = materials.get(i).mNativeRef;
