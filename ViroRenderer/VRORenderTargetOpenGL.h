@@ -55,6 +55,7 @@ public:
                            std::shared_ptr<VRODriver> driver);
     virtual void blitStencil(std::shared_ptr<VRORenderTarget> destination, bool flipY,
                              std::shared_ptr<VRODriver> driver);
+    virtual void blitDepth(std::shared_ptr<VRORenderTarget> destination);
     
     virtual bool setViewport(VROViewport viewport);
     virtual bool hydrate();

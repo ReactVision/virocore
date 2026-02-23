@@ -276,6 +276,11 @@ void VROSceneRendererARCore::renderWithTracking(const std::shared_ptr<VROARCamer
     _renderer->setOcclusionMode(occlusionMode);
     _renderer->setDepthTexture(depthTexture);
     _renderer->setDepthTextureTransform(depthTransform);
+
+    // Expose live camera feed to shader modifiers via 'camera_texture' sampler
+    _renderer->setCameraBackgroundTexture(_session->getCameraBackgroundTexture());
+    _renderer->setCameraImageTransform(frame->getViewportToCameraImageTransform());
+
     _renderer->renderEye(VROEyeType::Monocular, _renderer->getLookAtMatrix(), projection, viewport, _driver);
     _renderer->renderHUD(VROEyeType::Monocular, VROMatrix4f::identity(), projection, _driver);
     _renderer->endFrame(_driver);

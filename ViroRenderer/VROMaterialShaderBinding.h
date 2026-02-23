@@ -76,6 +76,7 @@ public:
                               std::shared_ptr<VRODriver> &driver);
     void bindGeometryUniforms(float opacity, const VROGeometry &geometry, const VROMaterial &material);
     void bindOcclusionUniforms(const VRORenderContext &context);
+    void bindCameraUniforms(const VRORenderContext &context);
     
     std::shared_ptr<VROShaderProgram> &getProgram() {
         return _program;
@@ -130,6 +131,9 @@ private:
     VROUniform *_arDepthTextureTransformUniform;
     VROUniform *_occlusionZNearUniform;
     VROUniform *_occlusionZFarUniform;
+
+    // Camera texture transform uniform
+    VROUniform *_cameraImageTransformUniform;
     
     /*
      The textures of the material, in order of the samplers in the shader program.

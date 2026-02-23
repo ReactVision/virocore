@@ -37,7 +37,9 @@ enum VROGlobalTextureType {
     IrradianceMap,
     PrefilteredMap,
     BrdfMap,
-    ARDepthMap
+    ARDepthMap,
+    SceneDepth,      // Scene depth buffer from the previous frame (sampled as raw depth)
+    CameraBackground // Live AR camera feed (GL_TEXTURE_EXTERNAL_OES on Android, GL_TEXTURE_2D on iOS)
 };
 
 /*

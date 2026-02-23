@@ -97,6 +97,7 @@ void VROChoreographer::createRenderTargets() {
     _postProcessTargetA.reset();
     _postProcessTargetB.reset();
     _hdrTarget.reset();
+    _sceneDepthTarget.reset();
     _additiveBlendPostProcess.reset();
     _toneMappingPass.reset();
     _preprocesses.clear();
@@ -128,6 +129,10 @@ void VROChoreographer::createRenderTargets() {
     if (_hdrEnabled) {
         _postProcessTargetA = driver->newRenderTarget(VRORenderTargetType::ColorTextureHDR16, 1, 1, false, false);
         _postProcessTargetB = driver->newRenderTarget(VRORenderTargetType::ColorTextureHDR16, 1, 1, false, false);
+
+        // Depth-only target for capturing scene depth after the base render pass.
+        // DepthTextureRaw creates a plain depth texture without PCF compare mode.
+        _sceneDepthTarget = driver->newRenderTarget(VRORenderTargetType::DepthTextureRaw, 1, 1, false, false);
 
         // Configure the number of render targets.
         // TODO: Consider making the assignment of render target attachments more dynamic.
@@ -231,6 +236,10 @@ void VROChoreographer::setViewport(VROViewport viewport, std::shared_ptr<VRODriv
             failed = true;
         }
     }
+    if (_sceneDepthTarget) {
+        _sceneDepthTarget->setViewport(rtViewport);
+        _sceneDepthTarget->hydrate();
+    }
     _gaussianBlurPass->setViewPort(viewport, driver);
 
     if (failed) {
@@ -264,6 +273,10 @@ void VROChoreographer::renderScene(std::shared_ptr<VROScene> scene,
                                    std::shared_ptr<VROScene> outgoingScene,
                                    const std::shared_ptr<VRORenderMetadata> &metadata,
                                    VRORenderContext *context, std::shared_ptr<VRODriver> &driver) {
+    // Provide the previous frame's scene depth texture to shader modifiers that sample it.
+    // This is null for the first frame or when HDR is disabled.
+    context->setSceneDepthTexture(_lastSceneDepthTexture);
+
     VRORenderPassInputOutput inputs;
     if (_hdrEnabled) {
         if (_bloomEnabled && metadata->requiresBloomPass()) {
@@ -271,6 +284,13 @@ void VROChoreographer::renderScene(std::shared_ptr<VROScene> scene,
             // Render the scene + bloom to the floating point HDR MRT target
             inputs.outputTarget = _hdrTarget;
             _baseRenderPass->render(scene, outgoingScene, inputs, context, driver);
+
+            // Capture scene depth from the HDR target's depth renderbuffer into the
+            // depth texture target, so the next frame can sample it.
+            if (_sceneDepthTarget && _sceneDepthTarget->getWidth() == _hdrTarget->getWidth()) {
+                _hdrTarget->blitDepth(_sceneDepthTarget);
+                _lastSceneDepthTexture = _sceneDepthTarget->getTexture(0);
+            }
 
             // Blur the image. The finished result will reside in _blurTargetB.
             inputs.textures[kGaussianInput] = _hdrTarget->getTexture(2);
@@ -315,7 +335,13 @@ void VROChoreographer::renderScene(std::shared_ptr<VROScene> scene,
             // Render the scene to the floating point HDR target
             inputs.outputTarget = _hdrTarget;
             _baseRenderPass->render(scene, outgoingScene, inputs, context, driver);
-            
+
+            // Capture scene depth for the next frame
+            if (_sceneDepthTarget && _sceneDepthTarget->getWidth() == _hdrTarget->getWidth()) {
+                _hdrTarget->blitDepth(_sceneDepthTarget);
+                _lastSceneDepthTexture = _sceneDepthTarget->getTexture(0);
+            }
+
             // Run additional post-processing on the HDR image
             bool canProcessMask = metadata->requiresPostProcessMaskPass() && _postProcessMaskEnabled;
             std::shared_ptr<VROTexture> postProcessMask = canProcessMask  ? _hdrTarget->getTexture(3) : nullptr;

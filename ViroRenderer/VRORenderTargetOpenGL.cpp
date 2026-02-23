@@ -127,9 +127,10 @@ void VRORenderTargetOpenGL::invalidate() {
             
         case VRORenderTargetType::DepthTexture:
         case VRORenderTargetType::DepthTextureArray:
+        case VRORenderTargetType::DepthTextureRaw:
             // Nothing to discard
             break;
-            
+
         default:
             // Nothing to discard
             break;
@@ -143,6 +144,20 @@ void VRORenderTargetOpenGL::blitColor(std::shared_ptr<VRORenderTarget> destinati
 
 void VRORenderTargetOpenGL::blitStencil(std::shared_ptr<VRORenderTarget> destination, bool flipY, std::shared_ptr<VRODriver> driver) {
     blitAttachment(GL_COLOR_ATTACHMENT0, GL_STENCIL_BUFFER_BIT, GL_NEAREST, destination, flipY, driver);
+}
+
+void VRORenderTargetOpenGL::blitDepth(std::shared_ptr<VRORenderTarget> destination) {
+    passert (_viewport.getWidth() == destination->getWidth());
+    passert (_viewport.getHeight() == destination->getHeight());
+
+    VRORenderTargetOpenGL *t = (VRORenderTargetOpenGL *) destination.get();
+    GL( glBindFramebuffer(GL_READ_FRAMEBUFFER, _framebuffer) );
+    GL( glBindFramebuffer(GL_DRAW_FRAMEBUFFER, t->_framebuffer) );
+    GL( glBlitFramebuffer(_viewport.getX(), _viewport.getY(),
+                          _viewport.getX() + _viewport.getWidth(), _viewport.getY() + _viewport.getHeight(),
+                          t->_viewport.getX(), t->_viewport.getY(),
+                          t->_viewport.getX() + t->_viewport.getWidth(), t->_viewport.getY() + t->_viewport.getHeight(),
+                          GL_DEPTH_BUFFER_BIT, GL_NEAREST) );
 }
 
 void VRORenderTargetOpenGL::blitAttachment(GLenum attachment, GLbitfield mask, GLenum filter,
@@ -512,6 +527,38 @@ bool VRORenderTargetOpenGL::attachNewTextures() {
         _textures[0] = std::make_shared<VROTexture>(VROTextureType::Texture2D, VROTextureInternalFormat::RGBA8,
                                                     std::move(substrate));
     }
+    else if (_type == VRORenderTargetType::DepthTextureRaw) {
+        // Plain depth texture without PCF compare mode — raw depth values sampled via sampler2D.
+        GLenum target = GL_TEXTURE_2D;
+        GL (glBindFramebuffer(GL_FRAMEBUFFER, _framebuffer) );
+
+        GLuint texName;
+        GL (glGenTextures(1, &texName) );
+        GL (glBindTexture(GL_TEXTURE_2D, texName) );
+
+        GL (glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST) );
+        GL (glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST) );
+        GL (glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE) );
+        GL (glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE) );
+        // No GL_TEXTURE_COMPARE_MODE — sample raw depth with texture() in GLSL
+        GL (glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, _viewport.getWidth(), _viewport.getHeight(), 0,
+                         GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, 0) );
+        GL (glBindTexture(GL_TEXTURE_2D, 0) );
+        GL (glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, texName, 0) );
+
+        GLenum none[] = { GL_NONE };
+        GL (glDrawBuffers(1, none) );
+        GL (glReadBuffer(GL_NONE) );
+
+        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+            pinfo("Failed to make complete framebuffer object for raw depth texture [error %x]", glCheckFramebufferStatus(GL_FRAMEBUFFER));
+            return false;
+        }
+
+        std::unique_ptr<VROTextureSubstrate> substrate = std::unique_ptr<VROTextureSubstrateOpenGL>(new VROTextureSubstrateOpenGL(target, texName, driver));
+        _textures[0] = std::make_shared<VROTexture>(VROTextureType::Texture2D, VROTextureInternalFormat::RGBA8,
+                                                    std::move(substrate));
+    }
     else if (_type == VRORenderTargetType::DepthTextureArray) {
         GLenum target = GL_TEXTURE_2D_ARRAY;
         GL (glBindFramebuffer(GL_FRAMEBUFFER, _framebuffer) );
@@ -582,6 +629,7 @@ GLenum VRORenderTargetOpenGL::getTextureAttachmentType(int attachment) const {
             return GL_COLOR_ATTACHMENT0 + attachment;
         case VRORenderTargetType::DepthTexture:
         case VRORenderTargetType::DepthTextureArray:
+        case VRORenderTargetType::DepthTextureRaw:
             return GL_DEPTH_ATTACHMENT;
         default:
             return 0;
@@ -607,6 +655,7 @@ bool VRORenderTargetOpenGL::restoreFramebuffers() {
             
         case VRORenderTargetType::DepthTexture:
         case VRORenderTargetType::DepthTextureArray:
+        case VRORenderTargetType::DepthTextureRaw:
             return createDepthTextureTarget();
             
         default:

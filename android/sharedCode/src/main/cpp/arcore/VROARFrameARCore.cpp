@@ -216,7 +216,36 @@ std::vector<std::shared_ptr<VROARHitTestResult>> VROARFrameARCore::hitTestRay(VR
     return toReturn;
 }
 VROMatrix4f VROARFrameARCore::getViewportToCameraImageTransform() const {
-    pabort("Not supported on ARCore");
+    std::shared_ptr<VROARSessionARCore> session = _session.lock();
+    if (!session) {
+        return VROMatrix4f();  // identity
+    }
+
+    // ARCore background texcoords: camera-image UVs at 4 viewport corners.
+    // Layout from arcore::Frame::getBackgroundTexcoords:
+    //   [0,1] = BL (screen 0,0),  [2,3] = TL (screen 0,1),
+    //   [4,5] = BR (screen 1,0),  [6,7] = TR (screen 1,1)
+    float tc[8] = {};
+    _frame->getBackgroundTexcoords(tc);
+    float blX = tc[0], blY = tc[1];
+    float tlX = tc[2], tlY = tc[3];
+    float brX = tc[4], brY = tc[5];
+
+    // Build affine transform M : viewport-UV [0,1]^2  ->  camera-image UV
+    //   M * (0,0,0,1)^T = (blX, blY, 0, 1)  (translation)
+    //   M * (1,0,0,1)^T = (brX, brY, 0, 1)  (x-basis = BR - BL)
+    //   M * (0,1,0,1)^T = (tlX, tlY, 0, 1)  (y-basis = TL - BL)
+    //
+    // VROMatrix4f uses column-major storage (same as iOS / OpenGL convention):
+    //   indices [0..3]  = col 0,  [4..7] = col 1,  [12..15] = col 3
+    VROMatrix4f matrix;          // initialised to identity by default ctor
+    matrix[0]  = brX - blX;     // col0 row0 — cam-u per screen-x
+    matrix[1]  = brY - blY;     // col0 row1 — cam-v per screen-x
+    matrix[4]  = tlX - blX;     // col1 row0 — cam-u per screen-y
+    matrix[5]  = tlY - blY;     // col1 row1 — cam-v per screen-y
+    matrix[12] = blX;            // col3 row0 — cam-u at screen origin
+    matrix[13] = blY;            // col3 row1 — cam-v at screen origin
+    return matrix;
 }
 
 bool VROARFrameARCore::hasDisplayGeometryChanged() {
