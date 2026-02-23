@@ -38,6 +38,7 @@
 #include "VROStringUtil.h"
 #include "VRODriverOpenGL.h"
 #include <atomic>
+#include <set>
 #include <sstream>
 
 #define kDebugShaders 0
@@ -416,7 +417,14 @@ void VROShaderProgram::findUniformLocations() {
     for (std::string &samplerName : _samplers) {
         int location = GL( glGetUniformLocation(_program, samplerName.c_str()) );
         GL( glUniform1i(location, samplerIdx) );
-        
+
+        ++samplerIdx;
+    }
+
+    // Assign texture units to modifier-declared samplers, continuing from where _samplers left off.
+    for (const std::string &samplerName : _modifierSamplers) {
+        int location = GL( glGetUniformLocation(_program, samplerName.c_str()) );
+        GL( glUniform1i(location, samplerIdx) );
         ++samplerIdx;
     }
 }
@@ -472,10 +480,13 @@ void VROShaderProgram::parseCustomUniforms(const std::string &uniformsSource) {
             lineStream >> name;
         }
 
-        // If name is empty, type is the name
+        // If name is empty, this was a 3-token declaration: "uniform <type> <name>;"
+        // e.g. "uniform mat4 camera_image_transform;" parsed as precision="mat4", type="name;"
+        // In this case precision IS the real type, and type IS the name.
         if (name.empty()) {
-            name = type;
-            lineStream >> type; // Try to get actual type
+            name = type;   // type slot holds the name
+            type = precision; // precision slot holds the real GLSL type
+            precision = "";
         }
 
         // Clean up name (remove semicolon)
@@ -488,8 +499,30 @@ void VROShaderProgram::parseCustomUniforms(const std::string &uniformsSource) {
             continue;
         }
 
-        // Skip samplers (they're handled separately)
-        if (VROStringUtil::startsWith(type, "sampler")) {
+        // Collect modifier-declared samplers so they can be assigned texture units.
+        // They are NOT added to _uniforms (GL handles them via glUniform1i like _samplers).
+        // Check both `type` and `precision` because the parser may place the sampler type in
+        // either slot depending on whether a precision qualifier is present:
+        //   "uniform highp sampler2D x;" → type="sampler2D"
+        //   "uniform sampler2D x;"       → precision="sampler2D", type="x;"
+        if (VROStringUtil::startsWith(type, "sampler") || VROStringUtil::startsWith(precision, "sampler")) {
+            // Skip if already in the standard sampler list (_samplers); it is handled there
+            // and adding it again to _modifierSamplers would cause double texture-unit assignment
+            // and a null dereference in loadTextures / hashTextures.
+            bool isStandardSampler = false;
+            for (const std::string &s : _samplers) {
+                if (s == name) { isStandardSampler = true; break; }
+            }
+            if (isStandardSampler) {
+                continue;
+            }
+            bool samplerExists = false;
+            for (const std::string &existing : _modifierSamplers) {
+                if (existing == name) { samplerExists = true; break; }
+            }
+            if (!samplerExists) {
+                _modifierSamplers.push_back(name);
+            }
             continue;
         }
 
@@ -675,17 +708,38 @@ void VROShaderProgram::inject(const std::string &directive, const std::string &c
 
 void VROShaderProgram::inflateVertexShaderModifiers(const std::vector<std::shared_ptr<VROShaderModifier>> &modifiers,
                                                     std::string &source) {
-    
-    for (const std::shared_ptr<VROShaderModifier> &modifier : modifiers) {
+    std::vector<std::shared_ptr<VROShaderModifier>> sorted(modifiers);
+    std::stable_sort(sorted.begin(), sorted.end(), [](const std::shared_ptr<VROShaderModifier> &a,
+                                                      const std::shared_ptr<VROShaderModifier> &b) {
+        return a->getPriority() < b->getPriority();
+    });
+
+    // Collect unique varying declarations from all modifiers and inject as 'out' in the vertex shader.
+    {
+        std::set<std::string> seen;
+        std::string varyingDecls;
+        for (const std::shared_ptr<VROShaderModifier> &modifier : sorted) {
+            for (const std::string &varying : modifier->getVaryings()) {
+                if (seen.insert(varying).second) {
+                    varyingDecls += "out " + varying + ";\n";
+                }
+            }
+        }
+        if (!varyingDecls.empty()) {
+            insertModifier(varyingDecls, "#pragma varying_out_declarations", source);
+        }
+    }
+
+    for (const std::shared_ptr<VROShaderModifier> &modifier : sorted) {
         if (modifier->getEntryPoint() != VROShaderEntryPoint::Geometry &&
             modifier->getEntryPoint() != VROShaderEntryPoint::Vertex) {
             continue;
         }
-        
+
         insertModifier(modifier->getBodySource(), modifier->getDirective(VROShaderSection::Body), source);
         insertModifier(modifier->getUniformsSource(), modifier->getDirective(VROShaderSection::Uniforms), source);
         inflateReplacements(modifier->getReplacements(), source);
-        
+
         if (!modifier->getName().empty()) {
             _shaderName.append("_").append(modifier->getName());
         }
@@ -694,8 +748,29 @@ void VROShaderProgram::inflateVertexShaderModifiers(const std::vector<std::share
 
 void VROShaderProgram::inflateFragmentShaderModifiers(const std::vector<std::shared_ptr<VROShaderModifier>> &modifiers,
                                                       std::string &source) {
+    std::vector<std::shared_ptr<VROShaderModifier>> sorted(modifiers);
+    std::stable_sort(sorted.begin(), sorted.end(), [](const std::shared_ptr<VROShaderModifier> &a,
+                                                      const std::shared_ptr<VROShaderModifier> &b) {
+        return a->getPriority() < b->getPriority();
+    });
 
-    for (const std::shared_ptr<VROShaderModifier> &modifier : modifiers) {
+    // Collect unique varying declarations from all modifiers and inject as 'in' in the fragment shader.
+    {
+        std::set<std::string> seen;
+        std::string varyingDecls;
+        for (const std::shared_ptr<VROShaderModifier> &modifier : sorted) {
+            for (const std::string &varying : modifier->getVaryings()) {
+                if (seen.insert(varying).second) {
+                    varyingDecls += "in " + varying + ";\n";
+                }
+            }
+        }
+        if (!varyingDecls.empty()) {
+            insertModifier(varyingDecls, "#pragma varying_in_declarations", source);
+        }
+    }
+
+    for (const std::shared_ptr<VROShaderModifier> &modifier : sorted) {
         if (modifier->getEntryPoint() != VROShaderEntryPoint::Surface &&
             modifier->getEntryPoint() != VROShaderEntryPoint::LightingModel &&
             modifier->getEntryPoint() != VROShaderEntryPoint::Fragment &&
@@ -711,6 +786,54 @@ void VROShaderProgram::inflateFragmentShaderModifiers(const std::vector<std::sha
             _shaderName.append("_").append(modifier->getName());
         }
     }
+
+#ifdef VRO_PLATFORM_ANDROID
+    // On Android, camera_texture is an OES external image texture.
+    // When any modifier uses it, inject the required extension directive and
+    // replace 'sampler2D camera_texture' with 'samplerExternalOES camera_texture'
+    // so users can write platform-agnostic 'uniform sampler2D camera_texture' declarations.
+    {
+        bool needsOES = false;
+        for (const auto &modifier : sorted) {
+            if (modifier->requiresCameraTexture()) {
+                needsOES = true;
+                break;
+            }
+        }
+        if (needsOES) {
+            // Runtime check: VRO_PLATFORM_ANDROID is also defined as 1 for plain .cpp
+            // compilation units on iOS (VRODefines.h gates on __OBJC__). Query the GL
+            // extension string at runtime — on iOS it won't contain GL_OES_EGL_image_external
+            // so the injection is safely skipped.
+            const char *glExts = (const char *)glGetString(GL_EXTENSIONS);
+            const bool hasBaseOES = glExts && (strstr(glExts, "GL_OES_EGL_image_external") != nullptr);
+            if (hasBaseOES) {
+                // GLSL ES 3.0+ (#version 300 es / 310 es / 320 es) should use the _essl3 variant
+                // when available. Some drivers only expose the base extension (without _essl3);
+                // injecting the _essl3 name on such a driver causes "extension not supported"
+                // compile errors. Check the extension string explicitly and fall back to the
+                // base directive when the _essl3 variant is not listed.
+                const bool isESSL3 = source.find("#version 3") != std::string::npos;
+                std::string oesExt;
+                if (isESSL3) {
+                    const bool hasESSL3OES = strstr(glExts, "GL_OES_EGL_image_external_essl3") != nullptr;
+                    oesExt = hasESSL3OES
+                        ? "#extension GL_OES_EGL_image_external_essl3 : require\n"
+                        : "#extension GL_OES_EGL_image_external : require\n";
+                } else {
+                    oesExt = "#extension GL_OES_EGL_image_external : require\n";
+                }
+                size_t versionEnd = source.find('\n');
+                if (versionEnd != std::string::npos) {
+                    source.insert(versionEnd + 1, oesExt);
+                } else {
+                    source = oesExt + source;
+                }
+                VROStringUtil::replaceAll(source, "sampler2D camera_texture", "samplerExternalOES camera_texture");
+            }
+        }
+    }
+#endif
 }
 
 void VROShaderProgram::inflateReplacements(const std::map<std::string, std::string> &replacements, std::string &source) const {

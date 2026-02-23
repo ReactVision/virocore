@@ -1300,6 +1300,37 @@ public class Material {
     }
 
     /**
+     * Add a GLSL shader modifier with typed varying declarations.
+     *
+     * @param entryPoint             The entry point for injection (e.g., "geometry", "surface", "fragment").
+     * @param shaderCode             The GLSL code to inject.
+     * @param varyings               Array of GLSL type+name pairs (e.g., "highp float displacement").
+     *                               The 'out'/'in' qualifiers are added automatically. May be null.
+     * @param requiresSceneDepth     When true the modifier may sample 'uniform sampler2D scene_depth_texture'.
+     * @param requiresCameraTexture  When true the modifier may sample 'uniform sampler2D camera_texture'.
+     *                               On Android the engine injects the OES extension automatically.
+     */
+    public void addShaderModifier(String entryPoint, String shaderCode, String[] varyings,
+                                   boolean requiresSceneDepth, boolean requiresCameraTexture) {
+        nativeAddShaderModifierWithVaryings(mNativeRef, entryPoint, shaderCode, varyings,
+                requiresSceneDepth, requiresCameraTexture);
+    }
+
+    /**
+     * Add a GLSL shader modifier with typed varying declarations (no scene depth, no camera texture).
+     */
+    public void addShaderModifier(String entryPoint, String shaderCode, String[] varyings, boolean requiresSceneDepth) {
+        nativeAddShaderModifierWithVaryings(mNativeRef, entryPoint, shaderCode, varyings, requiresSceneDepth, false);
+    }
+
+    /**
+     * Add a GLSL shader modifier with typed varying declarations (no special flags).
+     */
+    public void addShaderModifier(String entryPoint, String shaderCode, String[] varyings) {
+        nativeAddShaderModifierWithVaryings(mNativeRef, entryPoint, shaderCode, varyings, false, false);
+    }
+
+    /**
      * Set a custom float uniform for shader modifiers.
      *
      * @param uniformName The name of the uniform variable in the shader code.
@@ -1345,6 +1376,17 @@ public class Material {
             throw new IllegalArgumentException("Matrix must be a float array with 16 elements");
         }
         nativeSetShaderUniformMat4(mNativeRef, uniformName, matrix);
+    }
+
+    /**
+     * Set a custom sampler2D (texture) uniform for shader modifiers.
+     *
+     * @param uniformName The name of the sampler uniform variable in the shader code.
+     * @param texture     The {@link Texture} to bind to this sampler.
+     */
+    public void setShaderUniform(String uniformName, Texture texture) {
+        long nativeRef = (texture != null) ? texture.mNativeRef : 0;
+        nativeSetShaderUniformTexture(mNativeRef, uniformName, nativeRef);
     }
 
     /**
@@ -1408,10 +1450,12 @@ public class Material {
     private native void nativeSetChromaKeyFilteringColor(long nativeRef, int color);
     private native void nativeSetColorWriteMask(long nativeRef, String[] masks);
     private native void nativeAddShaderModifier(long nativeRef, String entryPoint, String shaderCode);
+    private native void nativeAddShaderModifierWithVaryings(long nativeRef, String entryPoint, String shaderCode, String[] varyings, boolean requiresSceneDepth, boolean requiresCameraTexture);
     private native void nativeSetShaderUniformFloat(long nativeRef, String uniformName, float value);
     private native void nativeSetShaderUniformVec3(long nativeRef, String uniformName, float x, float y, float z);
     private native void nativeSetShaderUniformVec4(long nativeRef, String uniformName, float x, float y, float z, float w);
     private native void nativeSetShaderUniformMat4(long nativeRef, String uniformName, float[] matrix);
+    private native void nativeSetShaderUniformTexture(long nativeRef, String uniformName, long textureNativeRef);
     private native void nativeCopyShaderUniforms(long destNativeRef, long sourceNativeRef);
     private native void nativeCopyShaderModifiers(long destNativeRef, long sourceNativeRef);
     private native void nativeRemoveAllShaderModifiers(long nativeRef);

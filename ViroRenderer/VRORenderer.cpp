@@ -330,6 +330,18 @@ void VRORenderer::setDepthTextureTransform(VROMatrix4f transform) {
     }
 }
 
+void VRORenderer::setCameraBackgroundTexture(std::shared_ptr<VROTexture> texture) {
+    if (_context) {
+        _context->setCameraBackgroundTexture(texture);
+    }
+}
+
+void VRORenderer::setCameraImageTransform(VROMatrix4f transform) {
+    if (_context) {
+        _context->setCameraImageTransform(transform);
+    }
+}
+
 VROCamera VRORenderer::updateCamera(const VROViewport &viewport, const VROFieldOfView &fov,
                                     const VROMatrix4f &headRotation, const VROMatrix4f &projection) {
     

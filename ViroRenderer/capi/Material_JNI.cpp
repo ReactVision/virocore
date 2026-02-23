@@ -579,6 +579,54 @@ VRO_METHOD(void, nativeAddShaderModifier)(VRO_ARGS
     }
 }
 
+VRO_METHOD(void, nativeAddShaderModifierWithVaryings)(VRO_ARGS
+                                                       VRO_REF(VROMaterial) material_j,
+                                                       VRO_STRING entryPoint_j,
+                                                       VRO_STRING shaderCode_j,
+                                                       VRO_STRING_ARRAY varyings_j,
+                                                       VRO_BOOL requiresSceneDepth_j,
+                                                       VRO_BOOL requiresCameraTexture_j) {
+    VRO_METHOD_PREAMBLE;
+
+    std::string entryPointStr = VRO_STRING_STL(entryPoint_j);
+    std::string shaderCodeStr = VRO_STRING_STL(shaderCode_j);
+
+    VROShaderEntryPoint entryPoint = parseShaderEntryPoint(entryPointStr);
+
+    // Split shader code into lines
+    std::vector<std::string> lines;
+    std::stringstream ss(shaderCodeStr);
+    std::string line;
+    while (std::getline(ss, line)) {
+        lines.push_back(line);
+    }
+
+    // Parse varyings array
+    std::vector<std::string> varyings;
+    if (varyings_j) {
+        int numVaryings = VRO_ARRAY_LENGTH(varyings_j);
+        for (int i = 0; i < numVaryings; i++) {
+            VRO_STRING v_j = VRO_STRING_ARRAY_GET(varyings_j, i);
+            varyings.push_back(VRO_STRING_STL(v_j));
+        }
+    }
+
+    std::shared_ptr<VROMaterial> material = VRO_REF_GET(VROMaterial, material_j);
+    if (material) {
+        material->setThreadRestrictionEnabled(false);
+        auto modifier = std::make_shared<VROShaderModifier>(entryPoint, lines);
+        if (!varyings.empty()) {
+            modifier->setVaryings(varyings);
+        }
+        modifier->setRequiresSceneDepth(requiresSceneDepth_j);
+        modifier->setRequiresCameraTexture(requiresCameraTexture_j);
+        material->addShaderModifier(modifier);
+        material->setThreadRestrictionEnabled(true);
+    } else {
+        pwarn("Material_JNI: Material reference is null (nativeAddShaderModifierWithVaryings)!");
+    }
+}
+
 VRO_METHOD(void, nativeSetShaderUniformFloat)(VRO_ARGS
                                               VRO_REF(VROMaterial) material_j,
                                               VRO_STRING uniformName_j,
@@ -660,6 +708,29 @@ VRO_METHOD(void, nativeSetShaderUniformMat4)(VRO_ARGS
             return;
         }
         material->setShaderUniform(uniformName, value);
+    });
+}
+
+VRO_METHOD(void, nativeSetShaderUniformTexture)(VRO_ARGS
+                                               VRO_REF(VROMaterial) material_j,
+                                               VRO_STRING uniformName_j,
+                                               VRO_REF(VROTexture) texture_j) {
+    VRO_METHOD_PREAMBLE;
+
+    std::string uniformName = VRO_STRING_STL(uniformName_j);
+
+    std::shared_ptr<VROTexture> texture;
+    if (texture_j) {
+        texture = VRO_REF_GET(VROTexture, texture_j);
+    }
+
+    std::weak_ptr<VROMaterial> material_w = VRO_REF_GET(VROMaterial, material_j);
+    VROPlatformDispatchAsyncRenderer([material_w, uniformName, texture] {
+        std::shared_ptr<VROMaterial> material = material_w.lock();
+        if (!material) {
+            return;
+        }
+        material->setShaderUniform(uniformName, texture);
     });
 }
 

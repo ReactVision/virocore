@@ -55,8 +55,9 @@ enum class VRORenderTargetType {
     ColorTextureSRGB,   // Uses a color texture and converts to sRGB space on write
     ColorTextureHDR16,  // Uses a Float16 color texture and a depth renderbuffer
     ColorTextureHDR32,  // Uses a Float32 color texture and a depth renderbuffer
-    DepthTexture,       // Uses a depth texture and no color buffer
-    DepthTextureArray,  // Uses a depth texture array no color buffer
+    DepthTexture,       // Uses a depth texture (with PCF compare mode) and no color buffer
+    DepthTextureArray,  // Uses a depth texture array (with PCF compare mode) and no color buffer
+    DepthTextureRaw,    // Uses a depth texture (no compare mode, plain float sampling) and no color buffer
     CubeTexture,        // Uses a color texture and a depth renderbuffer
     CubeTextureHDR16,   // Uses a Float16 color texture and a depth renderbuffer
     CubeTextureHDR32,   // Uses a Float32 color texture and a depth renderbuffer
@@ -172,11 +173,18 @@ public:
      Blit the stencil attachment of this framebuffer over to the given destination
      buffer's stencil attachment. This should be implemented as a driver-level fast
      operation.
-     
+
      The destination render target must already have been bound.
      */
     virtual void blitStencil(std::shared_ptr<VRORenderTarget> destination, bool flipY,
                                   std::shared_ptr<VRODriver> driver) = 0;
+
+    /*
+     Blit the depth attachment of this framebuffer over to the given destination
+     buffer's depth attachment. The destination must have a depth texture attached
+     (e.g. DepthTextureRaw). Both targets must share the same dimensions.
+     */
+    virtual void blitDepth(std::shared_ptr<VRORenderTarget> destination) = 0;
     
     /*
      Delete all existing framebuffers.

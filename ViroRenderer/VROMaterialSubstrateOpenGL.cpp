@@ -105,6 +105,8 @@ void VROMaterialSubstrateOpenGL::bindView(VROMatrix4f modelMatrix, VROMatrix4f v
                                      cameraPosition, eyeType);
     // Bind AR occlusion uniforms if occlusion is enabled
     _activeBinding->bindOcclusionUniforms(context);
+    // Bind camera texture transform (always; no-op if uniform not present)
+    _activeBinding->bindCameraUniforms(context);
 }
 
 const std::vector<VROTextureReference> &VROMaterialSubstrateOpenGL::getTextures() const {
@@ -163,7 +165,10 @@ uint32_t VROMaterialSubstrateOpenGL::hashTextures(const std::vector<VROTextureRe
     uint32_t h = 0;
     for (const VROTextureReference &texture : textures) {
         if (!texture.isGlobal()) {
-            h = 31 * h + texture.getLocalTexture()->getTextureId();
+            const std::shared_ptr<VROTexture> &local = texture.getLocalTexture();
+            if (local) {
+                h = 31 * h + local->getTextureId();
+            }
         }
     }
     return h;

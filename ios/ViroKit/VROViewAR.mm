@@ -56,6 +56,22 @@
 
 static VROVector3f const kZeroVector = VROVector3f();
 
+// ARKit's displayTransformForOrientation uses UIKit/Metal convention (y=0 at top of screen).
+// Shader modifiers derive v_screen_uv from OpenGL NDC (y=0 at bottom).
+// Pre-compose a Y-flip on the input so the transform accepts OpenGL UVs:
+//   T'(x, y) = T(x, 1-y)  where T is the original UIKit-convention transform
+//   a'=a  b'=b  c'=-c  d'=-d  tx'=c+tx  ty'=d+ty   (VROMatrix4f is column-major)
+static inline VROMatrix4f viroGLConvTransform(VROMatrix4f t) {
+    VROMatrix4f m;               // default-constructed to identity
+    m[0]  =  t[0];               // a
+    m[1]  =  t[1];               // b
+    m[4]  = -t[4];               // -c
+    m[5]  = -t[5];               // -d
+    m[12] =  t[4] + t[12];       // c + tx
+    m[13] =  t[5] + t[13];       // d + ty
+    return m;
+}
+
 @interface VROViewAR () {
     std::shared_ptr<VRORenderer> _renderer;
     std::shared_ptr<VROARSceneController> _sceneController;
@@ -779,7 +795,7 @@ static VROVector3f const kZeroVector = VROVector3f();
     if (occlusionMode != VROOcclusionMode::Disabled) {
         depthTexture = frame->getDepthTexture();
         if (depthTexture) {
-            depthTextureTransform = frame->getDepthTextureTransform();
+            depthTextureTransform = viroGLConvTransform(frame->getDepthTextureTransform());
 
             // Ensure the depth texture is uploaded to GPU before rendering
             if (!depthTexture->isHydrated()) {
@@ -797,6 +813,10 @@ static VROVector3f const kZeroVector = VROVector3f();
     _renderer->setOcclusionMode(occlusionMode);
     _renderer->setDepthTexture(depthTexture);
     _renderer->setDepthTextureTransform(depthTextureTransform);
+
+    // Expose live camera feed to shader modifiers via 'camera_texture' sampler
+    _renderer->setCameraBackgroundTexture(_arSession->getCameraBackgroundTexture());
+    _renderer->setCameraImageTransform(viroGLConvTransform(frame->getViewportToCameraImageTransform()));
 
     _pointOfView->getCamera()->setPosition(position);
     _renderer->prepareFrame(_frame, viewport, fov, rotation, projection, _driver);

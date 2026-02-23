@@ -97,6 +97,9 @@ void VROMaterialShaderBinding::loadUniforms() {
     _arDepthTextureTransformUniform = program->getUniform("ar_depth_texture_transform");
     _occlusionZNearUniform = program->getUniform("occlusion_z_near");
     _occlusionZFarUniform = program->getUniform("occlusion_z_far");
+
+    // Camera texture transform (may be null if no modifier uses camera_texture)
+    _cameraImageTransformUniform = program->getUniform("camera_image_transform");
     
     for (const std::shared_ptr<VROShaderModifier> &modifier : program->getModifiers()) {
         std::vector<std::string> uniformNames = modifier->getUniforms();
@@ -181,6 +184,54 @@ void VROMaterialShaderBinding::loadTextures() {
         else {
             // Unhandled sampler - this will cause texture binding mismatch!
             pwarn("loadTextures: Unhandled sampler '%s' - texture binding will be incorrect!", sampler.c_str());
+        }
+    }
+
+    // Bind textures for modifier-declared samplers. These follow the standard samplers in
+    // texture unit assignment order and are supplied via VROMaterial::setShaderUniform(name, texture)
+    // or resolved automatically for well-known global sampler names.
+    const std::vector<std::string> &modifierSamplers = _program->getModifierSamplers();
+    const std::map<std::string, std::shared_ptr<VROTexture>> &uniformTextures = _material.getShaderUniformTextures();
+    for (const std::string &samplerName : modifierSamplers) {
+        // Well-known global sampler names are auto-bound from the render context each frame.
+        if (samplerName == "scene_depth_texture") {
+            _textures.emplace_back(VROGlobalTextureType::SceneDepth);
+            continue;
+        }
+        if (samplerName == "camera_texture") {
+            _textures.emplace_back(VROGlobalTextureType::CameraBackground);
+            continue;
+        }
+        // Guard: standard global samplers may be re-declared in modifier uniforms strings.
+        // parseCustomUniforms now skips them (they're already in _samplers), but handle
+        // them here as a belt-and-suspenders fallback so we never push a null local ref.
+        if (samplerName == "ar_depth_texture" || samplerName == "ar_occlusion_depth_texture") {
+            _textures.emplace_back(VROGlobalTextureType::ARDepthMap);
+            continue;
+        }
+        if (samplerName == "shadow_map") {
+            _textures.emplace_back(VROGlobalTextureType::ShadowMap);
+            continue;
+        }
+        if (samplerName == "irradiance_map") {
+            _textures.emplace_back(VROGlobalTextureType::IrradianceMap);
+            continue;
+        }
+        if (samplerName == "prefiltered_map") {
+            _textures.emplace_back(VROGlobalTextureType::PrefilteredMap);
+            continue;
+        }
+        if (samplerName == "brdf_map") {
+            _textures.emplace_back(VROGlobalTextureType::BrdfMap);
+            continue;
+        }
+        auto it = uniformTextures.find(samplerName);
+        if (it != uniformTextures.end()) {
+            _textures.emplace_back(it->second);
+        } else {
+            // No texture assigned yet — push a null reference so that texture unit indices
+            // remain aligned with the sampler unit assignments in findUniformLocations().
+            _textures.emplace_back(std::shared_ptr<VROTexture>(nullptr));
         }
     }
 }
@@ -325,5 +376,11 @@ void VROMaterialShaderBinding::bindOcclusionUniforms(const VRORenderContext &con
     }
     if (_occlusionZFarUniform != nullptr) {
         _occlusionZFarUniform->setFloat(context.getZFar());
+    }
+}
+
+void VROMaterialShaderBinding::bindCameraUniforms(const VRORenderContext &context) {
+    if (_cameraImageTransformUniform != nullptr) {
+        _cameraImageTransformUniform->setMat4(context.getCameraImageTransform());
     }
 }
