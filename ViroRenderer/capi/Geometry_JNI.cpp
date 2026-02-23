@@ -73,25 +73,33 @@ VRO_METHOD(void, nativeCopyAndSetMaterials)(VRO_ARGS
     VRO_REF(VROMaterial) *materials_c = VRO_REF_ARRAY_GET_ELEMENTS(materials_j);
     int len = VRO_ARRAY_LENGTH(materials_j);
 
-    std::vector<std::shared_ptr<VROMaterial>> tempMaterials;
+    // Collect strong references to the source materials on the JNI thread so they
+    // stay alive until the GL lambda runs.  The actual VROMaterial *copy* is deferred
+    // to the GL lambda body (below) so that any setShaderUniform lambdas that were
+    // already queued ahead of this one execute first — otherwise the snapshot would
+    // capture stale uniform values (e.g. u_use_geo_uv one toggle behind).
+    std::vector<std::shared_ptr<VROMaterial>> srcMaterials;
     for (int i = 0; i < len; i++) {
-        // Always copy materials from the material manager, as they may be
-        // modified by animations, etc. and we don't want these changes to
-        // propagate to the reference material held by the material manager
-        tempMaterials.push_back(std::make_shared<VROMaterial>(VRO_REF_GET(VROMaterial, materials_c[i])));
+        srcMaterials.push_back(VRO_REF_GET(VROMaterial, materials_c[i]));
     }
 
     std::weak_ptr<VROGeometry> geo_w = VRO_REF_GET(VROGeometry, nativeGeoRef);
-    VROPlatformDispatchAsyncRenderer([geo_w, tempMaterials] {
-        std::shared_ptr<VROGeometry> geo = geo_w.lock();
-
-        std::vector<std::shared_ptr<VROMaterial>> nonConstMaterials = tempMaterials;
-        // If there was no materials given, just create an empty one and set that.
-        if (tempMaterials.size() == 0) {
-            nonConstMaterials.push_back(std::make_shared<VROMaterial>());
+    VROPlatformDispatchAsyncRenderer([geo_w, srcMaterials] {
+        // Copy here, on the GL thread, after all preceding lambdas have run.
+        // Always copy materials from the material manager, as they may be
+        // modified by animations, etc. and we don't want these changes to
+        // propagate to the reference material held by the material manager.
+        std::vector<std::shared_ptr<VROMaterial>> tempMaterials;
+        for (const auto &src : srcMaterials) {
+            tempMaterials.push_back(std::make_shared<VROMaterial>(src));
         }
+        // If there were no materials given, just create an empty one and set that.
+        if (tempMaterials.empty()) {
+            tempMaterials.push_back(std::make_shared<VROMaterial>());
+        }
+        std::shared_ptr<VROGeometry> geo = geo_w.lock();
         if (geo) {
-            geo->setMaterials(nonConstMaterials);
+            geo->setMaterials(tempMaterials);
         }
     });
 
