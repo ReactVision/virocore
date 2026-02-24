@@ -57,10 +57,15 @@
 static VROVector3f const kZeroVector = VROVector3f();
 
 // ARKit's displayTransformForOrientation uses UIKit/Metal convention (y=0 at top of screen).
-// Shader modifiers derive v_screen_uv from OpenGL NDC (y=0 at bottom).
-// Pre-compose a Y-flip on the input so the transform accepts OpenGL UVs:
+// Custom camera-texture shader modifiers compute screenUV from clip-space NDC (y=0 at bottom,
+// OpenGL convention) and pass it directly to camera_image_transform without any Y-flip.
+// Pre-compose a Y-flip so the transform accepts OpenGL UVs:
 //   T'(x, y) = T(x, 1-y)  where T is the original UIKit-convention transform
 //   a'=a  b'=b  c'=-c  d'=-d  tx'=c+tx  ty'=d+ty   (VROMatrix4f is column-major)
+//
+// NOTE: This must NOT be applied to the depth texture transform. The built-in depth
+// shader modifiers (occlusion, debug) compute screenUV from gl_FragCoord and explicitly
+// flip Y themselves, so they already provide UIKit-convention UVs to ar_depth_texture_transform.
 static inline VROMatrix4f viroGLConvTransform(VROMatrix4f t) {
     VROMatrix4f m;               // default-constructed to identity
     m[0]  =  t[0];               // a
@@ -795,7 +800,15 @@ static inline VROMatrix4f viroGLConvTransform(VROMatrix4f t) {
     if (occlusionMode != VROOcclusionMode::Disabled) {
         depthTexture = frame->getDepthTexture();
         if (depthTexture) {
-            depthTextureTransform = viroGLConvTransform(frame->getDepthTextureTransform());
+            // Do NOT apply viroGLConvTransform here. The depth shader modifiers
+            // (createOcclusionMaskModifier / createDepthDebugModifier) compute screenUV
+            // as gl_FragCoord / viewport and then explicitly flip Y:
+            //   screenUV.y = 1.0 - screenUV.y
+            // That puts screenUV in UIKit convention (y=0 at top), which is exactly
+            // what getDepthTextureTransform() expects. Wrapping with viroGLConvTransform
+            // would apply a second Y-flip, shifting the depth sample to the wrong
+            // vertical position (the mispositioning bug introduced by commit 7115d7fb).
+            depthTextureTransform = frame->getDepthTextureTransform();
 
             // Ensure the depth texture is uploaded to GPU before rendering
             if (!depthTexture->isHydrated()) {
