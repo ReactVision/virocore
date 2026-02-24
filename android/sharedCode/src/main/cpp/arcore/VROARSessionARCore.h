@@ -83,6 +83,15 @@ public:
      Reads RVApiKey / RVProjectId from AndroidManifest meta-data if not called.
      */
     void setReactVisionConfig(const std::string &apiKey, const std::string &projectId);
+
+    /*
+     Update the cached GPS pose used by getCameraGeospatialPose() when the
+     ReactVision geospatial provider is active. Called from Java via JNI each
+     time the Android LocationManager delivers a new fix.
+     */
+    void setLastKnownLocation(double lat, double lng, double alt,
+                              double horizAcc, double vertAcc,
+                              double heading, double headingAcc);
     void setAutofocus(bool enabled);
     bool isCameraAutoFocusEnabled();
 
@@ -310,6 +319,12 @@ private:
      Active when setGeospatialAnchorProvider(ReactVision) is called.
      */
     std::shared_ptr<ReactVisionCCA::RVCCAGeospatialProvider> _geospatialProviderRV;
+
+    /*
+     Last GPS location pushed from Java LocationManager (ReactVision provider path).
+     Updated via setLastKnownLocation(); read via getCameraGeospatialPose().
+     */
+    mutable VROGeospatialPose _lastKnownGPSPose;
 
     /*
      Per-frame anchor and trackable update handling.

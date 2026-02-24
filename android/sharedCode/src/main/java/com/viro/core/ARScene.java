@@ -1092,6 +1092,26 @@ public class ARScene extends Scene {
     }
 
     /**
+     * Push the latest device GPS fix into the native session.
+     * Called by the React Native bridge when the ReactVision geospatial provider
+     * is active and a new location is available from Android LocationManager.
+     *
+     * @param lat        Latitude in degrees.
+     * @param lng        Longitude in degrees.
+     * @param alt        Altitude in metres above WGS84 ellipsoid.
+     * @param horizAcc   Horizontal accuracy in metres.
+     * @param vertAcc    Vertical accuracy in metres.
+     * @param heading    Compass bearing in degrees (0 = North, clockwise).
+     * @param headingAcc Heading accuracy in degrees.
+     */
+    public void setLastKnownLocation(double lat, double lng, double alt,
+                                     double horizAcc, double vertAcc,
+                                     double heading, double headingAcc) {
+        nativeSetLastKnownLocation(mNativeRef, lat, lng, alt,
+                                   horizAcc, vertAcc, heading, headingAcc);
+    }
+
+    /**
      * Check VPS availability at the specified location.
      *
      * @param latitude  Latitude in degrees.
@@ -1391,6 +1411,10 @@ public class ARScene extends Scene {
     private native void nativeSetGeospatialModeEnabled(long sceneControllerRef, boolean enabled);
     private native int nativeGetEarthTrackingState(long sceneControllerRef);
     private native void nativeGetCameraGeospatialPose(long sceneControllerRef);
+    private native void nativeSetLastKnownLocation(long sceneControllerRef,
+                                                   double lat, double lng, double alt,
+                                                   double horizAcc, double vertAcc,
+                                                   double heading, double headingAcc);
     private native void nativeCheckVPSAvailability(long sceneControllerRef, double latitude, double longitude);
     private native void nativeCreateGeospatialAnchor(long sceneControllerRef, String key,
                                                       double latitude, double longitude, double altitude,

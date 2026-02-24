@@ -89,7 +89,8 @@ struct VROGeospatialPose {
     // Accuracy metrics
     double horizontalAccuracy;      // Meters
     double verticalAccuracy;        // Meters
-    double orientationYawAccuracy;  // Degrees
+    double headingAccuracy;         // Degrees (95% confidence)
+    double orientationYawAccuracy;  // Degrees (95% confidence)
 
     // Timestamp in milliseconds
     double timestamp;
@@ -101,12 +102,13 @@ struct VROGeospatialPose {
         heading(0),
         horizontalAccuracy(0),
         verticalAccuracy(0),
+        headingAccuracy(0),
         orientationYawAccuracy(0),
         timestamp(0) {}
 
     VROGeospatialPose(double lat, double lng, double alt,
                       VROQuaternion quat, double hdg,
-                      double hAcc, double vAcc, double yawAcc,
+                      double hAcc, double vAcc, double hdgAcc, double yawAcc,
                       double ts) :
         latitude(lat),
         longitude(lng),
@@ -115,6 +117,7 @@ struct VROGeospatialPose {
         heading(hdg),
         horizontalAccuracy(hAcc),
         verticalAccuracy(vAcc),
+        headingAccuracy(hdgAcc),
         orientationYawAccuracy(yawAcc),
         timestamp(ts) {}
 

@@ -53,7 +53,85 @@
 
 #import "VROCloudAnchorProviderARCore.h"
 #import "VROCloudAnchorProviderReactVision.h"
+#import <CoreLocation/CoreLocation.h>
 #import <simd/simd.h>
+
+// ============================================================================
+// VROLocationDelegate — wraps CLLocationManager for the ReactVision GPS pose
+// ============================================================================
+
+@interface VROLocationDelegate : NSObject <CLLocationManagerDelegate>
+@property (nonatomic, strong) CLLocationManager *locationManager;
+// Raw pointer into the owning VROARSessioniOS; cleared before the session dies.
+@property (nonatomic, assign) VROGeospatialPose *poseOut;
+@end
+
+@implementation VROLocationDelegate
+
+- (instancetype)initWithPosePtr:(VROGeospatialPose *)posePtr {
+    self = [super init];
+    if (self) {
+        _poseOut = posePtr;
+        _locationManager = [[CLLocationManager alloc] init];
+        _locationManager.delegate = self;
+        _locationManager.desiredAccuracy = kCLLocationAccuracyBest;
+    }
+    return self;
+}
+
+- (void)start {
+    CLAuthorizationStatus status;
+    if (@available(iOS 14.0, *)) {
+        status = _locationManager.authorizationStatus;
+    } else {
+        status = [CLLocationManager authorizationStatus];
+    }
+    if (status == kCLAuthorizationStatusNotDetermined) {
+        [_locationManager requestWhenInUseAuthorization];
+    }
+    [_locationManager startUpdatingLocation];
+    [_locationManager startUpdatingHeading];
+}
+
+- (void)stop {
+    [_locationManager stopUpdatingLocation];
+    [_locationManager stopUpdatingHeading];
+    _poseOut = nullptr;
+}
+
+- (void)locationManager:(CLLocationManager *)manager
+     didUpdateLocations:(NSArray<CLLocation *> *)locations {
+    if (!_poseOut || locations.count == 0) return;
+    CLLocation *loc = locations.lastObject;
+    _poseOut->latitude           = loc.coordinate.latitude;
+    _poseOut->longitude          = loc.coordinate.longitude;
+    _poseOut->altitude           = loc.altitude;
+    _poseOut->horizontalAccuracy = fmax(0.0, loc.horizontalAccuracy);
+    _poseOut->verticalAccuracy   = fmax(0.0, loc.verticalAccuracy);
+    _poseOut->timestamp          = loc.timestamp.timeIntervalSince1970 * 1000.0;
+}
+
+- (void)locationManager:(CLLocationManager *)manager
+       didUpdateHeading:(CLHeading *)newHeading {
+    if (!_poseOut) return;
+    double deg = newHeading.trueHeading >= 0 ? newHeading.trueHeading
+                                              : newHeading.magneticHeading;
+    _poseOut->heading         = deg;
+    _poseOut->headingAccuracy = fmax(0.0, newHeading.headingAccuracy);
+    // Build yaw quaternion in EUS frame (rotation around Y by heading radians)
+    double yaw = deg * M_PI / 180.0;
+    _poseOut->quaternion = VROQuaternion(0.0f,
+                                        (float)sin(yaw / 2.0),
+                                        0.0f,
+                                        (float)cos(yaw / 2.0));
+}
+
+- (void)locationManager:(CLLocationManager *)manager
+       didFailWithError:(NSError *)error {
+    // Ignore — pose stays at last known value
+}
+
+@end
 
 #ifndef RVCCA_AVAILABLE
 #  if __has_include("ReactVisionCCA/RVCCAGeospatialProvider.h")
@@ -639,6 +717,7 @@ void VROARSessioniOS::resolveCloudAnchor(
       if (!strongSelf) return;
 
       auto viroAnchor = std::make_shared<VROARAnchor>();
+      viroAnchor->setId(cloudIdCopy);
       viroAnchor->setCloudAnchorId(cloudIdCopy);
       // Build VROMatrix4f from simd column-major transform
       float m[16];
@@ -1458,6 +1537,12 @@ void VROARSessioniOS::setGeospatialAnchorProvider(VROGeospatialAnchorProvider pr
               "ReactVision Geospatial unavailable.");
       }
     }
+    // Start GPS updates for getCameraGeospatialPose()
+    if (!_rvLocationDelegate) {
+      _rvLocationDelegate = [[VROLocationDelegate alloc]
+                              initWithPosePtr:&_lastKnownGPSPose];
+      [(VROLocationDelegate *)_rvLocationDelegate start];
+    }
 #else
     pwarn("ReactVision Geospatial not available in this build.");
 #endif
@@ -1465,8 +1550,12 @@ void VROARSessioniOS::setGeospatialAnchorProvider(VROGeospatialAnchorProvider pr
     return;
   }
 
-  // Reset RV provider when switching away
+  // Reset RV provider and stop GPS when switching away
 #if RVCCA_AVAILABLE
+  if (_rvLocationDelegate) {
+    [(VROLocationDelegate *)_rvLocationDelegate stop];
+    _rvLocationDelegate = nil;
+  }
   _geospatialProviderRV.reset();
 #endif
 
@@ -1534,6 +1623,11 @@ VROEarthTrackingState VROARSessioniOS::getEarthTrackingState() const {
 }
 
 VROGeospatialPose VROARSessioniOS::getCameraGeospatialPose() const {
+#if RVCCA_AVAILABLE
+  if (getGeospatialAnchorProvider() == VROGeospatialAnchorProvider::ReactVision) {
+    return _lastKnownGPSPose;
+  }
+#endif
   if (_cloudAnchorProviderARCore) {
     return [_cloudAnchorProviderARCore getCameraGeospatialPose];
   }

@@ -223,7 +223,6 @@ private:
     ReactVisionCCA::RVCCACloudAnchorProvider::Config cfg;
     cfg.apiKey    = apiKey.UTF8String;
     cfg.projectId = projectId.UTF8String;
-    if (endpoint) cfg.endpoint = endpoint.UTF8String;
     cfg.enableLogging = NO;
 
     try {

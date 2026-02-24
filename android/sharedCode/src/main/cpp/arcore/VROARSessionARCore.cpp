@@ -52,6 +52,7 @@
 #include "VROTextureSubstrateOpenGL.h"
 #include <VROImageAndroid.h>
 #include <algorithm>
+#include <cmath>
 
 static bool kDebugTracking = false;
 
@@ -1425,22 +1426,47 @@ VROEarthTrackingState VROARSessionARCore::getEarthTrackingState() const {
 }
 
 VROGeospatialPose VROARSessionARCore::getCameraGeospatialPose() const {
+#if RVCCA_AVAILABLE
+    if (getGeospatialAnchorProvider() == VROGeospatialAnchorProvider::ReactVision) {
+        return _lastKnownGPSPose;
+    }
+#endif
     VROGeospatialPose result;
     if (!_session) return result;
-    
+
     arcore::GeospatialPoseData poseData;
     if (_session->getCameraGeospatialPose(&poseData)) {
-        result.latitude = poseData.latitude;
-        result.longitude = poseData.longitude;
-        result.altitude = poseData.altitude;
-        result.heading = poseData.heading;
-        result.horizontalAccuracy = poseData.horizontalAccuracy;
-        result.verticalAccuracy = poseData.verticalAccuracy;
+        result.latitude              = poseData.latitude;
+        result.longitude             = poseData.longitude;
+        result.altitude              = poseData.altitude;
+        result.heading               = poseData.heading;
+        result.horizontalAccuracy    = poseData.horizontalAccuracy;
+        result.verticalAccuracy      = poseData.verticalAccuracy;
         result.orientationYawAccuracy = poseData.orientationYawAccuracy;
-        result.quaternion = VROQuaternion(poseData.quaternion[0], poseData.quaternion[1], poseData.quaternion[2], poseData.quaternion[3]);
+        result.quaternion            = VROQuaternion(poseData.quaternion[0],
+                                                     poseData.quaternion[1],
+                                                     poseData.quaternion[2],
+                                                     poseData.quaternion[3]);
     }
-    
     return result;
+}
+
+void VROARSessionARCore::setLastKnownLocation(double lat, double lng, double alt,
+                                              double horizAcc, double vertAcc,
+                                              double heading, double headingAcc) {
+    _lastKnownGPSPose.latitude           = lat;
+    _lastKnownGPSPose.longitude          = lng;
+    _lastKnownGPSPose.altitude           = alt;
+    _lastKnownGPSPose.horizontalAccuracy = horizAcc;
+    _lastKnownGPSPose.verticalAccuracy   = vertAcc;
+    _lastKnownGPSPose.heading            = heading;
+    _lastKnownGPSPose.headingAccuracy    = headingAcc;
+    // Build yaw quaternion in EUS frame (rotation around Y by heading radians)
+    double yaw = heading * M_PI / 180.0;
+    _lastKnownGPSPose.quaternion = VROQuaternion(0.0f,
+                                                 (float)std::sin(yaw / 2.0),
+                                                 0.0f,
+                                                 (float)std::cos(yaw / 2.0));
 }
 
 void VROARSessionARCore::checkVPSAvailability(double latitude, double longitude,
