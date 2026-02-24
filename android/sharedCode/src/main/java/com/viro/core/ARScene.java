@@ -933,7 +933,7 @@ public class ARScene extends Scene {
 
     // Called by native
     void onHostSuccess(String originalAnchorId, ARAnchor cloudAnchor, int arNodeId) {
-        CloudAnchorHostListener callback = mCloudAnchorHostCallbacks.get(originalAnchorId);
+        CloudAnchorHostListener callback = mCloudAnchorHostCallbacks.remove(originalAnchorId);
         if (callback != null) {
             ARNode node = null;
             // arNodeId of 0 means no ARNode was associated (e.g., plane anchors)
@@ -952,7 +952,7 @@ public class ARScene extends Scene {
 
     // Called by native
     void onHostFailure(String originalAnchorId, String error) {
-        CloudAnchorHostListener callback = mCloudAnchorHostCallbacks.get(originalAnchorId);
+        CloudAnchorHostListener callback = mCloudAnchorHostCallbacks.remove(originalAnchorId);
         if (callback != null) {
             callback.onFailure(error);
         } else {
@@ -1002,7 +1002,7 @@ public class ARScene extends Scene {
                     "] does not match requested ID [" + cloudAnchorId + "]!");
         }
 
-        CloudAnchorResolveListener callback = mCloudAnchorResolveCallbacks.get(cloudAnchorId);
+        CloudAnchorResolveListener callback = mCloudAnchorResolveCallbacks.remove(cloudAnchorId);
         if (callback != null) {
             ARNode node = null;
             // arNodeId of 0 means no ARNode was associated (cloud anchors don't have ARNodes by default)
@@ -1021,7 +1021,7 @@ public class ARScene extends Scene {
 
     // Called by native
     void onResolveFailure(String originalAnchorId, String error) {
-        CloudAnchorResolveListener callback = mCloudAnchorResolveCallbacks.get(originalAnchorId);
+        CloudAnchorResolveListener callback = mCloudAnchorResolveCallbacks.remove(originalAnchorId);
         if (callback != null) {
             callback.onFailure(error);
         } else {

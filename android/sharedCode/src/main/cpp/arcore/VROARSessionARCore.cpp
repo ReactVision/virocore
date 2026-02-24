@@ -65,7 +65,7 @@ VROARSessionARCore::VROARSessionARCore(std::shared_ptr<VRODriverOpenGL> driver)
       _lightingMode(arcore::LightingMode::EnvironmentalHDR),
       _planeFindingMode(arcore::PlaneFindingMode::Horizontal),
       _updateMode(arcore::UpdateMode::Blocking),
-      _cloudAnchorMode(arcore::CloudAnchorMode::Enabled),
+      _cloudAnchorMode(arcore::CloudAnchorMode::Disabled),
       _focusMode(arcore::FocusMode::FIXED_FOCUS),
       _depthMode(arcore::DepthMode::Disabled),
       _semanticMode(arcore::SemanticMode::Disabled),
@@ -367,10 +367,22 @@ bool VROARSessionARCore::updateARCoreConfig() {
 
   if (status == arcore::ConfigStatus::Success) {
     _session->resume();
+    // After pause→configure→resume, ArFrame's internal state is stale.
+    // Any ArFrame_acquire* call on _frame before the next update() may
+    // access freed ARCore-internal memory (SEGV_MAPERR).  Drive one update
+    // now so _frame is valid for any code that runs before the GL render loop
+    // gets a chance to call updateFrame() again (e.g. hostCloudAnchor queued
+    // in the same renderer-task batch as setReactVisionConfig).
+    if (_frame) {
+      _session->update(_frame);
+    }
     return true;
   } else {
     pwarn("Failed to configure AR session (status %d)", (int)status);
     _session->resume();
+    if (_frame) {
+      _session->update(_frame);
+    }
     return false;
   }
 }
