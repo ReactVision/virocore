@@ -349,6 +349,9 @@ void VROARCameraARCore::cropImage(const uint8_t *image, int imageStride, uint8_t
 }
 
 VROVector3f VROARCameraARCore::getCroppedImageSize() {
+    if (!loadImageData()) {
+        return { 0, 0, 0 };
+    }
     std::shared_ptr<VROARSessionARCore> session = _session.lock();
     if (!session) {
         return { 0, 0, 0 };
