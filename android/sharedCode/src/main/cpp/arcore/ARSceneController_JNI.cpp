@@ -150,11 +150,32 @@ VRO_METHOD(void, nativeGetCameraGeospatialPose)(VRO_ARGS
         VROGeospatialPose pose = arSession->getCameraGeospatialPose();
         VROPlatformCallHostFunction(obj, "onGeospatialPoseSuccess", "(DDDDFFFFDDDD)V",
                                     pose.latitude, pose.longitude, pose.altitude, pose.heading,
-                                    (float)pose.quaternion.X, (float)pose.quaternion.Y, (float)pose.quaternion.Z, (float)pose.quaternion.W,
-                                    pose.horizontalAccuracy, pose.verticalAccuracy, 0.0, pose.orientationYawAccuracy);
+                                    (float)pose.quaternion.X, (float)pose.quaternion.Y,
+                                    (float)pose.quaternion.Z, (float)pose.quaternion.W,
+                                    pose.horizontalAccuracy, pose.verticalAccuracy,
+                                    pose.headingAccuracy, pose.orientationYawAccuracy);
     } else {
         VROPlatformCallHostFunction(obj, "onGeospatialPoseFailure", "(Ljava/lang/String;)V",
                                     VRO_NEW_STRING("AR Session not initialized"));
+    }
+}
+
+VRO_METHOD(void, nativeSetLastKnownLocation)(VRO_ARGS
+                                             VRO_REF(VROARSceneController) arSceneControllerPtr,
+                                             jdouble lat, jdouble lng, jdouble alt,
+                                             jdouble horizAcc, jdouble vertAcc,
+                                             jdouble heading, jdouble headingAcc) {
+    std::shared_ptr<VROARScene> arScene = std::dynamic_pointer_cast<VROARScene>(
+            VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
+    std::shared_ptr<VROARSession> arSession = arScene->getARSession();
+    if (arSession) {
+        std::shared_ptr<VROARSessionARCore> arcoreSession =
+                std::dynamic_pointer_cast<VROARSessionARCore>(arSession);
+        if (arcoreSession) {
+            arcoreSession->setLastKnownLocation(lat, lng, alt,
+                                                horizAcc, vertAcc,
+                                                heading, headingAcc);
+        }
     }
 }
 

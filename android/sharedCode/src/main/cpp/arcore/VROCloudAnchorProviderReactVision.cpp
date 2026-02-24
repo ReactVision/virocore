@@ -47,7 +47,6 @@ public:
         ReactVisionCCA::RVCCACloudAnchorProvider::Config cfg;
         cfg.apiKey    = apiKey;
         cfg.projectId = projectId;
-        if (!endpoint.empty()) cfg.endpoint = endpoint;
 
         provider = std::make_shared<ReactVisionCCA::RVCCACloudAnchorProvider>(cfg);
     }
