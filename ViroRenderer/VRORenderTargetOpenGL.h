@@ -92,7 +92,7 @@ protected:
      The OpenGL ES names for the framebuffer and depth/stencil buffer(s) used to render to
      this render-target. 0 for those that are not used.
      */
-    GLuint _framebuffer, _depthStencilbuffer;
+    GLuint _framebuffer, _depthStencilbuffer, _stencilbuffer;
     
     /*
      The viewport of this target.

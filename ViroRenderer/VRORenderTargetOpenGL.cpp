@@ -46,6 +46,7 @@ VRORenderTargetOpenGL::VRORenderTargetOpenGL(VRORenderTargetType type, int numAt
     VRORenderTarget(type, numAttachments),
     _framebuffer(0),
     _depthStencilbuffer(0),
+    _stencilbuffer(0),
     _colorbuffer(0),
     _numImages(numImages),
     _mipmapsEnabled(enableMipmaps),
@@ -371,19 +372,25 @@ bool VRORenderTargetOpenGL::attachNewTextures() {
         }
         
         /*
-         Create a depth or depth/stencil renderbuffer, allocate storage for it, and attach it to
-         the framebuffer's depth attachment point.
+         Create separate depth and stencil renderbuffers. Using GL_DEPTH_COMPONENT24 for depth
+         (not the packed GL_DEPTH24_STENCIL8) is required so that glBlitFramebuffer(GL_DEPTH_BUFFER_BIT)
+         succeeds on Apple's strict OpenGL ES driver, which requires source and destination depth
+         formats to be identical. _sceneDepthTarget uses GL_DEPTH_COMPONENT24, so this target must
+         match.
          */
         if (_needsDepthStencil && _depthStencilbuffer == 0) {
-            _depthStencilRenderbufferStorage = GL_DEPTH24_STENCIL8;
+            _depthStencilRenderbufferStorage = GL_DEPTH_COMPONENT24;
             GL (glGenRenderbuffers(1, &_depthStencilbuffer) );
             GL (glBindRenderbuffer(GL_RENDERBUFFER, _depthStencilbuffer) );
-            GL (glRenderbufferStorage(GL_RENDERBUFFER, _depthStencilRenderbufferStorage, _viewport.getWidth(), _viewport.getHeight()) );
-            
+            GL (glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, _viewport.getWidth(), _viewport.getHeight()) );
             GL (glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, _depthStencilbuffer) );
-            GL (glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_RENDERBUFFER, _depthStencilbuffer) );
+
+            GL (glGenRenderbuffers(1, &_stencilbuffer) );
+            GL (glBindRenderbuffer(GL_RENDERBUFFER, _stencilbuffer) );
+            GL (glRenderbufferStorage(GL_RENDERBUFFER, GL_STENCIL_INDEX8, _viewport.getWidth(), _viewport.getHeight()) );
+            GL (glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_RENDERBUFFER, _stencilbuffer) );
         }
-        
+
         /*
          Tell the system we're drawing to all attached color buffers.
          */
@@ -683,7 +690,11 @@ void VRORenderTargetOpenGL::deleteFramebuffers() {
         driver->deleteRenderbuffer(_depthStencilbuffer);
         _depthStencilbuffer = 0;
     }
-    
+    if (_stencilbuffer) {
+        driver->deleteRenderbuffer(_stencilbuffer);
+        _stencilbuffer = 0;
+    }
+
     for (std::shared_ptr<VROTexture> &texture : _textures) {
         texture.reset();
     }
