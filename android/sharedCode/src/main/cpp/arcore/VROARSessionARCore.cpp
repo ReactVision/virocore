@@ -65,7 +65,7 @@ VROARSessionARCore::VROARSessionARCore(std::shared_ptr<VRODriverOpenGL> driver)
       _lightingMode(arcore::LightingMode::EnvironmentalHDR),
       _planeFindingMode(arcore::PlaneFindingMode::Horizontal),
       _updateMode(arcore::UpdateMode::Blocking),
-      _cloudAnchorMode(arcore::CloudAnchorMode::Disabled),
+      _cloudAnchorMode(arcore::CloudAnchorMode::Enabled),
       _focusMode(arcore::FocusMode::FIXED_FOCUS),
       _depthMode(arcore::DepthMode::Disabled),
       _semanticMode(arcore::SemanticMode::Disabled),
@@ -237,12 +237,13 @@ void VROARSessionARCore::setCloudAnchorProvider(
     VROCloudAnchorProvider provider) {
 
   if (provider == VROCloudAnchorProvider::ReactVision) {
-    // ReactVision uses its own backend — keep ARCore cloud anchors disabled
-    if (_cloudAnchorMode != arcore::CloudAnchorMode::Disabled) {
-      _cloudAnchorMode = arcore::CloudAnchorMode::Disabled;
-      updateARCoreConfig();
-    }
-    // Create provider if we have credentials
+    // ReactVision uses its own network backend and bypasses ARCore cloud anchors
+    // entirely (see hostCloudAnchor / resolveCloudAnchor — the _cloudAnchorProviderRV
+    // check short-circuits before _cloudAnchorMode is ever consulted).
+    // Do NOT call updateARCoreConfig() here: there is nothing to reconfigure for
+    // ARCore, and an unnecessary Pause/Configure/Resume resets VIO — causing
+    // "Insufficient visual features" when hostCloudAnchor runs in the same
+    // renderer-task batch.
     if (!_cloudAnchorProviderRV && !_rvApiKey.empty() && !_rvProjectId.empty()) {
       _cloudAnchorProviderRV = std::make_shared<VROCloudAnchorProviderReactVision>(
           shared_from_this(), _rvApiKey, _rvProjectId);
