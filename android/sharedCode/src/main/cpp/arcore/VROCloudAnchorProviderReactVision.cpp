@@ -52,9 +52,29 @@ public:
     }
 };
 
+// Improvement 2: map RVCCACloudAnchorProvider::ErrorCode to Google-compatible
+// state strings so callers can pattern-match on the same state names as ARCore.
+static std::string encodeError(
+    const std::string &msg,
+    ReactVisionCCA::RVCCACloudAnchorProvider::ErrorCode code)
+{
+    using EC = ReactVisionCCA::RVCCACloudAnchorProvider::ErrorCode;
+    const char* state;
+    switch (code) {
+        case EC::NetworkError:         state = "ErrorNetworkFailure";                        break;
+        case EC::AuthenticationFailed: state = "ErrorAuthenticationFailed";                  break;
+        case EC::InsufficientFeatures: state = "ErrorHostingInsufficientVisualFeatures";     break;
+        case EC::LocalizationFailed:   state = "ErrorResolvingLocalizationNoMatch";          break;
+        case EC::AnchorNotFound:       state = "ErrorCloudIdNotFound";                       break;
+        case EC::AnchorExpired:        state = "ErrorAnchorExpired";                         break;
+        case EC::Timeout:              state = "ErrorNetworkFailure";                        break;
+        default:                       state = "ErrorInternal";                              break;
+    }
+    return msg + "|" + state;
+}
+
 #else // !RVCCA_AVAILABLE
 
-// Minimal stub so std::unique_ptr<Impl> compiles without RVCCA headers.
 class VROCloudAnchorProviderReactVision::Impl {};
 
 #endif // RVCCA_AVAILABLE
@@ -102,6 +122,15 @@ void VROCloudAnchorProviderReactVision::hostCloudAnchor(
         return;
     }
 
+    // Improvement 3: pass the latest GPS fix into the provider before hosting
+    {
+        double lat = 0.0, lng = 0.0, alt = 0.0;
+        sess->getLastKnownLocation(lat, lng, alt);
+        if (lat != 0.0 || lng != 0.0) {
+            _impl->provider->setLastKnownLocation(lat, lng, alt);
+        }
+    }
+
     auto &frameUniq = sess->getLastFrame();
     if (!frameUniq) {
         onFailure("No AR frame available for feature extraction");
@@ -121,9 +150,10 @@ void VROCloudAnchorProviderReactVision::hostCloudAnchor(
             anchor->setId(cloudId);
             onSuccess(anchor);
         },
+        // Improvement 2: encode ErrorCode as "|StateString" suffix
         [onFailure](const std::string &error,
-                    ReactVisionCCA::RVCCACloudAnchorProvider::ErrorCode) {
-            onFailure(error);
+                    ReactVisionCCA::RVCCACloudAnchorProvider::ErrorCode code) {
+            onFailure(encodeError(error, code));
         });
 #else
     onFailure("ReactVision Cloud Anchors not available: ReactVisionCCA library not linked");
@@ -147,27 +177,46 @@ void VROCloudAnchorProviderReactVision::resolveCloudAnchor(
         return;
     }
 
-    auto &frameUniq2 = sess->getLastFrame();
-    if (!frameUniq2) {
-        onFailure("No AR frame available for localisation");
-        return;
-    }
-    std::shared_ptr<VROARFrame> frame2 = VROARFrameSnapshot::fromFrame(*frameUniq2);
-    if (!frame2) {
-        onFailure("Failed to snapshot AR frame for localisation");
-        return;
-    }
-
+    // Improvement 1: resolve no longer needs a frame snapshot at call time —
+    // localization runs across multiple frames via updateWithFrame().
+    // We pass nullptr; RVCCACloudAnchorProvider ignores the frame for localize.
     _impl->provider->resolveCloudAnchor(
-        cloudAnchorId, frame2,
+        cloudAnchorId, nullptr,
         [onSuccess](std::shared_ptr<VROARAnchor> resolved) {
             onSuccess(resolved);
         },
+        // Improvement 2: encode ErrorCode as "|StateString" suffix
         [onFailure](const std::string &error,
-                    ReactVisionCCA::RVCCACloudAnchorProvider::ErrorCode) {
-            onFailure(error);
+                    ReactVisionCCA::RVCCACloudAnchorProvider::ErrorCode code) {
+            onFailure(encodeError(error, code));
         });
 #else
     onFailure("ReactVision Cloud Anchors not available: ReactVisionCCA library not linked");
+#endif
+}
+
+// Improvement 1 + 6B: called every frame by VROFrameSynchronizer.
+// Takes a fresh frame snapshot and feeds it to the provider's updateWithFrame()
+// which drives both host point-cloud accumulation and resolve localization.
+void VROCloudAnchorProviderReactVision::onFrameDidRender(const VRORenderContext&) {
+#if RVCCA_AVAILABLE
+    if (!_impl || !_impl->provider) return;
+
+    // Avoid the snapshot cost when there is nothing pending.
+    const bool hasWork =
+        _impl->provider->hasPendingLocalizations() ||
+        _impl->provider->hasPendingHosts();
+    if (!hasWork) return;
+
+    auto sess = _impl->session.lock();
+    if (!sess) return;
+
+    auto &frameUniq = sess->getLastFrame();
+    if (!frameUniq) return;
+
+    auto snap = VROARFrameSnapshot::fromFrame(*frameUniq);
+    if (snap) {
+        _impl->provider->updateWithFrame(snap);
+    }
 #endif
 }

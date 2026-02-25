@@ -92,6 +92,7 @@ public:
     void setLastKnownLocation(double lat, double lng, double alt,
                               double horizAcc, double vertAcc,
                               double heading, double headingAcc);
+    void getLastKnownLocation(double& lat, double& lng, double& alt) const;
     void setAutofocus(bool enabled);
     bool isCameraAutoFocusEnabled();
 

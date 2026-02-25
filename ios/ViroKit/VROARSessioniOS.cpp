@@ -599,6 +599,14 @@ void VROARSessioniOS::hostCloudAnchor(
     sim.columns[3] = simd_make_float4(mat[12],mat[13],mat[14], mat[15]);
     ARAnchor *syntheticAnchor = [[ARAnchor alloc] initWithTransform:sim];
 
+    // Improvement 3: pass the latest GPS fix before hosting so the C++ provider
+    // embeds real coordinates in the cloud anchor create request.
+    if (_lastKnownGPSPose.latitude != 0.0 || _lastKnownGPSPose.longitude != 0.0) {
+      [_cloudAnchorProviderRV setLastKnownLocationLat:_lastKnownGPSPose.latitude
+                                            longitude:_lastKnownGPSPose.longitude
+                                             altitude:_lastKnownGPSPose.altitude];
+    }
+
     std::shared_ptr<VROARAnchor> anchorCopy = anchor;
     [_cloudAnchorProviderRV hostAnchor:syntheticAnchor
                                  frame:arFrame
@@ -812,11 +820,18 @@ std::unique_ptr<VROARFrame> &VROARSessioniOS::updateFrame() {
     }
   }
 
-  // Update cloud anchor provider to process pending operations
-  if (_cloudAnchorProviderARCore != nil) {
+  // Update cloud anchor providers to process pending operations
+  {
     ARFrame *arFrame = frameiOS->getARFrame();
     if (arFrame) {
-      [_cloudAnchorProviderARCore updateWithFrame:arFrame];
+      if (_cloudAnchorProviderARCore != nil) {
+        [_cloudAnchorProviderARCore updateWithFrame:arFrame];
+      }
+      // Improvement 1 + 6B: drive multi-frame host accumulation and resolve
+      // localization for the ReactVision provider (no-op when nothing is pending).
+      if (_cloudAnchorProviderRV != nil) {
+        [_cloudAnchorProviderRV updateWithFrame:arFrame];
+      }
     }
   }
 

@@ -71,6 +71,27 @@ static simd_float4x4 floatArrayToSimd(const float m[16]) {
     return r;
 }
 
+// Improvement 2: map ErrorCode to Google-compatible state string, encoded as
+// "message|StateString" so the caller can split and forward the state to JS.
+static std::string encodeError(
+    const std::string &msg,
+    ReactVisionCCA::RVCCACloudAnchorProvider::ErrorCode code)
+{
+    using EC = ReactVisionCCA::RVCCACloudAnchorProvider::ErrorCode;
+    const char *state;
+    switch (code) {
+        case EC::NetworkError:         state = "ErrorNetworkFailure";                    break;
+        case EC::AuthenticationFailed: state = "ErrorAuthenticationFailed";              break;
+        case EC::InsufficientFeatures: state = "ErrorHostingInsufficientVisualFeatures"; break;
+        case EC::LocalizationFailed:   state = "ErrorResolvingLocalizationNoMatch";      break;
+        case EC::AnchorNotFound:       state = "ErrorCloudIdNotFound";                   break;
+        case EC::AnchorExpired:        state = "ErrorAnchorExpired";                     break;
+        case EC::Timeout:              state = "ErrorNetworkFailure";                    break;
+        default:                       state = "ErrorInternal";                          break;
+    }
+    return msg + "|" + state;
+}
+
 // ── ARKit shims ───────────────────────────────────────────────────────────────
 
 namespace {
@@ -146,6 +167,8 @@ static std::shared_ptr<VROARPointCloud> makeARKitPointCloud(ARPointCloud *pc) {
         pts.reserve(pc.count);
         for (NSUInteger i = 0; i < pc.count; ++i) {
             simd_float3 p = pc.points[i];
+            // ARKit doesn't expose per-point confidence; use w=1.0 so the
+            // confidence filter in RVCCACloudAnchorProvider always accepts them.
             pts.push_back(VROVector4f(p.x, p.y, p.z, 1.0f));
         }
         for (NSUInteger i = 0; i < pc.count; ++i) {
@@ -158,10 +181,9 @@ static std::shared_ptr<VROARPointCloud> makeARKitPointCloud(ARPointCloud *pc) {
 class ARKitFrame : public VROARFrame {
 public:
     explicit ARKitFrame(ARFrame *frame) {
-        _timestamp = frame.timestamp;
-        _camera = std::make_shared<ARKitCamera>(
-            frame.camera,
-            frame.camera.imageResolution);
+        _timestamp  = frame.timestamp;
+        _camera     = std::make_shared<ARKitCamera>(
+            frame.camera, frame.camera.imageResolution);
         _pointCloud = makeARKitPointCloud(frame.rawFeaturePoints);
     }
 
@@ -246,6 +268,8 @@ private:
     vroAnchor->setTransform(VROMatrix4f(m));
     vroAnchor->setId(anchor.identifier.UUIDString.UTF8String);
 
+    // Pass the initial ARFrame for camera intrinsic capture; point-cloud
+    // accumulation continues via updateWithFrame: each render frame (Imp 6B).
     auto vroFrame = std::make_shared<ARKitFrame>(frame);
 
     _provider->hostCloudAnchor(
@@ -253,9 +277,11 @@ private:
         [onSuccess](const std::string &cloudId) {
             onSuccess([NSString stringWithUTF8String:cloudId.c_str()]);
         },
+        // Improvement 2: encode ErrorCode as "|StateString" suffix
         [onFailure](const std::string &error,
-                    ReactVisionCCA::RVCCACloudAnchorProvider::ErrorCode) {
-            onFailure([NSString stringWithUTF8String:error.c_str()]);
+                    ReactVisionCCA::RVCCACloudAnchorProvider::ErrorCode code) {
+            std::string encoded = encodeError(error, code);
+            onFailure([NSString stringWithUTF8String:encoded.c_str()]);
         });
 }
 
@@ -264,10 +290,11 @@ private:
                        onSuccess:(void (^)(NSString *, simd_float4x4))onSuccess
                        onFailure:(void (^)(NSString *))onFailure {
 
-    auto vroFrame = std::make_shared<ARKitFrame>(frame);
-
+    // Improvement 1: frame is no longer used for single-shot localization.
+    // updateWithFrame: drives localization across multiple render frames.
+    // Pass nullptr; RVCCACloudAnchorProvider::resolveCloudAnchor ignores it.
     _provider->resolveCloudAnchor(
-        cloudAnchorId.UTF8String, vroFrame,
+        cloudAnchorId.UTF8String, nullptr,
         [onSuccess, cloudAnchorId](std::shared_ptr<VROARAnchor> resolved) {
             VROMatrix4f t = resolved->getTransform();
             simd_float4x4 sim;
@@ -277,10 +304,32 @@ private:
             sim.columns[3] = simd_make_float4(t[12], t[13], t[14], t[15]);
             onSuccess(cloudAnchorId, sim);
         },
+        // Improvement 2: encode ErrorCode as "|StateString" suffix
         [onFailure](const std::string &error,
-                    ReactVisionCCA::RVCCACloudAnchorProvider::ErrorCode) {
-            onFailure([NSString stringWithUTF8String:error.c_str()]);
+                    ReactVisionCCA::RVCCACloudAnchorProvider::ErrorCode code) {
+            std::string encoded = encodeError(error, code);
+            onFailure([NSString stringWithUTF8String:encoded.c_str()]);
         });
+}
+
+// Improvement 1 + 6B: called every render frame by VROARSessioniOS::updateFrame().
+// Feeds a fresh ARKitFrame into the C++ provider's updateWithFrame(), which
+// drives both host point-cloud accumulation and resolve localization.
+- (void)updateWithFrame:(ARFrame *)frame {
+    if (!_provider || !frame) return;
+
+    // Avoid the ARKitFrame construction cost when there's nothing pending.
+    if (!_provider->hasPendingLocalizations() && !_provider->hasPendingHosts()) return;
+
+    auto vroFrame = std::make_shared<ARKitFrame>(frame);
+    _provider->updateWithFrame(vroFrame);
+}
+
+// Improvement 3: store GPS coordinates that will be embedded in host requests.
+- (void)setLastKnownLocationLat:(double)lat longitude:(double)lng altitude:(double)alt {
+    if (_provider) {
+        _provider->setLastKnownLocation(lat, lng, alt);
+    }
 }
 
 - (void)cancelAllOperations {
@@ -324,6 +373,10 @@ private:
                        onFailure:(void (^)(NSString *))onFailure {
     onFailure(@"ReactVision Cloud Anchors not available: ReactVisionCCA library not linked");
 }
+
+- (void)updateWithFrame:(ARFrame *)frame {}
+
+- (void)setLastKnownLocationLat:(double)lat longitude:(double)lng altitude:(double)alt {}
 
 - (void)cancelAllOperations {}
 

@@ -247,6 +247,11 @@ void VROARSessionARCore::setCloudAnchorProvider(
     if (!_cloudAnchorProviderRV && !_rvApiKey.empty() && !_rvProjectId.empty()) {
       _cloudAnchorProviderRV = std::make_shared<VROCloudAnchorProviderReactVision>(
           shared_from_this(), _rvApiKey, _rvProjectId);
+      // Improvement 1 + 6B: register as frame listener so onFrameDidRender()
+      // drives multi-frame host accumulation and resolve localization.
+      if (_synchronizer) {
+        _synchronizer->addFrameListener(_cloudAnchorProviderRV);
+      }
     } else if (_rvApiKey.empty()) {
       pwarn("VROARSessionARCore: setReactVisionConfig() has not been called — "
             "ReactVision Cloud Anchors unavailable.");
@@ -255,6 +260,9 @@ void VROARSessionARCore::setCloudAnchorProvider(
   }
 
   // Tear down RV provider when switching to ARCore or None
+  if (_cloudAnchorProviderRV && _synchronizer) {
+    _synchronizer->removeFrameListener(_cloudAnchorProviderRV);
+  }
   _cloudAnchorProviderRV.reset();
 
   arcore::CloudAnchorMode newMode = (provider == VROCloudAnchorProvider::None)
@@ -1480,6 +1488,15 @@ void VROARSessionARCore::setLastKnownLocation(double lat, double lng, double alt
                                                  (float)std::sin(yaw / 2.0),
                                                  0.0f,
                                                  (float)std::cos(yaw / 2.0));
+}
+
+// Improvement 3: read back the last GPS fix stored by setLastKnownLocation().
+// Called from VROCloudAnchorProviderReactVision::hostCloudAnchor() to populate
+// host request metadata with real coordinates.
+void VROARSessionARCore::getLastKnownLocation(double& lat, double& lng, double& alt) const {
+    lat = _lastKnownGPSPose.latitude;
+    lng = _lastKnownGPSPose.longitude;
+    alt = _lastKnownGPSPose.altitude;
 }
 
 void VROARSessionARCore::checkVPSAvailability(double latitude, double longitude,
