@@ -76,6 +76,21 @@ NS_ASSUME_NONNULL_BEGIN
  */
 - (void)cancelAllOperations;
 
+/**
+ * Improvement 1 + 6B: drive multi-frame host accumulation and resolve localisation.
+ * Call this every AR frame (from VROARSessioniOS::updateFrame).
+ * No-op when there are no pending host or resolve operations.
+ *
+ * @param frame The current ARFrame.
+ */
+- (void)updateWithFrame:(ARFrame *)frame;
+
+/**
+ * Improvement 3: update the GPS coordinates embedded in host metadata.
+ * Call this whenever a new CLLocation fix is available (before or during hosting).
+ */
+- (void)setLastKnownLocationLat:(double)lat longitude:(double)lng altitude:(double)alt;
+
 @end
 
 NS_ASSUME_NONNULL_END

@@ -82,9 +82,15 @@ public:
         std::function<void(std::shared_ptr<VROARAnchor>)> onSuccess,
         std::function<void(std::string error)>             onFailure);
 
-    // VROFrameListener (no-op; operations run on background threads)
+    // VROFrameListener
     void onFrameWillRender(const VRORenderContext &context) override {}
-    void onFrameDidRender(const VRORenderContext &context)  override {}
+
+    /**
+     * Called every frame by VROFrameSynchronizer.
+     * Drives multi-frame host accumulation (Imp 6B) and resolve localization (Imp 1)
+     * by forwarding fresh frame data into RVCCACloudAnchorProvider::updateWithFrame().
+     */
+    void onFrameDidRender(const VRORenderContext &context) override;
 
 private:
     class Impl;
