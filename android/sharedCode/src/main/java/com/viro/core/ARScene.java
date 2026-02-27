@@ -936,12 +936,14 @@ public class ARScene extends Scene {
         CloudAnchorHostListener callback = mCloudAnchorHostCallbacks.remove(originalAnchorId);
         if (callback != null) {
             ARNode node = null;
-            // arNodeId of 0 means no ARNode was associated (e.g., plane anchors)
+            // arNodeId of 0 means no ARNode was associated (e.g., plane anchors).
+            // ARNode.getARNodeWithID looks up the static nodeARMap populated only by
+            // com.viro.core.ARNode constructors. When the React Native bridge is in use,
+            // nodes are managed by VRTARNode and are not in that map — so we leave node=null
+            // rather than falling back to new ARNode(arNodeId), which would misinterpret
+            // the integer unique-ID as a raw C++ pointer and crash.
             if (arNodeId != 0) {
                 node = ARNode.getARNodeWithID(arNodeId);
-                if (node == null) {
-                    node = new ARNode(arNodeId);
-                }
             }
             callback.onSuccess(cloudAnchor, node);
         } else {
