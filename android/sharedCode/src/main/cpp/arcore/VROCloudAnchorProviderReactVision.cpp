@@ -48,6 +48,16 @@ public:
         cfg.apiKey    = apiKey;
         cfg.projectId = projectId;
 
+        // ARCore feature points have much lower confidence values than ARKit (typically
+        // 0.1–0.5 vs 0.8–1.0). The default minPointConfidence of 0.5 discards the
+        // majority of ARCore points, leaving too few keypoints for cross-platform resolve.
+        cfg.minPointConfidence = 0.15f;
+
+        // ARCore produces sparser point clouds per frame than ARKit (~50–150 pts vs ~300+).
+        // A longer scan window compensates, giving Android enough accumulated points to
+        // build a descriptor set dense enough for cross-platform matching.
+        cfg.scanWindowMs = 4000;
+
         provider = std::make_shared<ReactVisionCCA::RVCCACloudAnchorProvider>(cfg);
     }
 };
