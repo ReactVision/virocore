@@ -48,10 +48,25 @@ VRO_OBJECT ARUtilsCreateJavaARAnchorFromAnchor(std::shared_ptr<VROARAnchor> anch
     const char *anchorId_c = anchor->getId().c_str();
     VRO_STRING anchorId = VRO_NEW_STRING(anchorId_c);
 
-    // Get cloud anchor ID only if this is a VROARAnchorARCore (not a geospatial anchor)
+    // Resolve the cloud anchor ID string for both the Google ARCore and RVCA code paths.
+    //
+    // VROARAnchorARCore::getCloudAnchorId() reads its own _cloudAnchorId field, which is
+    // populated by loadCloudAnchorId() (Google ARCore cloud-anchors hosting path).
+    //
+    // The RVCA provider sets the id via VROARAnchor::setCloudAnchorId() on the BASE class.
+    // For RVCA-hosted anchors the cast succeeds (still a VROARAnchorARCore) but the derived
+    // field is empty, so we fall back to the base-class field.
+    // For RVCA-resolved anchors the cast FAILS because RVCA creates a plain VROARAnchor —
+    // in that case we read the base-class field directly via the base-class method.
     VRO_STRING cloudAnchorId = NULL;
-    if (vAnchor) {
-        std::string cloudAnchorId_s = vAnchor->getCloudAnchorId();
+    {
+        std::string cloudAnchorId_s;
+        if (vAnchor) {
+            cloudAnchorId_s = vAnchor->getCloudAnchorId();   // VROARAnchorARCore field (Google path)
+        }
+        if (cloudAnchorId_s.empty()) {
+            cloudAnchorId_s = anchor->getCloudAnchorId();    // VROARAnchor base-class field (RVCA path)
+        }
         if (!cloudAnchorId_s.empty()) {
             cloudAnchorId = VRO_NEW_STRING(cloudAnchorId_s.c_str());
         }
