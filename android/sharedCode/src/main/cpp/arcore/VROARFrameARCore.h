@@ -64,6 +64,7 @@ public:
     }
 
     std::shared_ptr<VROARPointCloud> getPointCloud();
+    bool getCameraImageY(const uint8_t** data, int* width, int* height) override;
 
     /*
      * Depth texture methods for AR occlusion support.
@@ -107,6 +108,10 @@ private:
     VROViewport _viewport;
     std::vector<std::shared_ptr<VROARAnchor>> _anchors; // Unused in ARCore
     std::shared_ptr<VROARPointCloud> _pointCloud;
+
+    // Cached tightly-packed Y plane (acquired lazily via getCameraImageY)
+    std::vector<uint8_t> _lumaData;
+    int _lumaW = 0, _lumaH = 0;
 
     // Driver for creating textures
     std::weak_ptr<VRODriver> _driver;
