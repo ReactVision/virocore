@@ -185,6 +185,55 @@ public:
         _camera     = std::make_shared<ARKitCamera>(
             frame.camera, frame.camera.imageResolution);
         _pointCloud = makeARKitPointCloud(frame.rawFeaturePoints);
+        // Store a strong reference so the pixel buffer stays valid until the
+        // first getCameraImageY() call.  We do NOT copy the luma here: at
+        // 3840×2160 that would be 8.3 MB per render frame (500 MB/s at 60fps),
+        // which stalls the render thread and causes ARKit to retain 10+ frames.
+        _arFrame = frame;
+    }
+
+    bool getCameraImageY(const uint8_t** data, int* width, int* height) override {
+        if (_lumaData.empty()) {
+            // Lazy copy: only executed when the SIFT pipeline actually needs
+            // the luma (motion gate passed or active resolve).
+            if (!_arFrame) return false;
+            CVPixelBufferRef buf = _arFrame.capturedImage;
+            if (!buf) return false;
+            CVPixelBufferLockBaseAddress(buf, kCVPixelBufferLock_ReadOnly);
+            const uint8_t* src = (const uint8_t*)CVPixelBufferGetBaseAddressOfPlane(buf, 0);
+            size_t w  = CVPixelBufferGetWidthOfPlane(buf, 0);
+            size_t h  = CVPixelBufferGetHeightOfPlane(buf, 0);
+            size_t st = CVPixelBufferGetBytesPerRowOfPlane(buf, 0);
+            if (src && w > 0 && h > 0) {
+                _lumaW = (int)w; _lumaH = (int)h;
+                _lumaData.resize(w * h);
+                for (size_t row = 0; row < h; ++row)
+                    memcpy(_lumaData.data() + row * w, src + row * st, w);
+            }
+            CVPixelBufferUnlockBaseAddress(buf, kCVPixelBufferLock_ReadOnly);
+            _arFrame = nil; // release ARFrame; luma is now in _lumaData
+
+            // Subsample to ≤ 1280 px wide immediately so downstream copies
+            // (collectBgKeyframe lumaCopy, pr.lastLuma) are small (~740 KB
+            // instead of 8.3 MB at 3840×2160).
+            while (_lumaW > 1280) {
+                int nw = _lumaW / 2, nh = _lumaH / 2;
+                std::vector<uint8_t> out((size_t)nw * nh);
+                for (int y = 0; y < nh; ++y) {
+                    const uint8_t* r0 = _lumaData.data() + (size_t)(y*2)   * _lumaW;
+                    const uint8_t* r1 = _lumaData.data() + (size_t)(y*2+1) * _lumaW;
+                    uint8_t*       od = out.data()        + (size_t)y       * nw;
+                    for (int x = 0; x < nw; ++x)
+                        od[x] = (uint8_t)(((unsigned)r0[x*2] + r0[x*2+1] +
+                                           r1[x*2] + r1[x*2+1] + 2u) >> 2);
+                }
+                _lumaData = std::move(out);
+                _lumaW = nw; _lumaH = nh;
+            }
+        }
+        if (_lumaData.empty()) return false;
+        *data = _lumaData.data(); *width = _lumaW; *height = _lumaH;
+        return true;
     }
 
     double getTimestamp() const override { return _timestamp; }
@@ -219,6 +268,9 @@ private:
     double                           _timestamp;
     std::shared_ptr<VROARCamera>     _camera;
     std::shared_ptr<VROARPointCloud> _pointCloud;
+    ARFrame * __strong               _arFrame = nil; // held until first getCameraImageY()
+    std::vector<uint8_t>             _lumaData;      // populated lazily, stored subsampled
+    int                              _lumaW = 0, _lumaH = 0;
 };
 
 } // anonymous namespace
@@ -245,7 +297,7 @@ private:
     ReactVisionCCA::RVCCACloudAnchorProvider::Config cfg;
     cfg.apiKey    = apiKey.UTF8String;
     cfg.projectId = projectId.UTF8String;
-    cfg.enableLogging = NO;
+    cfg.enableLogging = YES;  // DEBUG: enable to trace SIFT pipeline
 
     try {
         _provider = std::make_shared<ReactVisionCCA::RVCCACloudAnchorProvider>(cfg);
@@ -317,9 +369,6 @@ private:
 // drives both host point-cloud accumulation and resolve localization.
 - (void)updateWithFrame:(ARFrame *)frame {
     if (!_provider || !frame) return;
-
-    // Avoid the ARKitFrame construction cost when there's nothing pending.
-    if (!_provider->hasPendingLocalizations() && !_provider->hasPendingHosts()) return;
 
     auto vroFrame = std::make_shared<ARKitFrame>(frame);
     _provider->updateWithFrame(vroFrame);

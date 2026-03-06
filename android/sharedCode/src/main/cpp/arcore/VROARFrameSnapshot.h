@@ -71,6 +71,27 @@ public:
     const std::shared_ptr<VROARCamera>& getCamera()      const override { return _camera;      }
     VROCameraOrientation                getOrientation() const override { return _orientation; }
     std::shared_ptr<VROARPointCloud>    getPointCloud()        override { return _pointCloud;  }
+    bool getCameraImageY(const uint8_t** data, int* width, int* height) override {
+        // Lazy luma acquisition (Android P7 equivalent):
+        // Only copies the Y plane (~2MB) when actually needed (motion gate pass
+        // or active resolve).  Most frames never call this → zero copy cost.
+        if (_lumaData.empty() && _liveFrame) {
+            const uint8_t* srcData = nullptr; int srcW = 0, srcH = 0;
+            if (_liveFrame->getCameraImageY(&srcData, &srcW, &srcH)
+                && srcData && srcW > 0 && srcH > 0) {
+                _lumaW = srcW;
+                _lumaH = srcH;
+                _lumaData.assign(srcData, srcData + (size_t)srcW * srcH);
+            }
+            _liveFrame = nullptr; // one-shot: release reference after attempt
+        }
+        if (_lumaData.empty()) return false;
+        *data = _lumaData.data(); *width = _lumaW; *height = _lumaH;
+        return true;
+    }
+
+    // Call from bridge after updateWithFrame() returns to prevent dangling access.
+    void invalidateLiveFrame() { _liveFrame = nullptr; }
 
     // Stubs — not needed by the feature extractor
     std::vector<std::shared_ptr<VROARHitTestResult>>
@@ -94,6 +115,15 @@ private:
     std::shared_ptr<VROARCamera>      _camera;
     std::shared_ptr<VROARPointCloud>  _pointCloud;
     std::vector<std::shared_ptr<VROARAnchor>> _anchors; // always empty
+
+    // Lazy luma: _liveFrame is valid only on the render thread during
+    // updateWithFrame().  On first getCameraImageY() call, luma is copied
+    // from the live frame into _lumaData, then _liveFrame is nulled.
+    VROARFrame* _liveFrame = nullptr;
+
+    // Tightly-packed Y plane (populated lazily from _liveFrame)
+    std::vector<uint8_t> _lumaData;
+    int _lumaW = 0, _lumaH = 0;
 };
 
 #endif /* VROARFrameSnapshot_h */

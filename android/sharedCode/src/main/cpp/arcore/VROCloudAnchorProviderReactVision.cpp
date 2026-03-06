@@ -58,6 +58,8 @@ public:
         // build a descriptor set dense enough for cross-platform matching.
         cfg.scanWindowMs = 4000;
 
+        cfg.enableLogging = true;
+
         provider = std::make_shared<ReactVisionCCA::RVCCACloudAnchorProvider>(cfg);
     }
 };
@@ -152,12 +154,21 @@ void VROCloudAnchorProviderReactVision::hostCloudAnchor(
         onFailure("Failed to snapshot AR frame");
         return;
     }
+    // hostCloudAnchor only reads camera intrinsics/pose from the frame,
+    // not luma — but invalidate the live pointer for safety.
+    static_cast<VROARFrameSnapshot*>(frame.get())->invalidateLiveFrame();
 
     _impl->provider->hostCloudAnchor(
         anchor, frame, ttlDays,
         [anchor, onSuccess](const std::string &cloudId) {
             anchor->setCloudAnchorId(cloudId);
-            anchor->setId(cloudId);
+            // Do NOT call setId() here — this lambda runs on the RVCA
+            // network callback thread while the render thread reads
+            // getId() in per-frame onAnchorUpdated callbacks.
+            // Concurrent write+read on std::string = use-after-free →
+            // SIGABRT in NewStringUTF (invalid UTF-8 from freed memory).
+            // The cloud anchor ID is conveyed via setCloudAnchorId() +
+            // ARUtils_JNI.cpp base-class fallback + Java getAnchorId() fallback.
             onSuccess(anchor);
         },
         // Improvement 2: encode ErrorCode as "|StateString" suffix
@@ -212,12 +223,6 @@ void VROCloudAnchorProviderReactVision::onFrameDidRender(const VRORenderContext&
 #if RVCCA_AVAILABLE
     if (!_impl || !_impl->provider) return;
 
-    // Avoid the snapshot cost when there is nothing pending.
-    const bool hasWork =
-        _impl->provider->hasPendingLocalizations() ||
-        _impl->provider->hasPendingHosts();
-    if (!hasWork) return;
-
     auto sess = _impl->session.lock();
     if (!sess) return;
 
@@ -227,6 +232,11 @@ void VROCloudAnchorProviderReactVision::onFrameDidRender(const VRORenderContext&
     auto snap = VROARFrameSnapshot::fromFrame(*frameUniq);
     if (snap) {
         _impl->provider->updateWithFrame(snap);
+        // Invalidate the lazy live-frame pointer now that the render-thread
+        // synchronous work is done.  Any background thread that later calls
+        // getCameraImageY() will get the cached copy (if it was acquired) or
+        // false (if luma was never needed this frame).
+        static_cast<VROARFrameSnapshot*>(snap.get())->invalidateLiveFrame();
     }
 #endif
 }

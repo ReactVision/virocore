@@ -19,17 +19,17 @@ std::shared_ptr<VROARFrame> VROARFrameSnapshot::fromFrame(VROARFrame& src)
     snapCam->_trackingReason = cam->getLimitedTrackingStateReason();
     snapCam->_rotation       = cam->getRotation();
     snapCam->_position       = cam->getPosition();
-    snapCam->_imageSize      = cam->getImageSize();
+    // NOTE: Do NOT call cam->getImageSize() here.  On ARCore it triggers
+    // acquireCameraImage() which holds a CPU image buffer.  ARCore's default
+    // concurrent-image limit is 1, so holding one here prevents the later
+    // getCameraImageY() call (in collectBgKeyframe / resolve luma capture)
+    // from acquiring the Y plane → SIFT gets no luma → v2 fallback.
+    // _imageSize stays (0,0,0); RVCA code uses luma dimensions instead.
 
-    // Pre-compute the projection for the image-size viewport — the only
-    // viewport RVCCACloudAnchorProvider ever requests.
-    VROVector3f sz = snapCam->_imageSize;
-    int w = static_cast<int>(sz.x);
-    int h = static_cast<int>(sz.y);
-    if (w > 0 && h > 0) {
-        VROViewport vp(0, 0, w, h);
-        snapCam->_projection = cam->getProjection(vp, 0.01f, 100.0f, nullptr);
-    }
+    // ARCore's getProjectionMatrix(near, far) is viewport-independent, so the
+    // dummy viewport below gives the same matrix as any real viewport.
+    snapCam->_projection = cam->getProjection(VROViewport(0, 0, 1, 1),
+                                               0.01f, 100.0f, nullptr);
 
     // ── Point cloud snapshot (deep copy) ─────────────────────────────────────
     std::shared_ptr<VROARPointCloud> snapPc;
@@ -49,5 +49,13 @@ std::shared_ptr<VROARFrame> VROARFrameSnapshot::fromFrame(VROARFrame& src)
     snap->_orientation = src.getOrientation();
     snap->_camera      = snapCam;
     snap->_pointCloud  = snapPc;
+
+    // ── Lazy luma (Android P7 equivalent) ──────────────────────────────────────
+    // Do NOT copy the Y plane eagerly — it's ~2 MB per frame at 30 fps.
+    // Instead, store a pointer to the live frame.  getCameraImageY() will
+    // lazily acquire + cache the luma only when actually needed (motion gate
+    // pass in collectBgKeyframe, or active resolve luma capture).
+    snap->_liveFrame = &src;
+
     return snap;
 }

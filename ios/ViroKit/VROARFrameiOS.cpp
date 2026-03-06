@@ -297,6 +297,30 @@ std::shared_ptr<VROARPointCloud> VROARFrameiOS::getPointCloud() {
     return _pointCloud;
 }
 
+bool VROARFrameiOS::getCameraImageY(const uint8_t** data, int* width, int* height) {
+    if (!_lumaData.empty()) {
+        *data = _lumaData.data(); *width = _lumaW; *height = _lumaH;
+        return true;
+    }
+    CVPixelBufferRef buf = _frame.capturedImage;
+    if (!buf) return false;
+    CVPixelBufferLockBaseAddress(buf, kCVPixelBufferLock_ReadOnly);
+    const uint8_t* src = (const uint8_t*)CVPixelBufferGetBaseAddressOfPlane(buf, 0);
+    size_t w = CVPixelBufferGetWidthOfPlane(buf, 0);
+    size_t h = CVPixelBufferGetHeightOfPlane(buf, 0);
+    size_t stride = CVPixelBufferGetBytesPerRowOfPlane(buf, 0);
+    if (src && w > 0 && h > 0) {
+        _lumaW = (int)w; _lumaH = (int)h;
+        _lumaData.resize(w * h);
+        for (size_t row = 0; row < h; ++row)
+            memcpy(_lumaData.data() + row * w, src + row * stride, w);
+    }
+    CVPixelBufferUnlockBaseAddress(buf, kCVPixelBufferLock_ReadOnly);
+    if (_lumaData.empty()) return false;
+    *data = _lumaData.data(); *width = _lumaW; *height = _lumaH;
+    return true;
+}
+
 bool VROARFrameiOS::hasDepthData() const {
     // Check for LiDAR depth first
     if (hasLiDARDepth()) {

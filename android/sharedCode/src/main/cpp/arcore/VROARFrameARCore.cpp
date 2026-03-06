@@ -320,6 +320,30 @@ VROVector3f VROARFrameARCore::getAmbientLightColor() const {
     return VROLight::convertGammaToLinear(gammaColor);
 }
 
+bool VROARFrameARCore::getCameraImageY(const uint8_t** data, int* width, int* height) {
+    if (!_lumaData.empty()) {
+        *data = _lumaData.data(); *width = _lumaW; *height = _lumaH;
+        return true;
+    }
+    arcore::Image* img = nullptr;
+    auto status = _frame->acquireCameraImage(&img);
+    if (status != arcore::ImageRetrievalStatus::Success || !img) return false;
+    int w = img->getWidth(), h = img->getHeight();
+    int stride = img->getPlaneRowStride(0);
+    const uint8_t* src = nullptr; int len = 0;
+    img->getPlaneData(0, &src, &len);
+    if (src && w > 0 && h > 0) {
+        _lumaW = w; _lumaH = h;
+        _lumaData.resize(w * h);
+        for (int row = 0; row < h; ++row)
+            memcpy(_lumaData.data() + row * w, src + row * stride, w);
+    }
+    delete img;
+    if (_lumaData.empty()) return false;
+    *data = _lumaData.data(); *width = _lumaW; *height = _lumaH;
+    return true;
+}
+
 std::shared_ptr<VROARPointCloud> VROARFrameARCore::getPointCloud() {
     if (_pointCloud) {
         return _pointCloud;
