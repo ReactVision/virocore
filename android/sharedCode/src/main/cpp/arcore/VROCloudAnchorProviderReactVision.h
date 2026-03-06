@@ -34,6 +34,7 @@
 
 class VROARAnchor;
 class VROARSessionARCore;
+namespace ReactVisionCCA { class RVCCACloudAnchorProvider; }
 
 /**
  * Manages host/resolve operations against the ReactVision cloud backend.
@@ -91,6 +92,12 @@ public:
      * by forwarding fresh frame data into RVCCACloudAnchorProvider::updateWithFrame().
      */
     void onFrameDidRender(const VRORenderContext &context) override;
+
+    /**
+     * Returns the underlying RVCCACloudAnchorProvider for direct management API calls.
+     * Returns nullptr when the ReactVisionCCA library is not available.
+     */
+    std::shared_ptr<ReactVisionCCA::RVCCACloudAnchorProvider> getProvider() const;
 
 private:
     class Impl;

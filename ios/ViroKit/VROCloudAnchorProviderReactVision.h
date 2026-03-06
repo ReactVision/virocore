@@ -19,6 +19,11 @@
 #import <Foundation/Foundation.h>
 #import <ARKit/ARKit.h>
 
+#ifdef __cplusplus
+#include <memory>
+namespace ReactVisionCCA { class RVCCACloudAnchorProvider; }
+#endif
+
 NS_ASSUME_NONNULL_BEGIN
 
 @interface VROCloudAnchorProviderReactVision : NSObject
@@ -90,6 +95,15 @@ NS_ASSUME_NONNULL_BEGIN
  * Call this whenever a new CLLocation fix is available (before or during hosting).
  */
 - (void)setLastKnownLocationLat:(double)lat longitude:(double)lng altitude:(double)alt;
+
+/**
+ * Returns the underlying RVCCACloudAnchorProvider C++ object.
+ * Used by VROARSessioniOS to call management API methods directly.
+ * Only available in C++ / ObjC++ translation units.
+ */
+#ifdef __cplusplus
+- (std::shared_ptr<ReactVisionCCA::RVCCACloudAnchorProvider>)cppProvider;
+#endif
 
 @end
 
