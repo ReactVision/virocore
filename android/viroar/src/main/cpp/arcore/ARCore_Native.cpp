@@ -963,6 +963,53 @@ namespace arcore {
 
     SessionNative::SessionNative(void *applicationContext, JNIEnv *env) {
         ArSession_create(env, applicationContext, &_session);
+
+        // Select the camera config with the highest CPU image resolution.
+        // The default is typically 640×480 which produces too few SIFT features
+        // for reliable cross-platform cloud anchor matching. Most devices support
+        // 1920×1080 or higher CPU image resolution.
+        ArCameraConfigFilter *filter = nullptr;
+        ArCameraConfigFilter_create(_session, &filter);
+        // Keep defaults: rear camera, 30fps target, any depth sensor usage
+
+        ArCameraConfigList *configList = nullptr;
+        ArCameraConfigList_create(_session, &configList);
+        ArSession_getSupportedCameraConfigsWithFilter(_session, filter, configList);
+
+        int32_t numConfigs = 0;
+        ArCameraConfigList_getSize(_session, configList, &numConfigs);
+
+        int bestIdx = -1;
+        int32_t bestArea = 0;
+        ArCameraConfig *tmpConfig = nullptr;
+        ArCameraConfig_create(_session, &tmpConfig);
+
+        for (int i = 0; i < numConfigs; ++i) {
+            ArCameraConfigList_getItem(_session, configList, i, tmpConfig);
+            int32_t w = 0, h = 0;
+            ArCameraConfig_getImageDimensions(_session, tmpConfig, &w, &h);
+            int32_t area = w * h;
+            if (area > bestArea) {
+                bestArea = area;
+                bestIdx = i;
+            }
+            __android_log_print(ANDROID_LOG_INFO, "ViroARCore",
+                "Camera config %d: CPU image %dx%d", i, w, h);
+        }
+
+        if (bestIdx >= 0) {
+            ArCameraConfigList_getItem(_session, configList, bestIdx, tmpConfig);
+            int32_t w = 0, h = 0;
+            ArCameraConfig_getImageDimensions(_session, tmpConfig, &w, &h);
+            ArStatus status = ArSession_setCameraConfig(_session, tmpConfig);
+            __android_log_print(ANDROID_LOG_INFO, "ViroARCore",
+                "Selected camera config %d: CPU image %dx%d (status=%d)",
+                bestIdx, w, h, (int)status);
+        }
+
+        ArCameraConfig_destroy(tmpConfig);
+        ArCameraConfigList_destroy(configList);
+        ArCameraConfigFilter_destroy(filter);
     }
 
     SessionNative::~SessionNative() {
