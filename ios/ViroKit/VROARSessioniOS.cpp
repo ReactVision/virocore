@@ -142,6 +142,7 @@
 #endif
 #if RVCCA_AVAILABLE
 #  include "ReactVisionCCA/RVCCAGeospatialProvider.h"
+#  include "ReactVisionCCA/RVCCACloudAnchorProvider.h"
 #endif
 
 #pragma mark - Lifecycle and Initialization
@@ -1612,6 +1613,11 @@ void VROARSessioniOS::setGeospatialAnchorProvider(VROGeospatialAnchorProvider pr
 }
 
 bool VROARSessioniOS::isGeospatialModeSupported() const {
+#if RVCCA_AVAILABLE
+  if (getGeospatialAnchorProvider() == VROGeospatialAnchorProvider::ReactVision) {
+    return _geospatialProviderRV != nullptr;
+  }
+#endif
   if (_cloudAnchorProviderARCore) {
     return [_cloudAnchorProviderARCore isGeospatialModeSupported];
   }
@@ -1858,6 +1864,49 @@ void VROARSessioniOS::createRooftopAnchor(double latitude, double longitude, dou
   }];
 }
 
+#if RVCCA_AVAILABLE
+static std::string rvEscJson(const std::string &s) {
+    std::string out;
+    out.reserve(s.size());
+    for (char c : s) {
+        if (c == '"') out += "\\\"";
+        else if (c == '\\') out += "\\\\";
+        else out += c;
+    }
+    return out;
+}
+
+static std::string rvGeoAnchorToJson(const ReactVisionCCA::GeospatialAnchorRecord &r) {
+    char buf[128];
+    std::string j = "{";
+    j += "\"id\":\"" + rvEscJson(r.id) + "\",";
+    snprintf(buf, sizeof(buf), "%.10f", r.lat); j += "\"lat\":"; j += buf; j += ",";
+    snprintf(buf, sizeof(buf), "%.10f", r.lng); j += "\"lng\":"; j += buf; j += ",";
+    snprintf(buf, sizeof(buf), "%.4f", r.alt);  j += "\"alt\":"; j += buf; j += ",";
+    j += "\"altitudeMode\":\"" + rvEscJson(r.altitudeMode) + "\",";
+    j += "\"name\":\"" + rvEscJson(r.name) + "\",";
+    j += "\"sceneAssetId\":\"" + rvEscJson(r.sceneAssetId) + "\",";
+    j += "\"sceneId\":\"" + rvEscJson(r.sceneId) + "\",";
+    snprintf(buf, sizeof(buf), "%.2f", r.distanceMeters); j += "\"distanceMeters\":"; j += buf;
+    if (r.hasSceneAsset) {
+        j += ",\"sceneAssetData\":{";
+        j += "\"id\":\"" + rvEscJson(r.sceneAssetData.id) + "\",";
+        j += "\"name\":\"" + rvEscJson(r.sceneAssetData.name) + "\",";
+        snprintf(buf, sizeof(buf), "%.4f", r.sceneAssetData.scale); j += "\"scale\":"; j += buf; j += ",";
+        snprintf(buf, sizeof(buf), "%.4f", r.sceneAssetData.positionX); j += "\"positionX\":"; j += buf; j += ",";
+        snprintf(buf, sizeof(buf), "%.4f", r.sceneAssetData.positionY); j += "\"positionY\":"; j += buf; j += ",";
+        snprintf(buf, sizeof(buf), "%.4f", r.sceneAssetData.positionZ); j += "\"positionZ\":"; j += buf; j += ",";
+        snprintf(buf, sizeof(buf), "%.4f", r.sceneAssetData.rotationX); j += "\"rotationX\":"; j += buf; j += ",";
+        snprintf(buf, sizeof(buf), "%.4f", r.sceneAssetData.rotationY); j += "\"rotationY\":"; j += buf; j += ",";
+        snprintf(buf, sizeof(buf), "%.4f", r.sceneAssetData.rotationZ); j += "\"rotationZ\":"; j += buf;
+        j += ",\"fileUrl\":\"" + rvEscJson(r.sceneAssetData.teamAsset.fileUrl) + "\"";
+        j += "}";
+    }
+    j += "}";
+    return j;
+}
+#endif // RVCCA_AVAILABLE
+
 void VROARSessioniOS::removeGeospatialAnchor(std::shared_ptr<VROGeospatialAnchor> anchor) {
   if (!anchor) return;
 #if RVCCA_AVAILABLE
@@ -1873,6 +1922,366 @@ void VROARSessioniOS::removeGeospatialAnchor(std::shared_ptr<VROGeospatialAnchor
     NSString *anchorId = [NSString stringWithUTF8String:anchor->getId().c_str()];
     [_cloudAnchorProviderARCore removeGeospatialAnchor:anchorId];
   }
+}
+
+void VROARSessioniOS::rvGetGeospatialAnchor(
+    const std::string& anchorId,
+    std::function<void(bool, std::string, std::string)> callback) {
+#if RVCCA_AVAILABLE
+  if (_geospatialProviderRV) {
+    _geospatialProviderRV->getAnchor(anchorId,
+        [callback](ReactVisionCCA::ApiResult<ReactVisionCCA::GeospatialAnchorRecord> r) {
+      if (callback) {
+        if (r.success) callback(true, rvGeoAnchorToJson(r.data), "");
+        else            callback(false, "", r.error.message);
+      }
+    });
+    return;
+  }
+#endif
+  if (callback) callback(false, "", "ReactVision geospatial provider not available");
+}
+
+void VROARSessioniOS::rvFindNearbyGeospatialAnchors(
+    double lat, double lng, double radius, int limit,
+    std::function<void(bool, std::string, std::string)> callback) {
+#if RVCCA_AVAILABLE
+  if (_geospatialProviderRV) {
+    _geospatialProviderRV->findNearby(lat, lng, radius, limit,
+        [callback](ReactVisionCCA::ApiResult<std::vector<ReactVisionCCA::GeospatialAnchorRecord>> r) {
+      if (callback) {
+        if (r.success) {
+          std::string json = "[";
+          for (size_t i = 0; i < r.data.size(); ++i) {
+            if (i > 0) json += ",";
+            json += rvGeoAnchorToJson(r.data[i]);
+          }
+          json += "]";
+          callback(true, json, "");
+        } else {
+          callback(false, "", r.error.message);
+        }
+      }
+    });
+    return;
+  }
+#endif
+  if (callback) callback(false, "", "ReactVision geospatial provider not available");
+}
+
+void VROARSessioniOS::rvUpdateGeospatialAnchor(
+    const std::string& anchorId,
+    const std::string& sceneAssetId,
+    const std::string& sceneId,
+    const std::string& name,
+    std::function<void(bool, std::string, std::string)> callback) {
+#if RVCCA_AVAILABLE
+  if (_geospatialProviderRV) {
+    ReactVisionCCA::GeospatialUpdateRequest req;
+    if (!sceneAssetId.empty()) req.sceneAssetId = sceneAssetId;
+    if (!sceneId.empty())      req.sceneId      = sceneId;
+    if (!name.empty())         req.name         = name;
+    _geospatialProviderRV->updateAnchor(anchorId, req,
+        [callback](ReactVisionCCA::ApiResult<ReactVisionCCA::GeospatialAnchorRecord> r) {
+      if (callback) {
+        if (r.success) callback(true, rvGeoAnchorToJson(r.data), "");
+        else            callback(false, "", r.error.message);
+      }
+    });
+    return;
+  }
+#endif
+  if (callback) callback(false, "", "ReactVision geospatial provider not available");
+}
+
+void VROARSessioniOS::rvDeleteGeospatialAnchor(
+    const std::string& anchorId,
+    std::function<void(bool, std::string)> callback) {
+#if RVCCA_AVAILABLE
+  if (_geospatialProviderRV) {
+    _geospatialProviderRV->deleteAnchor(anchorId,
+        [callback](bool success, ReactVisionCCA::ApiError err) {
+      if (callback) {
+        callback(success, success ? "" : err.message);
+      }
+    });
+    return;
+  }
+#endif
+  if (callback) callback(false, "ReactVision geospatial provider not available");
+}
+
+void VROARSessioniOS::rvListGeospatialAnchors(
+    int limit, int offset,
+    std::function<void(bool, std::string, std::string)> callback) {
+#if RVCCA_AVAILABLE
+  if (_geospatialProviderRV) {
+    _geospatialProviderRV->listAnchors(limit, offset,
+        [callback](ReactVisionCCA::ApiResult<ReactVisionCCA::GeospatialListResult> r) {
+      if (callback) {
+        if (r.success) {
+          std::string json = "[";
+          const auto& anchors = r.data.anchors;
+          for (size_t i = 0; i < anchors.size(); ++i) {
+            if (i > 0) json += ",";
+            json += rvGeoAnchorToJson(anchors[i]);
+          }
+          json += "]";
+          callback(true, json, "");
+        } else {
+          callback(false, "", r.error.message);
+        }
+      }
+    });
+    return;
+  }
+#endif
+  if (callback) callback(false, "", "ReactVision geospatial provider not available");
+}
+
+// ── Cloud anchor management ───────────────────────────────────────────────────
+
+#if RVCCA_AVAILABLE
+
+static std::string rvCloudAssetToJson(const ReactVisionCCA::CloudAnchorAsset& a) {
+    char buf[256];
+    std::string j = "{";
+    j += "\"id\":\"" + rvEscJson(a.id) + "\",";
+    j += "\"name\":\"" + rvEscJson(a.name) + "\",";
+    j += "\"fileUrl\":\"" + rvEscJson(a.fileUrl) + "\",";
+    j += "\"assetType\":\"" + rvEscJson(a.assetType) + "\",";
+    snprintf(buf, sizeof(buf), "%.6f", a.positionX); j += "\"positionX\":"; j += buf; j += ",";
+    snprintf(buf, sizeof(buf), "%.6f", a.positionY); j += "\"positionY\":"; j += buf; j += ",";
+    snprintf(buf, sizeof(buf), "%.6f", a.positionZ); j += "\"positionZ\":"; j += buf; j += ",";
+    snprintf(buf, sizeof(buf), "%.6f", a.rotationX); j += "\"rotationX\":"; j += buf; j += ",";
+    snprintf(buf, sizeof(buf), "%.6f", a.rotationY); j += "\"rotationY\":"; j += buf; j += ",";
+    snprintf(buf, sizeof(buf), "%.6f", a.rotationZ); j += "\"rotationZ\":"; j += buf; j += ",";
+    snprintf(buf, sizeof(buf), "%.6f", a.rotationW); j += "\"rotationW\":"; j += buf; j += ",";
+    snprintf(buf, sizeof(buf), "%.6f", a.scale);     j += "\"scale\":";     j += buf; j += ",";
+    j += std::string("\"isVisible\":") + (a.isVisible ? "true" : "false");
+    j += "}";
+    return j;
+}
+
+static std::string rvCloudAnchorToJson(const ReactVisionCCA::CloudAnchorRecord& r) {
+    char buf[128];
+    std::string j = "{";
+    j += "\"id\":\"" + rvEscJson(r.id) + "\",";
+    j += "\"projectId\":\"" + rvEscJson(r.projectId) + "\",";
+    j += "\"name\":\"" + rvEscJson(r.name) + "\",";
+    j += "\"description\":\"" + rvEscJson(r.description) + "\",";
+    snprintf(buf, sizeof(buf), "%.4f", r.cameraFx); j += "\"cameraFx\":"; j += buf; j += ",";
+    snprintf(buf, sizeof(buf), "%.4f", r.cameraFy); j += "\"cameraFy\":"; j += buf; j += ",";
+    snprintf(buf, sizeof(buf), "%.4f", r.cameraCx); j += "\"cameraCx\":"; j += buf; j += ",";
+    snprintf(buf, sizeof(buf), "%.4f", r.cameraCy); j += "\"cameraCy\":"; j += buf; j += ",";
+    j += "\"imageWidth\":" + std::to_string(r.imageWidth) + ",";
+    j += "\"imageHeight\":" + std::to_string(r.imageHeight) + ",";
+    j += "\"descriptorsUrl\":\"" + rvEscJson(r.descriptorsUrl) + "\",";
+    j += "\"descriptorCount\":" + std::to_string(r.descriptorCount) + ",";
+    j += "\"keypointCount\":" + std::to_string(r.keypointCount) + ",";
+    snprintf(buf, sizeof(buf), "%.10f", r.latitude);  j += "\"latitude\":";  j += buf; j += ",";
+    snprintf(buf, sizeof(buf), "%.10f", r.longitude); j += "\"longitude\":"; j += buf; j += ",";
+    snprintf(buf, sizeof(buf), "%.4f",  r.altitude);  j += "\"altitude\":";  j += buf; j += ",";
+    j += "\"platform\":\"" + rvEscJson(r.platform) + "\",";
+    j += "\"deviceModel\":\"" + rvEscJson(r.deviceModel) + "\",";
+    j += "\"externalUserId\":\"" + rvEscJson(r.externalUserId) + "\",";
+    j += std::string("\"isPublic\":") + (r.isPublic ? "true" : "false") + ",";
+    j += "\"resolveCount\":" + std::to_string(r.resolveCount) + ",";
+    j += "\"successfulResolveCount\":" + std::to_string(r.successfulResolveCount) + ",";
+    snprintf(buf, sizeof(buf), "%.4f", r.averageConfidence); j += "\"averageConfidence\":"; j += buf; j += ",";
+    j += "\"lastResolvedAt\":\"" + rvEscJson(r.lastResolvedAt) + "\",";
+    j += "\"createdAt\":\"" + rvEscJson(r.createdAt) + "\",";
+    // tags array
+    j += "\"tags\":[";
+    for (size_t i = 0; i < r.tags.size(); ++i) {
+        if (i > 0) j += ",";
+        j += "\"" + rvEscJson(r.tags[i]) + "\"";
+    }
+    j += "],";
+    // assets array
+    j += "\"assets\":[";
+    for (size_t i = 0; i < r.assets.size(); ++i) {
+        if (i > 0) j += ",";
+        j += rvCloudAssetToJson(r.assets[i]);
+    }
+    j += "]}";
+    return j;
+}
+#endif // RVCCA_AVAILABLE
+
+void VROARSessioniOS::rvGetCloudAnchor(
+    const std::string& anchorId,
+    std::function<void(bool, std::string, std::string)> callback) {
+#if RVCCA_AVAILABLE
+  auto p = [_cloudAnchorProviderRV cppProvider];
+  if (p) {
+    p->getCloudAnchor(anchorId,
+        [callback](ReactVisionCCA::ApiResult<ReactVisionCCA::CloudAnchorRecord> r) {
+      if (callback) {
+        if (r.success) callback(true, rvCloudAnchorToJson(r.data), "");
+        else            callback(false, "", r.error.message);
+      }
+    });
+    return;
+  }
+#endif
+  if (callback) callback(false, "", "ReactVision cloud anchor provider not available");
+}
+
+void VROARSessioniOS::rvListCloudAnchors(
+    int limit, int offset,
+    std::function<void(bool, std::string, std::string)> callback) {
+#if RVCCA_AVAILABLE
+  auto p = [_cloudAnchorProviderRV cppProvider];
+  if (p) {
+    p->listCloudAnchors(limit, offset,
+        [callback](ReactVisionCCA::ApiResult<std::vector<ReactVisionCCA::CloudAnchorRecord>> r) {
+      if (callback) {
+        if (r.success) {
+          std::string json = "[";
+          for (size_t i = 0; i < r.data.size(); ++i) {
+            if (i > 0) json += ",";
+            json += rvCloudAnchorToJson(r.data[i]);
+          }
+          json += "]";
+          callback(true, json, "");
+        } else {
+          callback(false, "", r.error.message);
+        }
+      }
+    });
+    return;
+  }
+#endif
+  if (callback) callback(false, "", "ReactVision cloud anchor provider not available");
+}
+
+void VROARSessioniOS::rvUpdateCloudAnchor(
+    const std::string& anchorId,
+    const std::string& name,
+    const std::string& description,
+    bool isPublic,
+    std::function<void(bool, std::string, std::string)> callback) {
+#if RVCCA_AVAILABLE
+  auto p = [_cloudAnchorProviderRV cppProvider];
+  if (p) {
+    p->updateCloudAnchor(anchorId, name, description, isPublic,
+        [callback](ReactVisionCCA::ApiResult<ReactVisionCCA::CloudAnchorRecord> r) {
+      if (callback) {
+        if (r.success) callback(true, rvCloudAnchorToJson(r.data), "");
+        else            callback(false, "", r.error.message);
+      }
+    });
+    return;
+  }
+#endif
+  if (callback) callback(false, "", "ReactVision cloud anchor provider not available");
+}
+
+void VROARSessioniOS::rvDeleteCloudAnchor(
+    const std::string& anchorId,
+    std::function<void(bool, std::string)> callback) {
+#if RVCCA_AVAILABLE
+  auto p = [_cloudAnchorProviderRV cppProvider];
+  if (p) {
+    p->deleteCloudAnchor(anchorId,
+        [callback](bool success, ReactVisionCCA::ApiError err) {
+      if (callback) callback(success, success ? "" : err.message);
+    });
+    return;
+  }
+#endif
+  if (callback) callback(false, "ReactVision cloud anchor provider not available");
+}
+
+void VROARSessioniOS::rvFindNearbyCloudAnchors(
+    double lat, double lng, double radius, int limit,
+    std::function<void(bool, std::string, std::string)> callback) {
+#if RVCCA_AVAILABLE
+  auto p = [_cloudAnchorProviderRV cppProvider];
+  if (p) {
+    p->findNearbyCloudAnchors(lat, lng, radius, limit,
+        [callback](ReactVisionCCA::ApiResult<std::vector<ReactVisionCCA::CloudAnchorRecord>> r) {
+      if (callback) {
+        if (r.success) {
+          std::string json = "[";
+          for (size_t i = 0; i < r.data.size(); ++i) {
+            if (i > 0) json += ",";
+            json += rvCloudAnchorToJson(r.data[i]);
+          }
+          json += "]";
+          callback(true, json, "");
+        } else {
+          callback(false, "", r.error.message);
+        }
+      }
+    });
+    return;
+  }
+#endif
+  if (callback) callback(false, "", "ReactVision cloud anchor provider not available");
+}
+
+void VROARSessioniOS::rvAttachAssetToCloudAnchor(
+    const std::string& anchorId,
+    const std::string& fileUrl,
+    int64_t fileSize,
+    const std::string& name,
+    const std::string& assetType,
+    const std::string& externalUserId,
+    std::function<void(bool, std::string)> callback) {
+#if RVCCA_AVAILABLE
+  auto p = [_cloudAnchorProviderRV cppProvider];
+  if (p) {
+    p->attachAssetToCloudAnchor(anchorId, fileUrl, fileSize, name, assetType, externalUserId,
+        [callback](bool success, ReactVisionCCA::ApiError err) {
+      if (callback) callback(success, success ? "" : err.message);
+    });
+    return;
+  }
+#endif
+  if (callback) callback(false, "ReactVision cloud anchor provider not available");
+}
+
+void VROARSessioniOS::rvRemoveAssetFromCloudAnchor(
+    const std::string& anchorId,
+    const std::string& assetId,
+    std::function<void(bool, std::string)> callback) {
+#if RVCCA_AVAILABLE
+  auto p = [_cloudAnchorProviderRV cppProvider];
+  if (p) {
+    p->removeAssetFromCloudAnchor(anchorId, assetId,
+        [callback](bool success, ReactVisionCCA::ApiError err) {
+      if (callback) callback(success, success ? "" : err.message);
+    });
+    return;
+  }
+#endif
+  if (callback) callback(false, "ReactVision cloud anchor provider not available");
+}
+
+void VROARSessioniOS::rvTrackCloudAnchorResolution(
+    const std::string& anchorId,
+    bool success,
+    double confidence,
+    int matchCount,
+    int inlierCount,
+    int processingTimeMs,
+    const std::string& platform,
+    const std::string& externalUserId,
+    std::function<void(bool, std::string)> callback) {
+#if RVCCA_AVAILABLE
+  auto p = [_cloudAnchorProviderRV cppProvider];
+  if (p) {
+    p->trackResolution(anchorId, success, confidence, matchCount, inlierCount,
+        processingTimeMs, platform, externalUserId,
+        [callback](bool ok, ReactVisionCCA::ApiError err) {
+      if (callback) callback(ok, ok ? "" : err.message);
+    });
+    return;
+  }
+#endif
+  if (callback) callback(false, "ReactVision cloud anchor provider not available");
 }
 
 #pragma mark - Scene Semantics API

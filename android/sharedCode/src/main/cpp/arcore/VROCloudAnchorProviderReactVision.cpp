@@ -240,3 +240,11 @@ void VROCloudAnchorProviderReactVision::onFrameDidRender(const VRORenderContext&
     }
 #endif
 }
+
+std::shared_ptr<ReactVisionCCA::RVCCACloudAnchorProvider>
+VROCloudAnchorProviderReactVision::getProvider() const {
+#if RVCCA_AVAILABLE
+    if (_impl) return _impl->provider;
+#endif
+    return nullptr;
+}

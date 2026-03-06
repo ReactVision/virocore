@@ -385,6 +385,10 @@ private:
     if (_provider) _provider->cancelAllOperations();
 }
 
+- (std::shared_ptr<ReactVisionCCA::RVCCACloudAnchorProvider>)cppProvider {
+    return _provider;
+}
+
 @end
 
 // ============================================================================
