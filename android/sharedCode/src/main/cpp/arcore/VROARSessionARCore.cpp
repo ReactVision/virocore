@@ -1541,17 +1541,61 @@ void VROARSessionARCore::checkVPSAvailability(double latitude, double longitude,
     });
 }
 
+// Create a local ARCore anchor at the GPS-computed world position using
+// acquireNewAnchor. No VPS required — placed by GPS + compass + VIO.
+// AR placement math is delegated to RVCCAGeospatialProvider::computeArPosition()
+// (proprietary algorithm inside libreactvisioncca — not exposed in open-source virocore).
+static std::shared_ptr<VROGeospatialAnchor> createLocalGPSAnchor(
+    arcore::Session *session,
+    const VROGeospatialPose &devicePose,
+    double anchorLat, double anchorLng, double anchorAlt,
+    VROGeospatialAnchorType type, VROQuaternion quaternion,
+    std::shared_ptr<VROARSessionARCore> arSession,
+    ReactVisionCCA::RVCCAGeospatialProvider *provider,
+    std::string &outError) {
+    if (devicePose.latitude == 0.0 && devicePose.longitude == 0.0) {
+        outError = "GPS position not available yet. Ensure location permissions are granted.";
+        return nullptr;
+    }
+    auto pos = provider->computeArPosition(
+        devicePose.latitude, devicePose.longitude, devicePose.altitude, devicePose.heading,
+        anchorLat, anchorLng, anchorAlt);
+    float arX = pos[0], arY = pos[1], arZ = pos[2];
+
+    arcore::Pose *pose = session->createPose(arX, arY, arZ,
+                                             quaternion.X, quaternion.Y, quaternion.Z, quaternion.W);
+    arcore::Anchor *nativeAnchor = session->acquireNewAnchor(pose);
+    delete pose;
+
+    if (!nativeAnchor) {
+        outError = "Failed to create local anchor at GPS position.";
+        return nullptr;
+    }
+    std::shared_ptr<arcore::Anchor> anchorShared(nativeAnchor);
+    std::string key = VROStringUtil::toString64(anchorShared->getId());
+
+    auto geoAnchor = std::make_shared<VROGeospatialAnchor>(type, anchorLat, anchorLng, anchorAlt, quaternion);
+    geoAnchor->setId(key);
+    geoAnchor->setResolveState(VROGeospatialAnchorResolveState::Success);
+
+    auto vAnchor = std::make_shared<VROARAnchorARCore>(key, anchorShared, geoAnchor, arSession);
+    arSession->addAnchor(vAnchor);
+    return geoAnchor;
+}
+
 void VROARSessionARCore::createGeospatialAnchor(double latitude, double longitude, double altitude,
                                                 VROQuaternion quaternion,
                                                 std::function<void(std::shared_ptr<VROGeospatialAnchor>)> onSuccess,
                                                 std::function<void(std::string error)> onFailure) {
 #if RVCCA_AVAILABLE
     if (getGeospatialAnchorProvider() == VROGeospatialAnchorProvider::ReactVision) {
-        // ReactVision has no VPS — cannot map GPS coordinates to AR world space.
-        // Use rvCreateGeospatialAnchor to store GPS metadata, and resolveCloudAnchor
-        // to place anchors in AR via visual feature matching.
-        if (onFailure) onFailure("createGeospatialAnchor requires ARCore VPS (provider='arcore'). "
-                                 "ReactVision provider does not support GPS→AR placement.");
+        std::string error;
+        auto anchor = createLocalGPSAnchor(_session, _lastKnownGPSPose,
+                                           latitude, longitude, altitude,
+                                           VROGeospatialAnchorType::WGS84, quaternion,
+                                           shared_from_this(), _geospatialProviderRV.get(), error);
+        if (anchor) { if (onSuccess) onSuccess(anchor); }
+        else         { if (onFailure) onFailure(error);  }
         return;
     }
 #endif
@@ -1595,8 +1639,15 @@ void VROARSessionARCore::createTerrainAnchor(double latitude, double longitude, 
                                              std::function<void(std::string error)> onFailure) {
 #if RVCCA_AVAILABLE
     if (getGeospatialAnchorProvider() == VROGeospatialAnchorProvider::ReactVision) {
-        if (onFailure) onFailure("createTerrainAnchor requires ARCore VPS (provider='arcore'). "
-                                 "ReactVision provider does not support GPS→AR placement.");
+        // Terrain alt = device altitude + offset above terrain (approximation)
+        double absoluteAlt = _lastKnownGPSPose.altitude + altitudeAboveTerrain;
+        std::string error;
+        auto anchor = createLocalGPSAnchor(_session, _lastKnownGPSPose,
+                                           latitude, longitude, absoluteAlt,
+                                           VROGeospatialAnchorType::Terrain, quaternion,
+                                           shared_from_this(), _geospatialProviderRV.get(), error);
+        if (anchor) { if (onSuccess) onSuccess(anchor); }
+        else         { if (onFailure) onFailure(error);  }
         return;
     }
 #endif
@@ -1650,8 +1701,15 @@ void VROARSessionARCore::createRooftopAnchor(double latitude, double longitude, 
                                              std::function<void(std::string error)> onFailure) {
 #if RVCCA_AVAILABLE
     if (getGeospatialAnchorProvider() == VROGeospatialAnchorProvider::ReactVision) {
-        if (onFailure) onFailure("createRooftopAnchor requires ARCore VPS (provider='arcore'). "
-                                 "ReactVision provider does not support GPS→AR placement.");
+        // Rooftop alt = device altitude + offset above rooftop (approximation)
+        double absoluteAlt = _lastKnownGPSPose.altitude + altitudeAboveRooftop;
+        std::string error;
+        auto anchor = createLocalGPSAnchor(_session, _lastKnownGPSPose,
+                                           latitude, longitude, absoluteAlt,
+                                           VROGeospatialAnchorType::Rooftop, quaternion,
+                                           shared_from_this(), _geospatialProviderRV.get(), error);
+        if (anchor) { if (onSuccess) onSuccess(anchor); }
+        else         { if (onFailure) onFailure(error);  }
         return;
     }
 #endif
