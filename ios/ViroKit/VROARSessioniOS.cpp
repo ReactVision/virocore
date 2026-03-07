@@ -499,11 +499,11 @@ void VROARSessioniOS::setCloudAnchorProvider(VROCloudAnchorProvider provider) {
       [_cloudAnchorProviderARCore cancelAllOperations];
       _cloudAnchorProviderARCore = nil;
     }
-    // Initialize ReactVision provider; reads RVApiKey / RVProjectId from Info.plist
-    if (_cloudAnchorProviderRV == nil) {
-      NSString *apiKey   = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"RVApiKey"];
-      NSString *projectId = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"RVProjectId"];
-      if (apiKey.length && projectId.length) {
+    // Initialize ReactVision cloud anchor provider; reads credentials from Info.plist
+    NSString *apiKey    = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"RVApiKey"];
+    NSString *projectId = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"RVProjectId"];
+    if (apiKey.length && projectId.length) {
+      if (_cloudAnchorProviderRV == nil) {
         _cloudAnchorProviderRV = [[VROCloudAnchorProviderReactVision alloc]
             initWithApiKey:apiKey projectId:projectId endpoint:nil];
         if (_cloudAnchorProviderRV) {
@@ -511,9 +511,28 @@ void VROARSessioniOS::setCloudAnchorProvider(VROCloudAnchorProvider provider) {
         } else {
           pwarn("Failed to initialize ReactVision Cloud Anchor provider.");
         }
-      } else {
-        pwarn("RVApiKey or RVProjectId missing from Info.plist — ReactVision Cloud Anchors unavailable.");
       }
+#if RVCCA_AVAILABLE
+      // Also initialize the geospatial metadata provider so rvFindNearbyGeospatialAnchors,
+      // rvGetGeospatialAnchor, etc. work whenever provider="reactvision" is set.
+      // Do NOT enable ARCore/GAR geospatial mode — that belongs to provider="arcore".
+      if (!_geospatialProviderRV) {
+        ReactVisionCCA::RVCCAGeospatialProvider::Config cfg;
+        cfg.apiKey    = std::string([apiKey UTF8String]);
+        cfg.projectId = std::string([projectId UTF8String]);
+        _rvGeoProjectId = cfg.projectId;
+        _geospatialProviderRV = std::make_shared<ReactVisionCCA::RVCCAGeospatialProvider>(cfg);
+        pinfo("ReactVision Geospatial provider initialized via setCloudAnchorProvider");
+      }
+      // Start GPS updates for getCameraGeospatialPose()
+      if (!_rvLocationDelegate) {
+        _rvLocationDelegate = [[VROLocationDelegate alloc]
+                                initWithPosePtr:&_lastKnownGPSPose];
+        [(VROLocationDelegate *)_rvLocationDelegate start];
+      }
+#endif
+    } else {
+      pwarn("RVApiKey or RVProjectId missing from Info.plist — ReactVision unavailable.");
     }
 
   } else {
@@ -1536,48 +1555,10 @@ void VROARSessioniOS::setGeospatialAnchorProvider(VROGeospatialAnchorProvider pr
   VROARSession::setGeospatialAnchorProvider(provider);
 
   if (provider == VROGeospatialAnchorProvider::ReactVision) {
-#if RVCCA_AVAILABLE
-    if (!_geospatialProviderRV) {
-      NSString *apiKey    = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"RVApiKey"];
-      NSString *projectId = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"RVProjectId"];
-      if (apiKey.length && projectId.length) {
-        ReactVisionCCA::RVCCAGeospatialProvider::Config cfg;
-        cfg.apiKey    = std::string([apiKey UTF8String]);
-        cfg.projectId = std::string([projectId UTF8String]);
-        _rvGeoProjectId = cfg.projectId;
-        _geospatialProviderRV =
-            std::make_shared<ReactVisionCCA::RVCCAGeospatialProvider>(cfg);
-        pinfo("ReactVision Geospatial provider initialized");
-      } else {
-        pwarn("RVApiKey or RVProjectId missing from Info.plist — "
-              "ReactVision Geospatial unavailable.");
-      }
-    }
-    // Start GPS updates for getCameraGeospatialPose()
-    if (!_rvLocationDelegate) {
-      _rvLocationDelegate = [[VROLocationDelegate alloc]
-                              initWithPosePtr:&_lastKnownGPSPose];
-      [(VROLocationDelegate *)_rvLocationDelegate start];
-    }
-#else
-    pwarn("ReactVision Geospatial not available in this build.");
-#endif
-    // Also initialize the ARKit geospatial provider so createGeospatialAnchor()
-    // can use the native ARKit path for GPS→AR tracking (no backend write).
-    if (_cloudAnchorProviderARCore == nil) {
-      if ([VROCloudAnchorProviderARCore isAvailable]) {
-        _cloudAnchorProviderARCore = [[VROCloudAnchorProviderARCore alloc] init];
-      }
-    }
-    if (_cloudAnchorProviderARCore) {
-      if (_sessionPaused || _session == nil) {
-        _needsGeospatialModeApply = true;
-      } else {
-        [_cloudAnchorProviderARCore setGeospatialModeEnabled:YES];
-      }
-    } else {
-      _needsGeospatialModeApply = false;
-    }
+    // ReactVision geospatial (RVCA metadata backend) is initialized via
+    // setCloudAnchorProvider(ReactVision) when provider="reactvision" is set.
+    // Do NOT enable ARCore/GAR geospatial mode — that belongs to provider="arcore".
+    // _geospatialProviderRV and _rvLocationDelegate are already set up.
     return;
   }
 
