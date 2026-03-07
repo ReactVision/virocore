@@ -1555,10 +1555,10 @@ void VROARSessioniOS::setGeospatialAnchorProvider(VROGeospatialAnchorProvider pr
   VROARSession::setGeospatialAnchorProvider(provider);
 
   if (provider == VROGeospatialAnchorProvider::ReactVision) {
-    // ReactVision geospatial (RVCA metadata backend) is initialized via
-    // setCloudAnchorProvider(ReactVision) when provider="reactvision" is set.
-    // Do NOT enable ARCore/GAR geospatial mode — that belongs to provider="arcore".
-    // _geospatialProviderRV and _rvLocationDelegate are already set up.
+    // ReactVision has no ARCore/GAR dependency — no VPS, no GAR session config.
+    // GPS→AR placement (createGeospatialAnchor) is not supported for this provider.
+    // Use rvCreateGeospatialAnchor / rvFindNearbyGeospatialAnchors for RVCA metadata.
+    // _geospatialProviderRV is initialized in setCloudAnchorProvider(ReactVision).
     return;
   }
 
@@ -1678,13 +1678,18 @@ void VROARSessioniOS::createGeospatialAnchor(double latitude, double longitude, 
                                              VROQuaternion quaternion,
                                              std::function<void(std::shared_ptr<VROGeospatialAnchor>)> onSuccess,
                                              std::function<void(std::string error)> onFailure) {
-  // Always use the native ARKit geospatial path regardless of provider.
-  // Backend record creation is an explicit management operation (rvCreateGeospatialAnchor),
-  // not an implicit side-effect of placing an anchor in AR.
+#if RVCCA_AVAILABLE
+  if (getGeospatialAnchorProvider() == VROGeospatialAnchorProvider::ReactVision) {
+    // ReactVision has no VPS — cannot map GPS coordinates to AR world space.
+    // Use rvCreateGeospatialAnchor to store GPS metadata, and resolveCloudAnchor
+    // to place anchors in AR via visual feature matching.
+    if (onFailure) onFailure("createGeospatialAnchor requires ARCore VPS (provider='arcore'). "
+                             "ReactVision provider does not support GPS→AR placement.");
+    return;
+  }
+#endif
   if (!_cloudAnchorProviderARCore) {
-    if (onFailure) {
-      onFailure("Geospatial provider not initialized. Set geospatialAnchorProvider='arcore-geospatial'.");
-    }
+    if (onFailure) onFailure("Geospatial provider not initialized — set provider='arcore' first.");
     return;
   }
 
@@ -1713,44 +1718,16 @@ void VROARSessioniOS::createTerrainAnchor(double latitude, double longitude, dou
                                           std::function<void(std::string error)> onFailure) {
 #if RVCCA_AVAILABLE
   if (getGeospatialAnchorProvider() == VROGeospatialAnchorProvider::ReactVision) {
-    if (!_geospatialProviderRV) {
-      if (onFailure) onFailure("ReactVision geospatial provider not initialized");
-      return;
-    }
-    ReactVisionCCA::GeospatialCreateRequest req;
-    req.projectId    = _rvGeoProjectId;
-    req.lat          = latitude;
-    req.lng          = longitude;
-    req.alt          = altitudeAboveTerrain;
-    req.altitudeMode = "street_level";
-    std::weak_ptr<VROARSessioniOS> weakSelf = shared_from_this();
-    _geospatialProviderRV->createAnchor(req,
-        [weakSelf, latitude, longitude, altitudeAboveTerrain, quaternion, onSuccess, onFailure]
-        (ReactVisionCCA::ApiResult<ReactVisionCCA::GeospatialAnchorRecord> result) {
-            auto self = weakSelf.lock();
-            if (!self) return;
-            if (result.success) {
-                auto geoAnchor = std::make_shared<VROGeospatialAnchor>(
-                    VROGeospatialAnchorType::Terrain, latitude, longitude, altitudeAboveTerrain, quaternion);
-                geoAnchor->setId(result.data.id);
-                geoAnchor->setResolveState(VROGeospatialAnchorResolveState::Success);
-                self->addAnchor(geoAnchor);
-                if (onSuccess) onSuccess(geoAnchor);
-            } else {
-                if (onFailure) onFailure(result.error.message);
-            }
-        });
+    if (onFailure) onFailure("createTerrainAnchor requires ARCore VPS (provider='arcore'). "
+                             "ReactVision provider does not support GPS→AR placement.");
     return;
   }
 #endif
   if (!_cloudAnchorProviderARCore) {
-    if (onFailure) {
-      onFailure("Geospatial provider not initialized. Set geospatialAnchorProvider='arcore-geospatial'.");
-    }
+    if (onFailure) onFailure("Geospatial provider not initialized — set provider='arcore' first.");
     return;
   }
 
-  // Convert VROQuaternion to simd_quatf
   simd_quatf simdQuat = simd_quaternion(quaternion.X, quaternion.Y, quaternion.Z, quaternion.W);
 
   [_cloudAnchorProviderARCore createTerrainAnchor:latitude
@@ -1775,33 +1752,8 @@ void VROARSessioniOS::createRooftopAnchor(double latitude, double longitude, dou
                                           std::function<void(std::string error)> onFailure) {
 #if RVCCA_AVAILABLE
   if (getGeospatialAnchorProvider() == VROGeospatialAnchorProvider::ReactVision) {
-    if (!_geospatialProviderRV) {
-      if (onFailure) onFailure("ReactVision geospatial provider not initialized");
-      return;
-    }
-    ReactVisionCCA::GeospatialCreateRequest req;
-    req.projectId    = _rvGeoProjectId;
-    req.lat          = latitude;
-    req.lng          = longitude;
-    req.alt          = altitudeAboveRooftop;
-    req.altitudeMode = "rooftop_level";
-    std::weak_ptr<VROARSessioniOS> weakSelf = shared_from_this();
-    _geospatialProviderRV->createAnchor(req,
-        [weakSelf, latitude, longitude, altitudeAboveRooftop, quaternion, onSuccess, onFailure]
-        (ReactVisionCCA::ApiResult<ReactVisionCCA::GeospatialAnchorRecord> result) {
-            auto self = weakSelf.lock();
-            if (!self) return;
-            if (result.success) {
-                auto geoAnchor = std::make_shared<VROGeospatialAnchor>(
-                    VROGeospatialAnchorType::Rooftop, latitude, longitude, altitudeAboveRooftop, quaternion);
-                geoAnchor->setId(result.data.id);
-                geoAnchor->setResolveState(VROGeospatialAnchorResolveState::Success);
-                self->addAnchor(geoAnchor);
-                if (onSuccess) onSuccess(geoAnchor);
-            } else {
-                if (onFailure) onFailure(result.error.message);
-            }
-        });
+    if (onFailure) onFailure("createRooftopAnchor requires ARCore VPS (provider='arcore'). "
+                             "ReactVision provider does not support GPS→AR placement.");
     return;
   }
 #endif
