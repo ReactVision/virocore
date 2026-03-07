@@ -232,6 +232,18 @@ void VROARSessionARCore::setReactVisionConfig(const std::string &apiKey,
   _rvProjectId = projectId;
   // Credentials supplied — activate the ReactVision cloud anchor provider.
   setCloudAnchorProvider(VROCloudAnchorProvider::ReactVision);
+#if RVCCA_AVAILABLE
+  // Also initialize the geospatial metadata provider so rvFindNearbyGeospatialAnchors,
+  // rvGetGeospatialAnchor, etc. work whenever provider="reactvision" is set.
+  // This must NOT enable ARCore geospatial mode (VPS) — that belongs to provider="arcore".
+  if (!_geospatialProviderRV && !_rvApiKey.empty() && !_rvProjectId.empty()) {
+    ReactVisionCCA::RVCCAGeospatialProvider::Config cfg;
+    cfg.apiKey    = _rvApiKey;
+    cfg.projectId = _rvProjectId;
+    _geospatialProviderRV = std::make_shared<ReactVisionCCA::RVCCAGeospatialProvider>(cfg);
+    pinfo("VROARSessionARCore: ReactVision Geospatial provider initialized");
+  }
+#endif
 }
 
 void VROARSessionARCore::setCloudAnchorProvider(
@@ -1397,29 +1409,14 @@ void VROARSessionARCore::setGeospatialAnchorProvider(VROGeospatialAnchorProvider
     VROARSession::setGeospatialAnchorProvider(provider);
 
     if (provider == VROGeospatialAnchorProvider::ReactVision) {
-        // Enable ARCore geospatial so createGeospatialAnchor() can map GPS→AR space
-        // via the native ARCore path (no backend write). One Pause/Resume is expected;
-        // null guards in anchor callbacks prevent any crash.
-        if (_geospatialMode != arcore::GeospatialMode::Enabled) {
-            _geospatialMode = arcore::GeospatialMode::Enabled;
-            updateARCoreConfig();
+        // ReactVision geospatial (RVCA metadata backend) is initialized via
+        // setReactVisionConfig() when provider="reactvision" is set.
+        // Do NOT enable ARCore geospatial mode (VPS) — that belongs to provider="arcore".
+        if (!_geospatialProviderRV) {
+            pwarn("VROARSessionARCore: ReactVision geospatial not ready — "
+                  "setReactVisionConfig() must be called first.");
         }
-#if RVCCA_AVAILABLE
-        if (!_geospatialProviderRV && !_rvApiKey.empty() && !_rvProjectId.empty()) {
-            ReactVisionCCA::RVCCAGeospatialProvider::Config cfg;
-            cfg.apiKey    = _rvApiKey;
-            cfg.projectId = _rvProjectId;
-            _geospatialProviderRV =
-                std::make_shared<ReactVisionCCA::RVCCAGeospatialProvider>(cfg);
-            pinfo("VROARSessionARCore: ReactVision Geospatial provider initialized");
-        } else if (_rvApiKey.empty()) {
-            pwarn("VROARSessionARCore: ReactVision credentials not set — "
-                  "call setReactVisionConfig() before setting geospatialAnchorProvider='reactvision'");
-        }
-#else
-        pwarn("VROARSessionARCore: ReactVision Geospatial not available in this build "
-              "(deploy libreactvisioncca.so to enable)");
-#endif
+        return;
     } else {
         // Switching away from ReactVision — tear down the provider
 #if RVCCA_AVAILABLE
