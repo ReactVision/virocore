@@ -1397,9 +1397,11 @@ void VROARSessionARCore::setGeospatialAnchorProvider(VROGeospatialAnchorProvider
     VROARSession::setGeospatialAnchorProvider(provider);
 
     if (provider == VROGeospatialAnchorProvider::ReactVision) {
-        // Keep ARCore geospatial disabled — RV uses its own network backend
-        if (_geospatialMode != arcore::GeospatialMode::Disabled) {
-            _geospatialMode = arcore::GeospatialMode::Disabled;
+        // Enable ARCore geospatial so createGeospatialAnchor() can map GPS→AR space
+        // via the native ARCore path (no backend write). One Pause/Resume is expected;
+        // null guards in anchor callbacks prevent any crash.
+        if (_geospatialMode != arcore::GeospatialMode::Enabled) {
+            _geospatialMode = arcore::GeospatialMode::Enabled;
             updateARCoreConfig();
         }
 #if RVCCA_AVAILABLE
@@ -1545,42 +1547,9 @@ void VROARSessionARCore::createGeospatialAnchor(double latitude, double longitud
                                                 VROQuaternion quaternion,
                                                 std::function<void(std::shared_ptr<VROGeospatialAnchor>)> onSuccess,
                                                 std::function<void(std::string error)> onFailure) {
-#if RVCCA_AVAILABLE
-    if (getGeospatialAnchorProvider() == VROGeospatialAnchorProvider::ReactVision) {
-        if (!_geospatialProviderRV) {
-            if (onFailure) onFailure("ReactVision geospatial provider not initialized");
-            return;
-        }
-        ReactVisionCCA::GeospatialCreateRequest req;
-        req.projectId    = _rvProjectId;
-        req.lat          = latitude;
-        req.lng          = longitude;
-        req.alt          = altitude;
-        req.altitudeMode = "street_level";
-        std::weak_ptr<VROARSessionARCore> weakSelf = shared_from_this();
-        _geospatialProviderRV->createAnchor(req,
-            [weakSelf, latitude, longitude, altitude, quaternion, onSuccess, onFailure]
-            (ReactVisionCCA::ApiResult<ReactVisionCCA::GeospatialAnchorRecord> result) {
-                VROPlatformDispatchAsyncRenderer([=] {
-                    auto self = weakSelf.lock();
-                    if (!self) return;
-                    if (result.success) {
-                        auto geoAnchor = std::make_shared<VROGeospatialAnchor>(
-                            VROGeospatialAnchorType::WGS84, latitude, longitude, altitude, quaternion);
-                        geoAnchor->setId(result.data.id);
-                        geoAnchor->setResolveState(VROGeospatialAnchorResolveState::Success);
-                        std::shared_ptr<VROARAnchorARCore> vAnchor = std::make_shared<VROARAnchorARCore>(
-                            result.data.id, nullptr, geoAnchor, self);
-                        self->addAnchor(vAnchor);
-                        if (onSuccess) onSuccess(geoAnchor);
-                    } else {
-                        if (onFailure) onFailure(result.error.message);
-                    }
-                });
-            });
-        return;
-    }
-#endif
+    // Always use the native ARCore geospatial path regardless of provider.
+    // Backend record creation is an explicit management operation (rvCreateGeospatialAnchor),
+    // not an implicit side-effect of placing an anchor in AR.
     if (_geospatialMode == arcore::GeospatialMode::Disabled) {
         if (onFailure) onFailure("Geospatial mode is disabled");
         return;
