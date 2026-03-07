@@ -1674,17 +1674,51 @@ void VROARSessioniOS::checkVPSAvailability(double latitude, double longitude,
   }
 }
 
+// Create a native ARKit local anchor at the GPS-computed world position.
+// AR placement math is delegated to RVCCAGeospatialProvider::computeArPosition()
+// (proprietary algorithm inside libreactvisioncca — not exposed in open-source virocore).
+static std::shared_ptr<VROGeospatialAnchor> createLocalGPSAnchor(
+    ARSession *session,
+    const VROGeospatialPose &devicePose,
+    double anchorLat, double anchorLng, double anchorAlt,
+    VROGeospatialAnchorType type, VROQuaternion quaternion,
+    ReactVisionCCA::RVCCAGeospatialProvider *provider,
+    std::string &outError) {
+  if (devicePose.latitude == 0.0 && devicePose.longitude == 0.0) {
+    outError = "GPS position not available yet. Ensure location permissions are granted.";
+    return nullptr;
+  }
+  auto pos = provider->computeArPosition(
+      devicePose.latitude, devicePose.longitude, devicePose.altitude, devicePose.heading,
+      anchorLat, anchorLng, anchorAlt);
+  float arX = pos[0], arY = pos[1], arZ = pos[2];
+
+  simd_quatf q = simd_quaternion(quaternion.X, quaternion.Y, quaternion.Z, quaternion.W);
+  simd_float4x4 transform = simd_matrix4x4(q);
+  transform.columns[3] = simd_make_float4(arX, arY, arZ, 1.0f);
+
+  ARAnchor *arAnchor = [[ARAnchor alloc] initWithTransform:transform];
+  [session addAnchor:arAnchor];
+
+  auto geo = std::make_shared<VROGeospatialAnchor>(type, anchorLat, anchorLng, anchorAlt, quaternion);
+  geo->setId(std::string([arAnchor.identifier.UUIDString UTF8String]));
+  geo->setResolveState(VROGeospatialAnchorResolveState::Success);
+  return geo;
+}
+
 void VROARSessioniOS::createGeospatialAnchor(double latitude, double longitude, double altitude,
                                              VROQuaternion quaternion,
                                              std::function<void(std::shared_ptr<VROGeospatialAnchor>)> onSuccess,
                                              std::function<void(std::string error)> onFailure) {
 #if RVCCA_AVAILABLE
   if (getGeospatialAnchorProvider() == VROGeospatialAnchorProvider::ReactVision) {
-    // ReactVision has no VPS — cannot map GPS coordinates to AR world space.
-    // Use rvCreateGeospatialAnchor to store GPS metadata, and resolveCloudAnchor
-    // to place anchors in AR via visual feature matching.
-    if (onFailure) onFailure("createGeospatialAnchor requires ARCore VPS (provider='arcore'). "
-                             "ReactVision provider does not support GPS→AR placement.");
+    std::string error;
+    auto anchor = createLocalGPSAnchor(_session, _lastKnownGPSPose,
+                                       latitude, longitude, altitude,
+                                       VROGeospatialAnchorType::WGS84, quaternion,
+                                       _geospatialProviderRV.get(), error);
+    if (anchor) { if (onSuccess) onSuccess(anchor); }
+    else         { if (onFailure) onFailure(error);  }
     return;
   }
 #endif
@@ -1718,8 +1752,15 @@ void VROARSessioniOS::createTerrainAnchor(double latitude, double longitude, dou
                                           std::function<void(std::string error)> onFailure) {
 #if RVCCA_AVAILABLE
   if (getGeospatialAnchorProvider() == VROGeospatialAnchorProvider::ReactVision) {
-    if (onFailure) onFailure("createTerrainAnchor requires ARCore VPS (provider='arcore'). "
-                             "ReactVision provider does not support GPS→AR placement.");
+    // altitudeAboveTerrain: approximate absolute alt = device altitude + offset
+    double absoluteAlt = _lastKnownGPSPose.altitude + altitudeAboveTerrain;
+    std::string error;
+    auto anchor = createLocalGPSAnchor(_session, _lastKnownGPSPose,
+                                       latitude, longitude, absoluteAlt,
+                                       VROGeospatialAnchorType::Terrain, quaternion,
+                                       _geospatialProviderRV.get(), error);
+    if (anchor) { if (onSuccess) onSuccess(anchor); }
+    else         { if (onFailure) onFailure(error);  }
     return;
   }
 #endif
@@ -1752,8 +1793,15 @@ void VROARSessioniOS::createRooftopAnchor(double latitude, double longitude, dou
                                           std::function<void(std::string error)> onFailure) {
 #if RVCCA_AVAILABLE
   if (getGeospatialAnchorProvider() == VROGeospatialAnchorProvider::ReactVision) {
-    if (onFailure) onFailure("createRooftopAnchor requires ARCore VPS (provider='arcore'). "
-                             "ReactVision provider does not support GPS→AR placement.");
+    // altitudeAboveRooftop: approximate absolute alt = device altitude + offset
+    double absoluteAlt = _lastKnownGPSPose.altitude + altitudeAboveRooftop;
+    std::string error;
+    auto anchor = createLocalGPSAnchor(_session, _lastKnownGPSPose,
+                                       latitude, longitude, absoluteAlt,
+                                       VROGeospatialAnchorType::Rooftop, quaternion,
+                                       _geospatialProviderRV.get(), error);
+    if (anchor) { if (onSuccess) onSuccess(anchor); }
+    else         { if (onFailure) onFailure(error);  }
     return;
   }
 #endif
