@@ -384,37 +384,50 @@ VRO_METHOD(void, nativeRemoveGeospatialAnchor)(VRO_ARGS
     }
 }
 
+// ── Geospatial management helper ─────────────────────────────────────────────
+
+static void rvFireGeoResult(VRO_WEAK weakObj, std::string keyStr,
+                             bool success, std::string jsonData, std::string error) {
+    VROPlatformDispatchAsyncApplication([weakObj, keyStr, success, jsonData, error] {
+        VRO_ENV env = VROPlatformGetJNIEnv();
+        VRO_OBJECT localObj = VRO_NEW_LOCAL_REF(weakObj);
+        if (VRO_IS_OBJECT_NULL(localObj)) {
+            VRO_DELETE_LOCAL_REF(localObj);
+            VRO_DELETE_WEAK_GLOBAL_REF(weakObj);
+            return;
+        }
+        VRO_STRING jKey  = VRO_NEW_STRING(keyStr.c_str());
+        VRO_STRING jJson = VRO_NEW_STRING(jsonData.c_str());
+        VRO_STRING jErr  = VRO_NEW_STRING(error.c_str());
+        VROPlatformCallHostFunction(localObj, "onRvGeospatialResult",
+            "(Ljava/lang/String;ZLjava/lang/String;Ljava/lang/String;)V",
+            jKey, (jboolean)success, jJson, jErr);
+        VRO_DELETE_LOCAL_REF(localObj);
+        VRO_DELETE_WEAK_GLOBAL_REF(weakObj);
+    });
+}
+
 VRO_METHOD(void, nativeRvGetGeospatialAnchor)(VRO_ARGS
                                               VRO_REF(VROARSceneController) arSceneControllerPtr,
                                               jstring key_j,
                                               jstring anchorId_j) {
     std::string keyStr    = VRO_STRING_STL(key_j);
     std::string anchorStr = VRO_STRING_STL(anchorId_j);
-    std::shared_ptr<VROARScene> arScene = std::dynamic_pointer_cast<VROARScene>(VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
-    std::shared_ptr<VROARSession> arSession = arScene ? arScene->getARSession() : nullptr;
-    if (!arSession) return;
-
+    std::weak_ptr<VROARScene> arScene_w = std::dynamic_pointer_cast<VROARScene>(
+        VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
     VRO_WEAK weakObj = VRO_NEW_WEAK_GLOBAL_REF(obj);
-    arSession->rvGetGeospatialAnchor(anchorStr,
-        [weakObj, keyStr](bool success, std::string jsonData, std::string error) {
-            VROPlatformDispatchAsyncApplication([weakObj, keyStr, success, jsonData, error] {
-                VRO_ENV env = VROPlatformGetJNIEnv();
-                VRO_OBJECT localObj = VRO_NEW_LOCAL_REF(weakObj);
-                if (VRO_IS_OBJECT_NULL(localObj)) {
-                    VRO_DELETE_LOCAL_REF(localObj);
-                    VRO_DELETE_WEAK_GLOBAL_REF(weakObj);
-                    return;
-                }
-                VRO_STRING jKey  = VRO_NEW_STRING(keyStr.c_str());
-                VRO_STRING jJson = VRO_NEW_STRING(jsonData.c_str());
-                VRO_STRING jErr  = VRO_NEW_STRING(error.c_str());
-                VROPlatformCallHostFunction(localObj, "onRvGeospatialResult",
-                    "(Ljava/lang/String;ZLjava/lang/String;Ljava/lang/String;)V",
-                    jKey, (jboolean)success, jJson, jErr);
-                VRO_DELETE_LOCAL_REF(localObj);
-                VRO_DELETE_WEAK_GLOBAL_REF(weakObj);
+    VROPlatformDispatchAsyncRenderer([arScene_w, weakObj, keyStr, anchorStr] {
+        std::shared_ptr<VROARScene> arScene = arScene_w.lock();
+        std::shared_ptr<VROARSession> arSession = arScene ? arScene->getARSession() : nullptr;
+        if (!arSession) {
+            rvFireGeoResult(weakObj, keyStr, false, "", "AR session not available");
+            return;
+        }
+        arSession->rvGetGeospatialAnchor(anchorStr,
+            [weakObj, keyStr](bool success, std::string jsonData, std::string error) {
+                rvFireGeoResult(weakObj, keyStr, success, jsonData, error);
             });
-        });
+    });
 }
 
 VRO_METHOD(void, nativeRvFindNearbyGeospatialAnchors)(VRO_ARGS
@@ -423,31 +436,21 @@ VRO_METHOD(void, nativeRvFindNearbyGeospatialAnchors)(VRO_ARGS
                                                       jdouble lat, jdouble lng,
                                                       jdouble radius, jint limit) {
     std::string keyStr = VRO_STRING_STL(key_j);
-    std::shared_ptr<VROARScene> arScene = std::dynamic_pointer_cast<VROARScene>(VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
-    std::shared_ptr<VROARSession> arSession = arScene ? arScene->getARSession() : nullptr;
-    if (!arSession) return;
-
+    std::weak_ptr<VROARScene> arScene_w = std::dynamic_pointer_cast<VROARScene>(
+        VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
     VRO_WEAK weakObj = VRO_NEW_WEAK_GLOBAL_REF(obj);
-    arSession->rvFindNearbyGeospatialAnchors(lat, lng, radius, (int)limit,
-        [weakObj, keyStr](bool success, std::string jsonData, std::string error) {
-            VROPlatformDispatchAsyncApplication([weakObj, keyStr, success, jsonData, error] {
-                VRO_ENV env = VROPlatformGetJNIEnv();
-                VRO_OBJECT localObj = VRO_NEW_LOCAL_REF(weakObj);
-                if (VRO_IS_OBJECT_NULL(localObj)) {
-                    VRO_DELETE_LOCAL_REF(localObj);
-                    VRO_DELETE_WEAK_GLOBAL_REF(weakObj);
-                    return;
-                }
-                VRO_STRING jKey  = VRO_NEW_STRING(keyStr.c_str());
-                VRO_STRING jJson = VRO_NEW_STRING(jsonData.c_str());
-                VRO_STRING jErr  = VRO_NEW_STRING(error.c_str());
-                VROPlatformCallHostFunction(localObj, "onRvGeospatialResult",
-                    "(Ljava/lang/String;ZLjava/lang/String;Ljava/lang/String;)V",
-                    jKey, (jboolean)success, jJson, jErr);
-                VRO_DELETE_LOCAL_REF(localObj);
-                VRO_DELETE_WEAK_GLOBAL_REF(weakObj);
+    VROPlatformDispatchAsyncRenderer([arScene_w, weakObj, keyStr, lat, lng, radius, limit] {
+        std::shared_ptr<VROARScene> arScene = arScene_w.lock();
+        std::shared_ptr<VROARSession> arSession = arScene ? arScene->getARSession() : nullptr;
+        if (!arSession) {
+            rvFireGeoResult(weakObj, keyStr, false, "", "AR session not available");
+            return;
+        }
+        arSession->rvFindNearbyGeospatialAnchors(lat, lng, radius, (int)limit,
+            [weakObj, keyStr](bool success, std::string jsonData, std::string error) {
+                rvFireGeoResult(weakObj, keyStr, success, jsonData, error);
             });
-        });
+    });
 }
 
 VRO_METHOD(void, nativeRvUpdateGeospatialAnchor)(VRO_ARGS
@@ -462,32 +465,21 @@ VRO_METHOD(void, nativeRvUpdateGeospatialAnchor)(VRO_ARGS
     std::string sceneAssetStr = VRO_STRING_STL(sceneAssetId_j);
     std::string sceneIdStr    = VRO_STRING_STL(sceneId_j);
     std::string nameStr       = VRO_STRING_STL(name_j);
-
-    std::shared_ptr<VROARScene> arScene = std::dynamic_pointer_cast<VROARScene>(VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
-    std::shared_ptr<VROARSession> arSession = arScene ? arScene->getARSession() : nullptr;
-    if (!arSession) return;
-
+    std::weak_ptr<VROARScene> arScene_w = std::dynamic_pointer_cast<VROARScene>(
+        VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
     VRO_WEAK weakObj = VRO_NEW_WEAK_GLOBAL_REF(obj);
-    arSession->rvUpdateGeospatialAnchor(anchorStr, sceneAssetStr, sceneIdStr, nameStr,
-        [weakObj, keyStr](bool success, std::string jsonData, std::string error) {
-            VROPlatformDispatchAsyncApplication([weakObj, keyStr, success, jsonData, error] {
-                VRO_ENV env = VROPlatformGetJNIEnv();
-                VRO_OBJECT localObj = VRO_NEW_LOCAL_REF(weakObj);
-                if (VRO_IS_OBJECT_NULL(localObj)) {
-                    VRO_DELETE_LOCAL_REF(localObj);
-                    VRO_DELETE_WEAK_GLOBAL_REF(weakObj);
-                    return;
-                }
-                VRO_STRING jKey  = VRO_NEW_STRING(keyStr.c_str());
-                VRO_STRING jJson = VRO_NEW_STRING(jsonData.c_str());
-                VRO_STRING jErr  = VRO_NEW_STRING(error.c_str());
-                VROPlatformCallHostFunction(localObj, "onRvGeospatialResult",
-                    "(Ljava/lang/String;ZLjava/lang/String;Ljava/lang/String;)V",
-                    jKey, (jboolean)success, jJson, jErr);
-                VRO_DELETE_LOCAL_REF(localObj);
-                VRO_DELETE_WEAK_GLOBAL_REF(weakObj);
+    VROPlatformDispatchAsyncRenderer([arScene_w, weakObj, keyStr, anchorStr, sceneAssetStr, sceneIdStr, nameStr] {
+        std::shared_ptr<VROARScene> arScene = arScene_w.lock();
+        std::shared_ptr<VROARSession> arSession = arScene ? arScene->getARSession() : nullptr;
+        if (!arSession) {
+            rvFireGeoResult(weakObj, keyStr, false, "", "AR session not available");
+            return;
+        }
+        arSession->rvUpdateGeospatialAnchor(anchorStr, sceneAssetStr, sceneIdStr, nameStr,
+            [weakObj, keyStr](bool success, std::string jsonData, std::string error) {
+                rvFireGeoResult(weakObj, keyStr, success, jsonData, error);
             });
-        });
+    });
 }
 
 VRO_METHOD(void, nativeRvDeleteGeospatialAnchor)(VRO_ARGS
@@ -496,32 +488,21 @@ VRO_METHOD(void, nativeRvDeleteGeospatialAnchor)(VRO_ARGS
                                                  jstring anchorId_j) {
     std::string keyStr    = VRO_STRING_STL(key_j);
     std::string anchorStr = VRO_STRING_STL(anchorId_j);
-    std::shared_ptr<VROARScene> arScene = std::dynamic_pointer_cast<VROARScene>(VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
-    std::shared_ptr<VROARSession> arSession = arScene ? arScene->getARSession() : nullptr;
-    if (!arSession) return;
-
+    std::weak_ptr<VROARScene> arScene_w = std::dynamic_pointer_cast<VROARScene>(
+        VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
     VRO_WEAK weakObj = VRO_NEW_WEAK_GLOBAL_REF(obj);
-    arSession->rvDeleteGeospatialAnchor(anchorStr,
-        [weakObj, keyStr](bool success, std::string error) {
-            VROPlatformDispatchAsyncApplication([weakObj, keyStr, success, error] {
-                VRO_ENV env = VROPlatformGetJNIEnv();
-                VRO_OBJECT localObj = VRO_NEW_LOCAL_REF(weakObj);
-                if (VRO_IS_OBJECT_NULL(localObj)) {
-                    VRO_DELETE_LOCAL_REF(localObj);
-                    VRO_DELETE_WEAK_GLOBAL_REF(weakObj);
-                    return;
-                }
-                // Reuse the same callback with empty jsonData for delete
-                VRO_STRING jKey  = VRO_NEW_STRING(keyStr.c_str());
-                VRO_STRING jJson = VRO_NEW_STRING("");
-                VRO_STRING jErr  = VRO_NEW_STRING(error.c_str());
-                VROPlatformCallHostFunction(localObj, "onRvGeospatialResult",
-                    "(Ljava/lang/String;ZLjava/lang/String;Ljava/lang/String;)V",
-                    jKey, (jboolean)success, jJson, jErr);
-                VRO_DELETE_LOCAL_REF(localObj);
-                VRO_DELETE_WEAK_GLOBAL_REF(weakObj);
+    VROPlatformDispatchAsyncRenderer([arScene_w, weakObj, keyStr, anchorStr] {
+        std::shared_ptr<VROARScene> arScene = arScene_w.lock();
+        std::shared_ptr<VROARSession> arSession = arScene ? arScene->getARSession() : nullptr;
+        if (!arSession) {
+            rvFireGeoResult(weakObj, keyStr, false, "", "AR session not available");
+            return;
+        }
+        arSession->rvDeleteGeospatialAnchor(anchorStr,
+            [weakObj, keyStr](bool success, std::string error) {
+                rvFireGeoResult(weakObj, keyStr, success, "", error);
             });
-        });
+    });
 }
 
 VRO_METHOD(void, nativeRvListGeospatialAnchors)(VRO_ARGS
@@ -529,31 +510,21 @@ VRO_METHOD(void, nativeRvListGeospatialAnchors)(VRO_ARGS
                                                jstring key_j,
                                                jint limit, jint offset) {
     std::string keyStr = VRO_STRING_STL(key_j);
-    std::shared_ptr<VROARScene> arScene = std::dynamic_pointer_cast<VROARScene>(VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
-    std::shared_ptr<VROARSession> arSession = arScene ? arScene->getARSession() : nullptr;
-    if (!arSession) return;
-
+    std::weak_ptr<VROARScene> arScene_w = std::dynamic_pointer_cast<VROARScene>(
+        VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
     VRO_WEAK weakObj = VRO_NEW_WEAK_GLOBAL_REF(obj);
-    arSession->rvListGeospatialAnchors((int)limit, (int)offset,
-        [weakObj, keyStr](bool success, std::string jsonData, std::string error) {
-            VROPlatformDispatchAsyncApplication([weakObj, keyStr, success, jsonData, error] {
-                VRO_ENV env = VROPlatformGetJNIEnv();
-                VRO_OBJECT localObj = VRO_NEW_LOCAL_REF(weakObj);
-                if (VRO_IS_OBJECT_NULL(localObj)) {
-                    VRO_DELETE_LOCAL_REF(localObj);
-                    VRO_DELETE_WEAK_GLOBAL_REF(weakObj);
-                    return;
-                }
-                VRO_STRING jKey  = VRO_NEW_STRING(keyStr.c_str());
-                VRO_STRING jJson = VRO_NEW_STRING(jsonData.c_str());
-                VRO_STRING jErr  = VRO_NEW_STRING(error.c_str());
-                VROPlatformCallHostFunction(localObj, "onRvGeospatialResult",
-                    "(Ljava/lang/String;ZLjava/lang/String;Ljava/lang/String;)V",
-                    jKey, (jboolean)success, jJson, jErr);
-                VRO_DELETE_LOCAL_REF(localObj);
-                VRO_DELETE_WEAK_GLOBAL_REF(weakObj);
+    VROPlatformDispatchAsyncRenderer([arScene_w, weakObj, keyStr, limit, offset] {
+        std::shared_ptr<VROARScene> arScene = arScene_w.lock();
+        std::shared_ptr<VROARSession> arSession = arScene ? arScene->getARSession() : nullptr;
+        if (!arSession) {
+            rvFireGeoResult(weakObj, keyStr, false, "", "AR session not available");
+            return;
+        }
+        arSession->rvListGeospatialAnchors((int)limit, (int)offset,
+            [weakObj, keyStr](bool success, std::string jsonData, std::string error) {
+                rvFireGeoResult(weakObj, keyStr, success, jsonData, error);
             });
-        });
+    });
 }
 
 // ── Cloud anchor management JNI ──────────────────────────────────────────────
@@ -584,15 +555,21 @@ VRO_METHOD(void, nativeRvGetCloudAnchor)(VRO_ARGS
                                          jstring key_j, jstring anchorId_j) {
     std::string keyStr    = VRO_STRING_STL(key_j);
     std::string anchorStr = VRO_STRING_STL(anchorId_j);
-    std::shared_ptr<VROARScene> arScene = std::dynamic_pointer_cast<VROARScene>(VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
-    std::shared_ptr<VROARSession> arSession = arScene ? arScene->getARSession() : nullptr;
-    if (!arSession) return;
-
+    std::weak_ptr<VROARScene> arScene_w = std::dynamic_pointer_cast<VROARScene>(
+        VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
     VRO_WEAK weakObj = VRO_NEW_WEAK_GLOBAL_REF(obj);
-    arSession->rvGetCloudAnchor(anchorStr,
-        [weakObj, keyStr](bool success, std::string jsonData, std::string error) {
-            rvFireCloudResult(weakObj, keyStr, success, jsonData, error);
-        });
+    VROPlatformDispatchAsyncRenderer([arScene_w, weakObj, keyStr, anchorStr] {
+        std::shared_ptr<VROARScene> arScene = arScene_w.lock();
+        std::shared_ptr<VROARSession> arSession = arScene ? arScene->getARSession() : nullptr;
+        if (!arSession) {
+            rvFireCloudResult(weakObj, keyStr, false, "", "AR session not available");
+            return;
+        }
+        arSession->rvGetCloudAnchor(anchorStr,
+            [weakObj, keyStr](bool success, std::string jsonData, std::string error) {
+                rvFireCloudResult(weakObj, keyStr, success, jsonData, error);
+            });
+    });
 }
 
 VRO_METHOD(void, nativeRvListCloudAnchors)(VRO_ARGS
@@ -600,15 +577,21 @@ VRO_METHOD(void, nativeRvListCloudAnchors)(VRO_ARGS
                                            jstring key_j,
                                            jint limit, jint offset) {
     std::string keyStr = VRO_STRING_STL(key_j);
-    std::shared_ptr<VROARScene> arScene = std::dynamic_pointer_cast<VROARScene>(VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
-    std::shared_ptr<VROARSession> arSession = arScene ? arScene->getARSession() : nullptr;
-    if (!arSession) return;
-
+    std::weak_ptr<VROARScene> arScene_w = std::dynamic_pointer_cast<VROARScene>(
+        VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
     VRO_WEAK weakObj = VRO_NEW_WEAK_GLOBAL_REF(obj);
-    arSession->rvListCloudAnchors((int)limit, (int)offset,
-        [weakObj, keyStr](bool success, std::string jsonData, std::string error) {
-            rvFireCloudResult(weakObj, keyStr, success, jsonData, error);
-        });
+    VROPlatformDispatchAsyncRenderer([arScene_w, weakObj, keyStr, limit, offset] {
+        std::shared_ptr<VROARScene> arScene = arScene_w.lock();
+        std::shared_ptr<VROARSession> arSession = arScene ? arScene->getARSession() : nullptr;
+        if (!arSession) {
+            rvFireCloudResult(weakObj, keyStr, false, "", "AR session not available");
+            return;
+        }
+        arSession->rvListCloudAnchors((int)limit, (int)offset,
+            [weakObj, keyStr](bool success, std::string jsonData, std::string error) {
+                rvFireCloudResult(weakObj, keyStr, success, jsonData, error);
+            });
+    });
 }
 
 VRO_METHOD(void, nativeRvUpdateCloudAnchor)(VRO_ARGS
@@ -618,19 +601,26 @@ VRO_METHOD(void, nativeRvUpdateCloudAnchor)(VRO_ARGS
                                              jstring name_j,
                                              jstring description_j,
                                              jboolean isPublic) {
-    std::string keyStr  = VRO_STRING_STL(key_j);
-    std::string anchorStr = VRO_STRING_STL(anchorId_j);
-    std::string nameStr = VRO_STRING_STL(name_j);
-    std::string descStr = VRO_STRING_STL(description_j);
-    std::shared_ptr<VROARScene> arScene = std::dynamic_pointer_cast<VROARScene>(VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
-    std::shared_ptr<VROARSession> arSession = arScene ? arScene->getARSession() : nullptr;
-    if (!arSession) return;
-
+    std::string keyStr      = VRO_STRING_STL(key_j);
+    std::string anchorStr   = VRO_STRING_STL(anchorId_j);
+    std::string nameStr     = VRO_STRING_STL(name_j);
+    std::string descStr     = VRO_STRING_STL(description_j);
+    bool isPublicBool       = (bool)isPublic;
+    std::weak_ptr<VROARScene> arScene_w = std::dynamic_pointer_cast<VROARScene>(
+        VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
     VRO_WEAK weakObj = VRO_NEW_WEAK_GLOBAL_REF(obj);
-    arSession->rvUpdateCloudAnchor(anchorStr, nameStr, descStr, (bool)isPublic,
-        [weakObj, keyStr](bool success, std::string jsonData, std::string error) {
-            rvFireCloudResult(weakObj, keyStr, success, jsonData, error);
-        });
+    VROPlatformDispatchAsyncRenderer([arScene_w, weakObj, keyStr, anchorStr, nameStr, descStr, isPublicBool] {
+        std::shared_ptr<VROARScene> arScene = arScene_w.lock();
+        std::shared_ptr<VROARSession> arSession = arScene ? arScene->getARSession() : nullptr;
+        if (!arSession) {
+            rvFireCloudResult(weakObj, keyStr, false, "", "AR session not available");
+            return;
+        }
+        arSession->rvUpdateCloudAnchor(anchorStr, nameStr, descStr, isPublicBool,
+            [weakObj, keyStr](bool success, std::string jsonData, std::string error) {
+                rvFireCloudResult(weakObj, keyStr, success, jsonData, error);
+            });
+    });
 }
 
 VRO_METHOD(void, nativeRvDeleteCloudAnchor)(VRO_ARGS
@@ -638,15 +628,21 @@ VRO_METHOD(void, nativeRvDeleteCloudAnchor)(VRO_ARGS
                                              jstring key_j, jstring anchorId_j) {
     std::string keyStr    = VRO_STRING_STL(key_j);
     std::string anchorStr = VRO_STRING_STL(anchorId_j);
-    std::shared_ptr<VROARScene> arScene = std::dynamic_pointer_cast<VROARScene>(VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
-    std::shared_ptr<VROARSession> arSession = arScene ? arScene->getARSession() : nullptr;
-    if (!arSession) return;
-
+    std::weak_ptr<VROARScene> arScene_w = std::dynamic_pointer_cast<VROARScene>(
+        VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
     VRO_WEAK weakObj = VRO_NEW_WEAK_GLOBAL_REF(obj);
-    arSession->rvDeleteCloudAnchor(anchorStr,
-        [weakObj, keyStr](bool success, std::string error) {
-            rvFireCloudResult(weakObj, keyStr, success, "", error);
-        });
+    VROPlatformDispatchAsyncRenderer([arScene_w, weakObj, keyStr, anchorStr] {
+        std::shared_ptr<VROARScene> arScene = arScene_w.lock();
+        std::shared_ptr<VROARSession> arSession = arScene ? arScene->getARSession() : nullptr;
+        if (!arSession) {
+            rvFireCloudResult(weakObj, keyStr, false, "", "AR session not available");
+            return;
+        }
+        arSession->rvDeleteCloudAnchor(anchorStr,
+            [weakObj, keyStr](bool success, std::string error) {
+                rvFireCloudResult(weakObj, keyStr, success, "", error);
+            });
+    });
 }
 
 VRO_METHOD(void, nativeRvFindNearbyCloudAnchors)(VRO_ARGS
@@ -655,15 +651,21 @@ VRO_METHOD(void, nativeRvFindNearbyCloudAnchors)(VRO_ARGS
                                                   jdouble lat, jdouble lng,
                                                   jdouble radius, jint limit) {
     std::string keyStr = VRO_STRING_STL(key_j);
-    std::shared_ptr<VROARScene> arScene = std::dynamic_pointer_cast<VROARScene>(VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
-    std::shared_ptr<VROARSession> arSession = arScene ? arScene->getARSession() : nullptr;
-    if (!arSession) return;
-
+    std::weak_ptr<VROARScene> arScene_w = std::dynamic_pointer_cast<VROARScene>(
+        VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
     VRO_WEAK weakObj = VRO_NEW_WEAK_GLOBAL_REF(obj);
-    arSession->rvFindNearbyCloudAnchors(lat, lng, radius, (int)limit,
-        [weakObj, keyStr](bool success, std::string jsonData, std::string error) {
-            rvFireCloudResult(weakObj, keyStr, success, jsonData, error);
-        });
+    VROPlatformDispatchAsyncRenderer([arScene_w, weakObj, keyStr, lat, lng, radius, limit] {
+        std::shared_ptr<VROARScene> arScene = arScene_w.lock();
+        std::shared_ptr<VROARSession> arSession = arScene ? arScene->getARSession() : nullptr;
+        if (!arSession) {
+            rvFireCloudResult(weakObj, keyStr, false, "", "AR session not available");
+            return;
+        }
+        arSession->rvFindNearbyCloudAnchors(lat, lng, radius, (int)limit,
+            [weakObj, keyStr](bool success, std::string jsonData, std::string error) {
+                rvFireCloudResult(weakObj, keyStr, success, jsonData, error);
+            });
+    });
 }
 
 VRO_METHOD(void, nativeRvAttachAssetToCloudAnchor)(VRO_ARGS
@@ -675,22 +677,30 @@ VRO_METHOD(void, nativeRvAttachAssetToCloudAnchor)(VRO_ARGS
                                                     jstring name_j,
                                                     jstring assetType_j,
                                                     jstring externalUserId_j) {
-    std::string keyStr        = VRO_STRING_STL(key_j);
-    std::string anchorStr     = VRO_STRING_STL(anchorId_j);
-    std::string fileUrlStr    = VRO_STRING_STL(fileUrl_j);
-    std::string nameStr       = VRO_STRING_STL(name_j);
-    std::string assetTypeStr  = VRO_STRING_STL(assetType_j);
-    std::string extUserStr    = VRO_STRING_STL(externalUserId_j);
-    std::shared_ptr<VROARScene> arScene = std::dynamic_pointer_cast<VROARScene>(VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
-    std::shared_ptr<VROARSession> arSession = arScene ? arScene->getARSession() : nullptr;
-    if (!arSession) return;
-
+    std::string keyStr       = VRO_STRING_STL(key_j);
+    std::string anchorStr    = VRO_STRING_STL(anchorId_j);
+    std::string fileUrlStr   = VRO_STRING_STL(fileUrl_j);
+    std::string nameStr      = VRO_STRING_STL(name_j);
+    std::string assetTypeStr = VRO_STRING_STL(assetType_j);
+    std::string extUserStr   = VRO_STRING_STL(externalUserId_j);
+    int64_t fileSizeVal      = (int64_t)fileSize;
+    std::weak_ptr<VROARScene> arScene_w = std::dynamic_pointer_cast<VROARScene>(
+        VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
     VRO_WEAK weakObj = VRO_NEW_WEAK_GLOBAL_REF(obj);
-    arSession->rvAttachAssetToCloudAnchor(anchorStr, fileUrlStr, (int64_t)fileSize,
-        nameStr, assetTypeStr, extUserStr,
-        [weakObj, keyStr](bool success, std::string error) {
-            rvFireCloudResult(weakObj, keyStr, success, "", error);
-        });
+    VROPlatformDispatchAsyncRenderer([arScene_w, weakObj, keyStr, anchorStr, fileUrlStr, fileSizeVal,
+                                      nameStr, assetTypeStr, extUserStr] {
+        std::shared_ptr<VROARScene> arScene = arScene_w.lock();
+        std::shared_ptr<VROARSession> arSession = arScene ? arScene->getARSession() : nullptr;
+        if (!arSession) {
+            rvFireCloudResult(weakObj, keyStr, false, "", "AR session not available");
+            return;
+        }
+        arSession->rvAttachAssetToCloudAnchor(anchorStr, fileUrlStr, fileSizeVal,
+            nameStr, assetTypeStr, extUserStr,
+            [weakObj, keyStr](bool success, std::string error) {
+                rvFireCloudResult(weakObj, keyStr, success, "", error);
+            });
+    });
 }
 
 VRO_METHOD(void, nativeRvRemoveAssetFromCloudAnchor)(VRO_ARGS
@@ -701,15 +711,21 @@ VRO_METHOD(void, nativeRvRemoveAssetFromCloudAnchor)(VRO_ARGS
     std::string keyStr    = VRO_STRING_STL(key_j);
     std::string anchorStr = VRO_STRING_STL(anchorId_j);
     std::string assetStr  = VRO_STRING_STL(assetId_j);
-    std::shared_ptr<VROARScene> arScene = std::dynamic_pointer_cast<VROARScene>(VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
-    std::shared_ptr<VROARSession> arSession = arScene ? arScene->getARSession() : nullptr;
-    if (!arSession) return;
-
+    std::weak_ptr<VROARScene> arScene_w = std::dynamic_pointer_cast<VROARScene>(
+        VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
     VRO_WEAK weakObj = VRO_NEW_WEAK_GLOBAL_REF(obj);
-    arSession->rvRemoveAssetFromCloudAnchor(anchorStr, assetStr,
-        [weakObj, keyStr](bool success, std::string error) {
-            rvFireCloudResult(weakObj, keyStr, success, "", error);
-        });
+    VROPlatformDispatchAsyncRenderer([arScene_w, weakObj, keyStr, anchorStr, assetStr] {
+        std::shared_ptr<VROARScene> arScene = arScene_w.lock();
+        std::shared_ptr<VROARSession> arSession = arScene ? arScene->getARSession() : nullptr;
+        if (!arSession) {
+            rvFireCloudResult(weakObj, keyStr, false, "", "AR session not available");
+            return;
+        }
+        arSession->rvRemoveAssetFromCloudAnchor(anchorStr, assetStr,
+            [weakObj, keyStr](bool success, std::string error) {
+                rvFireCloudResult(weakObj, keyStr, success, "", error);
+            });
+    });
 }
 
 VRO_METHOD(void, nativeRvTrackCloudAnchorResolution)(VRO_ARGS
@@ -723,20 +739,33 @@ VRO_METHOD(void, nativeRvTrackCloudAnchorResolution)(VRO_ARGS
                                                       jint processingTimeMs,
                                                       jstring platform_j,
                                                       jstring externalUserId_j) {
-    std::string keyStr      = VRO_STRING_STL(key_j);
-    std::string anchorStr   = VRO_STRING_STL(anchorId_j);
-    std::string platformStr = VRO_STRING_STL(platform_j);
-    std::string extUserStr  = VRO_STRING_STL(externalUserId_j);
-    std::shared_ptr<VROARScene> arScene = std::dynamic_pointer_cast<VROARScene>(VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
-    std::shared_ptr<VROARSession> arSession = arScene ? arScene->getARSession() : nullptr;
-    if (!arSession) return;
-
+    std::string keyStr          = VRO_STRING_STL(key_j);
+    std::string anchorStr       = VRO_STRING_STL(anchorId_j);
+    std::string platformStr     = VRO_STRING_STL(platform_j);
+    std::string extUserStr      = VRO_STRING_STL(externalUserId_j);
+    bool successBool            = (bool)success;
+    double confidenceVal        = (double)confidence;
+    int matchCountVal           = (int)matchCount;
+    int inlierCountVal          = (int)inlierCount;
+    int processingTimeMsVal     = (int)processingTimeMs;
+    std::weak_ptr<VROARScene> arScene_w = std::dynamic_pointer_cast<VROARScene>(
+        VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
     VRO_WEAK weakObj = VRO_NEW_WEAK_GLOBAL_REF(obj);
-    arSession->rvTrackCloudAnchorResolution(anchorStr, (bool)success, (double)confidence,
-        (int)matchCount, (int)inlierCount, (int)processingTimeMs, platformStr, extUserStr,
-        [weakObj, keyStr](bool ok, std::string error) {
-            rvFireCloudResult(weakObj, keyStr, ok, "", error);
-        });
+    VROPlatformDispatchAsyncRenderer([arScene_w, weakObj, keyStr, anchorStr, successBool, confidenceVal,
+                                      matchCountVal, inlierCountVal, processingTimeMsVal,
+                                      platformStr, extUserStr] {
+        std::shared_ptr<VROARScene> arScene = arScene_w.lock();
+        std::shared_ptr<VROARSession> arSession = arScene ? arScene->getARSession() : nullptr;
+        if (!arSession) {
+            rvFireCloudResult(weakObj, keyStr, false, "", "AR session not available");
+            return;
+        }
+        arSession->rvTrackCloudAnchorResolution(anchorStr, successBool, confidenceVal,
+            matchCountVal, inlierCountVal, processingTimeMsVal, platformStr, extUserStr,
+            [weakObj, keyStr](bool ok, std::string error) {
+                rvFireCloudResult(weakObj, keyStr, ok, "", error);
+            });
+    });
 }
 
 VRO_METHOD(void, nativeResetPointCloudSurface)(VRO_ARGS
@@ -1301,6 +1330,25 @@ VRO_METHOD(void, nativeSetReactVisionConfig)(VRO_ARGS
     });
 }
 
+VRO_METHOD(void, nativeSetGeospatialAnchorProvider)(VRO_ARGS
+                                                    VRO_REF(VROARSceneController) sceneController_j,
+                                                    VRO_STRING provider_j) {
+    std::string providerStr = VRO_STRING_STL(provider_j);
+    std::weak_ptr<VROARScene> scene_w = std::dynamic_pointer_cast<VROARScene>(
+            VRO_REF_GET(VROARSceneController, sceneController_j)->getScene());
+
+    VROPlatformDispatchAsyncRenderer([scene_w, providerStr] {
+        std::shared_ptr<VROARScene> scene = scene_w.lock();
+        if (!scene) return;
+        std::shared_ptr<VROARSession> session = scene->getARSession();
+        if (!session) return;
+        VROGeospatialAnchorProvider p = (providerStr == "reactvision")
+            ? VROGeospatialAnchorProvider::ReactVision
+            : VROGeospatialAnchorProvider::None;
+        session->setGeospatialAnchorProvider(p);
+    });
+}
+
 VRO_METHOD(void, nativeSetOcclusionMode)(VRO_ARGS
                                           VRO_REF(VROARSceneController) sceneController_j,
                                           VRO_INT mode) {
@@ -1518,6 +1566,11 @@ void ARDeclarativeSceneDelegate::anchorWasDetected(std::shared_ptr<VROARAnchor> 
         }
 
         VRO_OBJECT janchor = ARUtilsCreateJavaARAnchorFromAnchor(anchor);
+        if (VRO_IS_OBJECT_NULL(janchor)) {
+            VRO_DELETE_LOCAL_REF(localObj);
+            VRO_DELETE_WEAK_GLOBAL_REF(jObjWeak);
+            return;
+        }
         VRO_REF(VROARNode) nodeNativeRef = 0;
         VROPlatformCallHostFunction(localObj, "onAnchorFound",
                                     "(Lcom/viro/core/ARAnchor;J)V",
@@ -1543,6 +1596,11 @@ void ARDeclarativeSceneDelegate::anchorDidUpdate(std::shared_ptr<VROARAnchor> an
         }
 
         VRO_OBJECT janchor = ARUtilsCreateJavaARAnchorFromAnchor(anchor);
+        if (VRO_IS_OBJECT_NULL(janchor)) {
+            VRO_DELETE_LOCAL_REF(localObj);
+            VRO_DELETE_WEAK_GLOBAL_REF(jObjWeak);
+            return;
+        }
         VROPlatformCallHostFunction(localObj, "onAnchorUpdated",
                                     "(Lcom/viro/core/ARAnchor;I)V",
                                     janchor, 0);
@@ -1563,6 +1621,11 @@ void ARDeclarativeSceneDelegate::anchorWasRemoved(std::shared_ptr<VROARAnchor> a
         }
 
         VRO_OBJECT janchor = ARUtilsCreateJavaARAnchorFromAnchor(anchor);
+        if (VRO_IS_OBJECT_NULL(janchor)) {
+            VRO_DELETE_LOCAL_REF(localObj);
+            VRO_DELETE_WEAK_GLOBAL_REF(jObjWeak);
+            return;
+        }
         VROPlatformCallHostFunction(localObj, "onAnchorRemoved",
                                     "(Lcom/viro/core/ARAnchor;I)V",
                                     janchor, 0);
@@ -1633,6 +1696,11 @@ void ARImperativeSceneDelegate::anchorWasDetected(std::shared_ptr<VROARAnchor> a
         }
 
         VRO_OBJECT anchor_j = ARUtilsCreateJavaARAnchorFromAnchor(anchor_s);
+        if (VRO_IS_OBJECT_NULL(anchor_j)) {
+            VRO_DELETE_LOCAL_REF(object);
+            VRO_DELETE_WEAK_GLOBAL_REF(object_w);
+            return;
+        }
         VRO_REF(VROARNode) node_j = VRO_REF_NEW(VROARNode, node);
         VROPlatformCallHostFunction(object, "onAnchorFound",
                                     "(Lcom/viro/core/ARAnchor;J)V",
@@ -1668,6 +1736,11 @@ void ARImperativeSceneDelegate::anchorDidUpdate(std::shared_ptr<VROARAnchor> anc
         }
 
         VRO_OBJECT anchor_j = ARUtilsCreateJavaARAnchorFromAnchor(anchor_s);
+        if (VRO_IS_OBJECT_NULL(anchor_j)) {
+            VRO_DELETE_LOCAL_REF(object);
+            VRO_DELETE_WEAK_GLOBAL_REF(object_w);
+            return;
+        }
         VROPlatformCallHostFunction(object, "onAnchorUpdated",
                                     "(Lcom/viro/core/ARAnchor;I)V",
                                     anchor_j, node->getUniqueID());
@@ -1690,6 +1763,11 @@ void ARImperativeSceneDelegate::anchorWasRemoved(std::shared_ptr<VROARAnchor> an
         }
 
         VRO_OBJECT anchor_j = ARUtilsCreateJavaARAnchorFromAnchor(anchor);
+        if (VRO_IS_OBJECT_NULL(anchor_j)) {
+            VRO_DELETE_LOCAL_REF(object);
+            VRO_DELETE_WEAK_GLOBAL_REF(object_w);
+            return;
+        }
         VROPlatformCallHostFunction(object, "onAnchorRemoved",
                                     "(Lcom/viro/core/ARAnchor;I)V",
                                     anchor_j, node->getUniqueID());

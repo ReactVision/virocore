@@ -1562,7 +1562,22 @@ void VROARSessioniOS::setGeospatialAnchorProvider(VROGeospatialAnchorProvider pr
 #else
     pwarn("ReactVision Geospatial not available in this build.");
 #endif
-    _needsGeospatialModeApply = false;
+    // Also initialize the ARKit geospatial provider so createGeospatialAnchor()
+    // can use the native ARKit path for GPS→AR tracking (no backend write).
+    if (_cloudAnchorProviderARCore == nil) {
+      if ([VROCloudAnchorProviderARCore isAvailable]) {
+        _cloudAnchorProviderARCore = [[VROCloudAnchorProviderARCore alloc] init];
+      }
+    }
+    if (_cloudAnchorProviderARCore) {
+      if (_sessionPaused || _session == nil) {
+        _needsGeospatialModeApply = true;
+      } else {
+        [_cloudAnchorProviderARCore setGeospatialModeEnabled:YES];
+      }
+    } else {
+      _needsGeospatialModeApply = false;
+    }
     return;
   }
 
@@ -1682,38 +1697,9 @@ void VROARSessioniOS::createGeospatialAnchor(double latitude, double longitude, 
                                              VROQuaternion quaternion,
                                              std::function<void(std::shared_ptr<VROGeospatialAnchor>)> onSuccess,
                                              std::function<void(std::string error)> onFailure) {
-#if RVCCA_AVAILABLE
-  if (getGeospatialAnchorProvider() == VROGeospatialAnchorProvider::ReactVision) {
-    if (!_geospatialProviderRV) {
-      if (onFailure) onFailure("ReactVision geospatial provider not initialized");
-      return;
-    }
-    ReactVisionCCA::GeospatialCreateRequest req;
-    req.projectId    = _rvGeoProjectId;
-    req.lat          = latitude;
-    req.lng          = longitude;
-    req.alt          = altitude;
-    req.altitudeMode = "street_level";
-    std::weak_ptr<VROARSessioniOS> weakSelf = shared_from_this();
-    _geospatialProviderRV->createAnchor(req,
-        [weakSelf, latitude, longitude, altitude, quaternion, onSuccess, onFailure]
-        (ReactVisionCCA::ApiResult<ReactVisionCCA::GeospatialAnchorRecord> result) {
-            auto self = weakSelf.lock();
-            if (!self) return;
-            if (result.success) {
-                auto geoAnchor = std::make_shared<VROGeospatialAnchor>(
-                    VROGeospatialAnchorType::WGS84, latitude, longitude, altitude, quaternion);
-                geoAnchor->setId(result.data.id);
-                geoAnchor->setResolveState(VROGeospatialAnchorResolveState::Success);
-                self->addAnchor(geoAnchor);
-                if (onSuccess) onSuccess(geoAnchor);
-            } else {
-                if (onFailure) onFailure(result.error.message);
-            }
-        });
-    return;
-  }
-#endif
+  // Always use the native ARKit geospatial path regardless of provider.
+  // Backend record creation is an explicit management operation (rvCreateGeospatialAnchor),
+  // not an implicit side-effect of placing an anchor in AR.
   if (!_cloudAnchorProviderARCore) {
     if (onFailure) {
       onFailure("Geospatial provider not initialized. Set geospatialAnchorProvider='arcore-geospatial'.");
