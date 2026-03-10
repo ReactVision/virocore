@@ -537,25 +537,78 @@ VRO_METHOD(void, nativeRvUpdateGeospatialAnchor)(VRO_ARGS
                                                  jstring anchorId_j,
                                                  jstring sceneAssetId_j,
                                                  jstring sceneId_j,
-                                                 jstring name_j) {
+                                                 jstring name_j,
+                                                 jstring userAssetId_j) {
     std::string keyStr        = VRO_STRING_STL(key_j);
     std::string anchorStr     = VRO_STRING_STL(anchorId_j);
     std::string sceneAssetStr = VRO_STRING_STL(sceneAssetId_j);
     std::string sceneIdStr    = VRO_STRING_STL(sceneId_j);
     std::string nameStr       = VRO_STRING_STL(name_j);
+    std::string userAssetStr  = VRO_STRING_STL(userAssetId_j);
     std::weak_ptr<VROARScene> arScene_w = std::dynamic_pointer_cast<VROARScene>(
         VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
     VRO_WEAK weakObj = VRO_NEW_WEAK_GLOBAL_REF(obj);
-    VROPlatformDispatchAsyncRenderer([arScene_w, weakObj, keyStr, anchorStr, sceneAssetStr, sceneIdStr, nameStr] {
+    VROPlatformDispatchAsyncRenderer([arScene_w, weakObj, keyStr, anchorStr, sceneAssetStr, sceneIdStr, nameStr, userAssetStr] {
         std::shared_ptr<VROARScene> arScene = arScene_w.lock();
         std::shared_ptr<VROARSession> arSession = arScene ? arScene->getARSession() : nullptr;
         if (!arSession) {
             rvFireGeoResult(weakObj, keyStr, false, "", "AR session not available");
             return;
         }
-        arSession->rvUpdateGeospatialAnchor(anchorStr, sceneAssetStr, sceneIdStr, nameStr,
+        arSession->rvUpdateGeospatialAnchor(anchorStr, sceneAssetStr, sceneIdStr, nameStr, userAssetStr,
             [weakObj, keyStr](bool success, std::string jsonData, std::string error) {
                 rvFireGeoResult(weakObj, keyStr, success, jsonData, error);
+            });
+    });
+}
+
+static void rvFireUploadResult(VRO_WEAK weakObj, std::string keyStr,
+                                bool success, std::string assetId, std::string fileUrl, std::string error) {
+    VROPlatformDispatchAsyncApplication([weakObj, keyStr, success, assetId, fileUrl, error] {
+        VRO_ENV env = VROPlatformGetJNIEnv();
+        VRO_OBJECT localObj = VRO_NEW_LOCAL_REF(weakObj);
+        if (VRO_IS_OBJECT_NULL(localObj)) {
+            VRO_DELETE_LOCAL_REF(localObj);
+            VRO_DELETE_WEAK_GLOBAL_REF(weakObj);
+            return;
+        }
+        VRO_STRING jKey     = VRO_NEW_STRING(keyStr.c_str());
+        VRO_STRING jAssetId = VRO_NEW_STRING(assetId.c_str());
+        VRO_STRING jFileUrl = VRO_NEW_STRING(fileUrl.c_str());
+        VRO_STRING jErr     = VRO_NEW_STRING(error.c_str());
+        VROPlatformCallHostFunction(localObj, "onRvUploadResult",
+            "(Ljava/lang/String;ZLjava/lang/String;Ljava/lang/String;Ljava/lang/String;)V",
+            jKey, (jboolean)success, jAssetId, jFileUrl, jErr);
+        VRO_DELETE_LOCAL_REF(localObj);
+        VRO_DELETE_WEAK_GLOBAL_REF(weakObj);
+    });
+}
+
+VRO_METHOD(void, nativeRvUploadAsset)(VRO_ARGS
+                                      VRO_REF(VROARSceneController) arSceneControllerPtr,
+                                      jstring key_j,
+                                      jstring filePath_j,
+                                      jstring assetType_j,
+                                      jstring fileName_j,
+                                      jstring appUserId_j) {
+    std::string keyStr       = VRO_STRING_STL(key_j);
+    std::string filePathStr  = VRO_STRING_STL(filePath_j);
+    std::string assetTypeStr = VRO_STRING_STL(assetType_j);
+    std::string fileNameStr  = VRO_STRING_STL(fileName_j);
+    std::string appUserStr   = VRO_STRING_STL(appUserId_j);
+    std::weak_ptr<VROARScene> arScene_w = std::dynamic_pointer_cast<VROARScene>(
+        VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
+    VRO_WEAK weakObj = VRO_NEW_WEAK_GLOBAL_REF(obj);
+    VROPlatformDispatchAsyncRenderer([arScene_w, weakObj, keyStr, filePathStr, assetTypeStr, fileNameStr, appUserStr] {
+        std::shared_ptr<VROARScene> arScene = arScene_w.lock();
+        std::shared_ptr<VROARSession> arSession = arScene ? arScene->getARSession() : nullptr;
+        if (!arSession) {
+            rvFireUploadResult(weakObj, keyStr, false, "", "", "AR session not available");
+            return;
+        }
+        arSession->rvUploadAsset(filePathStr, assetTypeStr, fileNameStr, appUserStr,
+            [weakObj, keyStr](bool success, std::string assetId, std::string fileUrl, std::string error) {
+                rvFireUploadResult(weakObj, keyStr, success, assetId, fileUrl, error);
             });
     });
 }
