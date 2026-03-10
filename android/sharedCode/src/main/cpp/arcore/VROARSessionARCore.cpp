@@ -54,8 +54,32 @@
 #include <VROImageAndroid.h>
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <fcntl.h>
+#include <unistd.h>
 
 static bool kDebugTracking = false;
+
+// Generate a random UUID v4 string (xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx).
+static std::string generateUUID() {
+    uint8_t b[16];
+    int fd = open("/dev/urandom", O_RDONLY);
+    if (fd >= 0) {
+        read(fd, b, sizeof(b));
+        close(fd);
+    } else {
+        // Fallback: zero-filled (shouldn't happen on Android).
+        memset(b, 0, sizeof(b));
+    }
+    b[6] = (b[6] & 0x0f) | 0x40; // version 4
+    b[8] = (b[8] & 0x3f) | 0x80; // variant bits
+    char buf[37];
+    snprintf(buf, sizeof(buf),
+             "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+             b[0],b[1],b[2],b[3], b[4],b[5], b[6],b[7],
+             b[8],b[9], b[10],b[11],b[12],b[13],b[14],b[15]);
+    return std::string(buf);
+}
 
 // Minimum plane size filter to prevent small artifacts from being detected
 // Planes smaller than this threshold will be ignored
@@ -1410,8 +1434,7 @@ void VROARSessionARCore::setGeospatialAnchorProvider(VROGeospatialAnchorProvider
 
     if (provider == VROGeospatialAnchorProvider::ReactVision) {
         // ReactVision has no ARCore dependency — no VPS, no ARCore session config.
-        // GPS→AR placement (createGeospatialAnchor) is not supported for this provider.
-        // Use rvCreateGeospatialAnchor / rvFindNearbyGeospatialAnchors for RVCA metadata.
+        // GPS→AR placement uses createLocalGPSAnchor; backend persistence via createAnchor.
         // _geospatialProviderRV is initialized in setReactVisionConfig().
         if (!_geospatialProviderRV) {
             pwarn("VROARSessionARCore: ReactVision geospatial not ready — "
@@ -1552,7 +1575,8 @@ static std::shared_ptr<VROGeospatialAnchor> createLocalGPSAnchor(
     VROGeospatialAnchorType type, VROQuaternion quaternion,
     std::shared_ptr<VROARSessionARCore> arSession,
     ReactVisionCCA::RVCCAGeospatialProvider *provider,
-    std::string &outError) {
+    std::string &outError,
+    const std::string &knownId = "") {
     if (devicePose.latitude == 0.0 && devicePose.longitude == 0.0) {
         outError = "GPS position not available yet. Ensure location permissions are granted.";
         return nullptr;
@@ -1573,12 +1597,19 @@ static std::shared_ptr<VROGeospatialAnchor> createLocalGPSAnchor(
     }
     std::shared_ptr<arcore::Anchor> anchorShared(nativeAnchor);
     std::string key = VROStringUtil::toString64(anchorShared->getId());
+    std::string uuid = knownId.empty() ? generateUUID() : knownId;
 
     auto geoAnchor = std::make_shared<VROGeospatialAnchor>(type, anchorLat, anchorLng, anchorAlt, quaternion);
-    geoAnchor->setId(key);
+    geoAnchor->setId(uuid);
     geoAnchor->setResolveState(VROGeospatialAnchorResolveState::Success);
 
-    auto vAnchor = std::make_shared<VROARAnchorARCore>(key, anchorShared, geoAnchor, arSession);
+    // Set the AR-space transform immediately so the onSuccess callback gets the correct position.
+    // (processUpdatedAnchors will keep it in sync each frame via updateFromGeospatialTransform.)
+    float mtx[16];
+    nativeAnchor->getTransform(mtx);
+    geoAnchor->setTransform(VROMatrix4f(mtx));
+
+    auto vAnchor = std::make_shared<VROARAnchorARCore>(uuid, anchorShared, geoAnchor, arSession);
     arSession->addAnchor(vAnchor);
     return geoAnchor;
 }
@@ -1593,7 +1624,8 @@ void VROARSessionARCore::createGeospatialAnchor(double latitude, double longitud
         auto anchor = createLocalGPSAnchor(_session, _lastKnownGPSPose,
                                            latitude, longitude, altitude,
                                            VROGeospatialAnchorType::WGS84, quaternion,
-                                           shared_from_this(), _geospatialProviderRV.get(), error);
+                                           shared_from_this(), _geospatialProviderRV.get(),
+                                           error);
         if (anchor) { if (onSuccess) onSuccess(anchor); }
         else         { if (onFailure) onFailure(error);  }
         return;
@@ -1631,6 +1663,74 @@ void VROARSessionARCore::createGeospatialAnchor(double latitude, double longitud
     } else {
         if (onFailure) onFailure("Failed to create geospatial anchor");
     }
+}
+
+void VROARSessionARCore::resolveGeospatialAnchor(const std::string& platformUuid,
+                                                  VROQuaternion quaternion,
+                                                  std::function<void(std::shared_ptr<VROGeospatialAnchor>)> onSuccess,
+                                                  std::function<void(std::string error)> onFailure) {
+#if RVCCA_AVAILABLE
+    if (getGeospatialAnchorProvider() == VROGeospatialAnchorProvider::ReactVision) {
+        if (!_geospatialProviderRV) {
+            if (onFailure) onFailure("ReactVision geospatial provider not initialized");
+            return;
+        }
+        if (_lastKnownGPSPose.latitude == 0.0 && _lastKnownGPSPose.longitude == 0.0) {
+            if (onFailure) onFailure("GPS position not available yet. Ensure location permissions are granted.");
+            return;
+        }
+        VROGeospatialPose devicePose = _lastKnownGPSPose;
+        std::weak_ptr<VROARSessionARCore> weakSelf = shared_from_this();
+        _geospatialProviderRV->getAnchor(platformUuid,
+            [weakSelf, devicePose, platformUuid, quaternion, onSuccess, onFailure]
+            (ReactVisionCCA::ApiResult<ReactVisionCCA::GeospatialAnchorRecord> r) {
+                VROPlatformDispatchAsyncRenderer([weakSelf, r, devicePose, platformUuid, quaternion, onSuccess, onFailure] {
+                    auto self = weakSelf.lock();
+                    if (!self) return;
+                    if (!r.success) {
+                        if (onFailure) onFailure(r.error.message);
+                        return;
+                    }
+                    std::string error;
+                    auto anchor = createLocalGPSAnchor(self->_session, devicePose,
+                                                       r.data.lat, r.data.lng, r.data.alt,
+                                                       VROGeospatialAnchorType::WGS84, quaternion,
+                                                       self, self->_geospatialProviderRV.get(),
+                                                       error, platformUuid);
+                    if (anchor) { if (onSuccess) onSuccess(anchor); }
+                    else        { if (onFailure) onFailure(error);  }
+                });
+            });
+        return;
+    }
+#endif
+    if (onFailure) onFailure("resolveGeospatialAnchor requires ReactVision geospatial provider");
+}
+
+void VROARSessionARCore::hostGeospatialAnchor(double latitude, double longitude, double altitude,
+                                              const std::string& altitudeMode,
+                                              std::function<void(std::string)> onSuccess,
+                                              std::function<void(std::string)> onFailure) {
+#if RVCCA_AVAILABLE
+    if (getGeospatialAnchorProvider() == VROGeospatialAnchorProvider::ReactVision) {
+        if (!_geospatialProviderRV) {
+            if (onFailure) onFailure("ReactVision geospatial provider not initialized");
+            return;
+        }
+        ReactVisionCCA::GeospatialCreateRequest req;
+        req.lat = latitude;
+        req.lng = longitude;
+        req.alt = altitude;
+        req.altitudeMode = altitudeMode.empty() ? "street_level" : altitudeMode;
+        _geospatialProviderRV->createAnchor(req,
+            [onSuccess, onFailure](ReactVisionCCA::ApiResult<ReactVisionCCA::GeospatialAnchorRecord> r) {
+                if (r.success) { if (onSuccess) onSuccess(r.data.id); }
+                else           { if (onFailure) onFailure(r.error.message); }
+            });
+        return;
+    }
+#endif
+    if (onFailure) onFailure("hostGeospatialAnchor requires ReactVision geospatial provider");
 }
 
 void VROARSessionARCore::createTerrainAnchor(double latitude, double longitude, double altitudeAboveTerrain,
@@ -1719,7 +1819,7 @@ void VROARSessionARCore::createRooftopAnchor(double latitude, double longitude, 
     }
 
     std::weak_ptr<VROARSessionARCore> weakSession = shared_from_this();
-    
+
     _session->createRooftopAnchor(latitude, longitude, altitudeAboveRooftop, quaternion.X, quaternion.Y, quaternion.Z, quaternion.W,
         [weakSession, latitude, longitude, altitudeAboveRooftop, quaternion, onSuccess](arcore::Anchor *nativeAnchor) {
             VROPlatformDispatchAsyncRenderer([weakSession, latitude, longitude, altitudeAboveRooftop, quaternion, onSuccess, nativeAnchor] {
@@ -1760,17 +1860,17 @@ void VROARSessionARCore::createRooftopAnchor(double latitude, double longitude, 
 void VROARSessionARCore::removeGeospatialAnchor(std::shared_ptr<VROGeospatialAnchor> anchor) {
     if (!anchor) return;
 
-#if RVCCA_AVAILABLE
-    if (getGeospatialAnchorProvider() == VROGeospatialAnchorProvider::ReactVision
-            && _geospatialProviderRV) {
-        _geospatialProviderRV->deleteAnchor(anchor->getId(),
-            [](bool, ReactVisionCCA::ApiError) { /* fire-and-forget */ });
-    }
-#endif
+    // Note: do NOT call _geospatialProviderRV->deleteAnchor() here.
+    // removeGeospatialAnchor only removes the anchor from the local AR session.
+    // Use rvDeleteGeospatialAnchor() to explicitly delete from the backend.
 
+    // Search by ID because the caller may pass a dummy anchor (from nativeRemoveGeospatialAnchor)
+    // that shares only the ID with the stored trackable, not the same pointer.
     std::shared_ptr<VROARAnchorARCore> foundAnchor = nullptr;
+    const std::string &targetId = anchor->getId();
     for (std::shared_ptr<VROARAnchorARCore> vAnchor : _anchors) {
-        if (vAnchor->getTrackable() == anchor) {
+        auto trackable = vAnchor->getTrackable();
+        if (trackable && trackable->getId() == targetId) {
             foundAnchor = vAnchor;
             break;
         }
