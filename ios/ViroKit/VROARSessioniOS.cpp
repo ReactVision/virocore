@@ -1875,13 +1875,25 @@ static std::string rvGeoAnchorToJson(const ReactVisionCCA::GeospatialAnchorRecor
     snprintf(buf, sizeof(buf), "%.4f", r.alt);  j += "\"alt\":"; j += buf; j += ",";
     j += "\"altitudeMode\":\"" + rvEscJson(r.altitudeMode) + "\",";
     j += "\"name\":\"" + rvEscJson(r.name) + "\",";
+    j += "\"description\":\"" + rvEscJson(r.description) + "\",";
+    j += "\"createdAt\":\"" + rvEscJson(r.createdAt) + "\",";
+    j += "\"updatedAt\":\"" + rvEscJson(r.updatedAt) + "\",";
     j += "\"sceneAssetId\":\"" + rvEscJson(r.sceneAssetId) + "\",";
     j += "\"sceneId\":\"" + rvEscJson(r.sceneId) + "\",";
+    j += "\"userAssetId\":\"" + rvEscJson(r.userAssetId) + "\",";
     snprintf(buf, sizeof(buf), "%.2f", r.distanceMeters); j += "\"distanceMeters\":"; j += buf;
+    // creatorData
+    j += ",\"creatorData\":{";
+    j += "\"id\":\"" + rvEscJson(r.creatorData.id) + "\",";
+    j += "\"firstName\":\"" + rvEscJson(r.creatorData.firstName) + "\",";
+    j += "\"lastName\":\"" + rvEscJson(r.creatorData.lastName) + "\"";
+    j += "}";
+    // sceneAssetData
     if (r.hasSceneAsset) {
         j += ",\"sceneAssetData\":{";
         j += "\"id\":\"" + rvEscJson(r.sceneAssetData.id) + "\",";
         j += "\"name\":\"" + rvEscJson(r.sceneAssetData.name) + "\",";
+        j += "\"assetId\":\"" + rvEscJson(r.sceneAssetData.assetId) + "\",";
         snprintf(buf, sizeof(buf), "%.4f", r.sceneAssetData.scale); j += "\"scale\":"; j += buf; j += ",";
         snprintf(buf, sizeof(buf), "%.4f", r.sceneAssetData.positionX); j += "\"positionX\":"; j += buf; j += ",";
         snprintf(buf, sizeof(buf), "%.4f", r.sceneAssetData.positionY); j += "\"positionY\":"; j += buf; j += ",";
@@ -1889,7 +1901,64 @@ static std::string rvGeoAnchorToJson(const ReactVisionCCA::GeospatialAnchorRecor
         snprintf(buf, sizeof(buf), "%.4f", r.sceneAssetData.rotationX); j += "\"rotationX\":"; j += buf; j += ",";
         snprintf(buf, sizeof(buf), "%.4f", r.sceneAssetData.rotationY); j += "\"rotationY\":"; j += buf; j += ",";
         snprintf(buf, sizeof(buf), "%.4f", r.sceneAssetData.rotationZ); j += "\"rotationZ\":"; j += buf;
-        j += ",\"fileUrl\":\"" + rvEscJson(r.sceneAssetData.teamAsset.fileUrl) + "\"";
+        j += ",\"teamAsset\":{";
+        j += "\"id\":\"" + rvEscJson(r.sceneAssetData.teamAsset.id) + "\",";
+        j += "\"name\":\"" + rvEscJson(r.sceneAssetData.teamAsset.name) + "\",";
+        j += "\"fileUrl\":\"" + rvEscJson(r.sceneAssetData.teamAsset.fileUrl) + "\",";
+        snprintf(buf, sizeof(buf), "%lld", (long long)r.sceneAssetData.teamAsset.fileSize); j += "\"fileSize\":"; j += buf; j += ",";
+        j += "\"assetType\":\"" + rvEscJson(r.sceneAssetData.teamAsset.assetType) + "\"";
+        j += "}";
+        j += "}";
+    }
+    // sceneData
+    if (r.hasScene) {
+        j += ",\"sceneData\":{";
+        j += "\"id\":\"" + rvEscJson(r.sceneData.id) + "\",";
+        j += "\"name\":\"" + rvEscJson(r.sceneData.name) + "\",";
+        snprintf(buf, sizeof(buf), "%.10f", r.sceneData.latitude);  j += "\"latitude\":";  j += buf; j += ",";
+        snprintf(buf, sizeof(buf), "%.10f", r.sceneData.longitude); j += "\"longitude\":"; j += buf; j += ",";
+        j += "\"planeDetection\":\"" + rvEscJson(r.sceneData.planeDetection) + "\",";
+        j += "\"planeDirection\":\"" + rvEscJson(r.sceneData.planeDirection) + "\",";
+        j += "\"createdAt\":\"" + rvEscJson(r.sceneData.createdAt) + "\",";
+        j += "\"sceneAssets\":[";
+        for (size_t i = 0; i < r.sceneData.sceneAssets.size(); ++i) {
+            const auto& sa = r.sceneData.sceneAssets[i];
+            if (i > 0) j += ",";
+            j += "{";
+            j += "\"id\":\"" + rvEscJson(sa.id) + "\",";
+            j += "\"name\":\"" + rvEscJson(sa.name) + "\",";
+            j += "\"assetId\":\"" + rvEscJson(sa.assetId) + "\",";
+            snprintf(buf, sizeof(buf), "%.4f", sa.scale); j += "\"scale\":"; j += buf; j += ",";
+            snprintf(buf, sizeof(buf), "%.4f", sa.positionX); j += "\"positionX\":"; j += buf; j += ",";
+            snprintf(buf, sizeof(buf), "%.4f", sa.positionY); j += "\"positionY\":"; j += buf; j += ",";
+            snprintf(buf, sizeof(buf), "%.4f", sa.positionZ); j += "\"positionZ\":"; j += buf; j += ",";
+            snprintf(buf, sizeof(buf), "%.4f", sa.rotationX); j += "\"rotationX\":"; j += buf; j += ",";
+            snprintf(buf, sizeof(buf), "%.4f", sa.rotationY); j += "\"rotationY\":"; j += buf; j += ",";
+            snprintf(buf, sizeof(buf), "%.4f", sa.rotationZ); j += "\"rotationZ\":"; j += buf;
+            j += ",\"teamAsset\":{";
+            j += "\"id\":\"" + rvEscJson(sa.teamAsset.id) + "\",";
+            j += "\"name\":\"" + rvEscJson(sa.teamAsset.name) + "\",";
+            j += "\"fileUrl\":\"" + rvEscJson(sa.teamAsset.fileUrl) + "\",";
+            snprintf(buf, sizeof(buf), "%lld", (long long)sa.teamAsset.fileSize); j += "\"fileSize\":"; j += buf; j += ",";
+            j += "\"assetType\":\"" + rvEscJson(sa.teamAsset.assetType) + "\"";
+            j += "}";
+            j += "}";
+        }
+        j += "]";
+        j += "}";
+    }
+    // userAssetData
+    if (r.hasUserAsset) {
+        j += ",\"userAssetData\":{";
+        j += "\"id\":\"" + rvEscJson(r.userAssetData.id) + "\",";
+        j += "\"name\":\"" + rvEscJson(r.userAssetData.name) + "\",";
+        j += "\"description\":\"" + rvEscJson(r.userAssetData.description) + "\",";
+        j += "\"fileUrl\":\"" + rvEscJson(r.userAssetData.fileUrl) + "\",";
+        snprintf(buf, sizeof(buf), "%lld", (long long)r.userAssetData.fileSize); j += "\"fileSize\":"; j += buf; j += ",";
+        j += "\"assetType\":\"" + rvEscJson(r.userAssetData.assetType) + "\",";
+        j += "\"externalUserId\":\"" + rvEscJson(r.userAssetData.externalUserId) + "\",";
+        j += "\"moderationStatus\":\"" + rvEscJson(r.userAssetData.moderationStatus) + "\",";
+        j += "\"createdAt\":\"" + rvEscJson(r.userAssetData.createdAt) + "\"";
         j += "}";
     }
     j += "}";

@@ -1907,13 +1907,25 @@ static std::string rvGeoAnchorToJsonARC(const ReactVisionCCA::GeospatialAnchorRe
     snprintf(buf, sizeof(buf), "%.4f", r.alt);  j += "\"alt\":"; j += buf; j += ",";
     j += "\"altitudeMode\":\"" + rvEscJsonARC(r.altitudeMode) + "\",";
     j += "\"name\":\"" + rvEscJsonARC(r.name) + "\",";
+    j += "\"description\":\"" + rvEscJsonARC(r.description) + "\",";
+    j += "\"createdAt\":\"" + rvEscJsonARC(r.createdAt) + "\",";
+    j += "\"updatedAt\":\"" + rvEscJsonARC(r.updatedAt) + "\",";
     j += "\"sceneAssetId\":\"" + rvEscJsonARC(r.sceneAssetId) + "\",";
     j += "\"sceneId\":\"" + rvEscJsonARC(r.sceneId) + "\",";
+    j += "\"userAssetId\":\"" + rvEscJsonARC(r.userAssetId) + "\",";
     snprintf(buf, sizeof(buf), "%.2f", r.distanceMeters); j += "\"distanceMeters\":"; j += buf;
+    // creatorData
+    j += ",\"creatorData\":{";
+    j += "\"id\":\"" + rvEscJsonARC(r.creatorData.id) + "\",";
+    j += "\"firstName\":\"" + rvEscJsonARC(r.creatorData.firstName) + "\",";
+    j += "\"lastName\":\"" + rvEscJsonARC(r.creatorData.lastName) + "\"";
+    j += "}";
+    // sceneAssetData
     if (r.hasSceneAsset) {
         j += ",\"sceneAssetData\":{";
         j += "\"id\":\"" + rvEscJsonARC(r.sceneAssetData.id) + "\",";
         j += "\"name\":\"" + rvEscJsonARC(r.sceneAssetData.name) + "\",";
+        j += "\"assetId\":\"" + rvEscJsonARC(r.sceneAssetData.assetId) + "\",";
         snprintf(buf, sizeof(buf), "%.4f", r.sceneAssetData.scale); j += "\"scale\":"; j += buf; j += ",";
         snprintf(buf, sizeof(buf), "%.4f", r.sceneAssetData.positionX); j += "\"positionX\":"; j += buf; j += ",";
         snprintf(buf, sizeof(buf), "%.4f", r.sceneAssetData.positionY); j += "\"positionY\":"; j += buf; j += ",";
@@ -1921,7 +1933,64 @@ static std::string rvGeoAnchorToJsonARC(const ReactVisionCCA::GeospatialAnchorRe
         snprintf(buf, sizeof(buf), "%.4f", r.sceneAssetData.rotationX); j += "\"rotationX\":"; j += buf; j += ",";
         snprintf(buf, sizeof(buf), "%.4f", r.sceneAssetData.rotationY); j += "\"rotationY\":"; j += buf; j += ",";
         snprintf(buf, sizeof(buf), "%.4f", r.sceneAssetData.rotationZ); j += "\"rotationZ\":"; j += buf;
-        j += ",\"fileUrl\":\"" + rvEscJsonARC(r.sceneAssetData.teamAsset.fileUrl) + "\"";
+        j += ",\"teamAsset\":{";
+        j += "\"id\":\"" + rvEscJsonARC(r.sceneAssetData.teamAsset.id) + "\",";
+        j += "\"name\":\"" + rvEscJsonARC(r.sceneAssetData.teamAsset.name) + "\",";
+        j += "\"fileUrl\":\"" + rvEscJsonARC(r.sceneAssetData.teamAsset.fileUrl) + "\",";
+        snprintf(buf, sizeof(buf), "%lld", (long long)r.sceneAssetData.teamAsset.fileSize); j += "\"fileSize\":"; j += buf; j += ",";
+        j += "\"assetType\":\"" + rvEscJsonARC(r.sceneAssetData.teamAsset.assetType) + "\"";
+        j += "}";
+        j += "}";
+    }
+    // sceneData
+    if (r.hasScene) {
+        j += ",\"sceneData\":{";
+        j += "\"id\":\"" + rvEscJsonARC(r.sceneData.id) + "\",";
+        j += "\"name\":\"" + rvEscJsonARC(r.sceneData.name) + "\",";
+        snprintf(buf, sizeof(buf), "%.10f", r.sceneData.latitude);  j += "\"latitude\":";  j += buf; j += ",";
+        snprintf(buf, sizeof(buf), "%.10f", r.sceneData.longitude); j += "\"longitude\":"; j += buf; j += ",";
+        j += "\"planeDetection\":\"" + rvEscJsonARC(r.sceneData.planeDetection) + "\",";
+        j += "\"planeDirection\":\"" + rvEscJsonARC(r.sceneData.planeDirection) + "\",";
+        j += "\"createdAt\":\"" + rvEscJsonARC(r.sceneData.createdAt) + "\",";
+        j += "\"sceneAssets\":[";
+        for (size_t i = 0; i < r.sceneData.sceneAssets.size(); ++i) {
+            const auto& sa = r.sceneData.sceneAssets[i];
+            if (i > 0) j += ",";
+            j += "{";
+            j += "\"id\":\"" + rvEscJsonARC(sa.id) + "\",";
+            j += "\"name\":\"" + rvEscJsonARC(sa.name) + "\",";
+            j += "\"assetId\":\"" + rvEscJsonARC(sa.assetId) + "\",";
+            snprintf(buf, sizeof(buf), "%.4f", sa.scale); j += "\"scale\":"; j += buf; j += ",";
+            snprintf(buf, sizeof(buf), "%.4f", sa.positionX); j += "\"positionX\":"; j += buf; j += ",";
+            snprintf(buf, sizeof(buf), "%.4f", sa.positionY); j += "\"positionY\":"; j += buf; j += ",";
+            snprintf(buf, sizeof(buf), "%.4f", sa.positionZ); j += "\"positionZ\":"; j += buf; j += ",";
+            snprintf(buf, sizeof(buf), "%.4f", sa.rotationX); j += "\"rotationX\":"; j += buf; j += ",";
+            snprintf(buf, sizeof(buf), "%.4f", sa.rotationY); j += "\"rotationY\":"; j += buf; j += ",";
+            snprintf(buf, sizeof(buf), "%.4f", sa.rotationZ); j += "\"rotationZ\":"; j += buf;
+            j += ",\"teamAsset\":{";
+            j += "\"id\":\"" + rvEscJsonARC(sa.teamAsset.id) + "\",";
+            j += "\"name\":\"" + rvEscJsonARC(sa.teamAsset.name) + "\",";
+            j += "\"fileUrl\":\"" + rvEscJsonARC(sa.teamAsset.fileUrl) + "\",";
+            snprintf(buf, sizeof(buf), "%lld", (long long)sa.teamAsset.fileSize); j += "\"fileSize\":"; j += buf; j += ",";
+            j += "\"assetType\":\"" + rvEscJsonARC(sa.teamAsset.assetType) + "\"";
+            j += "}";
+            j += "}";
+        }
+        j += "]";
+        j += "}";
+    }
+    // userAssetData
+    if (r.hasUserAsset) {
+        j += ",\"userAssetData\":{";
+        j += "\"id\":\"" + rvEscJsonARC(r.userAssetData.id) + "\",";
+        j += "\"name\":\"" + rvEscJsonARC(r.userAssetData.name) + "\",";
+        j += "\"description\":\"" + rvEscJsonARC(r.userAssetData.description) + "\",";
+        j += "\"fileUrl\":\"" + rvEscJsonARC(r.userAssetData.fileUrl) + "\",";
+        snprintf(buf, sizeof(buf), "%lld", (long long)r.userAssetData.fileSize); j += "\"fileSize\":"; j += buf; j += ",";
+        j += "\"assetType\":\"" + rvEscJsonARC(r.userAssetData.assetType) + "\",";
+        j += "\"externalUserId\":\"" + rvEscJsonARC(r.userAssetData.externalUserId) + "\",";
+        j += "\"moderationStatus\":\"" + rvEscJsonARC(r.userAssetData.moderationStatus) + "\",";
+        j += "\"createdAt\":\"" + rvEscJsonARC(r.userAssetData.createdAt) + "\"";
         j += "}";
     }
     j += "}";
