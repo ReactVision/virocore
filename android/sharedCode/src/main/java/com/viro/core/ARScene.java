@@ -314,6 +314,12 @@ public class ARScene extends Scene {
         void onFailure(String error);
     }
 
+    /** Callback for hosting a geospatial anchor to the ReactVision backend. */
+    public interface HostGeospatialAnchorListener {
+        void onSuccess(String platformUuid);
+        void onFailure(String error);
+    }
+
     /**
      * Callback interface for geospatial pose retrieval.
      */
@@ -457,6 +463,7 @@ public class ARScene extends Scene {
     // Geospatial API state
     private boolean mGeospatialModeEnabled = false;
     private Map<String, GeospatialAnchorListener> mGeospatialAnchorCallbacks = new HashMap<>();
+    private Map<String, HostGeospatialAnchorListener> mHostGeospatialAnchorCallbacks = new HashMap<>();
     private Map<String, VPSAvailabilityListener> mVPSAvailabilityCallbacks = new HashMap<>();
     private GeospatialPoseListener mGeospatialPoseCallback = null;
 
@@ -1159,6 +1166,40 @@ public class ARScene extends Scene {
     }
 
     /**
+     * Host a geospatial anchor to the ReactVision backend.
+     * POSTs the GPS coordinates and receives a platform UUID in return.
+     *
+     * @param latitude     Latitude in degrees.
+     * @param longitude    Longitude in degrees.
+     * @param altitude     Altitude in metres above WGS84 ellipsoid.
+     * @param altitudeMode "street_level" or "rooftop_level".
+     * @param listener     Callback receiving the platform UUID or an error.
+     */
+    public void hostGeospatialAnchor(double latitude, double longitude, double altitude,
+                                      String altitudeMode, HostGeospatialAnchorListener listener) {
+        String key = "host_geo_" + System.nanoTime();
+        mHostGeospatialAnchorCallbacks.put(key, listener);
+        nativeHostGeospatialAnchor(mNativeRef, key, latitude, longitude, altitude,
+                altitudeMode != null ? altitudeMode : "street_level");
+    }
+
+    /**
+     * Resolve a geospatial anchor that already exists on the ReactVision platform.
+     * Fetches GPS coordinates from the backend and creates a local AR anchor at that location.
+     *
+     * @param platformUuid The UUID of the anchor on the ReactVision platform.
+     * @param quaternion   Orientation quaternion [x, y, z, w].
+     * @param listener     Callback to receive the anchor or an error.
+     */
+    public void resolveGeospatialAnchor(String platformUuid, float[] quaternion,
+                                         GeospatialAnchorListener listener) {
+        String key = "resolve_" + System.nanoTime();
+        mGeospatialAnchorCallbacks.put(key, listener);
+        nativeResolveGeospatialAnchor(mNativeRef, key, platformUuid,
+                quaternion[0], quaternion[1], quaternion[2], quaternion[3]);
+    }
+
+    /**
      * Create a terrain anchor at the specified location.
      * The anchor is positioned relative to the terrain surface.
      *
@@ -1425,6 +1466,22 @@ public class ARScene extends Scene {
         }
     }
 
+    void onHostGeospatialAnchorSuccess(String key, String platformUuid) {
+        HostGeospatialAnchorListener callback = mHostGeospatialAnchorCallbacks.get(key);
+        if (callback != null) {
+            callback.onSuccess(platformUuid);
+            mHostGeospatialAnchorCallbacks.remove(key);
+        }
+    }
+
+    void onHostGeospatialAnchorFailure(String key, String error) {
+        HostGeospatialAnchorListener callback = mHostGeospatialAnchorCallbacks.get(key);
+        if (callback != null) {
+            callback.onFailure(error);
+            mHostGeospatialAnchorCallbacks.remove(key);
+        }
+    }
+
     // ========================================================================
     // Scene Semantics API Methods
     // ========================================================================
@@ -1566,6 +1623,12 @@ public class ARScene extends Scene {
     private native void nativeCreateGeospatialAnchor(long sceneControllerRef, String key,
                                                       double latitude, double longitude, double altitude,
                                                       float qx, float qy, float qz, float qw);
+    private native void nativeHostGeospatialAnchor(long sceneControllerRef, String key,
+                                                    double latitude, double longitude, double altitude,
+                                                    String altitudeMode);
+    private native void nativeResolveGeospatialAnchor(long sceneControllerRef, String key,
+                                                       String platformUuid,
+                                                       float qx, float qy, float qz, float qw);
     private native void nativeCreateTerrainAnchor(long sceneControllerRef, String key,
                                                    double latitude, double longitude, double altitudeAboveTerrain,
                                                    float qx, float qy, float qz, float qw);
