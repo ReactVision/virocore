@@ -1130,6 +1130,7 @@ public class ARScene extends Scene {
     public void setLastKnownLocation(double lat, double lng, double alt,
                                      double horizAcc, double vertAcc,
                                      double heading, double headingAcc) {
+        if (mNativeRef == 0) return;
         nativeSetLastKnownLocation(mNativeRef, lat, lng, alt,
                                    horizAcc, vertAcc, heading, headingAcc);
     }
@@ -1259,15 +1260,41 @@ public class ARScene extends Scene {
         nativeRvFindNearbyGeospatialAnchors(mNativeRef, key, lat, lng, radius, limit);
     }
 
-    /** ReactVision — update an anchor (link scene asset / scene / rename). */
+    /** ReactVision — update an anchor (link scene asset / scene / rename / user asset). */
     public void rvUpdateGeospatialAnchor(String anchorId, String sceneAssetId, String sceneId,
-                                          String name, RvGeospatialCallback callback) {
+                                          String name, String userAssetId,
+                                          RvGeospatialCallback callback) {
         String key = "rvUpdate_" + System.nanoTime();
         mRvGeospatialCallbacks.put(key, callback);
         nativeRvUpdateGeospatialAnchor(mNativeRef, key, anchorId,
                 sceneAssetId != null ? sceneAssetId : "",
                 sceneId      != null ? sceneId      : "",
-                name         != null ? name         : "");
+                name         != null ? name         : "",
+                userAssetId  != null ? userAssetId  : "");
+    }
+
+    /** Callback for ReactVision asset upload operations. */
+    public interface RvUploadAssetCallback {
+        void onResult(boolean success, String userAssetId, String fileUrl, String error);
+    }
+
+    private Map<String, RvUploadAssetCallback> mRvUploadCallbacks = new HashMap<>();
+
+    void onRvUploadResult(String key, boolean success, String userAssetId, String fileUrl, String error) {
+        RvUploadAssetCallback cb = mRvUploadCallbacks.remove(key);
+        if (cb != null) cb.onResult(success, userAssetId, fileUrl, error);
+    }
+
+    /** ReactVision — upload an asset file and return its user_asset_id. */
+    public void rvUploadAsset(String filePath, String assetType, String fileName,
+                               String appUserId, RvUploadAssetCallback callback) {
+        String key = "rvUpload_" + System.nanoTime();
+        mRvUploadCallbacks.put(key, callback);
+        nativeRvUploadAsset(mNativeRef, key,
+                filePath   != null ? filePath   : "",
+                assetType  != null ? assetType  : "",
+                fileName   != null ? fileName   : "",
+                appUserId  != null ? appUserId  : "");
     }
 
     /** ReactVision — delete an anchor permanently. */
@@ -1642,7 +1669,11 @@ public class ARScene extends Scene {
                                                              double radius, int limit);
     private native void nativeRvUpdateGeospatialAnchor(long sceneControllerRef, String key,
                                                         String anchorId, String sceneAssetId,
-                                                        String sceneId, String name);
+                                                        String sceneId, String name,
+                                                        String userAssetId);
+    private native void nativeRvUploadAsset(long sceneControllerRef, String key,
+                                             String filePath, String assetType,
+                                             String fileName, String appUserId);
     private native void nativeRvDeleteGeospatialAnchor(long sceneControllerRef, String key,
                                                         String anchorId);
     private native void nativeRvListGeospatialAnchors(long sceneControllerRef, String key,

@@ -35,6 +35,7 @@
 #include "VROCameraTexture.h"
 #include "VROCloudAnchorProviderARCore.h"
 #include "VROCloudAnchorProviderReactVision.h"
+#include <fstream>
 
 #ifndef RVCCA_AVAILABLE
 #  define RVCCA_AVAILABLE 0
@@ -1978,6 +1979,7 @@ void VROARSessionARCore::rvUpdateGeospatialAnchor(
     const std::string& sceneAssetId,
     const std::string& sceneId,
     const std::string& name,
+    const std::string& userAssetId,
     std::function<void(bool, std::string, std::string)> callback) {
 #if RVCCA_AVAILABLE
     if (_geospatialProviderRV) {
@@ -1985,6 +1987,7 @@ void VROARSessionARCore::rvUpdateGeospatialAnchor(
         if (!sceneAssetId.empty()) req.sceneAssetId = sceneAssetId;
         if (!sceneId.empty())      req.sceneId      = sceneId;
         if (!name.empty())         req.name         = name;
+        if (!userAssetId.empty())  req.userAssetId  = userAssetId;
         _geospatialProviderRV->updateAnchor(anchorId, req,
             [callback](ReactVisionCCA::ApiResult<ReactVisionCCA::GeospatialAnchorRecord> r) {
             if (callback) {
@@ -1996,6 +1999,37 @@ void VROARSessionARCore::rvUpdateGeospatialAnchor(
     }
 #endif
     if (callback) callback(false, "", "ReactVision geospatial provider not available");
+}
+
+void VROARSessionARCore::rvUploadAsset(
+    const std::string& filePath,
+    const std::string& assetType,
+    const std::string& fileName,
+    const std::string& appUserId,
+    std::function<void(bool, std::string, std::string, std::string)> callback) {
+#if RVCCA_AVAILABLE
+    if (_geospatialProviderRV) {
+        // Strip "file://" prefix — std::ifstream needs a plain filesystem path
+        std::string path = filePath;
+        if (path.rfind("file://", 0) == 0) path = path.substr(7);
+        std::ifstream file(path, std::ios::binary);
+        if (!file.is_open()) {
+            if (callback) callback(false, "", "", "Failed to open file: " + path);
+            return;
+        }
+        std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(file)), {});
+        file.close();
+        _geospatialProviderRV->uploadAsset(assetType, fileName, bytes, appUserId,
+            [callback](ReactVisionCCA::ApiResult<ReactVisionCCA::AssetUploadResult> r) {
+            if (callback) {
+                if (r.success) callback(true, r.data.id, r.data.url.empty() ? r.data.fileUrl : r.data.url, "");
+                else            callback(false, "", "", r.error.message);
+            }
+        });
+        return;
+    }
+#endif
+    if (callback) callback(false, "", "", "ReactVision geospatial provider not available");
 }
 
 void VROARSessionARCore::rvDeleteGeospatialAnchor(

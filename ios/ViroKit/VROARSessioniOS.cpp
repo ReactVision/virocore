@@ -2037,6 +2037,7 @@ void VROARSessioniOS::rvUpdateGeospatialAnchor(
     const std::string& sceneAssetId,
     const std::string& sceneId,
     const std::string& name,
+    const std::string& userAssetId,
     std::function<void(bool, std::string, std::string)> callback) {
 #if RVCCA_AVAILABLE
   if (_geospatialProviderRV) {
@@ -2044,6 +2045,7 @@ void VROARSessioniOS::rvUpdateGeospatialAnchor(
     if (!sceneAssetId.empty()) req.sceneAssetId = sceneAssetId;
     if (!sceneId.empty())      req.sceneId      = sceneId;
     if (!name.empty())         req.name         = name;
+    if (!userAssetId.empty())  req.userAssetId  = userAssetId;
     _geospatialProviderRV->updateAnchor(anchorId, req,
         [callback](ReactVisionCCA::ApiResult<ReactVisionCCA::GeospatialAnchorRecord> r) {
       if (callback) {
@@ -2055,6 +2057,37 @@ void VROARSessioniOS::rvUpdateGeospatialAnchor(
   }
 #endif
   if (callback) callback(false, "", "ReactVision geospatial provider not available");
+}
+
+void VROARSessioniOS::rvUploadAsset(
+    const std::string& filePath,
+    const std::string& assetType,
+    const std::string& fileName,
+    const std::string& appUserId,
+    std::function<void(bool, std::string, std::string, std::string)> callback) {
+#if RVCCA_AVAILABLE
+  if (_geospatialProviderRV) {
+    // Read file bytes from local URI/path
+    NSURL *url = [NSURL URLWithString:[NSString stringWithUTF8String:filePath.c_str()]];
+    if (!url) url = [NSURL fileURLWithPath:[NSString stringWithUTF8String:filePath.c_str()]];
+    NSData *nsData = [NSData dataWithContentsOfURL:url];
+    if (!nsData) {
+      if (callback) callback(false, "", "", "Failed to read file at path: " + filePath);
+      return;
+    }
+    std::vector<uint8_t> bytes((const uint8_t*)nsData.bytes,
+                               (const uint8_t*)nsData.bytes + nsData.length);
+    _geospatialProviderRV->uploadAsset(assetType, fileName, bytes, appUserId,
+        [callback](ReactVisionCCA::ApiResult<ReactVisionCCA::AssetUploadResult> r) {
+      if (callback) {
+        if (r.success) callback(true, r.data.id, r.data.url.empty() ? r.data.fileUrl : r.data.url, "");
+        else            callback(false, "", "", r.error.message);
+      }
+    });
+    return;
+  }
+#endif
+  if (callback) callback(false, "", "", "ReactVision geospatial provider not available");
 }
 
 void VROARSessioniOS::rvDeleteGeospatialAnchor(
