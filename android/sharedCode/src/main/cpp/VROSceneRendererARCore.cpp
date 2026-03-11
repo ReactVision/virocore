@@ -409,7 +409,21 @@ void VROSceneRendererARCore::onPause() {
 }
 
 void VROSceneRendererARCore::onResume() {
-    _session->run();
+    // Only resume the AR session here if the camera OES texture has already been
+    // initialized (i.e. getCameraTextureId() != 0).  run() will re-register the
+    // texture with ARCore before calling ArSession_resume(), satisfying the ARCore
+    // requirement after every pause/resume cycle.
+    //
+    // If the texture hasn't been created yet (e.g. AR→AR transition where a new
+    // VROSceneRendererARCore was just constructed), we must NOT resume here.
+    // ArSession_resume() would open the camera hardware with no OES texture registered,
+    // causing a Mali EGL image allocation failure and a permanently frozen camera feed.
+    // In that case initARSession() (called from the first renderFrame()) will call
+    // initCameraTexture() followed by run() in the correct order.
+    if (_session->getCameraTextureId() != 0) {
+        _session->run();
+    }
+
     std::shared_ptr<VROSceneRendererARCore> shared = shared_from_this();
 
     VROPlatformDispatchAsyncRenderer([shared] {

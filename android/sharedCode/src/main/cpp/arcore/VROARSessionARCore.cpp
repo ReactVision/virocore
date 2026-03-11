@@ -128,6 +128,18 @@ GLuint VROARSessionARCore::getCameraTextureId() const {
 
 void VROARSessionARCore::initCameraTexture(
     std::shared_ptr<VRODriverOpenGL> driver) {
+  passert_msg(_session != nullptr,
+              "ARCore must be installed before setting camera texture");
+
+  // If the camera texture already exists (e.g. AR→AR scene switch on the same renderer),
+  // reuse it rather than leaking the old GL texture and creating a new one.
+  // Re-registering satisfies the ARCore requirement to call setCameraTextureName after
+  // every pause/resume cycle.
+  if (_cameraTextureId != 0) {
+    _session->setCameraTextureName(_cameraTextureId);
+    return;
+  }
+
   // Generate the background texture
   glGenTextures(1, &_cameraTextureId);
 
@@ -144,8 +156,6 @@ void VROARSessionARCore::initCameraTexture(
                                              VROTextureInternalFormat::RGBA8,
                                              std::move(substrate));
 
-  passert_msg(_session != nullptr,
-              "ARCore must be installed before setting camera texture");
   _session->setCameraTextureName(_cameraTextureId);
 }
 
@@ -188,6 +198,12 @@ VROARSessionARCore::~VROARSessionARCore() {
 
 void VROARSessionARCore::run() {
   if (_session != nullptr) {
+    // ARCore requires setCameraTextureName to be called after every pause/resume cycle.
+    // Re-register here so the camera stream is always wired to our OES texture before
+    // ArSession_resume() opens the camera hardware.
+    if (_cameraTextureId != 0) {
+      _session->setCameraTextureName(_cameraTextureId);
+    }
     _session->resume();
     pinfo("AR session resumed");
   } else {
@@ -414,6 +430,15 @@ bool VROARSessionARCore::updateARCoreConfig() {
 
   if (status == arcore::ConfigStatus::Success) {
     _session->resume();
+    // After pause→configure→resume the camera hardware stream is reset.
+    // Re-register the camera texture name so ARCore reconnects its internal
+    // camera→OES-texture pipeline before the first update().  Without this,
+    // the Mali GPU driver fails to allocate the EGL image that backs the
+    // external OES texture (BAD ALLOC from gles_texture_egl_image_get_2d_template),
+    // which causes the camera feed to freeze after scene navigation.
+    if (_cameraTextureId != 0) {
+      _session->setCameraTextureName(_cameraTextureId);
+    }
     // After pause→configure→resume, ArFrame's internal state is stale.
     // Any ArFrame_acquire* call on _frame before the next update() may
     // access freed ARCore-internal memory (SEGV_MAPERR).  Drive one update
@@ -427,6 +452,11 @@ bool VROARSessionARCore::updateARCoreConfig() {
   } else {
     pwarn("Failed to configure AR session (status %d)", (int)status);
     _session->resume();
+    // Re-register camera texture on failed configure as well — the session
+    // was still paused/resumed and the camera stream was reset.
+    if (_cameraTextureId != 0) {
+      _session->setCameraTextureName(_cameraTextureId);
+    }
     if (_frame) {
       _session->update(_frame);
     }
