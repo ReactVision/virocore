@@ -214,7 +214,8 @@ void VROGeometrySubstrateOpenGL::createVAO() {
             GL( glBindBuffer(GL_ARRAY_BUFFER, vd.buffer) );
     
             for (int i = 0; i < vd.numAttributes; i++) {
-                if (vd.attributes[i].type == GL_INT || vd.attributes[i].type == GL_SHORT) {
+                if (vd.attributes[i].type == GL_INT || vd.attributes[i].type == GL_SHORT ||
+                    vd.attributes[i].type == GL_UNSIGNED_BYTE || vd.attributes[i].type == GL_UNSIGNED_SHORT) {
                     GL( glVertexAttribIPointer(vd.attributes[i].index, vd.attributes[i].size, vd.attributes[i].type, vd.stride,
                                                (GLvoid *) vd.attributes[i].offset) );
                 }
@@ -248,8 +249,10 @@ std::pair<GLuint, int> VROGeometrySubstrateOpenGL::parseVertexFormat(std::shared
     }
     else {
         switch (source->getBytesPerComponent()) {
+            case 1:
+                return { GL_UNSIGNED_BYTE, source->getComponentsPerVertex() };
             case 2:
-                return { GL_SHORT, source->getComponentsPerVertex() };
+                return { GL_UNSIGNED_SHORT, source->getComponentsPerVertex() };
             case 4:
                 return { GL_INT, source->getComponentsPerVertex() };
             default:

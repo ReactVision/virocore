@@ -74,6 +74,10 @@ std::map<int, std::map<int,std::vector<int>>> VROGLTFLoader::_skinIndexToJointCh
 // An map of all root skeleton joint indexes.
 std::map<int, int> VROGLTFLoader::_skinIndexToSkeletonRootJoint;
 
+// Per-mesh bone attribute sources, populated during processMesh and consumed in processNode.
+std::map<int, std::shared_ptr<VROGeometrySource>> VROGLTFLoader::_meshBoneIndices;
+std::map<int, std::shared_ptr<VROGeometrySource>> VROGLTFLoader::_meshBoneWeights;
+
 static int getTypeSize(GLTFType type) {
     switch (type) {
         case GLTFType::Scalar: return 1;
@@ -479,6 +483,8 @@ void VROGLTFLoader::clearCachedData() {
     _nodeKeyFrameAnims.clear();
     _skinSkeletalAnims.clear();
     _skinIndexToSkeletonRootJoint.clear();
+    _meshBoneIndices.clear();
+    _meshBoneWeights.clear();
 }
 
 bool VROGLTFLoader::processSkinner(const tinygltf::Model &model) {
@@ -558,15 +564,23 @@ bool VROGLTFLoader::processSkinner(const tinygltf::Model &model) {
             if (jointIndex == rootJoint) {
                 parentJointIndex = -1;
             }
-            
-            // TODO We need the bone local transform if we want layered animations to work with GLTF
+
+            // Extract the bone's local transform from the corresponding glTF node so that
+            // non-animated joints hold their rest-pose and layered skeletal animations work.
+            int jointNodeIndex = _skinIndexToJointNodeIndex[skinIndex][jointIndex];
+            VROMatrix4f localTransform = getTransformOfNode(model, jointNodeIndex);
             VROMatrix4f boneSpaceBindTransform = invBindTransformsOut[jointIndex];
-            std::string name = "BoneIndex_" + VROStringUtil::toString(jointIndex);
+
+            // Use the glTF node name when available; fall back to index-based name.
+            std::string nodeName = model.nodes[jointNodeIndex].name;
+            std::string name = nodeName.empty()
+                ? "BoneIndex_" + VROStringUtil::toString(jointIndex)
+                : nodeName;
 
             std::shared_ptr<VROBone> bone = std::make_shared<VROBone>(jointIndex,
                                                                       parentJointIndex,
                                                                       name,
-                                                                      VROMatrix4f::identity(),
+                                                                      localTransform,
                                                                       boneSpaceBindTransform);
             bones.push_back(bone);
         }
@@ -625,13 +639,13 @@ bool VROGLTFLoader::processAnimations(const tinygltf::Model &model) {
         }
     }
 
-    // For each animation, determine if it is a skeletalAnimation (gLTF doesn't tell us)
-    // To do this, we assume that if an animation contains ANY of the nodes specified in a
-    // skinner, it is treated automatically as a skeletalAnim.
-    std::map<int, std::pair<int, std::vector<int>>> skeletalAnimToSkinToNodeMap;
-    for (int animIndex = 0; animIndex < animToNodeIndexMap.size(); animIndex++) {
-        for (int skinIndex = 0; skinIndex < skinToNodeMap.size(); skinIndex ++) {
-            // Check to which joints are skeletal animations
+    // For each animation, determine if it is a skeletalAnimation (gLTF doesn't tell us).
+    // An animation is skeletal if it targets ANY node that belongs to a skin.
+    // A single glTF animation may drive multiple skins (e.g. a character body + visor),
+    // so we accumulate ALL matching skins rather than keeping only the last one.
+    std::map<int, std::vector<std::pair<int, std::vector<int>>>> skeletalAnimToSkinToNodeMap;
+    for (int animIndex = 0; animIndex < (int)animToNodeIndexMap.size(); animIndex++) {
+        for (int skinIndex = 0; skinIndex < (int)skinToNodeMap.size(); skinIndex++) {
             std::vector<int> animatedSkeletalJoint;
             for (auto i : skinToNodeMap[skinIndex]) {
                 for (auto x : animToNodeIndexMap[animIndex]) {
@@ -640,9 +654,9 @@ bool VROGLTFLoader::processAnimations(const tinygltf::Model &model) {
                     }
                 }
             }
-
             if (animatedSkeletalJoint.size() > 0) {
-                skeletalAnimToSkinToNodeMap[animIndex] = std::make_pair(skinIndex, animatedSkeletalJoint);
+                skeletalAnimToSkinToNodeMap[animIndex].push_back(
+                    std::make_pair(skinIndex, animatedSkeletalJoint));
             }
         }
     }
@@ -732,7 +746,8 @@ std::shared_ptr<VROKeyframeAnimation> VROGLTFLoader::convertChannelToKeyFrameAni
     bool hasMorphWeights = false;
     tinygltf::AnimationChannel channel = anim.channels[targetedChannel];
     tinygltf::AnimationSampler gSampler = anim.samplers[channel.sampler];
-    if (!processRawChannelData(gModel, channel.target_path, channel.target_node, gSampler, frames)) {
+    // Pass duration so processRawChannelData can scale CUBICSPLINE tangents correctly.
+    if (!processRawChannelData(gModel, channel.target_path, channel.target_node, gSampler, frames, duration)) {
         perr("Failed to process channel index %s for gltf model!", channel.target_path.c_str());
         return nullptr;
     }
@@ -747,16 +762,12 @@ std::shared_ptr<VROKeyframeAnimation> VROGLTFLoader::convertChannelToKeyFrameAni
         hasMorphWeights = true;
     }
 
-    // Determine the interpolation timing function type from the glTF sampler
+    // Determine the interpolation timing function type from the glTF sampler.
+    // CUBICSPLINE is pre-baked into dense linear keyframes in processRawChannelData,
+    // so it is handled as Linear here.
     VROTimingFunctionType timingType = VROTimingFunctionType::Linear;
     if (VROStringUtil::strcmpinsensitive(gSampler.interpolation, "step")) {
         timingType = VROTimingFunctionType::Step;
-    } else if (VROStringUtil::strcmpinsensitive(gSampler.interpolation, "cubicspline")) {
-        // CUBICSPLINE requires special handling of tangent data in the keyframes.
-        // For now, fall back to linear. Full CUBICSPLINE support would require
-        // storing in/out tangents per keyframe and implementing Hermite interpolation.
-        pwarn("CUBICSPLINE interpolation not fully supported, falling back to Linear");
-        timingType = VROTimingFunctionType::Linear;
     }
 
     return std::make_shared<VROKeyframeAnimation>(frames, duration, hasTranslation, hasRotation, hasScale, hasMorphWeights, timingType);
@@ -766,12 +777,14 @@ bool VROGLTFLoader::processRawChannelData(const tinygltf::Model &gModel,
                                           std::string channelProperty,
                                           int channelTarget,
                                           const tinygltf::AnimationSampler &channelSampler,
-                                          std::vector<std::unique_ptr<VROKeyframeAnimationFrame>> &framesOut) {
-    // Support LINEAR and STEP interpolation types. CUBICSPLINE is parsed but falls back to linear
-    // since it requires special tangent handling not yet implemented.
+                                          std::vector<std::unique_ptr<VROKeyframeAnimationFrame>> &framesOut,
+                                          float animDuration) {
+    // Support LINEAR, STEP, and CUBICSPLINE interpolation types.
+    // CUBICSPLINE output is pre-baked into dense linear keyframes via Hermite interpolation.
+    bool isCubicSpline = VROStringUtil::strcmpinsensitive(channelSampler.interpolation, "cubicspline");
     if (!VROStringUtil::strcmpinsensitive(channelSampler.interpolation, "linear") &&
         !VROStringUtil::strcmpinsensitive(channelSampler.interpolation, "step") &&
-        !VROStringUtil::strcmpinsensitive(channelSampler.interpolation, "cubicspline")) {
+        !isCubicSpline) {
         pwarn("Unknown animation interpolation type: %s", channelSampler.interpolation.c_str());
         return false;
     }
@@ -826,24 +839,45 @@ bool VROGLTFLoader::processRawChannelData(const tinygltf::Model &gModel,
             framesOut.push_back(std::move(frame));
         }
     } else if (VROStringUtil::strcmpinsensitive(channelProperty, "weights")) {
-        if ((elementCount != (framesOut.size() * numberOfMorphTargets))) {
+        // For CUBICSPLINE each keyframe has 3 × M scalars: [M in-tangents][M values][M out-tangents]
+        size_t expectedCount = isCubicSpline
+            ? framesOut.size() * numberOfMorphTargets * 3
+            : framesOut.size() * numberOfMorphTargets;
+        if (elementCount != expectedCount) {
             perr("Animation frame %s do not match number of morph keyframes %d, %d",
-                 channelProperty.c_str(), (int) elementCount, (int) (framesOut.size() * numberOfMorphTargets));
+                 channelProperty.c_str(), (int) elementCount, (int) expectedCount);
             return false;
         }
-    } else if (elementCount != framesOut.size()) {
-        // Else if we are processing an output channel (animation data relating to key frames),
-        // ensure that the size of the data aligns with the number of expected key frames.
-        perr("Animation frame %s do not match number of keyframes %d, %d", channelProperty.c_str(), (int) elementCount, (int) framesOut.size());
-        return false;
+    } else {
+        // For CUBICSPLINE each keyframe has 3 elements: [in-tangent, value, out-tangent]
+        size_t expectedCount = isCubicSpline ? framesOut.size() * 3 : framesOut.size();
+        if (elementCount != expectedCount) {
+            perr("Animation frame %s do not match number of keyframes %d, %d",
+                 channelProperty.c_str(), (int) elementCount, (int) framesOut.size());
+            return false;
+        }
     }
+
+    // Channel type flags for CUBICSPLINE tangent handling
+    bool isTranslationCh = VROStringUtil::strcmpinsensitive(channelProperty, "translation");
+    bool isScaleCh       = VROStringUtil::strcmpinsensitive(channelProperty, "scale");
+    bool isRotationCh    = VROStringUtil::strcmpinsensitive(channelProperty, "rotation");
+    bool isWeightsCh     = VROStringUtil::strcmpinsensitive(channelProperty, "weights");
+
+    // Tangent storage for CUBICSPLINE Hermite baking (translation/scale share vec3 tangents;
+    // rotation uses quaternion tangents). Sized to the current keyframe count.
+    std::vector<VROVector3f>   inTangentsVec3(framesOut.size());
+    std::vector<VROVector3f>  outTangentsVec3(framesOut.size());
+    std::vector<VROQuaternion>  inTangentsQuat(framesOut.size());
+    std::vector<VROQuaternion> outTangentsQuat(framesOut.size());
+    bool hasTangents = false;
 
     // Now process that buffer to produce the right output data.
     const tinygltf::Buffer &gBuffer = gModel.buffers[gIndiceBufferView.buffer];
     std::vector<float> tempVec;
     int morphIndex = 0;
     VROByteBuffer buffer((char *)gBuffer.data.data() + dataOffset, dataLength, false);
-    for (int elementIndex = 0; elementIndex < elementCount; elementIndex++) {
+    for (int elementIndex = 0; elementIndex < (int)elementCount; elementIndex++) {
 
         // Set the buffer position to begin at each element index - Ex: Each Vec4.
         buffer.setPosition(elementIndex * bufferViewStride);
@@ -877,136 +911,256 @@ bool VROGLTFLoader::processRawChannelData(const tinygltf::Model &gModel,
             }
         }
 
-        if (VROStringUtil::strcmpinsensitive(channelProperty, "translation") && tempVec.size() == 3) {
-            framesOut[elementIndex]->translation = {tempVec[0], tempVec[1], tempVec[2]};
-        } else if (VROStringUtil::strcmpinsensitive(channelProperty, "rotation")&& tempVec.size() == 4) {
-            framesOut[elementIndex]->rotation = {tempVec[0], tempVec[1], tempVec[2], tempVec[3]};
-        } else if (VROStringUtil::strcmpinsensitive(channelProperty, "scale")&& tempVec.size() == 3) {
-            framesOut[elementIndex]->scale = {tempVec[0], tempVec[1], tempVec[2]};
+        // For CUBICSPLINE output channels, each keyframe has three consecutive elements:
+        //   [in-tangent, value, out-tangent] for translation/scale/rotation
+        //   or per keyframe: [M in-tangents][M values][M out-tangents] for weights.
+        // Compute the true frame index and triplet position (0=in, 1=value, 2=out).
+        int frameIndex = elementIndex;
+        int tripletPos = 1;  // default: value element (LINEAR / STEP)
+        int weightMorphIdx = morphIndex;
+        if (isCubicSpline && !VROStringUtil::strcmpinsensitive(channelProperty, kVROGLTFInputSamplerKey)) {
+            if (isWeightsCh) {
+                int totalPerFrame = numberOfMorphTargets * 3;
+                int posInFrame    = elementIndex % totalPerFrame;
+                frameIndex        = elementIndex / totalPerFrame;
+                tripletPos        = posInFrame / numberOfMorphTargets;  // 0=in, 1=val, 2=out
+                weightMorphIdx    = posInFrame % numberOfMorphTargets;
+            } else {
+                tripletPos  = elementIndex % 3;   // 0=in, 1=value, 2=out
+                frameIndex  = elementIndex / 3;
+            }
+        } else if (isWeightsCh && numberOfMorphTargets > 0) {
+            // LINEAR/STEP weights: data is packed [frame0_m0, frame0_m1, ..., frame1_m0, ...]
+            // elementIndex spans N_frames * N_targets, so divide to get the true frame index.
+            frameIndex     = elementIndex / numberOfMorphTargets;
+            weightMorphIdx = morphIndex;  // already tracked by the morphIndex counter below
+        }
+
+        if (isTranslationCh && tempVec.size() == 3) {
+            if (tripletPos == 1) {
+                framesOut[frameIndex]->translation = {tempVec[0], tempVec[1], tempVec[2]};
+            } else if (isCubicSpline) {
+                VROVector3f tangent(tempVec[0], tempVec[1], tempVec[2]);
+                if (tripletPos == 0) inTangentsVec3[frameIndex]  = tangent;
+                else                 outTangentsVec3[frameIndex] = tangent;
+                hasTangents = true;
+            }
+        } else if (isRotationCh && tempVec.size() == 4) {
+            if (tripletPos == 1) {
+                framesOut[frameIndex]->rotation = {tempVec[0], tempVec[1], tempVec[2], tempVec[3]};
+            } else if (isCubicSpline) {
+                VROQuaternion tangent(tempVec[0], tempVec[1], tempVec[2], tempVec[3]);
+                if (tripletPos == 0) inTangentsQuat[frameIndex]  = tangent;
+                else                 outTangentsQuat[frameIndex] = tangent;
+                hasTangents = true;
+            }
+        } else if (isScaleCh && tempVec.size() == 3) {
+            if (tripletPos == 1) {
+                framesOut[frameIndex]->scale = {tempVec[0], tempVec[1], tempVec[2]};
+            } else if (isCubicSpline) {
+                VROVector3f tangent(tempVec[0], tempVec[1], tempVec[2]);
+                if (tripletPos == 0) inTangentsVec3[frameIndex]  = tangent;
+                else                 outTangentsVec3[frameIndex] = tangent;
+                hasTangents = true;
+            }
         } else if (VROStringUtil::strcmpinsensitive(channelProperty, kVROGLTFInputSamplerKey)) {
             framesOut[elementIndex]->time = tempVec[0];
-        } else if (VROStringUtil::strcmpinsensitive(channelProperty, "weights")) {
-            // GLTF only supports animating one primitive's morph target on a node at a time
-            // and as such we process only a single morph target per channel.
-            int meshIndex = gModel.nodes[channelTarget].mesh;
-            std::string key = getMorphTargetName(gModel,
-                                                 gModel.meshes[meshIndex].primitives.front(),
-                                                 morphIndex);
-            framesOut[elementIndex/numberOfMorphTargets]->morphWeights[key] = tempVec[0];
-
-            // The weights for all morph targets are tightly interleaved. As such, use
-            // morphIndex to increment, track and accumulate all morph data for this frame.
-            // Once we have hit the numberOfMorphTargets, we reset this to 0 to move
-            // onto the next frame containing the new set of morph data.
-            morphIndex ++;
-            if (morphIndex >= numberOfMorphTargets) {
-                morphIndex = 0;
+        } else if (isWeightsCh) {
+            // For CUBICSPLINE weights, only write the value elements (tripletPos == 1).
+            // Tangent baking for morph weights is not yet implemented.
+            if (tripletPos == 1) {
+                int meshIndex = gModel.nodes[channelTarget].mesh;
+                std::string key = getMorphTargetName(gModel,
+                                                     gModel.meshes[meshIndex].primitives.front(),
+                                                     weightMorphIdx);
+                framesOut[frameIndex]->morphWeights[key] = tempVec[0];
+            }
+            // For LINEAR/STEP, advance morphIndex as before.
+            if (!isCubicSpline) {
+                morphIndex++;
+                if (morphIndex >= numberOfMorphTargets) {
+                    morphIndex = 0;
+                }
             }
         } else {
             pwarn("Invalid target path %s with data size %d provided for gLTF.", channelProperty.c_str(), (int) tempVec.size());
             return false;
         }
     }
+
+    // Hermite resampling for CUBICSPLINE translation / scale / rotation channels.
+    // Pre-bakes the cubic spline into dense linear keyframes so the existing linear
+    // animation system produces smooth curves without modification.
+    if (isCubicSpline && hasTangents && (int)framesOut.size() >= 2) {
+        const int SUBSTEPS = 8;  // sub-steps per original keyframe segment
+        std::vector<std::unique_ptr<VROKeyframeAnimationFrame>> resampled;
+        resampled.reserve((framesOut.size() - 1) * SUBSTEPS + 1);
+
+        for (int k = 0; k < (int)framesOut.size() - 1; k++) {
+            float tau0   = framesOut[k]->time;
+            float tau1   = framesOut[k + 1]->time;
+            float dtNorm = tau1 - tau0;
+            // glTF tangents are in value/second; convert to value/normalized-time.
+            float tangentScale = dtNorm * animDuration;
+
+            for (int j = 0; j < SUBSTEPS; j++) {
+                float c  = (float)j / SUBSTEPS;
+                float c2 = c * c, c3 = c2 * c;
+                float h00 =  2*c3 - 3*c2 + 1;
+                float h10 =    c3 - 2*c2 + c;
+                float h01 = -2*c3 + 3*c2;
+                float h11 =    c3 - c2;
+
+                auto f = std::unique_ptr<VROKeyframeAnimationFrame>(new VROKeyframeAnimationFrame());
+                f->time        = tau0 + dtNorm * c;
+                f->morphWeights = framesOut[k]->morphWeights;
+
+                if (isTranslationCh) {
+                    const VROVector3f &p0 = framesOut[k]->translation;
+                    const VROVector3f &p1 = framesOut[k + 1]->translation;
+                    const VROVector3f m0  = outTangentsVec3[k]     * tangentScale;
+                    const VROVector3f m1  = inTangentsVec3[k + 1]  * tangentScale;
+                    f->translation = VROVector3f(h00*p0.x + h10*m0.x + h01*p1.x + h11*m1.x,
+                                                 h00*p0.y + h10*m0.y + h01*p1.y + h11*m1.y,
+                                                 h00*p0.z + h10*m0.z + h01*p1.z + h11*m1.z);
+                }
+                if (isScaleCh) {
+                    const VROVector3f &p0 = framesOut[k]->scale;
+                    const VROVector3f &p1 = framesOut[k + 1]->scale;
+                    const VROVector3f m0  = outTangentsVec3[k]     * tangentScale;
+                    const VROVector3f m1  = inTangentsVec3[k + 1]  * tangentScale;
+                    f->scale = VROVector3f(h00*p0.x + h10*m0.x + h01*p1.x + h11*m1.x,
+                                           h00*p0.y + h10*m0.y + h01*p1.y + h11*m1.y,
+                                           h00*p0.z + h10*m0.z + h01*p1.z + h11*m1.z);
+                }
+                if (isRotationCh) {
+                    const VROQuaternion &p0 = framesOut[k]->rotation;
+                    const VROQuaternion &p1 = framesOut[k + 1]->rotation;
+                    float m0X = outTangentsQuat[k].X     * tangentScale;
+                    float m0Y = outTangentsQuat[k].Y     * tangentScale;
+                    float m0Z = outTangentsQuat[k].Z     * tangentScale;
+                    float m0W = outTangentsQuat[k].W     * tangentScale;
+                    float m1X = inTangentsQuat[k + 1].X  * tangentScale;
+                    float m1Y = inTangentsQuat[k + 1].Y  * tangentScale;
+                    float m1Z = inTangentsQuat[k + 1].Z  * tangentScale;
+                    float m1W = inTangentsQuat[k + 1].W  * tangentScale;
+                    f->rotation = VROQuaternion(
+                        h00*p0.X + h10*m0X + h01*p1.X + h11*m1X,
+                        h00*p0.Y + h10*m0Y + h01*p1.Y + h11*m1Y,
+                        h00*p0.Z + h10*m0Z + h01*p1.Z + h11*m1Z,
+                        h00*p0.W + h10*m0W + h01*p1.W + h11*m1W);
+                    f->rotation.normalize();
+                }
+                resampled.push_back(std::move(f));
+            }
+        }
+
+        // Append the final original keyframe.
+        auto last = std::unique_ptr<VROKeyframeAnimationFrame>(new VROKeyframeAnimationFrame());
+        last->time        = framesOut.back()->time;
+        last->translation = framesOut.back()->translation;
+        last->scale       = framesOut.back()->scale;
+        last->rotation    = framesOut.back()->rotation;
+        last->morphWeights = framesOut.back()->morphWeights;
+        resampled.push_back(std::move(last));
+
+        framesOut = std::move(resampled);
+    }
+
     return true;
 }
 
 bool VROGLTFLoader::processSkeletalAnimation(const tinygltf::Model &model,
-                                     std::map<int, std::pair<int, std::vector<int>>> &skeletalAnimToSkinToNodeMap) {
+                                     std::map<int, std::vector<std::pair<int, std::vector<int>>>> &skeletalAnimToSkinToNodeMap) {
     if (skeletalAnimToSkinToNodeMap.size() == 0) {
         return true;
     }
 
-    flattenSkeletalKeyframeAnimations(skeletalAnimToSkinToNodeMap);
+    // Build a per-skin flatten map (the original single-skin type) and flatten each skin's
+    // channels independently, then process each (animation, skin) pair.
+    for (auto &animEntry : skeletalAnimToSkinToNodeMap) {
+        int skeletalAnimationIndex = animEntry.first;
 
-    // First, iterate through each skeletal animation that is associated with each
-    // skinner in the scene. Also assume that an animation can only move a single
-    // skinner at a time (multi-skinner-animation for a single animation is not supported)
-    for (auto &animToSkinToNodePair : skeletalAnimToSkinToNodeMap) {
-        int skinIndex = animToSkinToNodePair.second.first;
-        int skeletalAnimationIndex = animToSkinToNodePair.first;
-        
-        int rootJointIndexForSkin = _skinIndexToSkeletonRootJoint[skinIndex];
-        int animatedNodeIndexFirst = _skinIndexToJointNodeIndex[skinIndex][rootJointIndexForSkin];
+        // Iterate every skin driven by this animation.
+        for (auto &skinPair : animEntry.second) {
+            int skinIndex = skinPair.first;
+            std::vector<int> &intersectingJoints = skinPair.second;
 
-        // For the current skeletal animation, grab first joint/Node, and then grab
-        // it's vec of VROKeyframeAnimations. (This is because at this point, a given
-        // joint can have different animated properties with different input time samples).
-        std::vector<std::shared_ptr<VROKeyframeAnimation>> animatedChannels;
-        animatedChannels = _nodeKeyFrameAnims[animatedNodeIndexFirst][skeletalAnimationIndex];
+            // Build a single-skin flatten map for this (animation, skin) pair and flatten it.
+            std::map<int, std::pair<int, std::vector<int>>> singleSkinMap;
+            singleSkinMap[skeletalAnimationIndex] = std::make_pair(skinIndex, intersectingJoints);
+            flattenSkeletalKeyframeAnimations(singleSkinMap, skinIndex);
 
-        // If there are no animations for the root node, keep iterating until we find one.
-        // We are assuming here that the animation for this skinner has the same
-        // duration and keyframe intervals for all of its bones.
-        if (animatedChannels.size() == 0) {
-            std::vector<int> intersectingAnimatedJoints = animToSkinToNodePair.second.second;
-            for (auto jointIndex : intersectingAnimatedJoints) {
-                animatedChannels = _nodeKeyFrameAnims[jointIndex][skeletalAnimationIndex];
-                if (animatedChannels.size() != 0) {
-                    break;
+            int rootJointIndexForSkin = _skinIndexToSkeletonRootJoint[skinIndex];
+            int animatedNodeIndexFirst = _skinIndexToJointNodeIndex[skinIndex][rootJointIndexForSkin];
+
+            // Grab keyframe channels for the root joint (or any joint if root has none).
+            std::vector<std::shared_ptr<VROKeyframeAnimation>> animatedChannels;
+            animatedChannels = _nodeKeyFrameAnims[animatedNodeIndexFirst][skeletalAnimationIndex];
+            if (animatedChannels.size() == 0) {
+                for (auto jointNodeIdx : intersectingJoints) {
+                    animatedChannels = _nodeKeyFrameAnims[jointNodeIdx][skeletalAnimationIndex];
+                    if (animatedChannels.size() != 0) {
+                        break;
+                    }
                 }
             }
-        }
 
-        // For each animatedProperty, construct a corresponding skeletal animation.
-        if (animatedChannels.size() > 1) {
-            pwarn("Viro: Animations with multi-time interval inputs are not yet supported!");
-        } else if (animatedChannels.size() == 0) {
-            pwarn("Viro: No animations found!");
-            return true;
-        }
-
-        // TODO: There can be cases where there are multiple animated properties with different
-        // keyframe interval durations (for example, translation animates at a different speed
-        // than rotation, towards the same duration, for the same animation). Thus, in this case
-        // we'll need to combine the different skeletal animations into a layered skeletal
-        // animation. For the moment, we simply not include the data (only consider the first index)
-        int channelIndex = 0;
-
-        // First, create a set of skeletal Frames, populate them with empty key frames (with time stamp data)
-        std::shared_ptr<VROKeyframeAnimation> keyFrameAnim = animatedChannels[channelIndex];
-        float totalDuration = keyFrameAnim->getDuration();
-        std::vector<std::unique_ptr<VROSkeletalAnimationFrame>> skeletalFrames;
-        const std::vector<std::unique_ptr<VROKeyframeAnimationFrame>> &frames = keyFrameAnim->getFrames();
-        for (int i = 0; i < frames.size(); i++) {
-            std::unique_ptr<VROSkeletalAnimationFrame> skeletalFrame = std::unique_ptr<VROSkeletalAnimationFrame>(new VROSkeletalAnimationFrame());
-            skeletalFrame->time = frames[i]->time;
-
-            // TODO We should support the non-legacy (concatenated transform) format
-            skeletalFrame->boneTransformsLegacy = true;
-            skeletalFrames.push_back(std::move(skeletalFrame));
-        }
-
-        // Then iterate through each frame and populate them with the computed transform for each joint/bone.
-        std::shared_ptr<VROSkeleton> currentSkeleton = _skinIndexToSkeleton[skinIndex];
-        std::shared_ptr<VROSkinner> currentSkinner = _skinMap[skinIndex];
-        for (int i = 0; i < frames.size(); i++) {
-            std::map<int, VROMatrix4f> computedAnimatedJointTrans;
-            if (!processSkeletalTransformsForFrame(model, skinIndex, skeletalAnimationIndex, channelIndex, i, 0,
-                                                       computedAnimatedJointTrans)) {
-                return false;
+            if (animatedChannels.size() == 0) {
+                pwarn("Viro: No animations found for skin %d in animation %d", skinIndex, skeletalAnimationIndex);
+                continue;
             }
 
-            // Then, for each joint, move the transform the computed joint back into bone space
-            // and save that into the skeletalFrames for the animation.
-            for (int jointI = 0; jointI < computedAnimatedJointTrans.size(); jointI++) {
-                VROMatrix4f invBind = _skinMap[skinIndex]->getSkeleton()->getBone(jointI)->getBindTransform();
-                VROMatrix4f computedAnimatedBoneTrans = invBind.multiply(computedAnimatedJointTrans[jointI]);
-                skeletalFrames[i]->boneIndices.push_back(jointI);
-                skeletalFrames[i]->boneTransforms.push_back(computedAnimatedBoneTrans);
+            // Pick the channel with the most keyframes as the authoritative time base.
+            int channelIndex = 0;
+            if (animatedChannels.size() > 1) {
+                size_t maxFrames = 0;
+                for (int ci = 0; ci < (int)animatedChannels.size(); ci++) {
+                    size_t n = animatedChannels[ci]->getFrames().size();
+                    if (n > maxFrames) { maxFrames = n; channelIndex = ci; }
+                }
             }
-        }
 
-        // Finally construct our skeletal animation
-        std::shared_ptr<VROSkeletalAnimation> skeletalAnimation
-                = std::make_shared<VROSkeletalAnimation>(currentSkinner, skeletalFrames, totalDuration);
-        skeletalAnimation->setName(keyFrameAnim->getName());
-        _skinSkeletalAnims[skinIndex].push_back(skeletalAnimation);
+            std::shared_ptr<VROKeyframeAnimation> keyFrameAnim = animatedChannels[channelIndex];
+            float totalDuration = keyFrameAnim->getDuration();
+            std::vector<std::unique_ptr<VROSkeletalAnimationFrame>> skeletalFrames;
+            const std::vector<std::unique_ptr<VROKeyframeAnimationFrame>> &frames = keyFrameAnim->getFrames();
+            for (int i = 0; i < (int)frames.size(); i++) {
+                std::unique_ptr<VROSkeletalAnimationFrame> skeletalFrame =
+                    std::unique_ptr<VROSkeletalAnimationFrame>(new VROSkeletalAnimationFrame());
+                skeletalFrame->time = frames[i]->time;
+                // Legacy mode: boneTransforms store (glTF_IBM * worldAnimatedJoint), and VROSkinner
+                // applies inv(IBM) * transform * IBM = worldAnimated * IBM — correct glTF skinning.
+                skeletalFrame->boneTransformsLegacy = true;
+                skeletalFrames.push_back(std::move(skeletalFrame));
+            }
 
-        // Remove any KeyFrameAnimations that were "turned into" and used for skeletal animations.
-        // If an animation is on a skinner node, it is always treated as a skeletal animation.
-        for (auto &jointNode : _skinIndexToJointNodeIndex[skinIndex]) {
-            int nodeIndex = jointNode.second;
-            _nodeKeyFrameAnims[nodeIndex][skeletalAnimationIndex].clear();
+            std::shared_ptr<VROSkinner> currentSkinner = _skinMap[skinIndex];
+            for (int i = 0; i < (int)frames.size(); i++) {
+                std::map<int, VROMatrix4f> computedAnimatedJointTrans;
+                if (!processSkeletalTransformsForFrame(model, skinIndex, skeletalAnimationIndex,
+                                                       channelIndex, i, 0, computedAnimatedJointTrans)) {
+                    return false;
+                }
+                for (int jointI = 0; jointI < (int)computedAnimatedJointTrans.size(); jointI++) {
+                    VROMatrix4f invBind = _skinMap[skinIndex]->getSkeleton()->getBone(jointI)->getBindTransform();
+                    VROMatrix4f computedAnimatedBoneTrans = invBind.multiply(computedAnimatedJointTrans[jointI]);
+                    skeletalFrames[i]->boneIndices.push_back(jointI);
+                    skeletalFrames[i]->boneTransforms.push_back(computedAnimatedBoneTrans);
+                }
+            }
+
+            std::shared_ptr<VROSkeletalAnimation> skeletalAnimation =
+                std::make_shared<VROSkeletalAnimation>(currentSkinner, skeletalFrames, totalDuration);
+            skeletalAnimation->setName(keyFrameAnim->getName());
+            _skinSkeletalAnims[skinIndex].push_back(skeletalAnimation);
+
+            // Do NOT clear joint-node keyframe animations here. Keeping them on the VRONodes
+            // allows rigid-body meshes that are children of joint nodes to inherit the correct
+            // world transform during skeletal animation (their parent joint VRONode gets its
+            // TRS updated, propagating the transform down the scene graph hierarchy).
+            // Skinned meshes are unaffected — their vertex positions come entirely from the
+            // bone UBO in the shader, not from node world-transform inheritance.
         }
     }
     return true;
@@ -1033,8 +1187,9 @@ bool VROGLTFLoader::processSkeletalAnimation(const tinygltf::Model &model,
    one is used.
 
  */
-void VROGLTFLoader::flattenSkeletalKeyframeAnimations(std::map<int, std::pair<int, std::vector<int>>> &skeletalAnimToNodeSkinPair) {
-    // Iterate through each skeletal animation and flattern them if possible.
+void VROGLTFLoader::flattenSkeletalKeyframeAnimations(std::map<int, std::pair<int, std::vector<int>>> &skeletalAnimToNodeSkinPair,
+                                                     int skinIndex) {
+    // Iterate through each skeletal animation and flatten them if possible.
     for (auto &animToSkinToNodePair : skeletalAnimToNodeSkinPair) {
         int skeletalAnimationIndex = animToSkinToNodePair.first;
 
@@ -1061,14 +1216,22 @@ void VROGLTFLoader::flattenSkeletalKeyframeAnimations(std::map<int, std::pair<in
                 chosenNumberOfFrames = (int) keyframeAnimations.front()->getFrames().size();
             }
 
-            // Remove the keyframe animations for this node with different time input data
-            // (different animation duration and keyframe count).
+            // Remove keyframe animations with different time input data (different duration or
+            // frame count). Layered skeletal animations with mismatched time grids are not yet
+            // supported, so we keep only the majority time grid (chosenDuration/chosenNumberOfFrames).
             keyframeAnimations.erase(std::remove_if(
                             keyframeAnimations.begin(),
                             keyframeAnimations.end(),
-                            [chosenDuration, chosenNumberOfFrames](const std::shared_ptr<VROKeyframeAnimation> & o) {
-                                pwarn("Viro: Removing mis-matching animation - layered skeletal animations not yet supported for gLTF.");
-                                return o->getDuration() != chosenDuration || o->getFrames().size() != chosenNumberOfFrames;}),
+                            [chosenDuration, chosenNumberOfFrames](const std::shared_ptr<VROKeyframeAnimation> &o) {
+                                bool mismatch = (o->getDuration() != chosenDuration ||
+                                                 o->getFrames().size() != (size_t)chosenNumberOfFrames);
+                                if (mismatch) {
+                                    pwarn("Viro: Dropping mis-matched channel (dur=%.3f frames=%zu expected dur=%.3f frames=%d) "
+                                          "— layered skeletal animations with different time grids not yet supported.",
+                                          o->getDuration(), o->getFrames().size(), chosenDuration, chosenNumberOfFrames);
+                                }
+                                return mismatch;
+                            }),
                             keyframeAnimations.end());
 
             // If there's only one keyframeAnimation for this joint, there's no need to
@@ -1306,7 +1469,7 @@ bool VROGLTFLoader::processNode(const tinygltf::Model &gModel, std::shared_ptr<V
     // Process the Geometry for this node, if any.
     // Fail fast if we have failed to process the node's mesh.
     int meshIndex = gNode.mesh;
-    if (meshIndex >= 0 && !processMesh(gModel, node, gModel.meshes[meshIndex], driver)) {
+    if (meshIndex >= 0 && !processMesh(gModel, node, gModel.meshes[meshIndex], meshIndex, driver)) {
         return false;
     }
 
@@ -1324,9 +1487,33 @@ bool VROGLTFLoader::processNode(const tinygltf::Model &gModel, std::shared_ptr<V
 
     // After processing the nodes of this model, process skins if any.
     std::shared_ptr<VROGeometry> geom = node->getGeometry();
-    if (geom != nullptr && gNode.skin >=0) {
-        _skinMap[gNode.skin]->setSkinnerNode(node);
-        geom->setSkinner(_skinMap[gNode.skin]);
+    if (geom != nullptr && gNode.skin >= 0) {
+        int skinIndex = gNode.skin;
+
+        // Retrieve bone attribute sources that were cached by processMesh for this mesh.
+        // These are the JOINTS_0 and WEIGHTS_0 data that map each vertex to its influencing
+        // bones — required for GPU skeletal deformation. Rebuild the VROSkinner with them so
+        // the vertex shader receives correct bone index / weight data.
+        std::shared_ptr<VROGeometrySource> boneIndices;
+        std::shared_ptr<VROGeometrySource> boneWeights;
+        auto idxIt = _meshBoneIndices.find(meshIndex);
+        auto wgtIt = _meshBoneWeights.find(meshIndex);
+        if (idxIt != _meshBoneIndices.end()) boneIndices = idxIt->second;
+        if (wgtIt != _meshBoneWeights.end()) boneWeights = wgtIt->second;
+
+        if (!boneIndices || !boneWeights) {
+            pwarn("Skinner for mesh %d / skin %d is missing bone index or weight data — "
+                  "skeletal deformation will not work.", meshIndex, skinIndex);
+        }
+
+        std::shared_ptr<VROSkeleton> skeleton  = _skinMap[skinIndex]->getSkeleton();
+        const std::vector<VROMatrix4f> &invBindTransforms = _skinMap[skinIndex]->getInverseBindTransforms();
+        std::shared_ptr<VROSkinner> skinner = std::make_shared<VROSkinner>(
+            skeleton, VROMatrix4f(), invBindTransforms, boneIndices, boneWeights);
+        _skinMap[skinIndex] = skinner;
+
+        skinner->setSkinnerNode(node);
+        geom->setSkinner(skinner);
         for (const std::shared_ptr<VROMaterial> &material : geom->getMaterials()) {
             material->addShaderModifier(VROBoneUBO::createSkinningShaderModifier(false));
         }
@@ -1554,7 +1741,7 @@ bool VROGLTFLoader::processSkinnerInverseBindData(const tinygltf::Model &gModel,
 }
 
 bool VROGLTFLoader::processMesh(const tinygltf::Model &gModel, std::shared_ptr<VRONode> &rootNode, const tinygltf::Mesh &gMesh,
-                                std::shared_ptr<VRODriver> driver) {
+                                int meshIndex, std::shared_ptr<VRODriver> driver) {
     if (gMesh.primitives.size() <=0) {
         perr("GTLF requires mesh data to contain at least one primitive!");
         return false;
@@ -1602,6 +1789,15 @@ bool VROGLTFLoader::processMesh(const tinygltf::Model &gModel, std::shared_ptr<V
     // Apply a default material if none has been specified.
     if (materials.size() == 0) {
         materials.push_back(std::make_shared<VROMaterial>());
+    }
+
+    // Cache JOINTS_0 / WEIGHTS_0 sources so processNode can wire them into VROSkinner.
+    for (const std::shared_ptr<VROGeometrySource> &src : sources) {
+        if (src->getSemantic() == VROGeometrySourceSemantic::BoneIndices) {
+            _meshBoneIndices[meshIndex] = src;
+        } else if (src->getSemantic() == VROGeometrySourceSemantic::BoneWeights) {
+            _meshBoneWeights[meshIndex] = src;
+        }
     }
 
     // Finally construct our geometry with the processed vertex and attribute data.
@@ -2256,7 +2452,7 @@ std::shared_ptr<VROGeometrySource> VROGLTFLoader::buildBoneWeightSource(GLTFType
         
         // For the current element, cycle through each of its float or type component
         // and convert them into a float through the math conversions required by gLTF.
-        buffer.setPosition(elementIndex * bufferViewStride);
+        buffer.setPosition(elementIndex * bufferViewStride + gAttributeAccesor.byteOffset);
         std::vector<float> weight;
         for (int componentCount = 0; componentCount < getTypeSize(gType); componentCount++) {
             if (gTypeComponent == GLTFTypeComponent::Float) {

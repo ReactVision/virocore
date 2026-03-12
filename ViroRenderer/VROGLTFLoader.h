@@ -119,7 +119,7 @@ private:
     static bool processCamera(const tinygltf::Model &gModel, std::shared_ptr<VRONode> &node, int cameraIndex);
     static bool processLight(const tinygltf::Model &gModel, std::shared_ptr<VRONode> &node, int lightIndex);
     static bool processMesh(const tinygltf::Model &gModel, std::shared_ptr<VRONode> &node, const tinygltf::Mesh &gMesh,
-                            std::shared_ptr<VRODriver> driver);
+                            int meshIndex, std::shared_ptr<VRODriver> driver);
     static bool processSkin(const tinygltf::Model &gModel, std::shared_ptr<VRONode> &node, int skinIndex);
     static bool processVertexElement(const tinygltf::Model &gModel, const tinygltf::Primitive &gPrimitive,
                                      std::vector<std::shared_ptr<VROGeometryElement>> &element);
@@ -186,7 +186,8 @@ private:
     static bool processKeyFrameAnimations(const tinygltf::Model &gModel,
                                          std::map<int, std::map<int, std::vector<int>>> &gltfAnimatedNodes);
     static void flattenSkeletalKeyframeAnimations(
-            std::map<int, std::pair<int, std::vector<int>>> &skeletalAnimToNodeSkinPair);
+            std::map<int, std::pair<int, std::vector<int>>> &skeletalAnimToNodeSkinPair,
+            int skinIndex);
     static std::shared_ptr<VROKeyframeAnimation> convertChannelToKeyFrameAnimation(
                                                   const tinygltf::Model &gModel,
                                                   const tinygltf::Animation &anim,
@@ -195,9 +196,11 @@ private:
                                       std::string channelProperty,
                                       int channelTarget,
                                       const tinygltf::AnimationSampler &gChannelSampler,
-                                      std::vector<std::unique_ptr<VROKeyframeAnimationFrame>> &framesOut);
+                                      std::vector<std::unique_ptr<VROKeyframeAnimationFrame>> &framesOut,
+                                      float animDuration = 1.0f);
+    // skeletalAnimToSkinToNodeMap: animIndex → vector of (skinIndex, animatedJointNodeIndices)
     static bool processSkeletalAnimation(const tinygltf::Model &gModel,
-                                         std::map<int, std::pair<int, std::vector<int>>> &skeletalAnimToSkinToNodeMap);
+                                         std::map<int, std::vector<std::pair<int, std::vector<int>>>> &skeletalAnimToSkinToNodeMap);
     static bool processSkeletalTransformsForFrame(const tinygltf::Model &gModel,
                                                   int skin,
                                                   int animation,
@@ -228,6 +231,14 @@ private:
     static std::map<int, std::map<int,std::vector<int>>> _skinIndexToJointChildJoints;
     static std::map<int, std::shared_ptr<VROSkinner>> _skinMap;
     static std::map<int, int> _skinIndexToSkeletonRootJoint;
+
+    /*
+     Per-mesh bone attribute sources cached during processMesh so that processNode can wire them
+     into the VROSkinner once both mesh geometry and skin data are available.
+     Keyed by glTF mesh index.
+     */
+    static std::map<int, std::shared_ptr<VROGeometrySource>> _meshBoneIndices;
+    static std::map<int, std::shared_ptr<VROGeometrySource>> _meshBoneWeights;
 
     /*
      Cached maps of nodeIndexes to it's corresponding animations. These caches are cleared
