@@ -143,6 +143,7 @@ private:
                                     std::map<int, std::shared_ptr<VROMorpher>> &morphers,
                                     std::shared_ptr<VRODriver> driver);
     static std::string getMorphTargetName(const tinygltf::Model &gModel,
+                                          const tinygltf::Mesh &gMesh,
                                           const tinygltf::Primitive &gPrimtive, int targetIndex);
 
     static void injectGLTF(std::shared_ptr<VRONode> gltfNode, std::shared_ptr<VRONode> rootNode,
@@ -239,6 +240,24 @@ private:
      */
     static std::map<int, std::shared_ptr<VROGeometrySource>> _meshBoneIndices;
     static std::map<int, std::shared_ptr<VROGeometrySource>> _meshBoneWeights;
+
+    /*
+     Maps each glTF node index to its parent node index. Needed to walk up the scene graph
+     for multi-skin models where a skin's root joint has non-joint ancestors (e.g. a visor
+     skin whose root is the Neck joint, whose ancestors Hips/Spine are only in the body skin).
+     Populated in processSkinner(), cleared in clearCachedData().
+     */
+    static std::map<int, int> _nodeParentMap;
+
+    /*
+     Maps each skin index to the set of node indices that are ancestors of that skin's mesh
+     node (the glTF node that has gNode.skin == skinIndex). These ancestors are already applied
+     by Viro's renderer as the mesh node's modelMatrix, so the ancestor walk in
+     processSkeletalTransformsForFrame must stop before including them to avoid double-applying
+     transforms (e.g. Character's scale=0.01 being applied twice → model becomes invisible).
+     Populated in processSkinner(), cleared in clearCachedData().
+     */
+    static std::map<int, std::set<int>> _skinMeshAncestors;
 
     /*
      Cached maps of nodeIndexes to it's corresponding animations. These caches are cleared

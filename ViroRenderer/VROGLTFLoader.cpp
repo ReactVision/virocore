@@ -78,6 +78,10 @@ std::map<int, int> VROGLTFLoader::_skinIndexToSkeletonRootJoint;
 std::map<int, std::shared_ptr<VROGeometrySource>> VROGLTFLoader::_meshBoneIndices;
 std::map<int, std::shared_ptr<VROGeometrySource>> VROGLTFLoader::_meshBoneWeights;
 
+// Node parent map: nodeIndex → parentNodeIndex (built in processSkinner).
+std::map<int, int> VROGLTFLoader::_nodeParentMap;
+std::map<int, std::set<int>> VROGLTFLoader::_skinMeshAncestors;
+
 static int getTypeSize(GLTFType type) {
     switch (type) {
         case GLTFType::Scalar: return 1;
@@ -119,7 +123,19 @@ VROGeometrySourceSemantic VROGLTFLoader::getGeometryAttribute(std::string name) 
     } else if (VROStringUtil::strcmpinsensitive(name, "WEIGHTS_0")) {
         return VROGeometrySourceSemantic::BoneWeights;
     } else {
-        pwarn("Attempted to parse an unknown geometry attribute: %s", name.c_str());
+        // Silently ignore additional UV sets (TEXCOORD_1..N), extra color layers,
+        // and other unsupported semantics — they are valid glTF but not needed.
+        bool isExtraTexcoord = (name.size() >= 9 && name.substr(0, 9) == "TEXCOORD_" &&
+                                name != "TEXCOORD_0");
+        bool isExtraJoints  = (name.size() >= 7 && name.substr(0, 7) == "JOINTS_"  &&
+                                name != "JOINTS_0");
+        bool isExtraWeights = (name.size() >= 8 && name.substr(0, 8) == "WEIGHTS_" &&
+                                name != "WEIGHTS_0");
+        bool isExtraColor   = (name.size() >= 6 && name.substr(0, 6) == "COLOR_"   &&
+                                name != "COLOR_0");
+        if (!isExtraTexcoord && !isExtraJoints && !isExtraWeights && !isExtraColor) {
+            pwarn("Attempted to parse an unknown geometry attribute: %s", name.c_str());
+        }
     }
     return VROGeometrySourceSemantic::Invalid;
 }
@@ -485,11 +501,37 @@ void VROGLTFLoader::clearCachedData() {
     _skinIndexToSkeletonRootJoint.clear();
     _meshBoneIndices.clear();
     _meshBoneWeights.clear();
+    _nodeParentMap.clear();
+    _skinMeshAncestors.clear();
 }
 
 bool VROGLTFLoader::processSkinner(const tinygltf::Model &model) {
     if (model.skins.size() == 0) {
         return true;
+    }
+
+    // Build a parent-node lookup used later to walk up non-skin ancestor chains
+    // when computing world transforms for skins whose root joint is not at the scene root.
+    _nodeParentMap.clear();
+    for (int ni = 0; ni < (int)model.nodes.size(); ni++) {
+        for (int childIdx : model.nodes[ni].children) {
+            _nodeParentMap[childIdx] = ni;
+        }
+    }
+
+    // Build _skinMeshAncestors: for each skin, record the ancestor node indices of the mesh
+    // node that references that skin (gNode.skin == skinIndex). These ancestors are already
+    // applied by Viro's renderer as the mesh node's modelMatrix and must NOT be included in
+    // the non-skin ancestor walk in processSkeletalTransformsForFrame.
+    _skinMeshAncestors.clear();
+    for (int ni = 0; ni < (int)model.nodes.size(); ni++) {
+        int skinIdx = model.nodes[ni].skin;
+        if (skinIdx < 0) continue;
+        int cur = ni;
+        while (_nodeParentMap.count(cur)) {
+            cur = _nodeParentMap[cur];
+            _skinMeshAncestors[skinIdx].insert(cur);
+        }
     }
 
     // Create a map of all known joints used for building a tree of the
@@ -971,6 +1013,7 @@ bool VROGLTFLoader::processRawChannelData(const tinygltf::Model &gModel,
             if (tripletPos == 1) {
                 int meshIndex = gModel.nodes[channelTarget].mesh;
                 std::string key = getMorphTargetName(gModel,
+                                                     gModel.meshes[meshIndex],
                                                      gModel.meshes[meshIndex].primitives.front(),
                                                      weightMorphIdx);
                 framesOut[frameIndex]->morphWeights[key] = tempVec[0];
@@ -1139,12 +1182,15 @@ bool VROGLTFLoader::processSkeletalAnimation(const tinygltf::Model &model,
             for (int i = 0; i < (int)frames.size(); i++) {
                 std::map<int, VROMatrix4f> computedAnimatedJointTrans;
                 if (!processSkeletalTransformsForFrame(model, skinIndex, skeletalAnimationIndex,
-                                                       channelIndex, i, 0, computedAnimatedJointTrans)) {
+                                                       channelIndex, i, rootJointIndexForSkin, computedAnimatedJointTrans)) {
                     return false;
                 }
-                for (int jointI = 0; jointI < (int)computedAnimatedJointTrans.size(); jointI++) {
+                // Iterate by actual joint keys (not 0..size-1) to correctly handle skeletons
+                // whose root joint is not at index 0.
+                for (auto &entry : computedAnimatedJointTrans) {
+                    int jointI = entry.first;
                     VROMatrix4f invBind = _skinMap[skinIndex]->getSkeleton()->getBone(jointI)->getBindTransform();
-                    VROMatrix4f computedAnimatedBoneTrans = invBind.multiply(computedAnimatedJointTrans[jointI]);
+                    VROMatrix4f computedAnimatedBoneTrans = invBind.multiply(entry.second);
                     skeletalFrames[i]->boneIndices.push_back(jointI);
                     skeletalFrames[i]->boneTransforms.push_back(computedAnimatedBoneTrans);
                 }
@@ -1256,7 +1302,7 @@ void VROGLTFLoader::flattenSkeletalKeyframeAnimations(std::map<int, std::pair<in
 
             // Then iterate through all the animated properties, and for each keyframe within them
             // combine the properties into the final flattenedKeyFrames.
-            bool hasTrans, hasScale, hasRotation, hasMorph = false;
+            bool hasTrans = false, hasScale = false, hasRotation = false, hasMorph = false;
             for (int channelIndex = 0; channelIndex < keyframeAnimations.size(); channelIndex++) {
                 for (int keyFrameTime = 0; keyFrameTime < flattenedKeyFrames.size(); keyFrameTime++) {
                     const std::vector<std::unique_ptr<VROKeyframeAnimationFrame>> &currFrames = keyframeAnimations[channelIndex]->getFrames();
@@ -1293,6 +1339,52 @@ void VROGLTFLoader::flattenSkeletalKeyframeAnimations(std::map<int, std::pair<in
     }
 }
 
+// Helper: read a glTF node's rest-pose TRS directly from its fields (no matrix decomposition).
+// For nodes that specify a full matrix instead of TRS, we decompose it — but animated joints
+// in glTF always use separate TRS fields, so this path is rarely hit.
+static void getNodeRestTRS(const tinygltf::Model &gModel, int nodeIndex,
+                           VROVector3f &outT, VROVector3f &outS, VROQuaternion &outR) {
+    const tinygltf::Node &n = gModel.nodes[nodeIndex];
+    outT = n.translation.size() >= 3
+        ? VROVector3f((float)n.translation[0], (float)n.translation[1], (float)n.translation[2])
+        : VROVector3f();
+    outS = n.scale.size() >= 3
+        ? VROVector3f((float)n.scale[0], (float)n.scale[1], (float)n.scale[2])
+        : VROVector3f(1, 1, 1);
+    outR = n.rotation.size() >= 4
+        ? VROQuaternion((float)n.rotation[0], (float)n.rotation[1], (float)n.rotation[2], (float)n.rotation[3])
+        : VROQuaternion();
+    if (n.matrix.size() == 16) {
+        std::vector<float> fm(n.matrix.begin(), n.matrix.end());
+        VROMatrix4f mat(&fm[0]);
+        outS = mat.extractScale();
+        outR = mat.extractRotation(outS);
+        outT = mat.extractTranslation();
+    }
+}
+
+// Helper: build a local TRS matrix for a joint, falling back to the node's rest-pose for
+// any channels not present in the animation.  Mixamo/Blender rigs typically only animate
+// rotation; without the rest-pose translation every non-root bone would collapse to the
+// origin, producing severe mesh corruption.
+static VROMatrix4f buildJointLocalTransform(const tinygltf::Model &gModel, int nodeIndex,
+                                            const VROKeyframeAnimation *anim,
+                                            const VROKeyframeAnimationFrame *frame) {
+    VROVector3f restT; VROVector3f restS; VROQuaternion restR;
+    getNodeRestTRS(gModel, nodeIndex, restT, restS, restR);
+
+    VROVector3f   scale       = anim->_hasScale       ? frame->scale       : restS;
+    VROQuaternion rotation    = anim->_hasRotation    ? frame->rotation    : restR;
+    VROVector3f   translation = anim->_hasTranslation ? frame->translation : restT;
+
+    VROMatrix4f m;
+    m.toIdentity();
+    m.scale(scale.x, scale.y, scale.z);
+    m = rotation.getMatrix() * m;
+    m.translate(translation);
+    return m;
+}
+
 bool VROGLTFLoader::processSkeletalTransformsForFrame(const tinygltf::Model &gModel,
                                                       int skin,
                                                       int animationIndex,
@@ -1300,35 +1392,76 @@ bool VROGLTFLoader::processSkeletalTransformsForFrame(const tinygltf::Model &gMo
                                                       int keyFrameTime,
                                                       int currentJointIndex,
                                                       std::map<int, VROMatrix4f> &transformsOut) {
-    // If we are at the root, process its transform to be cascaded down the model's scene tree.
-    int childNodeIndex = _skinIndexToJointNodeIndex[skin][0];
+    // If we are at the root (transform not yet placed by a parent), compute and store it.
+    // Detect "root" by the absence of a pre-placed transform rather than hardcoding index 0,
+    // so models whose skeleton root joint is not at index 0 are handled correctly.
+    if (transformsOut.find(currentJointIndex) == transformsOut.end()) {
+        int rootNodeIndex = _skinIndexToJointNodeIndex[skin][currentJointIndex];
 
-    if (currentJointIndex == 0) {
-        if (_nodeKeyFrameAnims[childNodeIndex][animationIndex].size() == 0) {
-
-            // If the there are no animations configured for this bone, simply get the model's
-            // original local transform.
-            transformsOut[0] = getTransformOfNode(gModel, childNodeIndex);
-        } else {
-            std::shared_ptr<VROKeyframeAnimation> animation = _nodeKeyFrameAnims[childNodeIndex][animationIndex].at(subAnimPropertyIndex);
-            const std::vector<std::unique_ptr<VROKeyframeAnimationFrame>> &frames = animation->getFrames();
-            VROMatrix4f localTransform;
-            localTransform.toIdentity();
-            if (animation->_hasScale) {
-                localTransform.scale(frames[keyFrameTime]->scale.x,
-                                     frames[keyFrameTime]->scale.y,
-                                     frames[keyFrameTime]->scale.z);
+        // Walk up the GLTF scene graph collecting non-skin ancestor nodes.
+        // For multi-skin models the root joint of a secondary skin (e.g. visor's Neck joint)
+        // may have parent nodes that belong to the primary skin (Hips, Spine…). Those ancestors
+        // are NOT in this skin's joint list but their animated world transforms must be included
+        // so the IBM (which encodes the full world-space bind pose) is correctly cancelled out.
+        std::vector<int> nonSkinAncestors;
+        {
+            int cur = rootNodeIndex;
+            while (_nodeParentMap.count(cur)) {
+                int par = _nodeParentMap[cur];
+                // Check whether the parent node is a joint in THIS skin
+                bool inThisSkin = false;
+                for (auto &kv : _skinIndexToJointNodeIndex[skin]) {
+                    if (kv.second == par) { inThisSkin = true; break; }
+                }
+                if (inThisSkin) break;  // ancestor is already handled by the skin cascade
+                // Stop if this ancestor is already applied by Viro's renderer as the mesh
+                // node's modelMatrix (i.e. it's an ancestor of the skin's mesh node).
+                // Including it here would double-apply it (e.g. Character scale=0.01 twice).
+                if (_skinMeshAncestors.count(skin) && _skinMeshAncestors[skin].count(par)) break;
+                nonSkinAncestors.push_back(par);
+                cur = par;
             }
-
-            if (animation->_hasRotation) {
-                localTransform = frames[keyFrameTime]->rotation.getMatrix() * localTransform;
-            }
-
-            if (animation->_hasTranslation) {
-                localTransform.translate(frames[keyFrameTime]->translation);
-            }
-            transformsOut[0] = localTransform;
         }
+
+        // Build the accumulated world transform from outermost to innermost ancestor.
+        // For each ancestor, collect its TRS from all animation channels (unflattened T/R/S)
+        // falling back to the rest-pose for any channel not present in the animation.
+        VROMatrix4f ancestorWorld;
+        ancestorWorld.toIdentity();
+        for (int i = (int)nonSkinAncestors.size() - 1; i >= 0; i--) {
+            int ancNode = nonSkinAncestors[i];
+            VROVector3f ancT; VROVector3f ancS; VROQuaternion ancR;
+            getNodeRestTRS(gModel, ancNode, ancT, ancS, ancR);
+            const auto &ancAnimMap = _nodeKeyFrameAnims[ancNode];
+            auto ancAnimIt = ancAnimMap.find(animationIndex);
+            if (ancAnimIt != ancAnimMap.end()) {
+                for (const auto &ancAnim : ancAnimIt->second) {
+                    if (keyFrameTime >= (int)ancAnim->getFrames().size()) continue;
+                    const auto &ancFrame = *ancAnim->getFrames()[keyFrameTime];
+                    if (ancAnim->_hasTranslation) ancT = ancFrame.translation;
+                    if (ancAnim->_hasRotation)    ancR = ancFrame.rotation;
+                    if (ancAnim->_hasScale)       ancS = ancFrame.scale;
+                }
+            }
+            VROMatrix4f ancLocal;
+            ancLocal.toIdentity();
+            ancLocal.scale(ancS.x, ancS.y, ancS.z);
+            ancLocal = ancR.getMatrix() * ancLocal;
+            ancLocal.translate(ancT);
+            ancestorWorld = ancestorWorld.multiply(ancLocal);
+        }
+
+        // Compute root joint's local transform, then pre-multiply by ancestor world.
+        const auto &anims = _nodeKeyFrameAnims[rootNodeIndex][animationIndex];
+        VROMatrix4f rootLocal;
+        if (anims.empty()) {
+            rootLocal = getTransformOfNode(gModel, rootNodeIndex);
+        } else {
+            const auto &anim = anims.at(subAnimPropertyIndex);
+            const auto &frame = *anim->getFrames()[keyFrameTime];
+            rootLocal = buildJointLocalTransform(gModel, rootNodeIndex, anim.get(), &frame);
+        }
+        transformsOut[currentJointIndex] = ancestorWorld.multiply(rootLocal);
     }
 
     // Grab the transform of the current joint to be cascaded and multiplied on the child.
@@ -1337,33 +1470,20 @@ bool VROGLTFLoader::processSkeletalTransformsForFrame(const tinygltf::Model &gMo
     // Grab all the child joints for this current joint.
     std::vector<int> childJoints = _skinIndexToJointChildJoints[skin][currentJointIndex];
     for (int childJointIndex : childJoints) {
-        // Get the actual node index for the child joint Index and it's animation to set.
         int childNodeIndex = _skinIndexToJointNodeIndex[skin][childJointIndex];
+        const auto &anims = _nodeKeyFrameAnims[childNodeIndex][animationIndex];
 
-        VROMatrix4f localTransform = VROMatrix4f::identity();
-        if (_nodeKeyFrameAnims[childNodeIndex][animationIndex].size() == 0) {
+        VROMatrix4f localTransform;
+        if (anims.empty()) {
             localTransform = getTransformOfNode(gModel, childNodeIndex);
         } else {
-            // Grab the animation transform of the current keyFrame
-            std::shared_ptr<VROKeyframeAnimation> animation = _nodeKeyFrameAnims[childNodeIndex][animationIndex].at(subAnimPropertyIndex);
-            const std::vector<std::unique_ptr<VROKeyframeAnimationFrame>> &frames = animation->getFrames();
-            if (animation->_hasScale) {
-                localTransform.scale(frames[keyFrameTime]->scale.x,
-                                     frames[keyFrameTime]->scale.y,
-                                     frames[keyFrameTime]->scale.z);
-            }
-            if (animation->_hasRotation) {
-                localTransform = frames[keyFrameTime]->rotation.getMatrix() * localTransform;
-            }
-
-            if (animation->_hasTranslation) {
-                localTransform.translate(frames[keyFrameTime]->translation);
-            }
+            const auto &anim = anims.at(subAnimPropertyIndex);
+            const auto &frame = *anim->getFrames()[keyFrameTime];
+            localTransform = buildJointLocalTransform(gModel, childNodeIndex, anim.get(), &frame);
         }
-        
-        // Now cascade and compute the actual world computed transform in model space, save it in transformsOut
-        VROMatrix4f computedJointTransformInMeshCoords = currentMatrix.multiply(localTransform);
-        transformsOut[childJointIndex] = computedJointTransformInMeshCoords;
+
+        // Cascade: world transform = parent_world * local
+        transformsOut[childJointIndex] = currentMatrix.multiply(localTransform);
 
         // Continue going down the skeletal tree
         if (!processSkeletalTransformsForFrame(gModel, skin, animationIndex, subAnimPropertyIndex,
@@ -1507,9 +1627,13 @@ bool VROGLTFLoader::processNode(const tinygltf::Model &gModel, std::shared_ptr<V
         }
 
         std::shared_ptr<VROSkeleton> skeleton  = _skinMap[skinIndex]->getSkeleton();
-        const std::vector<VROMatrix4f> &invBindTransforms = _skinMap[skinIndex]->getInverseBindTransforms();
+        // Use getBindTransforms() (= the IBM values from the GLTF file) as boneSpaceTransforms
+        // so the new VROSkinner stores _bindTransforms = IBM and _inverseBindTransforms = IBM.invert().
+        // getInverseBindTransforms() would return IBM.invert(), producing an inverted skinner and
+        // corrupted skeletal deformation (IBM applied twice, wrong direction).
+        const std::vector<VROMatrix4f> &bindTransforms = _skinMap[skinIndex]->getBindTransforms();
         std::shared_ptr<VROSkinner> skinner = std::make_shared<VROSkinner>(
-            skeleton, VROMatrix4f(), invBindTransforms, boneIndices, boneWeights);
+            skeleton, VROMatrix4f(), bindTransforms, boneIndices, boneWeights);
         _skinMap[skinIndex] = skinner;
 
         skinner->setSkinnerNode(node);
@@ -2358,7 +2482,7 @@ bool VROGLTFLoader::processMorphTargets(const tinygltf::Model &gModel,
         }
 
         // Grab the rest of the target's properties.
-        std::string key = getMorphTargetName(gModel, gPrimitive, targetIndex);
+        std::string key = getMorphTargetName(gModel, gMesh, gPrimitive, targetIndex);
         float weight = 0.0;
         if (targetIndex < gMesh.weights.size()) {
             weight = gMesh.weights[targetIndex];
@@ -2373,11 +2497,25 @@ bool VROGLTFLoader::processMorphTargets(const tinygltf::Model &gModel,
 }
 
 std::string VROGLTFLoader::getMorphTargetName(const tinygltf::Model &gModel,
+                                              const tinygltf::Mesh &gMesh,
                                               const tinygltf::Primitive &gPrimitive,
                                               int targetIndex) {
-    std::string key = VROStringUtil::toString(targetIndex);
+    // Standard glTF convention (Blender, Three.js): morph target names live in
+    // mesh.extras.targetNames as a JSON array.  Check this first before falling
+    // back to accessor names, which are usually empty.
+    const tinygltf::Value &extras = gMesh.extras;
+    if (extras.IsObject() && extras.Has("targetNames")) {
+        const tinygltf::Value &targetNames = extras.Get("targetNames");
+        if (targetNames.IsArray() && targetIndex < (int)targetNames.ArrayLen()) {
+            const tinygltf::Value &nameVal = targetNames.Get(targetIndex);
+            if (nameVal.IsString()) {
+                return nameVal.Get<std::string>();
+            }
+        }
+    }
 
-    // Iterate through the property accessors of the mesh target to grab it's name.
+    // Fall back to accessor name (some exporters store the name there).
+    std::string key = VROStringUtil::toString(targetIndex);
     std::map<std::string, int> gAttributes = gPrimitive.targets[targetIndex];
     if (gAttributes.size() > 0) {
         for (auto const& gAttribute : gAttributes) {
@@ -2715,9 +2853,11 @@ VROMatrix4f VROGLTFLoader::getTransformOfNode(const tinygltf::Model &gModel, int
         rot = mat.extractRotation(scale);
     }
 
+    // Compose T * R * S in the correct order (matching glTF spec and buildJointLocalTransform).
+    // scale() then left-multiply by R (R * S), then translate column (T * R * S).
     VROMatrix4f localTransform;
-    localTransform.scale(scale.x, scale.y, scale.z);
-    localTransform.rotate(rot);
-    localTransform.translate(pos);
+    localTransform.scale(scale.x, scale.y, scale.z);     // S
+    localTransform = rot.getMatrix() * localTransform;    // R * S
+    localTransform.translate(pos);                        // T * R * S
     return localTransform;
 }
