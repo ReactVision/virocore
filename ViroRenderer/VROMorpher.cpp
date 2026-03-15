@@ -212,10 +212,17 @@ void VROMorpher::configureShadersGPU() {
 
             // Add mod uniform block weight
             std::weak_ptr<VROMorphTarget> morphTarget_w = target.second;
-            VROUniformBindingBlock block = [morphTarget_w](VROUniform *uniform,
+            std::string dbgName = target.first;
+            int dbgMorphIdx = morphIndex;
+            VROUniformBindingBlock block = [morphTarget_w, dbgName, dbgMorphIdx](VROUniform *uniform,
                                                            const VROGeometry *geometry, const VROMaterial *material) {
                 std::shared_ptr<VROMorphTarget> morphTarget_s = morphTarget_w.lock();
                 if (morphTarget_s) {
+                    static int dbgFrameCount = 0;
+                    if (++dbgFrameCount <= 5) {
+                        pinfo("[MORPH_BINDER] target=%s morphIdx=%d location=%d weight=%f",
+                              dbgName.c_str(), dbgMorphIdx, uniform->getLocation(), morphTarget_s->startWeight);
+                    }
                     uniform->setFloat(morphTarget_s->startWeight);
                 }
             };
@@ -539,6 +546,12 @@ void VROMorpher::setWeightForTarget(std::string key, float targetWeight, bool sh
         }
 
         if (_computeLocation == VROMorpher::ComputeLocation::GPU) {
+            // If the user has explicitly set a non-zero weight for this target,
+            // do not let the animation system override it.
+            if (_morphTargets[key]->userOverride) {
+                return;
+            }
+            pinfo("[MORPH_SET] GPU no-animate: key=%s weight=%f", key.c_str(), targetWeight);
             _morphTargets[key]->startWeight = targetWeight;
             return;
         }
@@ -563,8 +576,13 @@ void VROMorpher::setWeightForTarget(std::string key, float targetWeight, bool sh
     }
 
     if (_computeLocation == VROMorpher::ComputeLocation::GPU) {
+        // Track whether the user has a non-zero weight set, to prevent the
+        // animation system from overriding it each frame via the no-animate path.
+        target->userOverride = (targetWeight != 0.0f);
+
         // Switch the weights up, so that we always animate from the previous target weight.
         float currentWeight = target->startWeight;
+        pinfo("[MORPH_SET] GPU animate: key=%s from=%f to=%f", key.c_str(), currentWeight, targetWeight);
         target->startWeight = targetWeight;
 
         // Now animate the weight through VROTransactions

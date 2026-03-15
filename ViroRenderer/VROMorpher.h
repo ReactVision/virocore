@@ -57,6 +57,10 @@ struct VROMorphTarget {
     // False if we wish to ignore this VROMorphTarget from all geometric calculations done in VROMorpher.
     bool isActive;
 
+    // True when the user has explicitly set a non-zero weight via setMorphTargets.
+    // Prevents the GLTF animation system from overriding user-controlled expressions.
+    bool userOverride = false;
+
     // Map of each VROGeometrySemantic (Norm/Pos/Tangent) to its corresponding
     // raw VROGeometrySource vertex data.
     std::map<VROGeometrySourceSemantic, std::shared_ptr<VROGeometrySource>> geometrySources;
