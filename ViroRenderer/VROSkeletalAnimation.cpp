@@ -75,9 +75,11 @@ void VROSkeletalAnimation::execute(std::shared_ptr<VRONode> node, std::function<
         }
     }
     
-    // Reset all skeleton bones to their bind pose before starting the new animation.
-    // Bones NOT in this animation retain stale transforms from the previous animation,
-    // causing mesh disassembly on switch.
+    // Reset only the bones that are NOT driven by this animation to their bind pose.
+    // This fixes mesh disassembly when switching animations: bones that existed in the
+    // previous animation but not the new one would retain stale transforms forever.
+    // We intentionally skip bones that ARE in boneKeyTimes — resetting all bones on
+    // every execute() (including loop restarts) would cause a one-frame T-pose flash.
     // For GLTF (Legacy transform type), the bind pose is identity: the skinner formula
     // is IBM.invert() * identity * IBM = identity, so vertices stay at their bind positions.
     {
@@ -86,7 +88,9 @@ void VROSkeletalAnimation::execute(std::shared_ptr<VRONode> node, std::function<
         identity.toIdentity();
         int numBones = skeleton->getNumBones();
         for (int i = 0; i < numBones; i++) {
-            skeleton->getBone(i)->setTransform(identity, VROBoneTransformType::Legacy);
+            if (boneKeyTimes.find(i) == boneKeyTimes.end()) {
+                skeleton->getBone(i)->setTransform(identity, VROBoneTransformType::Legacy);
+            }
         }
     }
 
