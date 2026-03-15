@@ -1641,6 +1641,15 @@ bool VROGLTFLoader::processNode(const tinygltf::Model &gModel, std::shared_ptr<V
         for (const std::shared_ptr<VROMaterial> &material : geom->getMaterials()) {
             material->addShaderModifier(VROBoneUBO::createSkinningShaderModifier(false));
         }
+
+        // The bone UBO already encodes world-space vertex positions including all ancestor
+        // transforms (via nonSkinAncestors in processSkeletalTransformsForFrame). The vertex
+        // shader multiplies by model_matrix on top of the skinned result, which would
+        // double-apply any non-identity node transform (e.g. Hand.R/Hand.L scale=100).
+        // Reset the skinned mesh node to identity so model_matrix = I in the shader.
+        node->setPosition({0, 0, 0});
+        node->setScale({1, 1, 1});
+        node->setRotation(VROQuaternion());
     }
 
     // Set the animations on this node, if any.
