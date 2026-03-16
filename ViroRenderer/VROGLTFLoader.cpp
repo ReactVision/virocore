@@ -82,6 +82,12 @@ std::map<int, std::shared_ptr<VROGeometrySource>> VROGLTFLoader::_meshBoneWeight
 std::map<int, int> VROGLTFLoader::_nodeParentMap;
 std::map<int, std::set<int>> VROGLTFLoader::_skinMeshAncestors;
 
+// Bind-pose data for animated nodes — populated in processNode, used by injectBindPoseAnimations.
+std::map<int, std::shared_ptr<VRONode>> VROGLTFLoader::_nodeGLTFMap;
+std::map<int, VROVector3f>   VROGLTFLoader::_nodeBindPos;
+std::map<int, VROVector3f>   VROGLTFLoader::_nodeBindScale;
+std::map<int, VROQuaternion> VROGLTFLoader::_nodeBindRot;
+
 static int getTypeSize(GLTFType type) {
     switch (type) {
         case GLTFType::Scalar: return 1;
@@ -474,6 +480,12 @@ void VROGLTFLoader::loadGLTFFromResource(std::string gltfManifestFilePath, const
                             skeletonPair.second->setSkinnerRootNode(skin->getSkinnerNode());
                         }
 
+                        // Inject bind-pose reset animations for any (node, animationName) pair
+                        // where the node has some animations but not this one. Without this,
+                        // switching animations leaves non-driven joint nodes at their previous
+                        // animation's final pose, causing visible mesh disassembly.
+                        injectBindPoseAnimations();
+
                         // Once we have processed the model, injected it into the scene.
                         injectGLTF(success ? gltfRootNode : nullptr, rootNode, driver, onFinish);
 
@@ -503,6 +515,75 @@ void VROGLTFLoader::clearCachedData() {
     _meshBoneWeights.clear();
     _nodeParentMap.clear();
     _skinMeshAncestors.clear();
+    _nodeGLTFMap.clear();
+    _nodeBindPos.clear();
+    _nodeBindScale.clear();
+    _nodeBindRot.clear();
+}
+
+void VROGLTFLoader::injectBindPoseAnimations() {
+    // Collect all unique animation names present anywhere in the model.
+    std::set<std::string> allAnimNames;
+    for (auto &nodePair : _nodeKeyFrameAnims) {
+        for (auto &animPair : nodePair.second) {
+            for (auto &anim : animPair.second) {
+                allAnimNames.insert(anim->getName());
+            }
+        }
+    }
+    if (allAnimNames.empty()) {
+        return;
+    }
+
+    // For each node that participates in at least one animation, inject a single-frame
+    // bind-pose animation for every animation name it's missing.
+    // When animation B starts, VRONode::getAnimation("B", true) collects B animations from
+    // all descendants. Nodes that have no "B" animation contribute nothing and retain their
+    // final pose from the previous animation — causing visible mesh disassembly (e.g. the
+    // head "floating" upward). These injected animations snap those nodes to their GLTF
+    // default TRS at the start of B, matching how Three.js / Babylon.js handle clip switching.
+    for (auto &nodePair : _nodeGLTFMap) {
+        int nodeIndex = nodePair.first;
+        std::shared_ptr<VRONode> node = nodePair.second;
+
+        // Collect animation names this node already has.
+        std::set<std::string> nodeAnimNames;
+        auto it = _nodeKeyFrameAnims.find(nodeIndex);
+        if (it != _nodeKeyFrameAnims.end()) {
+            for (auto &animPair : it->second) {
+                for (auto &anim : animPair.second) {
+                    nodeAnimNames.insert(anim->getName());
+                }
+            }
+        }
+
+        VROVector3f bindPos   = _nodeBindPos[nodeIndex];
+        VROVector3f bindScale = _nodeBindScale[nodeIndex];
+        VROQuaternion bindRot = _nodeBindRot[nodeIndex];
+
+        for (const std::string &animName : allAnimNames) {
+            if (nodeAnimNames.count(animName)) {
+                continue;
+            }
+            // Single keyframe at t=0 with the node's default GLTF TRS.
+            // VROMathInterpolateKeyFrameVector3f returns outputs.front() when input < inputs.front(),
+            // and outputs.back() when input >= inputs.back(). With one keyframe at t=0, any
+            // normalized t in [0,1] satisfies t >= 0 → always returns bindPose. Duration of 0.001s
+            // makes it finish almost instantly without blocking the compound animation's length.
+            std::vector<std::unique_ptr<VROKeyframeAnimationFrame>> frames;
+            std::unique_ptr<VROKeyframeAnimationFrame> frame(new VROKeyframeAnimationFrame());
+            frame->time        = 0.0f;
+            frame->translation = bindPos;
+            frame->scale       = bindScale;
+            frame->rotation    = bindRot;
+            frames.push_back(std::move(frame));
+
+            auto bindAnim = std::make_shared<VROKeyframeAnimation>(
+                frames, 0.001f, true, true, true, false);
+            bindAnim->setName(animName);
+            node->addAnimation(animName, bindAnim);
+        }
+    }
 }
 
 bool VROGLTFLoader::processSkinner(const tinygltf::Model &model) {
@@ -1585,6 +1666,17 @@ bool VROGLTFLoader::processNode(const tinygltf::Model &gModel, std::shared_ptr<V
     node->setScale(scale);
     node->setRotation(rot);
     node->setName(gNode.name);
+
+    // Record the VRONode and its bind-pose TRS for nodes that have keyframe animations.
+    // injectBindPoseAnimations() uses this after all nodes are processed to add single-frame
+    // bind-pose reset animations for animation names a node doesn't participate in —
+    // preventing joints from retaining stale transforms when animations are switched.
+    if (_nodeKeyFrameAnims.find(gNodeIndex) != _nodeKeyFrameAnims.end()) {
+        _nodeGLTFMap[gNodeIndex] = node;
+        _nodeBindPos[gNodeIndex]   = pos;
+        _nodeBindScale[gNodeIndex] = scale;
+        _nodeBindRot[gNodeIndex]   = rot;
+    }
 
     // Process the Geometry for this node, if any.
     // Fail fast if we have failed to process the node's mesh.

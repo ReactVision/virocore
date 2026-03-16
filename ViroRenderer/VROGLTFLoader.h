@@ -37,6 +37,8 @@
 #include "VROMaterial.h"
 #include "VROModelIOUtil.h"
 #include "VROByteBuffer.h"
+#include "VROVector3f.h"
+#include "VROQuaternion.h"
 
 class VROMorpher;
 class VRONode;
@@ -214,6 +216,7 @@ private:
                                               const tinygltf::Skin &skin,
                                               std::vector<VROMatrix4f> &invBindTransformsOut);
     static void clearCachedData();
+    static void injectBindPoseAnimations();
 
     /*
      As multiple mesh attributes may point to the same texture or data arrays when loading a
@@ -266,6 +269,18 @@ private:
      */
     static std::map<int, std::map<int, std::vector<std::shared_ptr<VROKeyframeAnimation>>>> _nodeKeyFrameAnims;
     static std::map<int, std::vector<std::shared_ptr<VROSkeletalAnimation>>> _skinSkeletalAnims;
+
+    /*
+     Per-node VRONode references and bind-pose TRS, populated during processNode for any node
+     that has keyframe animations. Used by injectBindPoseAnimations() to create single-frame
+     bind-pose reset animations for animation names a node doesn't participate in.
+     Without these, switching animations leaves non-driven nodes at the previous animation's
+     final pose, causing visible mesh disassembly.
+     */
+    static std::map<int, std::shared_ptr<VRONode>> _nodeGLTFMap;
+    static std::map<int, VROVector3f>   _nodeBindPos;
+    static std::map<int, VROVector3f>   _nodeBindScale;
+    static std::map<int, VROQuaternion> _nodeBindRot;
 
     /*
      Returns the local transform of the node index retried from the gltf model.
