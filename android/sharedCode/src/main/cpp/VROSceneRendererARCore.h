@@ -96,7 +96,7 @@ public:
      */
     void onSurfaceCreated(jobject surface) {}
     void onSurfaceChanged(jobject surface, VRO_INT width, VRO_INT height);
-    void onSurfaceDestroyed() {}
+    void onSurfaceDestroyed();
 
     /*
      Set to true when ARCore is installed. Unlocks the renderer.

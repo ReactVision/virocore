@@ -252,6 +252,14 @@ public:
      */
     void initCameraTexture(std::shared_ptr<VRODriverOpenGL> driver);
 
+    /*
+     Invalidate the camera texture after an EGL context loss. Resets the texture ID to 0
+     and releases the backing VROTexture without calling any GL delete functions (the old
+     context is already gone). initCameraTexture() will allocate fresh GL objects in the
+     new context on the next renderFrame().
+     */
+    void invalidateCameraTexture();
+
     void setDisplayGeometry(VROARDisplayRotation rotation, int width, int height);
     VROARDisplayRotation getDisplayRotation() const {  return _displayRotation; }
     int getWidth() const { return _width; }

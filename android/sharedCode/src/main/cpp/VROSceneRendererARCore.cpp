@@ -398,6 +398,32 @@ void VROSceneRendererARCore::onRotateEvent(int rotateState, float rotateRadians,
     arTouchController->onRotateEvent(rotateState, rotateRadians, viewportX, viewportY);
 }
 
+void VROSceneRendererARCore::onSurfaceDestroyed() {
+    // Called when the EGL context was lost (e.g. Android killed it after 5+ min background).
+    // The old context and all its GL objects (textures, VAOs, FBOs) are gone.
+    // Reset the pieces that guard against double-initialization so that the next renderFrame()
+    // after the new context is created starts fresh:
+    //
+    //  1. _cameraBackground: nulling this causes renderFrame() to call initARSession() again,
+    //     which will allocate a fresh camera OES texture in the new context.
+    //
+    //  2. session camera texture ID: must be reset to 0 so that onResume() doesn't try to
+    //     call ArSession_resume() with the stale OES texture name (which no longer exists in
+    //     the new context), and so that initCameraTexture() allocates a new GL texture rather
+    //     than reusing the dead one.
+    //
+    // We do NOT call deleteGL() or any GL API here — the old context is already gone and the
+    // new context is now active; calling gl*Delete on old IDs would be a no-op at best and
+    // could corrupt the new context's namespace at worst.
+    pinfo("VROSceneRendererARCore: EGL context lost — resetting AR session GL state");
+    _cameraBackground.reset();
+    if (_session) {
+        _session->invalidateCameraTexture();
+    }
+    // Also clear the occlusionModifierAdded flag so it gets re-evaluated with the new background.
+    _occlusionModifierAdded = false;
+}
+
 void VROSceneRendererARCore::onPause() {
     _session->pause();
     std::shared_ptr<VROSceneRendererARCore> shared = shared_from_this();
