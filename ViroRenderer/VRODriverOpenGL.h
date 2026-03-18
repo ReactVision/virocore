@@ -205,7 +205,23 @@ public:
             }
         }
     }
-    
+
+    /*
+     Invalidate the CPU-side GL state cache without issuing any GL calls. Must be called
+     after switching EGL contexts (e.g. to/from the recording surface) so that cached texture
+     bindings and shader state from the previous context are not mistakenly treated as still
+     valid in the new context. The new context has its own independent GL state, so all cache
+     entries must be considered stale.
+     */
+    void invalidateGLStateCache() {
+        _activeTextureUnit = 0;
+        for (int i = 0; i < kMaxTextureUnits; i++) {
+            _activeTextures[i].clear();
+        }
+        _boundRenderTarget.reset();
+        _boundShader.reset();
+    }
+
     void setDepthWritingEnabled(bool enabled) {
         if (_depthWritingEnabled == enabled) {
             return;
