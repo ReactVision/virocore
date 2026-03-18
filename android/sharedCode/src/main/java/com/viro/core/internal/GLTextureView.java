@@ -1129,6 +1129,10 @@ public class GLTextureView extends TextureView implements TextureView.SurfaceTex
                             if (lostEglContext) {
                                 stopEglSurfaceLocked();
                                 stopEglContextLocked();
+                                // Drop any queued renderer tasks: they were enqueued against the
+                                // now-dead EGL context. Executing them in the new context would
+                                // reference stale GL handles (textures, VAOs, FBOs) and SIGSEGV.
+                                mEventQueue.clear();
                                 lostEglContext = false;
                             }
 

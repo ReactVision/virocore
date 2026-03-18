@@ -126,6 +126,17 @@ GLuint VROARSessionARCore::getCameraTextureId() const {
   return _cameraTextureId;
 }
 
+void VROARSessionARCore::invalidateCameraTexture() {
+  // The EGL context that owned _cameraTextureId has already been destroyed.
+  // Do NOT call glDeleteTextures — the ID is invalid in the new context and
+  // the old context is gone, so there is nothing to release on the GPU side.
+  // Simply forget the ID and the backing texture so initCameraTexture() will
+  // allocate fresh GL objects in the new context on the next renderFrame().
+  _cameraTextureId = 0;
+  _background.reset();
+  pinfo("AR camera texture invalidated after EGL context loss");
+}
+
 void VROARSessionARCore::initCameraTexture(
     std::shared_ptr<VRODriverOpenGL> driver) {
   passert_msg(_session != nullptr,
