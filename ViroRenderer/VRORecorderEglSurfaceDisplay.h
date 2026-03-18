@@ -39,6 +39,7 @@ public:
                                  std::shared_ptr<VROAVRecorderAndroid> androidRecorder) :
             VRODisplayOpenGL(0, driver) {
         _w_recorder = androidRecorder;
+        _w_driver = driver;
         _viewport = VROViewport(0, 0, driver->getDisplay()->getWidth(), driver->getDisplay()->getHeight());
     }
 
@@ -51,6 +52,14 @@ public:
         }
 
         recorder->bindToEglSurface();
+        // We just switched EGL contexts (display → recording). The C++ driver cache
+        // reflects the display context's GL state, which is entirely independent of
+        // the recording context. Invalidate the cache so subsequent GL calls are not
+        // incorrectly skipped due to false cache hits.
+        std::shared_ptr<VRODriverOpenGL> driver = _w_driver.lock();
+        if (driver) {
+            driver->invalidateGLStateCache();
+        }
         glViewport(_viewport.getX(), _viewport.getY(), _viewport.getWidth(), _viewport.getHeight());
         glScissor(_viewport.getX(), _viewport.getY(), _viewport.getWidth(), _viewport.getHeight());
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
@@ -64,10 +73,18 @@ public:
 
         recorder->eglSwap();
         recorder->unbindFromEGLSurface();
+        // We just switched EGL contexts (recording → display). Invalidate the driver
+        // cache so the display context's GL state is re-established correctly on the
+        // next draw call rather than inheriting stale entries from the recording context.
+        std::shared_ptr<VRODriverOpenGL> driver = _w_driver.lock();
+        if (driver) {
+            driver->invalidateGLStateCache();
+        }
     }
 
 private:
     std::weak_ptr<VROAVRecorderAndroid> _w_recorder;
+    std::weak_ptr<VRODriverOpenGL> _w_driver;
 };
 
 #endif /* VRO_RECORDER_EGL_DISPLAY_h */
