@@ -390,7 +390,7 @@ add_library( lib-freetype
              IMPORTED )
 set_target_properties( lib-freetype
                        PROPERTIES IMPORTED_LOCATION
-                       ${VIRO_ANDROID_LIBS}/${ANDROID_ABI}/libfreetyped.so )
+                       ${VIRO_ANDROID_LIBS}/${ANDROID_ABI}/libfreetype.so )
 
 add_library( lib-protobuf
              STATIC
