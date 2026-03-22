@@ -1187,6 +1187,19 @@ public class Material {
     }
 
     /**
+     * Configure semantic mask on this material. When enabled, fragments are shown or hidden
+     * based on the ARCore scene semantic label at each pixel. Requires scene semantics to be
+     * enabled on the AR session.
+     *
+     * @param enabled   True to enable semantic masking.
+     * @param mode      0 = ShowOnly (render only where label matches), 1 = Hide (hide where label matches).
+     * @param labelMask Bitmask of semantic label values; bit N = label N is selected.
+     */
+    public void setSemanticMaskEnabled(boolean enabled, int mode, int labelMask) {
+        nativeSetSemanticMask(mNativeRef, enabled, mode, labelMask);
+    }
+
+    /**
      * Get the bloom threshold, the brightness at which this Material will begin to bloom. See
      * {@link #setBloomThreshold(float)} for more details.
      *
@@ -1444,6 +1457,7 @@ public class Material {
     private native void nativeSetDiffuseIntensity(long nativeRef, float diffuseIntensity);
     private native void nativeDestroyMaterial(long nativeRef);
     private native void nativeSetBloomThreshold(long nativeRef, float bloomThreshold);
+    private native void nativeSetSemanticMask(long nativeRef, boolean enabled, int mode, int labelMask);
     private native void nativeSetShadowMode(long nativeRef, String shadowMode);
     private native void nativeSetName(long nativeRef, String name);
     private native void nativeSetChromaKeyFilteringEnabled(long nativeRef, boolean enabled);

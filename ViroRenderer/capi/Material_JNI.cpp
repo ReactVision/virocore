@@ -461,6 +461,22 @@ VRO_METHOD(void, nativeDestroyMaterial)(VRO_ARGS
     VRO_REF_DELETE(VROMaterial, nativeRef);
 }
 
+VRO_METHOD(void, nativeSetSemanticMask)(VRO_ARGS
+                                        VRO_REF(VROMaterial) material_j,
+                                        VRO_BOOL enabled,
+                                        VRO_INT mode,
+                                        VRO_INT labelMask) {
+    std::weak_ptr<VROMaterial> material_w = VRO_REF_GET(VROMaterial, material_j);
+    VROPlatformDispatchAsyncRenderer([material_w, enabled, mode, labelMask] {
+        std::shared_ptr<VROMaterial> material = material_w.lock();
+        if (material) {
+            material->setSemanticMaskMode(static_cast<VROSemanticMaskMode>(mode));
+            material->setSemanticLabelMask(static_cast<uint16_t>(labelMask));
+            material->setSemanticMaskEnabled(enabled);
+        }
+    });
+}
+
 VRO_METHOD(void, nativeSetShadowMode(VRO_ARGS
                                      VRO_REF(VROMaterial) material_j, VRO_STRING shadow_j)) {
     VRO_METHOD_PREAMBLE;

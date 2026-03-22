@@ -336,6 +336,12 @@ void VRORenderer::setCameraBackgroundTexture(std::shared_ptr<VROTexture> texture
     }
 }
 
+void VRORenderer::setSemanticTexture(std::shared_ptr<VROTexture> texture) {
+    if (_context) {
+        _context->setSemanticTexture(texture);
+    }
+}
+
 void VRORenderer::setCameraImageTransform(VROMatrix4f transform) {
     if (_context) {
         _context->setCameraImageTransform(transform);

@@ -437,8 +437,15 @@ private:
     std::vector<float> _depthFloatBuffer; // Reusable buffer for depth conversion
     void updateDepthTexture();
 
+    /*
+     Semantic texture management (R8, per-pixel label 0-11).
+     */
+    std::shared_ptr<VROTexture> _semanticTexture;
+    void updateSemanticTexture();
+
 public:
     std::shared_ptr<VROTexture> getDepthTexture() { return _depthTexture; }
+    std::shared_ptr<VROTexture> getSemanticTexture() { return _semanticTexture; }
 
 };
 
