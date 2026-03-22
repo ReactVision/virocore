@@ -33,6 +33,7 @@
 #include "VROSortKey.h"
 #include "VROThreadRestricted.h"
 #include "VROLog.h"
+#include "VROShaderModifier.h"
 #include <atomic>
 #include <algorithm>
 
@@ -379,4 +380,71 @@ void VROMaterial::setChromaKeyFilteringColor(VROVector3f color) {
 
 void VROMaterial::setNeedsToneMapping(bool needsToneMapping) {
     _needsToneMapping = needsToneMapping;
+}
+
+// ============================================================
+// Semantic Masking
+// ============================================================
+
+void VROMaterial::setSemanticMaskEnabled(bool enabled) {
+    if (_semanticMaskEnabled == enabled) {
+        return;
+    }
+    _semanticMaskEnabled = enabled;
+    applySemanticMaskModifier();
+}
+
+void VROMaterial::setSemanticMaskMode(VROSemanticMaskMode mode) {
+    _semanticMaskMode = mode;
+    // Update the uniform — no substrate rebuild needed.
+    setShaderUniform("semantic_mask_mode", (float)static_cast<int>(mode));
+}
+
+void VROMaterial::setSemanticLabelMask(uint16_t mask) {
+    _semanticLabelMask = mask;
+    setShaderUniform("semantic_label_mask", (float)mask);
+}
+
+void VROMaterial::applySemanticMaskModifier() {
+    // Remove old modifier if present.
+    if (_semanticMaskModifier) {
+        removeShaderModifier(_semanticMaskModifier);
+        _semanticMaskModifier = nullptr;
+    }
+
+    if (!_semanticMaskEnabled) {
+        return;
+    }
+
+    // Fragment shader modifier lines. The VROShaderModifier constructor splits these:
+    // - lines starting with "uniform " → uniforms section
+    // - other lines → body section
+    //
+    // semantic_texture   : R8 texture; each texel = VROSemanticLabel value (0-11).
+    // semantic_mask_mode : 0 = ShowOnly (discard if label NOT in mask)
+    //                      1 = Hide    (discard if label IS in mask)
+    // semantic_label_mask: bitmask float; bit N = label N is selected.
+    // ar_viewport_size   : always-available built-in (vec3, xy = width/height in pixels).
+    std::vector<std::string> lines = {
+        "uniform sampler2D semantic_texture",
+        "uniform highp float semantic_mask_mode",
+        "uniform highp float semantic_label_mask",
+        "highp vec2 semUV = gl_FragCoord.xy / ar_viewport_size.xy",
+        "semUV.y = 1.0 - semUV.y",
+        "highp float label_raw = texture(semantic_texture, semUV).r * 255.0",
+        "int semLabel = int(floor(label_raw + 0.5))",
+        "bool semMatches = (semLabel >= 1 && semLabel <= 11 && (int(semantic_label_mask) & (1 << semLabel)) != 0)",
+        "bool semDiscard = (semantic_mask_mode < 0.5) ? !semMatches : semMatches",
+        "if (semDiscard) { discard; }"
+    };
+
+    _semanticMaskModifier = std::make_shared<VROShaderModifier>(
+        VROShaderEntryPoint::Fragment, lines);
+    _semanticMaskModifier->setName("semantic_mask");
+
+    addShaderModifier(_semanticMaskModifier);
+
+    // Push current values as shader uniforms so the modifier uniform binder picks them up.
+    setShaderUniform("semantic_mask_mode",  (float)static_cast<int>(_semanticMaskMode));
+    setShaderUniform("semantic_label_mask", (float)_semanticLabelMask);
 }

@@ -856,6 +856,9 @@ std::unique_ptr<VROARFrame> &VROARSessionARCore::updateFrame() {
   arFrame->setDriver(_driver.lock());
   processUpdatedAnchors(arFrame);
   updateDepthTexture();
+  if (isSemanticModeEnabled()) {
+      updateSemanticTexture();
+  }
 
   return _currentFrame;
 }
@@ -2598,4 +2601,76 @@ void VROARSessionARCore::updateDepthTexture() {
     }
 
     delete depthImage;
+}
+
+void VROARSessionARCore::updateSemanticTexture() {
+    if (!_frame) {
+        return;
+    }
+
+    // Acquire semantic image from ARCore
+    arcore::Image *semanticImage = nullptr;
+    arcore::ImageRetrievalStatus status = _frame->acquireSemanticImage(&semanticImage);
+
+    if (status != arcore::ImageRetrievalStatus::Success || semanticImage == nullptr) {
+        // Not yet available (normal for first few frames) — keep previous texture.
+        return;
+    }
+
+    int width  = semanticImage->getWidth();
+    int height = semanticImage->getHeight();
+
+    if (width <= 0 || height <= 0) {
+        delete semanticImage;
+        return;
+    }
+
+    const uint8_t *data = nullptr;
+    int dataLength = 0;
+    semanticImage->getPlaneData(0, &data, &dataLength);
+
+    if (!data || dataLength <= 0) {
+        delete semanticImage;
+        return;
+    }
+
+    // Create or resize the R8 GPU texture.
+    if (!_semanticTexture ||
+        _semanticTexture->getWidth()  != width ||
+        _semanticTexture->getHeight() != height) {
+
+        std::shared_ptr<VROData> vData = std::make_shared<VROData>(
+            (void *)data, dataLength, VRODataOwnership::Copy);
+        std::vector<std::shared_ptr<VROData>> dataVec = { vData };
+
+        _semanticTexture = std::make_shared<VROTexture>(
+            VROTextureType::Texture2D,
+            VROTextureFormat::R8,
+            VROTextureInternalFormat::R8,
+            false,
+            VROMipmapMode::None,
+            dataVec,
+            width, height,
+            std::vector<uint32_t>());
+
+        _semanticTexture->setMinificationFilter(VROFilterMode::Nearest);
+        _semanticTexture->setMagnificationFilter(VROFilterMode::Nearest);
+        _semanticTexture->setWrapS(VROWrapMode::Clamp);
+        _semanticTexture->setWrapT(VROWrapMode::Clamp);
+    } else {
+        // Update existing texture in-place via glTexSubImage2D.
+        std::shared_ptr<VRODriver> driver = _driver.lock();
+        if (driver) {
+            VROTextureSubstrate *substrate = _semanticTexture->getSubstrate(0, driver, true);
+            if (substrate) {
+                VROTextureSubstrateOpenGL *glSubstrate = (VROTextureSubstrateOpenGL *)substrate;
+                std::pair<GLenum, GLuint> texInfo = glSubstrate->getTexture();
+                glBindTexture(texInfo.first, texInfo.second);
+                glTexSubImage2D(texInfo.first, 0, 0, 0, width, height, GL_RED, GL_UNSIGNED_BYTE, data);
+                glBindTexture(texInfo.first, 0);
+            }
+        }
+    }
+
+    delete semanticImage;
 }

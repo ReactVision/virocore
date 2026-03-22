@@ -281,6 +281,9 @@ void VROSceneRendererARCore::renderWithTracking(const std::shared_ptr<VROARCamer
     _renderer->setCameraBackgroundTexture(_session->getCameraBackgroundTexture());
     _renderer->setCameraImageTransform(frame->getViewportToCameraImageTransform());
 
+    // Expose semantic segmentation texture to shader modifiers via 'semantic_texture' sampler
+    _renderer->setSemanticTexture(_session->getSemanticTexture());
+
     _renderer->renderEye(VROEyeType::Monocular, _renderer->getLookAtMatrix(), projection, viewport, _driver);
     _renderer->renderHUD(VROEyeType::Monocular, VROMatrix4f::identity(), projection, _driver);
     _renderer->endFrame(_driver);

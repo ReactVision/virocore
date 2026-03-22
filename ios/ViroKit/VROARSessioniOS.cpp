@@ -44,6 +44,7 @@
 #include "VROPortal.h"
 #include "VROProjector.h"
 #include "VROScene.h"
+#include "VROData.h"
 #include "VROTexture.h"
 #include "VROTextureSubstrate.h"
 #include "VROVideoTextureCacheOpenGL.h"
@@ -2507,6 +2508,39 @@ float VROARSessioniOS::getSemanticLabelFraction(VROSemanticLabel label) const {
     return [_cloudAnchorProviderARCore getSemanticLabelFraction:(NSInteger)label];
   }
   return 0.0f;
+}
+
+std::shared_ptr<VROTexture> VROARSessioniOS::getSemanticTexture() {
+  if (!_semanticModeEnabled || _cloudAnchorProviderARCore == nil) {
+    return nullptr;
+  }
+
+  CVPixelBufferRef semanticBuf = [_cloudAnchorProviderARCore getSemanticImage];
+  if (semanticBuf == nil) {
+    return nullptr;
+  }
+
+  size_t width  = CVPixelBufferGetWidth(semanticBuf);
+  size_t height = CVPixelBufferGetHeight(semanticBuf);
+
+  CVPixelBufferLockBaseAddress(semanticBuf, kCVPixelBufferLock_ReadOnly);
+  void *baseAddress = CVPixelBufferGetBaseAddress(semanticBuf);
+  std::shared_ptr<VROTexture> texture;
+  if (baseAddress != nullptr) {
+    size_t dataSize = width * height; // R8: 1 byte per pixel
+    std::shared_ptr<VROData> data = std::make_shared<VROData>(baseAddress, dataSize, VRODataOwnership::Copy);
+    std::vector<std::shared_ptr<VROData>> dataVec = { data };
+    texture = std::make_shared<VROTexture>(VROTextureType::Texture2D,
+                                           VROTextureFormat::R8,
+                                           VROTextureInternalFormat::R8,
+                                           false, // not sRGB
+                                           VROMipmapMode::None,
+                                           dataVec,
+                                           (int)width, (int)height,
+                                           std::vector<uint32_t>());
+  }
+  CVPixelBufferUnlockBaseAddress(semanticBuf, kCVPixelBufferLock_ReadOnly);
+  return texture;
 }
 
 #pragma mark - VROARKitSessionDelegate

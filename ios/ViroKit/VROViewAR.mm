@@ -831,6 +831,10 @@ static inline VROMatrix4f viroGLConvTransform(VROMatrix4f t) {
     _renderer->setCameraBackgroundTexture(_arSession->getCameraBackgroundTexture());
     _renderer->setCameraImageTransform(viroGLConvTransform(frame->getViewportToCameraImageTransform()));
 
+    // Semantic texture: provided by ARCore SDK on iOS (ARCore/Semantics pod required).
+    // Returns nullptr if semantic mode is not enabled or device/pod is unavailable.
+    _renderer->setSemanticTexture(_arSession->getSemanticTexture());
+
     _pointOfView->getCamera()->setPosition(position);
     _renderer->prepareFrame(_frame, viewport, fov, rotation, projection, _driver);
 

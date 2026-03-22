@@ -39,7 +39,8 @@ enum VROGlobalTextureType {
     BrdfMap,
     ARDepthMap,
     SceneDepth,      // Scene depth buffer from the previous frame (sampled as raw depth)
-    CameraBackground // Live AR camera feed (GL_TEXTURE_EXTERNAL_OES on Android, GL_TEXTURE_2D on iOS)
+    CameraBackground,// Live AR camera feed (GL_TEXTURE_EXTERNAL_OES on Android, GL_TEXTURE_2D on iOS)
+    SemanticMap      // Per-pixel semantic label texture (R8, values 0-11 = VROSemanticLabel)
 };
 
 /*
