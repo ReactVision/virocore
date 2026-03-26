@@ -2511,36 +2511,45 @@ float VROARSessioniOS::getSemanticLabelFraction(VROSemanticLabel label) const {
 }
 
 std::shared_ptr<VROTexture> VROARSessioniOS::getSemanticTexture() {
-  if (!_semanticModeEnabled || _cloudAnchorProviderARCore == nil) {
+  static int diagCounter = 0;
+  bool log = (++diagCounter % 60 == 0); // log once per ~second
+
+  if (!_semanticModeEnabled) {
+    if (log) pinfo("[Semantics] getSemanticTexture: _semanticModeEnabled=false");
+    return nullptr;
+  }
+  if (_cloudAnchorProviderARCore == nil) {
+    if (log) pinfo("[Semantics] getSemanticTexture: _cloudAnchorProviderARCore=nil");
     return nullptr;
   }
 
   CVPixelBufferRef semanticBuf = [_cloudAnchorProviderARCore getSemanticImage];
   if (semanticBuf == nil) {
+    if (log) pinfo("[Semantics] getSemanticTexture: semanticImage=nil (ARCore not producing yet)");
+    return nullptr;
+  }
+  if (log) pinfo("[Semantics] getSemanticTexture: got buf %zux%zu", CVPixelBufferGetWidth(semanticBuf), CVPixelBufferGetHeight(semanticBuf));
+
+  if (!_videoTextureCache) {
+    if (log) pwarn("[Semantics] getSemanticTexture: no video texture cache");
     return nullptr;
   }
 
-  size_t width  = CVPixelBufferGetWidth(semanticBuf);
-  size_t height = CVPixelBufferGetHeight(semanticBuf);
-
-  CVPixelBufferLockBaseAddress(semanticBuf, kCVPixelBufferLock_ReadOnly);
-  void *baseAddress = CVPixelBufferGetBaseAddress(semanticBuf);
-  std::shared_ptr<VROTexture> texture;
-  if (baseAddress != nullptr) {
-    size_t dataSize = width * height; // R8: 1 byte per pixel
-    std::shared_ptr<VROData> data = std::make_shared<VROData>(baseAddress, dataSize, VRODataOwnership::Copy);
-    std::vector<std::shared_ptr<VROData>> dataVec = { data };
-    texture = std::make_shared<VROTexture>(VROTextureType::Texture2D,
-                                           VROTextureFormat::R8,
-                                           VROTextureInternalFormat::R8,
-                                           false, // not sRGB
-                                           VROMipmapMode::None,
-                                           dataVec,
-                                           (int)width, (int)height,
-                                           std::vector<uint32_t>());
+  // Use CVOpenGLESTextureCacheCreateTextureFromImage (via _videoTextureCache) to create
+  // an immediately-valid GL texture from the CVPixelBuffer. The CPU-data+VROData approach
+  // fails because getSubstrate(false) returns null for un-hydrated textures, causing the
+  // geometry binder to fall back to a blank texture (all zeros → all blue in debug mode).
+  std::unique_ptr<VROTextureSubstrate> substrate =
+      // GL_R8=0x8229, GL_RED=0x1903, GL_UNSIGNED_BYTE=0x1401 (GLES3 single-channel R8 for kCVPixelFormatType_OneComponent8)
+      _videoTextureCache->createTextureSubstrate(semanticBuf, 0x8229, 0x1903, 0x1401, 0);
+  if (!substrate) {
+    if (log) pwarn("[Semantics] getSemanticTexture: failed to create substrate from CVPixelBuffer");
+    return nullptr;
   }
-  CVPixelBufferUnlockBaseAddress(semanticBuf, kCVPixelBufferLock_ReadOnly);
-  return texture;
+
+  return std::make_shared<VROTexture>(VROTextureType::Texture2D,
+                                      VROTextureInternalFormat::R8,
+                                      std::move(substrate));
 }
 
 #pragma mark - VROARKitSessionDelegate

@@ -43,18 +43,17 @@ public:
     
     std::unique_ptr<VROTextureSubstrate> createTextureSubstrate(CMSampleBufferRef sampleBuffer, bool sRGB);
     std::unique_ptr<VROTextureSubstrate> createTextureSubstrate(CVPixelBufferRef pixelBuffer, bool sRGB);
-    std::vector<std::unique_ptr<VROTextureSubstrate>> createYCbCrTextureSubstrates(CVPixelBufferRef pixelBuffer);
-    
-private:
-    
-    CVOpenGLESTextureCacheRef _cache;
-    CVOpenGLESTextureRef _textureRef[kVideoTextureCacheOpenGLNumTextures];
-    
-    int _currentTextureIndex;
-    std::shared_ptr<VRODriverOpenGL> _driver;
-    
     std::unique_ptr<VROTextureSubstrate> createTextureSubstrate(CVPixelBufferRef pixelBuffer,
                                                                 int internalFormat, GLenum format, GLenum type, int planeIndex);
+    std::vector<std::unique_ptr<VROTextureSubstrate>> createYCbCrTextureSubstrates(CVPixelBufferRef pixelBuffer);
+
+private:
+
+    CVOpenGLESTextureCacheRef _cache;
+    CVOpenGLESTextureRef _textureRef[kVideoTextureCacheOpenGLNumTextures];
+
+    int _currentTextureIndex;
+    std::shared_ptr<VRODriverOpenGL> _driver;
     
 };
 
