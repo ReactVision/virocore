@@ -396,13 +396,10 @@ void VROMaterial::setSemanticMaskEnabled(bool enabled) {
 
 void VROMaterial::setSemanticMaskMode(VROSemanticMaskMode mode) {
     _semanticMaskMode = mode;
-    // Update the uniform — no substrate rebuild needed.
-    setShaderUniform("semantic_mask_mode", (float)static_cast<int>(mode));
 }
 
 void VROMaterial::setSemanticLabelMask(uint16_t mask) {
     _semanticLabelMask = mask;
-    setShaderUniform("semantic_label_mask", (float)mask);
 }
 
 void VROMaterial::applySemanticMaskModifier() {
@@ -426,25 +423,46 @@ void VROMaterial::applySemanticMaskModifier() {
     // semantic_label_mask: bitmask float; bit N = label N is selected.
     // ar_viewport_size   : always-available built-in (vec3, xy = width/height in pixels).
     std::vector<std::string> lines = {
-        "uniform sampler2D semantic_texture",
-        "uniform highp float semantic_mask_mode",
-        "uniform highp float semantic_label_mask",
-        "highp vec2 semUV = gl_FragCoord.xy / ar_viewport_size.xy",
-        "semUV.y = 1.0 - semUV.y",
-        "highp float label_raw = texture(semantic_texture, semUV).r * 255.0",
-        "int semLabel = int(floor(label_raw + 0.5))",
-        "bool semMatches = (semLabel >= 1 && semLabel <= 11 && (int(semantic_label_mask) & (1 << semLabel)) != 0)",
-        "bool semDiscard = (semantic_mask_mode < 0.5) ? !semMatches : semMatches",
-        "if (semDiscard) { discard; }"
+        // parseCustomUniforms sees "uniform sampler2D" and places semantic_texture in
+        // _modifierSamplers; loadTextures() second loop binds it to VROGlobalTextureType::SemanticMap.
+        "uniform sampler2D semantic_texture;",
+        // ar_viewport_size is a base program uniform (VROShaderProgram::addUniform) already
+        // bound each frame by VROMaterialShaderBinding._arViewportSizeUniform — just declare it.
+        "uniform highp vec3 ar_viewport_size;",
+        "uniform highp float semantic_mask_mode;",
+        "uniform highp float semantic_label_mask;",
+        "highp vec2 semUV = gl_FragCoord.xy / ar_viewport_size.xy;",
+        "semUV.y = 1.0 - semUV.y;",
+        "highp float label_raw = texture(semantic_texture, semUV).r * 255.0;",
+        "int semLabel = int(floor(label_raw + 0.5));",
+        "bool semMatches = (semLabel >= 1 && semLabel <= 11 && (int(semantic_label_mask) & (1 << semLabel)) != 0);",
+        // Debug mode (semantic_mask_mode == 2): color by label instead of discarding.
+        // Blue = unlabeled (texture null/zero), teal→orange gradient = classified pixels.
+        "if (semantic_mask_mode >= 1.5) {",
+        "    highp float t = label_raw / 11.0;",
+        "    _output_color = vec4(t, float(semLabel > 0) * 0.8, 1.0 - t, 1.0);",
+        "} else {",
+        "    bool semDiscard = (semantic_mask_mode < 0.5) ? !semMatches : semMatches;",
+        "    if (semDiscard) { discard; }",
+        "}"
     };
 
     _semanticMaskModifier = std::make_shared<VROShaderModifier>(
         VROShaderEntryPoint::Fragment, lines);
     _semanticMaskModifier->setName("semantic_mask");
 
-    addShaderModifier(_semanticMaskModifier);
+    // Capture current values by value — if mode/mask change, applySemanticMaskModifier()
+    // is called again, creating a new modifier with updated captures.
+    float modeVal = (float)static_cast<int>(_semanticMaskMode);
+    float maskVal = (float)_semanticLabelMask;
+    _semanticMaskModifier->setUniformBinder("semantic_mask_mode", VROShaderProperty::Float,
+        [modeVal](VROUniform *uniform, const VROGeometry *, const VROMaterial *) {
+            uniform->setFloat(modeVal);
+        });
+    _semanticMaskModifier->setUniformBinder("semantic_label_mask", VROShaderProperty::Float,
+        [maskVal](VROUniform *uniform, const VROGeometry *, const VROMaterial *) {
+            uniform->setFloat(maskVal);
+        });
 
-    // Push current values as shader uniforms so the modifier uniform binder picks them up.
-    setShaderUniform("semantic_mask_mode",  (float)static_cast<int>(_semanticMaskMode));
-    setShaderUniform("semantic_label_mask", (float)_semanticLabelMask);
+    addShaderModifier(_semanticMaskModifier);
 }
