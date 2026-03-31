@@ -132,6 +132,9 @@ private:
     VROUniform *_occlusionZNearUniform;
     VROUniform *_occlusionZFarUniform;
 
+    // AR semantic uniform (independent of depth occlusion)
+    VROUniform *_arSemanticTextureTransformUniform;
+
     // Camera texture transform uniform
     VROUniform *_cameraImageTransformUniform;
     

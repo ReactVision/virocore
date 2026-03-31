@@ -98,6 +98,9 @@ void VROMaterialShaderBinding::loadUniforms() {
     _occlusionZNearUniform = program->getUniform("occlusion_z_near");
     _occlusionZFarUniform = program->getUniform("occlusion_z_far");
 
+    // AR semantic uniform
+    _arSemanticTextureTransformUniform = program->getUniform("ar_semantic_texture_transform");
+
     // Camera texture transform (may be null if no modifier uses camera_texture)
     _cameraImageTransformUniform = program->getUniform("camera_image_transform");
     
@@ -165,6 +168,9 @@ void VROMaterialShaderBinding::loadTextures() {
             // For 3D object occlusion, always use the global AR depth texture.
             // This avoids conflict with AO maps on the material.
             _textures.emplace_back(VROGlobalTextureType::ARDepthMap);
+        }
+        else if (sampler == "semantic_texture") {
+            _textures.emplace_back(VROGlobalTextureType::SemanticMap);
         }
         else if (sampler == "emissive_texture") {
             _textures.emplace_back(_material.getEmission().getTexture());
@@ -358,7 +364,19 @@ void VROMaterialShaderBinding::bindGeometryUniforms(float opacity, const VROGeom
 }
 
 void VROMaterialShaderBinding::bindOcclusionUniforms(const VRORenderContext &context) {
-    // Only bind if occlusion is enabled
+    // Semantic texture transform is independent of depth occlusion — bind unconditionally.
+    if (_arSemanticTextureTransformUniform != nullptr) {
+        _arSemanticTextureTransformUniform->setMat4(context.getSemanticTextureTransform());
+    }
+
+    // ar_viewport_size is needed by the semantic mask modifier even without depth occlusion.
+    // If occlusion IS enabled it will be set again below — that's fine, it's the same value.
+    if (_arViewportSizeUniform != nullptr) {
+        VROViewport viewport = context.getViewport();
+        _arViewportSizeUniform->setVec3({(float)viewport.getWidth(), (float)viewport.getHeight(), 0.0f});
+    }
+
+    // Only bind depth-occlusion-specific uniforms if occlusion is enabled
     if (!context.isOcclusionEnabled()) {
         return;
     }

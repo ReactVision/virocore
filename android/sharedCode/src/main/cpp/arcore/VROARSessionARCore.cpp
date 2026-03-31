@@ -2193,6 +2193,35 @@ void VROARSessionARCore::rvListGeospatialAnchors(
 // ── Cloud anchor management ───────────────────────────────────────────────────
 
 #if RVCCA_AVAILABLE
+static std::string rvSceneAssetToJsonARC(const ReactVisionCCA::SceneAPIAsset& a) {
+    char buf[256];
+    std::string j = "{";
+    j += "\"id\":\"" + rvEscJsonARC(a.id) + "\",";
+    j += "\"name\":\"" + rvEscJsonARC(a.name) + "\",";
+    j += "\"description\":\"" + rvEscJsonARC(a.description) + "\",";
+    j += "\"fileUrl\":\"" + rvEscJsonARC(a.fileUrl) + "\",";
+    j += "\"fileSize\":" + std::to_string(a.fileSize) + ",";
+    j += "\"assetTypeName\":\"" + rvEscJsonARC(a.assetTypeName) + "\",";
+    snprintf(buf, sizeof(buf), "%.6f", a.positionX); j += "\"positionX\":"; j += buf; j += ",";
+    snprintf(buf, sizeof(buf), "%.6f", a.positionY); j += "\"positionY\":"; j += buf; j += ",";
+    snprintf(buf, sizeof(buf), "%.6f", a.positionZ); j += "\"positionZ\":"; j += buf; j += ",";
+    snprintf(buf, sizeof(buf), "%.6f", a.rotationX); j += "\"rotationX\":"; j += buf; j += ",";
+    snprintf(buf, sizeof(buf), "%.6f", a.rotationY); j += "\"rotationY\":"; j += buf; j += ",";
+    snprintf(buf, sizeof(buf), "%.6f", a.rotationZ); j += "\"rotationZ\":"; j += buf; j += ",";
+    snprintf(buf, sizeof(buf), "%.6f", a.scale);     j += "\"scale\":";     j += buf; j += ",";
+    snprintf(buf, sizeof(buf), "%.10f", a.latitude);  j += "\"latitude\":";  j += buf; j += ",";
+    snprintf(buf, sizeof(buf), "%.10f", a.longitude); j += "\"longitude\":"; j += buf; j += ",";
+    j += std::string("\"isDraggable\":") + (a.isDraggable ? "true" : "false") + ",";
+    j += "\"triggerImageUrl\":\"" + rvEscJsonARC(a.triggerImageUrl) + "\",";
+    j += "\"triggerImageOrientation\":\"" + rvEscJsonARC(a.triggerImageOrientation) + "\",";
+    snprintf(buf, sizeof(buf), "%.6f", a.triggerImagePhysicalWidthM);
+    j += "\"triggerImagePhysicalWidthM\":"; j += buf; j += ",";
+    j += "\"createdAt\":\"" + rvEscJsonARC(a.createdAt) + "\",";
+    j += "\"updatedAt\":\"" + rvEscJsonARC(a.updatedAt) + "\"";
+    j += "}";
+    return j;
+}
+
 static std::string rvCloudAssetToJsonARC(const ReactVisionCCA::CloudAnchorAsset& a) {
     char buf[256];
     std::string j = "{";
@@ -2447,6 +2476,36 @@ void VROARSessionARCore::rvTrackCloudAnchorResolution(
     if (callback) callback(false, "ReactVision cloud anchor provider not available");
 }
 
+void VROARSessionARCore::rvGetSceneAssets(
+    const std::string& sceneId,
+    std::function<void(bool, std::string, std::string)> callback) {
+#if RVCCA_AVAILABLE
+    if (_cloudAnchorProviderRV) {
+        auto p = _cloudAnchorProviderRV->getProvider();
+        if (p) {
+            p->getSceneAssets(sceneId,
+                [callback](ReactVisionCCA::ApiResult<std::vector<ReactVisionCCA::SceneAPIAsset>> r) {
+                if (callback) {
+                    if (r.success) {
+                        std::string json = "[";
+                        for (size_t i = 0; i < r.data.size(); ++i) {
+                            if (i > 0) json += ",";
+                            json += rvSceneAssetToJsonARC(r.data[i]);
+                        }
+                        json += "]";
+                        callback(true, json, "");
+                    } else {
+                        callback(false, "", r.error.message);
+                    }
+                }
+            });
+            return;
+        }
+    }
+#endif
+    if (callback) callback(false, "", "ReactVision cloud anchor provider not available");
+}
+
 #pragma mark - Scene Semantics API
 
 bool VROARSessionARCore::isSemanticModeSupported() const {
@@ -2632,6 +2691,31 @@ void VROARSessionARCore::updateSemanticTexture() {
     if (!data || dataLength <= 0) {
         delete semanticImage;
         return;
+    }
+
+    // Apply confidence threshold: mask low-confidence pixels to label 0 (unlabeled).
+    // This reduces boundary noise/blinking. Only active when threshold > 0.
+    std::vector<uint8_t> maskedData;
+    if (_semanticConfidenceThreshold > 0.0f) {
+        arcore::Image *confImage = nullptr;
+        arcore::ImageRetrievalStatus confStatus = _frame->acquireSemanticConfidenceImage(&confImage);
+        if (confStatus == arcore::ImageRetrievalStatus::Success && confImage != nullptr &&
+            confImage->getWidth() == width && confImage->getHeight() == height) {
+            const uint8_t *confData = nullptr;
+            int confLength = 0;
+            confImage->getPlaneData(0, &confData, &confLength);
+            if (confData && confLength == dataLength) {
+                uint8_t threshold = (uint8_t)(_semanticConfidenceThreshold * 255.0f);
+                maskedData.assign(data, data + dataLength);
+                for (int i = 0; i < dataLength; i++) {
+                    if (confData[i] < threshold) {
+                        maskedData[i] = 0; // unlabeled
+                    }
+                }
+                data = maskedData.data();
+            }
+        }
+        if (confImage) { delete confImage; }
     }
 
     // Create or resize the R8 GPU texture.

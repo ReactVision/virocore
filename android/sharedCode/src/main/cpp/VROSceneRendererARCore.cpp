@@ -52,6 +52,10 @@
 #include "VROInputControllerCardboard.h"
 #include "VROAllocationTracker.h"
 #include "VROInputControllerARAndroid.h"
+#include "VROShaderModifier.h"
+#include "VROShaderFactory.h"
+#include "VROMaterial.h"
+#include "VROUniform.h"
 
 static VROVector3f const kZeroVector = VROVector3f();
 
@@ -283,6 +287,14 @@ void VROSceneRendererARCore::renderWithTracking(const std::shared_ptr<VROARCamer
 
     // Expose semantic segmentation texture to shader modifiers via 'semantic_texture' sampler
     _renderer->setSemanticTexture(_session->getSemanticTexture());
+    // Semantic texture is in camera image space (GL convention, y=0 bottom) — same transform
+    // as camera background. No additional flip needed on Android.
+    _semanticTextureTransform = frame->getViewportToCameraImageTransform();
+    _renderer->setSemanticTextureTransform(_semanticTextureTransform);
+    _lastViewport = viewport;
+
+    // Update semantic debug overlay on camera background (add/remove modifier as needed).
+    updateBackgroundSemanticsDebug();
 
     _renderer->renderEye(VROEyeType::Monocular, _renderer->getLookAtMatrix(), projection, viewport, _driver);
     _renderer->renderHUD(VROEyeType::Monocular, VROMatrix4f::identity(), projection, _driver);
@@ -293,6 +305,53 @@ void VROSceneRendererARCore::renderWithTracking(const std::shared_ptr<VROARCamer
      */
     std::shared_ptr<VROARScene> scene = std::dynamic_pointer_cast<VROARScene>(_session->getScene());
     scene->updateAmbientLight(frame->getAmbientLightIntensity(), frame->getAmbientLightColor());
+}
+
+void VROSceneRendererARCore::setSemanticDebugEnabled(bool enabled) {
+    _semanticDebugEnabled = enabled;
+    // Modifier is added/removed on the next frame in updateBackgroundSemanticsDebug.
+}
+
+void VROSceneRendererARCore::setSemanticConfidenceThreshold(float threshold) {
+    _session->setSemanticConfidenceThreshold(threshold);
+}
+
+void VROSceneRendererARCore::updateBackgroundSemanticsDebug() {
+    if (!_cameraBackground) { return; }
+    std::shared_ptr<VROMaterial> material = _cameraBackground->getMaterials()[0];
+
+    if (_semanticDebugEnabled) {
+        if (!_semanticDebugModifierAdded) {
+            _semanticDebugModifier = VROShaderFactory::createSemanticDebugModifier();
+
+            std::weak_ptr<VROSceneRendererARCore> weakSelf = shared_from_this();
+            _semanticDebugModifier->setUniformBinder("ar_viewport_size", VROShaderProperty::Vec3,
+                [weakSelf](VROUniform *uniform, const VROGeometry *geometry, const VROMaterial *material) {
+                    auto strongSelf = weakSelf.lock();
+                    if (strongSelf) {
+                        VROViewport vp = strongSelf->_lastViewport;
+                        uniform->setVec3({(float)vp.getWidth(), (float)vp.getHeight(), 0.0f});
+                    }
+                });
+
+            _semanticDebugModifier->setUniformBinder("ar_semantic_texture_transform", VROShaderProperty::Mat4,
+                [weakSelf](VROUniform *uniform, const VROGeometry *geometry, const VROMaterial *material) {
+                    auto strongSelf = weakSelf.lock();
+                    if (strongSelf) {
+                        uniform->setMat4(strongSelf->_semanticTextureTransform);
+                    }
+                });
+
+            material->addShaderModifier(_semanticDebugModifier);
+            _semanticDebugModifierAdded = true;
+        }
+    } else {
+        if (_semanticDebugModifierAdded && _semanticDebugModifier) {
+            material->removeShaderModifier(_semanticDebugModifier);
+            _semanticDebugModifier.reset();
+            _semanticDebugModifierAdded = false;
+        }
+    }
 }
 
 void VROSceneRendererARCore::renderWaitingForTracking(VROViewport viewport) {

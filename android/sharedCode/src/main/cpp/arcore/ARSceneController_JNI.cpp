@@ -899,6 +899,29 @@ VRO_METHOD(void, nativeRvTrackCloudAnchorResolution)(VRO_ARGS
     });
 }
 
+VRO_METHOD(void, nativeRvGetSceneAssets)(VRO_ARGS
+                                         VRO_REF(VROARSceneController) arSceneControllerPtr,
+                                         jstring key_j,
+                                         jstring sceneId_j) {
+    std::string keyStr     = VRO_STRING_STL(key_j);
+    std::string sceneIdStr = VRO_STRING_STL(sceneId_j);
+    std::weak_ptr<VROARScene> arScene_w = std::dynamic_pointer_cast<VROARScene>(
+        VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
+    VRO_WEAK weakObj = VRO_NEW_WEAK_GLOBAL_REF(obj);
+    VROPlatformDispatchAsyncRenderer([arScene_w, weakObj, keyStr, sceneIdStr] {
+        std::shared_ptr<VROARScene> arScene = arScene_w.lock();
+        std::shared_ptr<VROARSession> arSession = arScene ? arScene->getARSession() : nullptr;
+        if (!arSession) {
+            rvFireCloudResult(weakObj, keyStr, false, "", "AR session not available");
+            return;
+        }
+        arSession->rvGetSceneAssets(sceneIdStr,
+            [weakObj, keyStr](bool success, std::string jsonData, std::string error) {
+                rvFireCloudResult(weakObj, keyStr, success, jsonData, error);
+            });
+    });
+}
+
 VRO_METHOD(void, nativeResetPointCloudSurface)(VRO_ARGS
                                                VRO_REF(VROARSceneController) arSceneControllerPtr) {
     std::weak_ptr<VROARScene> arScene_w = std::dynamic_pointer_cast<VROARScene>(

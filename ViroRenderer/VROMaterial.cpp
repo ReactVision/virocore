@@ -426,13 +426,16 @@ void VROMaterial::applySemanticMaskModifier() {
         // parseCustomUniforms sees "uniform sampler2D" and places semantic_texture in
         // _modifierSamplers; loadTextures() second loop binds it to VROGlobalTextureType::SemanticMap.
         "uniform sampler2D semantic_texture;",
-        // ar_viewport_size is a base program uniform (VROShaderProgram::addUniform) already
-        // bound each frame by VROMaterialShaderBinding._arViewportSizeUniform — just declare it.
+        // ar_viewport_size and ar_semantic_texture_transform are base program uniforms
+        // (VROShaderProgram::addUniform) bound unconditionally each frame.
+        // ar_semantic_texture_transform = getViewportToCameraImageTransform() in GL convention
+        // (y=0 bottom), matching gl_FragCoord directly — no Y-flip needed.
         "uniform highp vec3 ar_viewport_size;",
+        "uniform highp mat4 ar_semantic_texture_transform;",
         "uniform highp float semantic_mask_mode;",
         "uniform highp float semantic_label_mask;",
-        "highp vec2 semUV = gl_FragCoord.xy / ar_viewport_size.xy;",
-        "semUV.y = 1.0 - semUV.y;",
+        // No Y-flip: gl_FragCoord is GL-convention (y=0 bottom), same as ar_semantic_texture_transform.
+        "highp vec2 semUV = (ar_semantic_texture_transform * vec4(gl_FragCoord.xy / ar_viewport_size.xy, 0.0, 1.0)).xy;",
         "highp float label_raw = texture(semantic_texture, semUV).r * 255.0;",
         "int semLabel = int(floor(label_raw + 0.5));",
         "bool semMatches = (semLabel >= 1 && semLabel <= 11 && (int(semantic_label_mask) & (1 << semLabel)) != 0);",

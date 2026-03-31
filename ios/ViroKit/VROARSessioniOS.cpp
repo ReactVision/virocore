@@ -2209,6 +2209,35 @@ void VROARSessioniOS::rvListGeospatialAnchors(
 
 #if RVCCA_AVAILABLE
 
+static std::string rvSceneAssetToJson(const ReactVisionCCA::SceneAPIAsset& a) {
+    char buf[256];
+    std::string j = "{";
+    j += "\"id\":\"" + rvEscJson(a.id) + "\",";
+    j += "\"name\":\"" + rvEscJson(a.name) + "\",";
+    j += "\"description\":\"" + rvEscJson(a.description) + "\",";
+    j += "\"fileUrl\":\"" + rvEscJson(a.fileUrl) + "\",";
+    j += "\"fileSize\":" + std::to_string(a.fileSize) + ",";
+    j += "\"assetTypeName\":\"" + rvEscJson(a.assetTypeName) + "\",";
+    snprintf(buf, sizeof(buf), "%.6f", a.positionX); j += "\"positionX\":"; j += buf; j += ",";
+    snprintf(buf, sizeof(buf), "%.6f", a.positionY); j += "\"positionY\":"; j += buf; j += ",";
+    snprintf(buf, sizeof(buf), "%.6f", a.positionZ); j += "\"positionZ\":"; j += buf; j += ",";
+    snprintf(buf, sizeof(buf), "%.6f", a.rotationX); j += "\"rotationX\":"; j += buf; j += ",";
+    snprintf(buf, sizeof(buf), "%.6f", a.rotationY); j += "\"rotationY\":"; j += buf; j += ",";
+    snprintf(buf, sizeof(buf), "%.6f", a.rotationZ); j += "\"rotationZ\":"; j += buf; j += ",";
+    snprintf(buf, sizeof(buf), "%.6f", a.scale);     j += "\"scale\":";     j += buf; j += ",";
+    snprintf(buf, sizeof(buf), "%.10f", a.latitude);  j += "\"latitude\":";  j += buf; j += ",";
+    snprintf(buf, sizeof(buf), "%.10f", a.longitude); j += "\"longitude\":"; j += buf; j += ",";
+    j += std::string("\"isDraggable\":") + (a.isDraggable ? "true" : "false") + ",";
+    j += "\"triggerImageUrl\":\"" + rvEscJson(a.triggerImageUrl) + "\",";
+    j += "\"triggerImageOrientation\":\"" + rvEscJson(a.triggerImageOrientation) + "\",";
+    snprintf(buf, sizeof(buf), "%.6f", a.triggerImagePhysicalWidthM);
+    j += "\"triggerImagePhysicalWidthM\":"; j += buf; j += ",";
+    j += "\"createdAt\":\"" + rvEscJson(a.createdAt) + "\",";
+    j += "\"updatedAt\":\"" + rvEscJson(a.updatedAt) + "\"";
+    j += "}";
+    return j;
+}
+
 static std::string rvCloudAssetToJson(const ReactVisionCCA::CloudAnchorAsset& a) {
     char buf[256];
     std::string j = "{";
@@ -2448,6 +2477,34 @@ void VROARSessioniOS::rvTrackCloudAnchorResolution(
   }
 #endif
   if (callback) callback(false, "ReactVision cloud anchor provider not available");
+}
+
+void VROARSessioniOS::rvGetSceneAssets(
+    const std::string& sceneId,
+    std::function<void(bool, std::string, std::string)> callback) {
+#if RVCCA_AVAILABLE
+  auto p = [_cloudAnchorProviderRV cppProvider];
+  if (p) {
+    p->getSceneAssets(sceneId,
+        [callback](ReactVisionCCA::ApiResult<std::vector<ReactVisionCCA::SceneAPIAsset>> r) {
+      if (callback) {
+        if (r.success) {
+          std::string json = "[";
+          for (size_t i = 0; i < r.data.size(); ++i) {
+            if (i > 0) json += ",";
+            json += rvSceneAssetToJson(r.data[i]);
+          }
+          json += "]";
+          callback(true, json, "");
+        } else {
+          callback(false, "", r.error.message);
+        }
+      }
+    });
+    return;
+  }
+#endif
+  if (callback) callback(false, "", "ReactVision cloud anchor provider not available");
 }
 
 #pragma mark - Scene Semantics API

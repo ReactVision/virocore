@@ -666,6 +666,9 @@ void VROShaderProgram::addStandardUniforms() {
     addUniform(VROShaderProperty::Vec3, 1, "ar_camera_position");
     addUniform(VROShaderProperty::Vec3, 1, "ar_viewport_size");
     addUniform(VROShaderProperty::Mat4, 1, "ar_depth_texture_transform");
+
+    // AR Semantic uniforms (used by semantic mask modifier, independent of depth occlusion)
+    addUniform(VROShaderProperty::Mat4, 1, "ar_semantic_texture_transform");
 }
 
 #pragma mark - Source Inflation and Shader Modifiers

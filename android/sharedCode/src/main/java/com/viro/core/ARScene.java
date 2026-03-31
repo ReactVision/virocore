@@ -1389,6 +1389,12 @@ public class ARScene extends Scene {
         nativeRvRemoveAssetFromCloudAnchor(mNativeRef, key, anchorId, assetId);
     }
 
+    public void rvGetSceneAssets(String sceneId, RvCloudAnchorCallback callback) {
+        String key = "rvGetSceneAssets_" + System.nanoTime();
+        mRvCloudCallbacks.put(key, callback);
+        nativeRvGetSceneAssets(mNativeRef, key, sceneId);
+    }
+
     public void rvTrackCloudAnchorResolution(String anchorId, boolean success, double confidence,
                                               int matchCount, int inlierCount, int processingTimeMs,
                                               String platform, String externalUserId,
@@ -1690,6 +1696,7 @@ public class ARScene extends Scene {
     private native void nativeRvFindNearbyCloudAnchors(long sceneControllerRef, String key,
                                                         double lat, double lng,
                                                         double radius, int limit);
+    private native void nativeRvGetSceneAssets(long sceneControllerRef, String key, String sceneId);
     private native void nativeRvAttachAssetToCloudAnchor(long sceneControllerRef, String key,
                                                           String anchorId, String fileUrl,
                                                           long fileSize, String name,
