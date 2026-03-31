@@ -91,6 +91,15 @@ public:
      */
     static std::shared_ptr<VROShaderModifier> createDepthDebugModifier();
 
+    /*
+     Creates a shader modifier that visualizes the semantic segmentation texture as a
+     color overlay on the camera background for debugging purposes. Each real-world label
+     category is mapped to a distinct color: sky=light-blue, building=gray, tree=green,
+     road=dark-gray, sidewalk=tan, terrain=brown, structure=orange, object=yellow,
+     vehicle=red, person=magenta, water=blue. Unlabeled pixels show the camera feed unchanged.
+     */
+    static std::shared_ptr<VROShaderModifier> createSemanticDebugModifier();
+
 private:
     
     /*

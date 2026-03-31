@@ -42,7 +42,7 @@ public:
     
     void bind() {
         [_view bindDrawable];
-        
+
         /*
          The viewport is already set by [_view bindDrawable] so we do not need to set
          that here. We still set the scissor, so ensure we only clear (e.g. glClear)
@@ -50,11 +50,25 @@ public:
          two 'eyes' each with different viewport over the same framebuffer.
          */
         glScissor(_viewport.getX(), _viewport.getY(), _viewport.getWidth(), _viewport.getHeight());
-        
+
+        /*
+         Reset stencil write mask so glClear wipes all stencil bits. Portal rendering leaves
+         the mask at 0x0F (lower 4 bits only); without this reset the upper bits are not cleared,
+         leaving stale values that break the stencil test on the next frame.
+         */
+        glStencilMask(0xFF);
+
         /*
          Prevent logical buffer loads.
          */
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+
+        /*
+         Reset stencil func to always-pass so non-portal geometry is not inadvertently
+         clipped by the stencil test left over from the previous frame's portal rendering.
+         VRORenderTargetOpenGL::bind() does this via glStencilFuncSeparate; mirror it here.
+         */
+        glStencilFuncSeparate(GL_FRONT_AND_BACK, GL_ALWAYS, 0xFF, 0xFF);
     }
     
 private:

@@ -101,6 +101,12 @@ static inline VROMatrix4f viroGLConvTransform(VROMatrix4f t) {
     float _depthDebugOpacity;
     VROMatrix4f _depthTextureTransform;
     VROViewport _currentViewport;
+
+    // Semantic debug overlay modifier and its state
+    std::shared_ptr<VROShaderModifier> _semanticDebugModifier;
+    bool _semanticDebugModifierAdded;
+    bool _semanticDebugEnabled;
+    VROMatrix4f _semanticTextureTransform; // getViewportToCameraImageTransform() — GL-convention (y=0 bottom)
 }
 
 @property (readwrite, nonatomic) VROTrackingType trackingType;
@@ -252,6 +258,8 @@ static inline VROMatrix4f viroGLConvTransform(VROMatrix4f t) {
     _depthDebugModifierAdded = false;
     _depthDebugEnabled = false;
     _depthDebugOpacity = 0.5f;
+    _semanticDebugModifierAdded = false;
+    _semanticDebugEnabled = false;
 
     _inputController = std::make_shared<VROInputControllerAR>(self.frame.size.width * self.contentScaleFactor,
                                                               self.frame.size.height * self.contentScaleFactor,
@@ -755,11 +763,20 @@ static inline VROMatrix4f viroGLConvTransform(VROMatrix4f t) {
         backgroundTransform = mirrorX * backgroundTransform;
     }
     _cameraBackground->setTexcoordTransform(backgroundTransform);
+    // Convert to GL convention (y=0 bottom) so the masking shader can use gl_FragCoord directly
+    // without a Y-flip. viroGLConvTransform bakes in the flip, same pattern as setCameraImageTransform.
+    _semanticTextureTransform = viroGLConvTransform(backgroundTransform);
+    _renderer->setSemanticTextureTransform(_semanticTextureTransform);
 
     /*
      Update occlusion settings on the camera background.
      */
     [self updateBackgroundOcclusionWithFrame:frame];
+
+    /*
+     Update semantic debug overlay on the camera background.
+     */
+    [self updateBackgroundSemanticsDebug];
 
     /*
      Notify the current ARScene with the ARCamera's tracking state.
@@ -956,6 +973,49 @@ static inline VROMatrix4f viroGLConvTransform(VROMatrix4f t) {
     // Occlusion is handled per-3D-object in the fragment shader via the occlusion mask modifier
     // which is automatically added by VROShaderFactory when arOcclusion capability is enabled.
     material->setWritesToDepthBuffer(false);
+}
+
+- (void)updateBackgroundSemanticsDebug {
+    std::shared_ptr<VROMaterial> material = _cameraBackground->getMaterials()[0];
+
+    if (_semanticDebugEnabled) {
+        if (!_semanticDebugModifierAdded) {
+            _semanticDebugModifier = VROShaderFactory::createSemanticDebugModifier();
+
+            __weak VROViewAR *weakSelf = self;
+            _semanticDebugModifier->setUniformBinder("ar_viewport_size", VROShaderProperty::Vec3,
+                [weakSelf](VROUniform *uniform, const VROGeometry *geometry, const VROMaterial *material) {
+                    VROViewAR *strongSelf = weakSelf;
+                    if (strongSelf) {
+                        VROVector3f size((float)strongSelf->_currentViewport.getWidth(),
+                                        (float)strongSelf->_currentViewport.getHeight(), 0.0f);
+                        uniform->setVec3(size);
+                    }
+                });
+
+            _semanticDebugModifier->setUniformBinder("ar_semantic_texture_transform", VROShaderProperty::Mat4,
+                [weakSelf](VROUniform *uniform, const VROGeometry *geometry, const VROMaterial *material) {
+                    VROViewAR *strongSelf = weakSelf;
+                    if (strongSelf) {
+                        uniform->setMat4(strongSelf->_semanticTextureTransform);
+                    }
+                });
+
+            material->addShaderModifier(_semanticDebugModifier);
+            _semanticDebugModifierAdded = true;
+        }
+    } else {
+        if (_semanticDebugModifierAdded && _semanticDebugModifier) {
+            material->removeShaderModifier(_semanticDebugModifier);
+            _semanticDebugModifier.reset();
+            _semanticDebugModifierAdded = false;
+        }
+    }
+}
+
+- (void)setSemanticDebugEnabled:(BOOL)enabled {
+    _semanticDebugEnabled = enabled;
+    // The modifier is added/removed in updateBackgroundSemanticsDebug on the next frame.
 }
 
 - (void)initARSessionWithViewport:(VROViewport)viewport scene:(std::shared_ptr<VROScene>)scene {

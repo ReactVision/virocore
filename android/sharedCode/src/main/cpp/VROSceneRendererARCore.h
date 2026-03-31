@@ -47,6 +47,7 @@ class VROARCamera;
 class VROARFrame;
 class VRORendererConfiguration;
 class VROARSessionARCore;
+class VROShaderModifier;
 
 class VROSceneRendererARCore : public VROSceneRenderer, public std::enable_shared_from_this<VROSceneRendererARCore> {
 
@@ -147,8 +148,21 @@ public:
      */
     void enableTracking(bool shouldTrack);
 
+    /*
+     Enable/disable semantic segmentation debug overlay on the camera background.
+     When enabled, the camera feed shows a color overlay for each semantic label.
+     */
+    void setSemanticDebugEnabled(bool enabled);
+
+    /*
+     Set the confidence threshold (0.0–1.0) below which semantic labels are
+     discarded (set to unlabeled = 0) to reduce boundary noise/blinking.
+     */
+    void setSemanticConfidenceThreshold(float threshold);
+
 private:
 
+    void updateBackgroundSemanticsDebug();
     void renderFrame();
     void renderWithTracking(const std::shared_ptr<VROARCamera> &camera, const std::unique_ptr<VROARFrame> &frame,
                             VROViewport viewport);
@@ -160,6 +174,11 @@ private:
 
     std::shared_ptr<VROSurface> _cameraBackground;
     bool _occlusionModifierAdded = false;
+    bool _semanticDebugEnabled = false;
+    bool _semanticDebugModifierAdded = false;
+    std::shared_ptr<VROShaderModifier> _semanticDebugModifier;
+    VROMatrix4f _semanticTextureTransform;
+    VROViewport _lastViewport;
     VROOcclusionMode _lastOcclusionMode = VROOcclusionMode::Disabled;
     gvr::Sizei _surfaceSize;
     bool _arcoreInstalled;

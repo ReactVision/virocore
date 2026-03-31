@@ -356,6 +356,33 @@ VRO_METHOD(VRO_BOOL, nativeisCameraAutoFocusEnabled) (VRO_ARGS
     return arRenderer->isCameraAutoFocusEnabled();
 }
 
+VRO_METHOD(void, nativeSetSemanticDebugEnabled) (VRO_ARGS
+                                                  jlong nativeRenderer,
+                                                  jboolean enabled) {
+    std::shared_ptr<VROSceneRenderer> renderer = Renderer::native(nativeRenderer);
+    std::weak_ptr<VROSceneRendererARCore> arRenderer_w = std::dynamic_pointer_cast<VROSceneRendererARCore>(renderer);
+
+    VROPlatformDispatchAsyncRenderer([arRenderer_w, enabled] {
+        std::shared_ptr<VROSceneRendererARCore> arRenderer = arRenderer_w.lock();
+        if (arRenderer) {
+            arRenderer->setSemanticDebugEnabled(enabled);
+        }
+    });
+}
+
+VRO_METHOD(void, nativeSetSemanticConfidenceThreshold) (VRO_ARGS
+                                                         jlong nativeRenderer,
+                                                         jfloat threshold) {
+    std::shared_ptr<VROSceneRenderer> renderer = Renderer::native(nativeRenderer);
+    std::weak_ptr<VROSceneRendererARCore> arRenderer_w = std::dynamic_pointer_cast<VROSceneRendererARCore>(renderer);
+
+    VROPlatformDispatchAsyncRenderer([arRenderer_w, threshold] {
+        std::shared_ptr<VROSceneRendererARCore> arRenderer = arRenderer_w.lock();
+        if (arRenderer) {
+            arRenderer->setSemanticConfidenceThreshold(threshold);
+        }
+    });
+}
 
 }
 

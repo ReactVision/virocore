@@ -330,6 +330,12 @@ void VRORenderer::setDepthTextureTransform(VROMatrix4f transform) {
     }
 }
 
+void VRORenderer::setSemanticTextureTransform(VROMatrix4f transform) {
+    if (_context) {
+        _context->setSemanticTextureTransform(transform);
+    }
+}
+
 void VRORenderer::setCameraBackgroundTexture(std::shared_ptr<VROTexture> texture) {
     if (_context) {
         _context->setCameraBackgroundTexture(texture);

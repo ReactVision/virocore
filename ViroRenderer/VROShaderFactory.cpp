@@ -1382,3 +1382,88 @@ std::shared_ptr<VROShaderModifier> VROShaderFactory::createDepthDebugModifier() 
 
     return modifier;
 }
+
+std::shared_ptr<VROShaderModifier> VROShaderFactory::createSemanticDebugModifier() {
+    /*
+     This modifier visualizes the semantic segmentation texture as a color overlay on the
+     camera background. Each real-world label is mapped to a distinct color:
+       0  = unlabeled  → no overlay (camera feed through)
+       1  = sky        → light blue  (0.53, 0.81, 0.98)
+       2  = building   → gray        (0.60, 0.60, 0.60)
+       3  = tree       → green       (0.13, 0.55, 0.13)
+       4  = road       → dark gray   (0.25, 0.25, 0.25)
+       5  = sidewalk   → tan         (0.82, 0.71, 0.55)
+       6  = terrain    → brown       (0.55, 0.27, 0.07)
+       7  = structure  → orange      (1.00, 0.55, 0.00)
+       8  = object     → yellow      (1.00, 1.00, 0.00)
+       9  = vehicle    → red         (1.00, 0.15, 0.15)
+       10 = person     → magenta     (1.00, 0.00, 1.00)
+       11 = water      → blue        (0.00, 0.40, 1.00)
+
+     Coordinate mapping follows the same screen-UV → depth-texture-transform pattern
+     used by createDepthDebugModifier(). The @sampler annotation binds semantic_texture
+     to VROGlobalTextureType::SemanticMap, which is populated each frame by
+     VRORenderer::setSemanticTexture().
+
+     NOTE: ar_viewport_size and ar_depth_texture_transform uniforms must be bound via
+     setUniformBinder() in VROViewAR, same as the depth debug modifier.
+     */
+    std::vector<std::string> modifierCode = {
+        "uniform sampler2D semantic_texture;",
+        "// @sampler semantic_texture",
+
+        "uniform highp vec3 ar_viewport_size;",
+        // ar_semantic_texture_transform = getViewportToCameraImageTransform() in GL convention (y=0 bottom).
+        // Do NOT flip Y before applying — gl_FragCoord is already bottom-left origin, matching this transform.
+        "uniform highp mat4 ar_semantic_texture_transform;",
+
+        // No Y-flip: ar_semantic_texture_transform is in GL convention (y=0 bottom),
+        // matching gl_FragCoord directly.
+        "highp vec2 screenUV = gl_FragCoord.xy / ar_viewport_size.xy;",
+        "highp vec2 semUV = (ar_semantic_texture_transform * vec4(screenUV, 0.0, 1.0)).xy;",
+
+        "bool semOutOfBounds = semUV.x < 0.0 || semUV.x > 1.0 || semUV.y < 0.0 || semUV.y > 1.0;",
+        "semUV = clamp(semUV, 0.0, 1.0);",
+
+        "highp float label_raw = semOutOfBounds ? 0.0 : texture(semantic_texture, semUV).r * 255.0;",
+        "int semLabel = int(floor(label_raw + 0.5));",
+
+        "highp vec3 semColor;",
+        "highp float semAlpha;",
+        "if (semLabel == 0 || semOutOfBounds) {",
+        "    semColor = vec3(0.0, 0.0, 0.0); semAlpha = 0.0;",   // unlabeled — transparent
+        "} else if (semLabel == 1) {",
+        "    semColor = vec3(0.53, 0.81, 0.98); semAlpha = 0.6;", // sky
+        "} else if (semLabel == 2) {",
+        "    semColor = vec3(0.60, 0.60, 0.60); semAlpha = 0.6;", // building
+        "} else if (semLabel == 3) {",
+        "    semColor = vec3(0.13, 0.55, 0.13); semAlpha = 0.6;", // tree
+        "} else if (semLabel == 4) {",
+        "    semColor = vec3(0.25, 0.25, 0.25); semAlpha = 0.6;", // road
+        "} else if (semLabel == 5) {",
+        "    semColor = vec3(0.82, 0.71, 0.55); semAlpha = 0.6;", // sidewalk
+        "} else if (semLabel == 6) {",
+        "    semColor = vec3(0.55, 0.27, 0.07); semAlpha = 0.6;", // terrain
+        "} else if (semLabel == 7) {",
+        "    semColor = vec3(1.00, 0.55, 0.00); semAlpha = 0.6;", // structure
+        "} else if (semLabel == 8) {",
+        "    semColor = vec3(1.00, 1.00, 0.00); semAlpha = 0.6;", // object
+        "} else if (semLabel == 9) {",
+        "    semColor = vec3(1.00, 0.15, 0.15); semAlpha = 0.6;", // vehicle
+        "} else if (semLabel == 10) {",
+        "    semColor = vec3(1.00, 0.00, 1.00); semAlpha = 0.6;", // person
+        "} else if (semLabel == 11) {",
+        "    semColor = vec3(0.00, 0.40, 1.00); semAlpha = 0.6;", // water
+        "} else {",
+        "    semColor = vec3(1.00, 1.00, 1.00); semAlpha = 0.3;", // unknown label
+        "}",
+
+        "_surface.diffuse_color.rgb = mix(_surface.diffuse_color.rgb, semColor, semAlpha);"
+    };
+
+    std::shared_ptr<VROShaderModifier> modifier = std::make_shared<VROShaderModifier>(
+        VROShaderEntryPoint::Surface, modifierCode);
+    modifier->setName("semantic_debug");
+
+    return modifier;
+}

@@ -1154,6 +1154,26 @@ public class ViroViewARCore extends ViroView {
     }
 
     /**
+     * Enable or disable the semantic segmentation debug overlay on the camera background.
+     * When enabled, each pixel is tinted with the color of its detected semantic label.
+     */
+    public void setSemanticDebugEnabled(boolean enabled) {
+        if (!mDestroyed) {
+            ((RendererARCore) mNativeRenderer).setSemanticDebugEnabled(enabled);
+        }
+    }
+
+    /**
+     * Set the confidence threshold (0.0–1.0) below which semantic labels are discarded
+     * (treated as unlabeled) to reduce boundary noise.
+     */
+    public void setSemanticConfidenceThreshold(float threshold) {
+        if (!mDestroyed) {
+            ((RendererARCore) mNativeRenderer).setSemanticConfidenceThreshold(threshold);
+        }
+    }
+
+    /**
      * Returns true if auto focus is enabled.
      *
      * @return True if auto focus is enabled.

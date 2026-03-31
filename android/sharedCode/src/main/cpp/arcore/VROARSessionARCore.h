@@ -224,6 +224,8 @@ public:
         double confidence, int matchCount, int inlierCount, int processingTimeMs,
         const std::string& platform, const std::string& externalUserId,
         std::function<void(bool, std::string)> callback) override;
+    void rvGetSceneAssets(const std::string& sceneId,
+        std::function<void(bool, std::string, std::string)> callback) override;
 
     /*
      * Scene Semantics API.
@@ -439,13 +441,17 @@ private:
 
     /*
      Semantic texture management (R8, per-pixel label 0-11).
+     Pixels with confidence below _semanticConfidenceThreshold are set to label 0 (unlabeled)
+     before upload, reducing noise at segmentation boundaries.
      */
     std::shared_ptr<VROTexture> _semanticTexture;
+    float _semanticConfidenceThreshold = 0.0f;
     void updateSemanticTexture();
 
 public:
     std::shared_ptr<VROTexture> getDepthTexture() { return _depthTexture; }
     std::shared_ptr<VROTexture> getSemanticTexture() { return _semanticTexture; }
+    void setSemanticConfidenceThreshold(float threshold) { _semanticConfidenceThreshold = threshold; }
 
 };
 
