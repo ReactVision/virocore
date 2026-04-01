@@ -296,6 +296,12 @@ std::shared_ptr<VROTexture> VROPortal::getLightingEnvironment() const {
 
 static thread_local std::shared_ptr<VROShaderModifier> sBackgroundShaderModifier;
 
+// Portal-interior background modifier: depth = 0.9999 instead of 1.0 (xyww).
+// This ensures the AR camera background (depth=1.0, rendered afterwards for level-0)
+// cannot overwrite the 360°/cube background inside a portal (GL_LEQUAL: 1.0 ≤ 0.9999 = FALSE).
+// Must be paired with writesToDepthBuffer=true so the written depth value blocks the camera pass.
+static thread_local std::shared_ptr<VROShaderModifier> sPortalBackgroundShaderModifier;
+
 void VROPortal::installBackgroundShaderModifier() {
     /*
      Modifier that pushes backgrounds to the back of the depth buffer.
@@ -309,20 +315,38 @@ void VROPortal::installBackgroundShaderModifier() {
     _background->getMaterials().front()->addShaderModifier(sBackgroundShaderModifier);
 }
 
+void VROPortal::installPortalBackgroundShaderModifier() {
+    if (!sPortalBackgroundShaderModifier) {
+        // xyww sets z=w → NDC depth=1.0. Multiplying by 0.9999 gives depth=0.9999,
+        // which is less than the camera background's 1.0. With depth writes enabled,
+        // the camera background's GL_LEQUAL test (1.0 ≤ 0.9999) fails → no overwrite.
+        std::vector<std::string> modifierCode = {
+            "_vertex.position = _vertex.position.xyww;",
+            "_vertex.position.z = _vertex.position.w * 0.9999;"
+        };
+        sPortalBackgroundShaderModifier = std::make_shared<VROShaderModifier>(VROShaderEntryPoint::Vertex,
+                                                                               modifierCode);
+        sPortalBackgroundShaderModifier->setName("portal_background");
+    }
+    _background->getMaterials().front()->addShaderModifier(sPortalBackgroundShaderModifier);
+}
+
 void VROPortal::setBackgroundCube(std::shared_ptr<VROTexture> textureCube) {
     passert_thread(__func__);
     _background = VROSkybox::createSkybox(textureCube);
     _background->setName("Background");
-    
-    installBackgroundShaderModifier();
+
+    _background->getMaterials().front()->setWritesToDepthBuffer(true);
+    installPortalBackgroundShaderModifier();
 }
 
 void VROPortal::setBackgroundCube(VROVector4f color) {
     passert_thread(__func__);
     _background = VROSkybox::createSkybox(color);
     _background->setName("Background");
-    
-    installBackgroundShaderModifier();
+
+    _background->getMaterials().front()->setWritesToDepthBuffer(true);
+    installPortalBackgroundShaderModifier();
 }
 
 void VROPortal::setBackgroundSphere(std::shared_ptr<VROTexture> textureSphere) {
@@ -333,14 +357,16 @@ void VROPortal::setBackgroundSphere(std::shared_ptr<VROTexture> textureSphere) {
                                           false);
     _background->setCameraEnclosure(true);
     _background->setName("Background");
-    
+
     std::shared_ptr<VROMaterial> material = _background->getMaterials().front();
     material->setLightingModel(VROLightingModel::Constant);
     material->getDiffuse().setTexture(textureSphere);
-    material->setWritesToDepthBuffer(false);
+    // Write depth at 0.9999 so the AR camera background (depth=1.0, rendered afterwards
+    // for level-0 in renderBackground) cannot overwrite this sphere via GL_LEQUAL.
+    material->setWritesToDepthBuffer(true);
     material->setNeedsToneMapping(false);
-    
-    installBackgroundShaderModifier();
+
+    installPortalBackgroundShaderModifier();
 }
 
 void VROPortal::setBackground(std::shared_ptr<VROGeometry> background) {

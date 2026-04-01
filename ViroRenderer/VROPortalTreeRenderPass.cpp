@@ -43,6 +43,12 @@ VROPortalTreeRenderPass::VROPortalTreeRenderPass() {
     _silhouetteMaterial->setWritesToDepthBuffer(false);
     _silhouetteMaterial->setReadsFromDepthBuffer(false);
     _silhouetteMaterial->setCullMode(VROCullMode::None);
+    // Disable the built-in alpha cutoff in constant_fsh (default 0.5 per glTF spec).
+    // The cutoff in constant_fsh runs BEFORE #pragma fragment_modifier_body, so it
+    // discards transparent fragments (alpha < 0.5) before the alpha-discard modifier
+    // can run. The silhouette pass NEEDS transparent fragments to pass so they write
+    // the stencil — the alpha-discard modifier below handles filtering correctly.
+    _silhouetteMaterial->setAlphaCutoff(0.0f);
     _silhouetteMaterial->addShaderModifier(VROPortalFrame::getAlphaDiscardModifier());
 }
 
@@ -100,7 +106,7 @@ void VROPortalTreeRenderPass::render(std::shared_ptr<VROScene> scene,
 void VROPortalTreeRenderPass::render(std::vector<tree<std::shared_ptr<VROPortal>>> &treeNodes,
                                      std::shared_ptr<VROPortal> outgoingTopPortal, bool renderBackgrounds,
                                      std::shared_ptr<VRORenderTarget> &target,
-                                     const VRORenderContext &context,
+                                     VRORenderContext &context,
                                      std::shared_ptr<VRODriver> &driver) {
     
     // Iterate through each sibling at this recursion level. The siblings should be ordered
@@ -166,6 +172,18 @@ void VROPortalTreeRenderPass::render(std::vector<tree<std::shared_ptr<VROPortal>
         //    belonging to level 1.
         target->setPortalStencilPassFunction(VROFace::FrontAndBack, VROStencilFunc::LessOrEqual,
                                              portal->getRecursionLevel());
+
+        // Disable AR occlusion for portal interior content. When depth-based occlusion is
+        // enabled, the arOcclusion shader capability injects a discard modifier into every
+        // material's fragment shader. For the 360° background image this always triggers
+        // (virtual depth >> real-world LiDAR depth), making the entire interior invisible.
+        // Interior 3D objects suffer the same fate. Portal interiors exist in a separate
+        // virtual space and must not be subject to real-world occlusion culling.
+        VROOcclusionMode savedOcclusion = context.getOcclusionMode();
+        if (portal->getRecursionLevel() > 0) {
+            context.setOcclusionMode(VROOcclusionMode::Disabled);
+        }
+
         if (renderBackgrounds) {
             if (outgoingTopPortal != nullptr && i == 0) {
                 outgoingTopPortal->renderBackground(context, driver);
@@ -174,6 +192,11 @@ void VROPortalTreeRenderPass::render(std::vector<tree<std::shared_ptr<VROPortal>
         }
         portal->renderContents(context, driver);
         driver->unbindShader();
+
+        if (portal->getRecursionLevel() > 0) {
+            context.setOcclusionMode(savedOcclusion);
+        }
+
         pglpop();
         
         if (portalFrame) {

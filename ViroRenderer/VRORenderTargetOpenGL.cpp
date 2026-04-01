@@ -372,23 +372,22 @@ bool VRORenderTargetOpenGL::attachNewTextures() {
         }
         
         /*
-         Create separate depth and stencil renderbuffers. Using GL_DEPTH_COMPONENT24 for depth
-         (not the packed GL_DEPTH24_STENCIL8) is required so that glBlitFramebuffer(GL_DEPTH_BUFFER_BIT)
-         succeeds on Apple's strict OpenGL ES driver, which requires source and destination depth
-         formats to be identical. _sceneDepthTarget uses GL_DEPTH_COMPONENT24, so this target must
-         match.
+         Use a single packed GL_DEPTH24_STENCIL8 renderbuffer attached to both the depth and
+         stencil attachment points. On iOS/Apple's OpenGL ES driver, separate GL_DEPTH_COMPONENT24
+         + GL_STENCIL_INDEX8 renderbuffers cause stencil writes to be silently ignored even though
+         glCheckFramebufferStatus returns GL_FRAMEBUFFER_COMPLETE. Packed depth+stencil is the
+         Apple-recommended configuration and is required for portal stencil rendering to work.
+
+         _sceneDepthTarget (DepthTextureRaw) also uses GL_DEPTH24_STENCIL8, so the formats match
+         and glBlitFramebuffer(GL_DEPTH_BUFFER_BIT) between these two targets continues to work.
          */
         if (_needsDepthStencil && _depthStencilbuffer == 0) {
-            _depthStencilRenderbufferStorage = GL_DEPTH_COMPONENT24;
+            _depthStencilRenderbufferStorage = GL_DEPTH24_STENCIL8;
             GL (glGenRenderbuffers(1, &_depthStencilbuffer) );
             GL (glBindRenderbuffer(GL_RENDERBUFFER, _depthStencilbuffer) );
-            GL (glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, _viewport.getWidth(), _viewport.getHeight()) );
+            GL (glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, _viewport.getWidth(), _viewport.getHeight()) );
             GL (glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, _depthStencilbuffer) );
-
-            GL (glGenRenderbuffers(1, &_stencilbuffer) );
-            GL (glBindRenderbuffer(GL_RENDERBUFFER, _stencilbuffer) );
-            GL (glRenderbufferStorage(GL_RENDERBUFFER, GL_STENCIL_INDEX8, _viewport.getWidth(), _viewport.getHeight()) );
-            GL (glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_RENDERBUFFER, _stencilbuffer) );
+            GL (glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_RENDERBUFFER, _depthStencilbuffer) );
         }
 
         /*
@@ -547,11 +546,15 @@ bool VRORenderTargetOpenGL::attachNewTextures() {
         GL (glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST) );
         GL (glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE) );
         GL (glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE) );
-        // No GL_TEXTURE_COMPARE_MODE — sample raw depth with texture() in GLSL
-        GL (glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, _viewport.getWidth(), _viewport.getHeight(), 0,
-                         GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, 0) );
+        // No GL_TEXTURE_COMPARE_MODE — sample raw depth with texture() in GLSL.
+        // GL_DEPTH24_STENCIL8 matches the packed format used in _hdrTarget so that
+        // glBlitFramebuffer(GL_DEPTH_BUFFER_BIT) between them succeeds on Apple's driver.
+        // GL_DEPTH_STENCIL_TEXTURE_MODE defaults to GL_DEPTH_COMPONENT, so texture() still
+        // returns the depth value when this texture is bound as a sampler2D.
+        GL (glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH24_STENCIL8, _viewport.getWidth(), _viewport.getHeight(), 0,
+                         GL_DEPTH_STENCIL, GL_UNSIGNED_INT_24_8, 0) );
         GL (glBindTexture(GL_TEXTURE_2D, 0) );
-        GL (glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, texName, 0) );
+        GL (glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, texName, 0) );
 
         GLenum none[] = { GL_NONE };
         GL (glDrawBuffers(1, none) );

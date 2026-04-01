@@ -60,7 +60,7 @@ private:
     void render(std::vector<tree<std::shared_ptr<VROPortal>>> &treeNodes,
                 std::shared_ptr<VROPortal> outgoingTopPortal, bool renderBackgrounds,
                 std::shared_ptr<VRORenderTarget> &target,
-                const VRORenderContext &context,
+                VRORenderContext &context,
                 std::shared_ptr<VRODriver> &driver);
 };
 
