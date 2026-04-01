@@ -212,6 +212,10 @@ void VROMaterialShaderBinding::loadTextures() {
             _textures.emplace_back(VROGlobalTextureType::SemanticMap);
             continue;
         }
+        if (samplerName == "semantic_confidence_texture") {
+            _textures.emplace_back(VROGlobalTextureType::SemanticConfidence);
+            continue;
+        }
         // Guard: standard global samplers may be re-declared in modifier uniforms strings.
         // parseCustomUniforms now skips them (they're already in _samplers), but handle
         // them here as a belt-and-suspenders fallback so we never push a null local ref.

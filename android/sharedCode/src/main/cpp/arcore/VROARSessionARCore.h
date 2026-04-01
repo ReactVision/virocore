@@ -440,17 +440,34 @@ private:
     void updateDepthTexture();
 
     /*
-     Semantic texture management (R8, per-pixel label 0-11).
+     Semantic label texture (R8, per-pixel label 0-11).
      Pixels with confidence below _semanticConfidenceThreshold are set to label 0 (unlabeled)
      before upload, reducing noise at segmentation boundaries.
+     Temporal holdout is applied so pixels don't flicker to unlabeled for isolated frames.
      */
     std::shared_ptr<VROTexture> _semanticTexture;
     float _semanticConfidenceThreshold = 0.0f;
+
+    /*
+     Confidence texture (R8, 0=uncertain, 255=certain) paired with _semanticTexture.
+     Always non-null once the first semantic frame arrives (initialised to 1×1 white).
+     */
+    std::shared_ptr<VROTexture> _semanticConfidenceTexture;
+
+    /*
+     Per-pixel holdout buffers for temporal anti-flicker.
+     When a pixel transitions label→unlabeled for a single frame, the previous label
+     and a decayed confidence value are held, suppressing boundary flicker.
+     */
+    std::vector<uint8_t> _prevSemanticData;
+    std::vector<uint8_t> _prevConfidenceData;
+
     void updateSemanticTexture();
 
 public:
     std::shared_ptr<VROTexture> getDepthTexture() { return _depthTexture; }
     std::shared_ptr<VROTexture> getSemanticTexture() { return _semanticTexture; }
+    std::shared_ptr<VROTexture> getSemanticConfidenceTexture() override { return _semanticConfidenceTexture; }
     void setSemanticConfidenceThreshold(float threshold) { _semanticConfidenceThreshold = threshold; }
 
 };

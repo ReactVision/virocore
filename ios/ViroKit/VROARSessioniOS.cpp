@@ -2633,6 +2633,26 @@ std::shared_ptr<VROTexture> VROARSessioniOS::getSemanticTexture() {
                                       std::move(substrate));
 }
 
+std::shared_ptr<VROTexture> VROARSessioniOS::getSemanticConfidenceTexture() {
+  // The ARCore iOS SDK does not expose a per-pixel confidence image.
+  // Return a 1×1 all-white texture (conf = 1.0) so the shader produces hard alpha
+  // edges — identical to the previous discard behaviour on this platform.
+  if (!_defaultConfidenceTexture) {
+    static const uint8_t white = 255;
+    auto data = std::make_shared<VROData>((void *)&white, 1, VRODataOwnership::Copy);
+    _defaultConfidenceTexture = std::make_shared<VROTexture>(
+        VROTextureType::Texture2D, VROTextureFormat::R8, VROTextureInternalFormat::R8,
+        false, VROMipmapMode::None,
+        std::vector<std::shared_ptr<VROData>>{ data },
+        1, 1, std::vector<uint32_t>());
+    _defaultConfidenceTexture->setMinificationFilter(VROFilterMode::Nearest);
+    _defaultConfidenceTexture->setMagnificationFilter(VROFilterMode::Nearest);
+    _defaultConfidenceTexture->setWrapS(VROWrapMode::Clamp);
+    _defaultConfidenceTexture->setWrapT(VROWrapMode::Clamp);
+  }
+  return _defaultConfidenceTexture;
+}
+
 #pragma mark - VROARKitSessionDelegate
 
 @interface VROARKitSessionDelegate ()

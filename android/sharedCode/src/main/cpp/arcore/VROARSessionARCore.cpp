@@ -2662,90 +2662,26 @@ void VROARSessionARCore::updateDepthTexture() {
     delete depthImage;
 }
 
-void VROARSessionARCore::updateSemanticTexture() {
-    if (!_frame) {
-        return;
-    }
-
-    // Acquire semantic image from ARCore
-    arcore::Image *semanticImage = nullptr;
-    arcore::ImageRetrievalStatus status = _frame->acquireSemanticImage(&semanticImage);
-
-    if (status != arcore::ImageRetrievalStatus::Success || semanticImage == nullptr) {
-        // Not yet available (normal for first few frames) — keep previous texture.
-        return;
-    }
-
-    int width  = semanticImage->getWidth();
-    int height = semanticImage->getHeight();
-
-    if (width <= 0 || height <= 0) {
-        delete semanticImage;
-        return;
-    }
-
-    const uint8_t *data = nullptr;
-    int dataLength = 0;
-    semanticImage->getPlaneData(0, &data, &dataLength);
-
-    if (!data || dataLength <= 0) {
-        delete semanticImage;
-        return;
-    }
-
-    // Apply confidence threshold: mask low-confidence pixels to label 0 (unlabeled).
-    // This reduces boundary noise/blinking. Only active when threshold > 0.
-    std::vector<uint8_t> maskedData;
-    if (_semanticConfidenceThreshold > 0.0f) {
-        arcore::Image *confImage = nullptr;
-        arcore::ImageRetrievalStatus confStatus = _frame->acquireSemanticConfidenceImage(&confImage);
-        if (confStatus == arcore::ImageRetrievalStatus::Success && confImage != nullptr &&
-            confImage->getWidth() == width && confImage->getHeight() == height) {
-            const uint8_t *confData = nullptr;
-            int confLength = 0;
-            confImage->getPlaneData(0, &confData, &confLength);
-            if (confData && confLength == dataLength) {
-                uint8_t threshold = (uint8_t)(_semanticConfidenceThreshold * 255.0f);
-                maskedData.assign(data, data + dataLength);
-                for (int i = 0; i < dataLength; i++) {
-                    if (confData[i] < threshold) {
-                        maskedData[i] = 0; // unlabeled
-                    }
-                }
-                data = maskedData.data();
-            }
-        }
-        if (confImage) { delete confImage; }
-    }
-
-    // Create or resize the R8 GPU texture.
-    if (!_semanticTexture ||
-        _semanticTexture->getWidth()  != width ||
-        _semanticTexture->getHeight() != height) {
-
-        std::shared_ptr<VROData> vData = std::make_shared<VROData>(
-            (void *)data, dataLength, VRODataOwnership::Copy);
-        std::vector<std::shared_ptr<VROData>> dataVec = { vData };
-
-        _semanticTexture = std::make_shared<VROTexture>(
-            VROTextureType::Texture2D,
-            VROTextureFormat::R8,
-            VROTextureInternalFormat::R8,
-            false,
-            VROMipmapMode::None,
-            dataVec,
-            width, height,
-            std::vector<uint32_t>());
-
-        _semanticTexture->setMinificationFilter(VROFilterMode::Nearest);
-        _semanticTexture->setMagnificationFilter(VROFilterMode::Nearest);
-        _semanticTexture->setWrapS(VROWrapMode::Clamp);
-        _semanticTexture->setWrapT(VROWrapMode::Clamp);
+// Helper: create or update an R8 GPU texture with the given pixel data.
+static void uploadR8Texture(std::shared_ptr<VROTexture> &texture,
+                             const uint8_t *data, int dataLength,
+                             int width, int height,
+                             std::weak_ptr<VRODriver> driverWeak) {
+    if (!texture || texture->getWidth() != width || texture->getHeight() != height) {
+        auto vData = std::make_shared<VROData>((void *)data, dataLength, VRODataOwnership::Copy);
+        texture = std::make_shared<VROTexture>(
+            VROTextureType::Texture2D, VROTextureFormat::R8, VROTextureInternalFormat::R8,
+            false, VROMipmapMode::None,
+            std::vector<std::shared_ptr<VROData>>{ vData },
+            width, height, std::vector<uint32_t>());
+        texture->setMinificationFilter(VROFilterMode::Nearest);
+        texture->setMagnificationFilter(VROFilterMode::Nearest);
+        texture->setWrapS(VROWrapMode::Clamp);
+        texture->setWrapT(VROWrapMode::Clamp);
     } else {
-        // Update existing texture in-place via glTexSubImage2D.
-        std::shared_ptr<VRODriver> driver = _driver.lock();
+        std::shared_ptr<VRODriver> driver = driverWeak.lock();
         if (driver) {
-            VROTextureSubstrate *substrate = _semanticTexture->getSubstrate(0, driver, true);
+            VROTextureSubstrate *substrate = texture->getSubstrate(0, driver, true);
             if (substrate) {
                 VROTextureSubstrateOpenGL *glSubstrate = (VROTextureSubstrateOpenGL *)substrate;
                 std::pair<GLenum, GLuint> texInfo = glSubstrate->getTexture();
@@ -2755,6 +2691,84 @@ void VROARSessionARCore::updateSemanticTexture() {
             }
         }
     }
+}
+
+void VROARSessionARCore::updateSemanticTexture() {
+    if (!_frame) {
+        return;
+    }
+
+    // --- Acquire semantic label image ---
+    arcore::Image *semanticImage = nullptr;
+    if (_frame->acquireSemanticImage(&semanticImage) != arcore::ImageRetrievalStatus::Success
+        || semanticImage == nullptr) {
+        // Not yet available (normal for first few frames) — keep previous texture.
+        return;
+    }
+
+    int width  = semanticImage->getWidth();
+    int height = semanticImage->getHeight();
+    if (width <= 0 || height <= 0) { delete semanticImage; return; }
+
+    const uint8_t *rawLabel = nullptr;
+    int dataLength = 0;
+    semanticImage->getPlaneData(0, &rawLabel, &dataLength);
+    if (!rawLabel || dataLength <= 0) { delete semanticImage; return; }
+
+    // --- Acquire confidence image (always; used for alpha blend + optional threshold) ---
+    arcore::Image *confImage = nullptr;
+    const uint8_t *rawConf  = nullptr;
+    int confLength           = 0;
+    if (_frame->acquireSemanticConfidenceImage(&confImage) == arcore::ImageRetrievalStatus::Success
+        && confImage != nullptr
+        && confImage->getWidth() == width && confImage->getHeight() == height) {
+        confImage->getPlaneData(0, &rawConf, &confLength);
+        if (confLength != dataLength) rawConf = nullptr;
+    }
+
+    // --- Make mutable working copies ---
+    // labelData: temporal-smoothed labels; confData: paired per-pixel confidence.
+    std::vector<uint8_t> labelData(rawLabel, rawLabel + dataLength);
+    std::vector<uint8_t> confData(dataLength, 255); // default full confidence when unavailable
+    if (rawConf) {
+        std::copy(rawConf, rawConf + dataLength, confData.begin());
+    }
+
+    // --- CPU confidence threshold: mask low-confidence pixels to unlabeled ---
+    if (_semanticConfidenceThreshold > 0.0f && rawConf) {
+        uint8_t threshold = (uint8_t)(_semanticConfidenceThreshold * 255.0f);
+        for (int i = 0; i < dataLength; i++) {
+            if (confData[i] < threshold) {
+                labelData[i] = 0; // unlabeled
+            }
+        }
+    }
+
+    // --- Temporal holdout: suppress isolated label→unlabeled flicker ---
+    // When a pixel was labeled on the previous frame but reads unlabeled now,
+    // hold the previous label with a slightly decayed confidence. This eliminates
+    // single-frame drop-outs at segmentation boundaries without adding latency
+    // to genuine label changes (which remain unlabeled across multiple frames).
+    if ((int)_prevSemanticData.size() == dataLength) {
+        for (int i = 0; i < dataLength; i++) {
+            if (labelData[i] == 0 && _prevSemanticData[i] != 0) {
+                labelData[i] = _prevSemanticData[i];
+                // Decay confidence slightly to signal the holdout state.
+                confData[i]  = (uint8_t)(_prevConfidenceData[i] * 0.75f);
+            }
+        }
+    }
+
+    // Save smoothed buffers for the next frame.
+    _prevSemanticData   = labelData;
+    _prevConfidenceData = confData;
 
     delete semanticImage;
+    if (confImage) { delete confImage; }
+
+    // --- Upload label texture ---
+    uploadR8Texture(_semanticTexture, labelData.data(), dataLength, width, height, _driver);
+
+    // --- Upload confidence texture ---
+    uploadR8Texture(_semanticConfidenceTexture, confData.data(), dataLength, width, height, _driver);
 }

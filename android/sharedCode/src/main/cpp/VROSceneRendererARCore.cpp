@@ -287,6 +287,8 @@ void VROSceneRendererARCore::renderWithTracking(const std::shared_ptr<VROARCamer
 
     // Expose semantic segmentation texture to shader modifiers via 'semantic_texture' sampler
     _renderer->setSemanticTexture(_session->getSemanticTexture());
+    // Confidence texture for alpha-blend semantic masking (smooth edges at boundaries).
+    _renderer->setSemanticConfidenceTexture(_session->getSemanticConfidenceTexture());
     // Semantic texture is in camera image space (GL convention, y=0 bottom) — same transform
     // as camera background. No additional flip needed on Android.
     _semanticTextureTransform = frame->getViewportToCameraImageTransform();
