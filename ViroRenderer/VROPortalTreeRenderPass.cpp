@@ -170,7 +170,23 @@ void VROPortalTreeRenderPass::render(std::vector<tree<std::shared_ptr<VROPortal>
         // 2. It ensures that no objects at this level are drawn into any upper
         //    levels. An object at level 2 will not be drawn into an area
         //    belonging to level 1.
-        target->setPortalStencilPassFunction(VROFace::FrontAndBack, VROStencilFunc::LessOrEqual,
+        //
+        // Exception: when a direct child is an exit frame (camera is inside the portal
+        // looking back out), that child's stencil INCR is NOT decremented — its hole area
+        // retains stencil = recursionLevel+1. LessOrEqual ref=recursionLevel would pass
+        // for that elevated stencil (e.g. ref=0 ≤ stencil=1 = true) and render this
+        // portal's background into the hole, overwriting the AR world drawn there.
+        // Use Equal instead so this portal's content only renders where stencil ==
+        // recursionLevel (the non-hole area outside the exit frame opening).
+        bool anyChildIsExit = false;
+        for (const tree<std::shared_ptr<VROPortal>> &child : treeNode.children) {
+            if (child.value && child.value->isRenderingExitFrame()) {
+                anyChildIsExit = true;
+                break;
+            }
+        }
+        VROStencilFunc contentFunc = anyChildIsExit ? VROStencilFunc::Equal : VROStencilFunc::LessOrEqual;
+        target->setPortalStencilPassFunction(VROFace::FrontAndBack, contentFunc,
                                              portal->getRecursionLevel());
 
         // Disable AR occlusion for portal interior content. When depth-based occlusion is
@@ -203,18 +219,28 @@ void VROPortalTreeRenderPass::render(std::vector<tree<std::shared_ptr<VROPortal>
             // Remove the stencil for this portal (decrement its number). Ensures
             // side-by-side portals (portals with same recursion level) work correctly;
             // otherwise objects in one portal can "bleed" into the other portal.
-            pglpush("(-) Stencil");
-            _silhouetteMaterial->bindShader(0, {}, context, driver);
-            _silhouetteMaterial->bindProperties(driver);
-            
-            driver->setRenderTargetColorWritingMask(VROColorMaskNone);
-            target->enablePortalStencilRemoval(portalFrame->getActiveFace(isExit));
-            target->setPortalStencilPassFunction(portalFrame->getActiveFace(isExit), VROStencilFunc::LessOrEqual,
-                                                 portal->getRecursionLevel());
-            portal->renderPortalSilhouette(_silhouetteMaterial, VROSilhouetteMode::Textured, nullptr,
-                                           context, driver);
-            driver->unbindShader();
-            pglpop();
+            //
+            // Exception: when rendering an exit frame (camera is inside the portal looking
+            // back out), we do NOT decrement the stencil. After step C, the frame's hole
+            // area holds stencil=recursionLevel. If we decremented it back, the level-0
+            // portal's background (360° sphere) would render over the hole area and erase
+            // the AR world that was drawn there. By keeping the stencil elevated, level-0
+            // renders only where stencil ≤ 0 (non-hole area), so the AR world stays visible
+            // through the hole from inside.
+            if (!isExit) {
+                pglpush("(-) Stencil");
+                _silhouetteMaterial->bindShader(0, {}, context, driver);
+                _silhouetteMaterial->bindProperties(driver);
+
+                driver->setRenderTargetColorWritingMask(VROColorMaskNone);
+                target->enablePortalStencilRemoval(portalFrame->getActiveFace(isExit));
+                target->setPortalStencilPassFunction(portalFrame->getActiveFace(isExit), VROStencilFunc::LessOrEqual,
+                                                     portal->getRecursionLevel());
+                portal->renderPortalSilhouette(_silhouetteMaterial, VROSilhouetteMode::Textured, nullptr,
+                                               context, driver);
+                driver->unbindShader();
+                pglpop();
+            }
             
             // Finally, render the portal frame to the color and depth buffers. Note
             // we need to render the transparent section of the portal to the depth
