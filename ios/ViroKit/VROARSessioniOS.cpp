@@ -286,6 +286,17 @@ void VROARSessioniOS::updateTrackingType(VROTrackingType trackingType) {
     }
 #endif
 
+    // iOS 26 changed AVCapturePhotoOutput internals: ARKit's auto-selected video format
+    // can have maxPhotoDimensions not present in supportedMaxPhotoDimensions, causing an
+    // NSInvalidArgumentException in ARSession runWithConfiguration. Explicitly selecting
+    // the first format from supportedVideoFormats avoids the problematic auto-selection.
+    if (@available(iOS 26.0, *)) {
+      NSArray<ARVideoFormat *> *formats = ARWorldTrackingConfiguration.supportedVideoFormats;
+      if (formats.count > 0) {
+        config.videoFormat = formats.firstObject;
+      }
+    }
+
     _sessionConfiguration = config;
   }
 }
@@ -296,7 +307,20 @@ void VROARSessioniOS::run() {
   _delegateAR = [[VROARKitSessionDelegate alloc] initWithSession:shared];
   _session.delegate = _delegateAR;
 
-  [_session runWithConfiguration:_sessionConfiguration];
+  @try {
+    [_session runWithConfiguration:_sessionConfiguration];
+  } @catch (NSException *e) {
+    // iOS 26: ARKit can throw NSInvalidArgumentException during camera setup
+    // (AVCapturePhotoOutput maxPhotoDimensions not in supportedMaxPhotoDimensions).
+    // Fall back to running without an explicit videoFormat.
+    pinfo("ARSession runWithConfiguration threw %s: %s — retrying without videoFormat",
+          e.name.UTF8String, e.reason.UTF8String);
+    if ([_sessionConfiguration isKindOfClass:[ARWorldTrackingConfiguration class]]) {
+      ((ARWorldTrackingConfiguration *)_sessionConfiguration).videoFormat =
+          ARWorldTrackingConfiguration.supportedVideoFormats.lastObject;
+    }
+    [_session runWithConfiguration:_sessionConfiguration];
+  }
 
   // Apply pending geospatial mode if it was set before session started
   if (_needsGeospatialModeApply && _cloudAnchorProviderARCore) {
