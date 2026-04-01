@@ -46,6 +46,8 @@ std::shared_ptr<VROTexture> VROTextureReference::getGlobalTexture(const VRORende
             return context.getCameraBackgroundTexture();
         case VROGlobalTextureType::SemanticMap:
             return context.getSemanticTexture();
+        case VROGlobalTextureType::SemanticConfidence:
+            return context.getSemanticConfidenceTexture();
         default:
             pabort();
     }

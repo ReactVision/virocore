@@ -851,6 +851,9 @@ static inline VROMatrix4f viroGLConvTransform(VROMatrix4f t) {
     // Semantic texture: provided by ARCore SDK on iOS (ARCore/Semantics pod required).
     // Returns nullptr if semantic mode is not enabled or device/pod is unavailable.
     _renderer->setSemanticTexture(_arSession->getSemanticTexture());
+    // Confidence texture: iOS returns a 1×1 white fallback (hard edges); Android provides
+    // real per-pixel confidence for smooth alpha blend at segmentation boundaries.
+    _renderer->setSemanticConfidenceTexture(_arSession->getSemanticConfidenceTexture());
 
     _pointOfView->getCamera()->setPosition(position);
     _renderer->prepareFrame(_frame, viewport, fov, rotation, projection, _driver);

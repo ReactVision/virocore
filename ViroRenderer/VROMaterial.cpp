@@ -417,15 +417,24 @@ void VROMaterial::applySemanticMaskModifier() {
     // - lines starting with "uniform " → uniforms section
     // - other lines → body section
     //
-    // semantic_texture   : R8 texture; each texel = VROSemanticLabel value (0-11).
-    // semantic_mask_mode : 0 = ShowOnly (discard if label NOT in mask)
-    //                      1 = Hide    (discard if label IS in mask)
-    // semantic_label_mask: bitmask float; bit N = label N is selected.
+    // semantic_texture           : R8 label texture; each texel = VROSemanticLabel value (0-11).
+    // semantic_confidence_texture: R8 confidence texture; 0=uncertain, 1=certain (after /255).
+    // semantic_mask_mode : 0 = ShowOnly  — keep fragments where label IS in mask
+    //                      1 = Hide      — keep fragments where label is NOT in mask
+    //                      2 = Debug     — colorise by label (no masking)
+    // semantic_label_mask: bitmask float; bit N set → label N is selected.
     // ar_viewport_size   : always-available built-in (vec3, xy = width/height in pixels).
+    //
+    // Alpha-blend approach (replaces discard):
+    //   ShowOnly: alpha *= conf  when matched, alpha *= 0 otherwise
+    //   Hide:     alpha *= 0     when matched, alpha *= 1 otherwise
+    //             (matched boundary pixels get alpha = 1-conf, giving soft hide edges)
+    // The material's default VROBlendMode::Alpha handles the compositing.
     std::vector<std::string> lines = {
-        // parseCustomUniforms sees "uniform sampler2D" and places semantic_texture in
-        // _modifierSamplers; loadTextures() second loop binds it to VROGlobalTextureType::SemanticMap.
+        // parseCustomUniforms sees "uniform sampler2D" and places each sampler in
+        // _modifierSamplers; loadTextures() binds them to the matching VROGlobalTextureType.
         "uniform sampler2D semantic_texture;",
+        "uniform sampler2D semantic_confidence_texture;",
         // ar_viewport_size and ar_semantic_texture_transform are base program uniforms
         // (VROShaderProgram::addUniform) bound unconditionally each frame.
         // ar_semantic_texture_transform = getViewportToCameraImageTransform() in GL convention
@@ -434,19 +443,27 @@ void VROMaterial::applySemanticMaskModifier() {
         "uniform highp mat4 ar_semantic_texture_transform;",
         "uniform highp float semantic_mask_mode;",
         "uniform highp float semantic_label_mask;",
-        // No Y-flip: gl_FragCoord is GL-convention (y=0 bottom), same as ar_semantic_texture_transform.
+        // Compute shared UV once. No Y-flip: gl_FragCoord and the transform are both GL-convention.
         "highp vec2 semUV = (ar_semantic_texture_transform * vec4(gl_FragCoord.xy / ar_viewport_size.xy, 0.0, 1.0)).xy;",
         "highp float label_raw = texture(semantic_texture, semUV).r * 255.0;",
         "int semLabel = int(floor(label_raw + 0.5));",
         "bool semMatches = (semLabel >= 1 && semLabel <= 11 && (int(semantic_label_mask) & (1 << semLabel)) != 0);",
-        // Debug mode (semantic_mask_mode == 2): color by label instead of discarding.
-        // Blue = unlabeled (texture null/zero), teal→orange gradient = classified pixels.
+        // Debug mode (semantic_mask_mode == 2): colorise by label for overlay visualisation.
+        // Blue = unlabeled, teal→orange gradient = classified pixels (fully opaque).
         "if (semantic_mask_mode >= 1.5) {",
         "    highp float t = label_raw / 11.0;",
         "    _output_color = vec4(t, float(semLabel > 0) * 0.8, 1.0 - t, 1.0);",
         "} else {",
-        "    bool semDiscard = (semantic_mask_mode < 0.5) ? !semMatches : semMatches;",
-        "    if (semDiscard) { discard; }",
+        // Confidence value from texture [0,1]. Used as alpha weight for soft edges.
+        // On iOS (no platform confidence) the texture is 1x1 white → conf = 1.0 → hard edges.
+        "    highp float conf = texture(semantic_confidence_texture, semUV).r;",
+        // ShowOnly (mode=0): show matched pixels with weight = conf; hide everything else.
+        // Hide (mode=1): hide matched pixels; show others at full opacity.
+        "    if (semantic_mask_mode < 0.5) {",
+        "        _output_color.a *= semMatches ? conf : 0.0;",
+        "    } else {",
+        "        _output_color.a *= semMatches ? (1.0 - conf) : 1.0;",
+        "    }",
         "}"
     };
 

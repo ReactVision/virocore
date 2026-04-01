@@ -348,6 +348,12 @@ void VRORenderer::setSemanticTexture(std::shared_ptr<VROTexture> texture) {
     }
 }
 
+void VRORenderer::setSemanticConfidenceTexture(std::shared_ptr<VROTexture> texture) {
+    if (_context) {
+        _context->setSemanticConfidenceTexture(texture);
+    }
+}
+
 void VRORenderer::setCameraImageTransform(VROMatrix4f transform) {
     if (_context) {
         _context->setCameraImageTransform(transform);
