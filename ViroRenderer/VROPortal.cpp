@@ -33,6 +33,7 @@
 #include "VROBoundingBox.h"
 #include "VROPortalFrame.h"
 #include "VROShaderModifier.h"
+#include "VROSemantics.h"
 
 // Parameters for sphere backgrounds
 static const float kSphereBackgroundRadius = 1;
@@ -389,6 +390,73 @@ void VROPortal::removeBackground() {
     passert_thread(__func__);
     _background->getMaterials().front()->removeShaderModifier(sBackgroundShaderModifier);
     _background.reset();
+}
+
+#pragma mark - Sky Effect
+
+void VROPortal::setSkyEffectBackground(std::shared_ptr<VROTexture> texture) {
+    passert_thread(__func__);
+
+    // Remove previous sky effect node if present
+    if (_skyEffectNode) {
+        _skyEffectNode->removeFromParentNode();
+        _skyEffectNode = nullptr;
+    }
+
+    // Create sphere geometry (same radius/segments as the normal background sphere)
+    std::shared_ptr<VROGeometry> sphere = VROSphere::createSphere(kSphereBackgroundRadius,
+                                                                   kSphereBackgroundNumSegments,
+                                                                   kSphereBackgroundNumSegments,
+                                                                   false);
+    sphere->setCameraEnclosure(true);
+    sphere->setName("SkyEffectSphere");
+
+    std::shared_ptr<VROMaterial> material = sphere->getMaterials().front();
+    material->setLightingModel(VROLightingModel::Constant);
+    material->getDiffuse().setTexture(texture);
+    material->setWritesToDepthBuffer(false);
+    material->setReadsFromDepthBuffer(true);
+    material->setNeedsToneMapping(false);
+    // Alpha blending so the confidence-weighted mask fades at sky boundaries
+    material->setBlendMode(VROBlendMode::Alpha);
+
+    // Semantic mask: ShowOnlySky (label 1 = Sky).
+    // ShowOnlySky extends ShowOnly with asymmetric unlabeled handling: unlabeled pixels in
+    // the upper screen half show the sphere (sky context), lower half hide it (ground context).
+    // This covers the ~12% top/bottom strips where ARCore returns label=0 at image boundaries.
+    // Set mode and mask BEFORE enabling — setSemanticMaskEnabled(true) calls
+    // applySemanticMaskModifier() which captures the current mask/mode values
+    // into shader uniform lambdas. Calling setSemanticLabelMask() afterwards
+    // would not update the already-captured lambda.
+    material->setSemanticMaskMode(VROSemanticMaskMode::ShowOnlySky);
+    material->setSemanticLabelMask(1u << static_cast<int>(VROSemanticLabel::Sky));
+    material->setSemanticMaskEnabled(true);
+
+    // Depth trick: push to NDC depth=0.9999 so 3D content (depth < 0.9999) renders on top
+    if (!sPortalBackgroundShaderModifier) {
+        std::vector<std::string> modifierCode = {
+            "_vertex.position = _vertex.position.xyww;",
+            "_vertex.position.z = _vertex.position.w * 0.9999;"
+        };
+        sPortalBackgroundShaderModifier = std::make_shared<VROShaderModifier>(VROShaderEntryPoint::Vertex,
+                                                                               modifierCode);
+        sPortalBackgroundShaderModifier->setName("portal_background");
+    }
+    material->addShaderModifier(sPortalBackgroundShaderModifier);
+
+    // Wrap in a node and attach as a child of this portal
+    _skyEffectNode = std::make_shared<VRONode>();
+    _skyEffectNode->setGeometry(sphere);
+    _skyEffectNode->setName("SkyEffectNode");
+    addChildNode(_skyEffectNode);
+}
+
+void VROPortal::removeSkyEffectBackground() {
+    passert_thread(__func__);
+    if (_skyEffectNode) {
+        _skyEffectNode->removeFromParentNode();
+        _skyEffectNode = nullptr;
+    }
 }
 
 #pragma mark - Intersection

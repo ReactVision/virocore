@@ -177,6 +177,32 @@ VRO_METHOD(void, nativeSetBackgroundCubeWithColor)(VRO_ARGS
     });
 }
 
+VRO_METHOD(void, nativeSetSkyEffectTexture)(VRO_ARGS
+                                            VRO_REF(VROPortal) portal_j,
+                                            VRO_REF(VROTexture) texture_j) {
+    std::weak_ptr<VROPortal> portal_w = VRO_REF_GET(VROPortal, portal_j);
+    std::weak_ptr<VROTexture> texture_w = VRO_REF_GET(VROTexture, texture_j);
+
+    VROPlatformDispatchAsyncRenderer([portal_w, texture_w] {
+        std::shared_ptr<VROPortal> portal = portal_w.lock();
+        std::shared_ptr<VROTexture> texture = texture_w.lock();
+        if (portal && texture) {
+            portal->setSkyEffectBackground(texture);
+        }
+    });
+}
+
+VRO_METHOD(void, nativeRemoveSkyEffect)(VRO_ARGS
+                                        VRO_REF(VROPortal) portal_j) {
+    std::weak_ptr<VROPortal> portal_w = VRO_REF_GET(VROPortal, portal_j);
+    VROPlatformDispatchAsyncRenderer([portal_w] {
+        std::shared_ptr<VROPortal> portal = portal_w.lock();
+        if (portal) {
+            portal->removeSkyEffectBackground();
+        }
+    });
+}
+
 VRO_METHOD(void, nativeSetLightingEnvironment)(VRO_ARGS
                                                VRO_REF(VROPortal) portal_j,
                                                VRO_REF(VROTexture) texture_j) {

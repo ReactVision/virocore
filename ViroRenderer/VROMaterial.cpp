@@ -445,26 +445,50 @@ void VROMaterial::applySemanticMaskModifier() {
         "uniform highp float semantic_label_mask;",
         // Compute shared UV once. No Y-flip: gl_FragCoord and the transform are both GL-convention.
         "highp vec2 semUV = (ar_semantic_texture_transform * vec4(gl_FragCoord.xy / ar_viewport_size.xy, 0.0, 1.0)).xy;",
-        "highp float label_raw = texture(semantic_texture, semUV).r * 255.0;",
-        "int semLabel = int(floor(label_raw + 0.5));",
-        "bool semMatches = (semLabel >= 1 && semLabel <= 11 && (int(semantic_label_mask) & (1 << semLabel)) != 0);",
+        // Clamp inward by a small margin to skip the 1-2 pixel unlabeled border that ARCore's
+        // neural network outputs at the left/right edges of the landscape image. In portrait mode
+        // those edges map to thin horizontal lines at the top/bottom of the viewport. Without the
+        // clamp those border pixels (label=0) cut the sky effect with a transparent stripe.
+        // 0.005 ≈ half a pixel on a 192-px-tall semantic texture; harmless for center content.
+        "semUV = clamp(semUV, vec2(0.005), vec2(0.995));",
+        "bool semInBounds = (semUV.x >= 0.0 && semUV.x <= 1.0 && semUV.y >= 0.0 && semUV.y <= 1.0);",
+        "if (semInBounds) {",
+        "    highp float label_raw = texture(semantic_texture, semUV).r * 255.0;",
+        "    int semLabel = int(floor(label_raw + 0.5));",
+        "    bool semMatches = (semLabel >= 1 && semLabel <= 11 && (int(semantic_label_mask) & (1 << semLabel)) != 0);",
         // Debug mode (semantic_mask_mode == 2): colorise by label for overlay visualisation.
         // Blue = unlabeled, teal→orange gradient = classified pixels (fully opaque).
-        "if (semantic_mask_mode >= 1.5) {",
-        "    highp float t = label_raw / 11.0;",
-        "    _output_color = vec4(t, float(semLabel > 0) * 0.8, 1.0 - t, 1.0);",
-        "} else {",
+        "    if (semantic_mask_mode >= 1.5 && semantic_mask_mode < 2.5) {",
+        "        highp float t = label_raw / 11.0;",
+        "        _output_color = vec4(t, float(semLabel > 0) * 0.8, 1.0 - t, 1.0);",
+        "    } else {",
         // Confidence value from texture [0,1]. Used as alpha weight for soft edges.
         // On iOS (no platform confidence) the texture is 1x1 white → conf = 1.0 → hard edges.
-        "    highp float conf = texture(semantic_confidence_texture, semUV).r;",
+        "        highp float conf = texture(semantic_confidence_texture, semUV).r;",
         // ShowOnly (mode=0): show matched pixels with weight = conf; hide everything else.
         // Hide (mode=1): hide matched pixels; show others at full opacity.
-        "    if (semantic_mask_mode < 0.5) {",
-        "        _output_color.a *= semMatches ? conf : 0.0;",
-        "    } else {",
-        "        _output_color.a *= semMatches ? (1.0 - conf) : 1.0;",
+        // ShowOnlySky (mode=3): like ShowOnly, but unlabeled pixels use viewport Y as a proxy
+        //   for sky context — upper half of screen shows sphere, lower half hides it. This
+        //   handles the ~10-15% border of the ARCore semantic image where the neural network
+        //   returns label=0 even though the camera sees real sky (or real ground). Regular
+        //   ShowOnly (mode=0) is unchanged so other semantic mask uses are not affected.
+        "        if (semantic_mask_mode < 0.5) {",
+        "            _output_color.a *= semMatches ? conf : 0.0;",
+        "        } else if (semantic_mask_mode > 2.5) {",
+        "            if (semMatches) {",
+        "                _output_color.a *= conf;",
+        "            } else if (semLabel == 0) {",
+        "                highp float normY = gl_FragCoord.y / ar_viewport_size.y;",
+        "                _output_color.a *= (normY > 0.5) ? 1.0 : 0.0;",
+        "            } else {",
+        "                _output_color.a *= 0.0;",
+        "            }",
+        "        } else {",
+        "            _output_color.a *= semMatches ? (1.0 - conf) : 1.0;",
+        "        }",
         "    }",
         "}"
+        // semInBounds == false: no semantic data available for this pixel → pass through unchanged.
     };
 
     _semanticMaskModifier = std::make_shared<VROShaderModifier>(
