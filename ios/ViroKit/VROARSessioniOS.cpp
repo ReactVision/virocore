@@ -2640,11 +2640,12 @@ std::shared_ptr<VROTexture> VROARSessioniOS::getSemanticConfidenceTexture() {
   if (!_defaultConfidenceTexture) {
     static const uint8_t white = 255;
     auto data = std::make_shared<VROData>((void *)&white, 1, VRODataOwnership::Copy);
+    std::vector<std::shared_ptr<VROData>> dataVec{ data };
+    std::vector<uint32_t> mipSizes;
     _defaultConfidenceTexture = std::make_shared<VROTexture>(
         VROTextureType::Texture2D, VROTextureFormat::R8, VROTextureInternalFormat::R8,
         false, VROMipmapMode::None,
-        std::vector<std::shared_ptr<VROData>>{ data },
-        1, 1, std::vector<uint32_t>());
+        dataVec, 1, 1, mipSizes);
     _defaultConfidenceTexture->setMinificationFilter(VROFilterMode::Nearest);
     _defaultConfidenceTexture->setMagnificationFilter(VROFilterMode::Nearest);
     _defaultConfidenceTexture->setWrapS(VROWrapMode::Clamp);

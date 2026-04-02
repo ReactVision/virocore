@@ -2669,11 +2669,12 @@ static void uploadR8Texture(std::shared_ptr<VROTexture> &texture,
                              std::weak_ptr<VRODriver> driverWeak) {
     if (!texture || texture->getWidth() != width || texture->getHeight() != height) {
         auto vData = std::make_shared<VROData>((void *)data, dataLength, VRODataOwnership::Copy);
+        std::vector<std::shared_ptr<VROData>> dataVec{ vData };
+        std::vector<uint32_t> mipSizes;
         texture = std::make_shared<VROTexture>(
             VROTextureType::Texture2D, VROTextureFormat::R8, VROTextureInternalFormat::R8,
             false, VROMipmapMode::None,
-            std::vector<std::shared_ptr<VROData>>{ vData },
-            width, height, std::vector<uint32_t>());
+            dataVec, width, height, mipSizes);
         texture->setMinificationFilter(VROFilterMode::Nearest);
         texture->setMagnificationFilter(VROFilterMode::Nearest);
         texture->setWrapS(VROWrapMode::Clamp);

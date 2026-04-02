@@ -262,6 +262,27 @@ public class PortalScene extends Node {
         return mLightingEnvironment;
     }
 
+    /**
+     * Set the sky-effect background for this PortalScene. The provided {@link Texture} will
+     * be rendered as a sphere that is only visible over pixels semantically labeled as sky by
+     * ARCore scene semantics. The sphere uses alpha blending via the confidence texture for
+     * smooth sky/non-sky boundary transitions.
+     * <p>
+     * Requires ARCore scene semantics to be enabled on the AR session.
+     *
+     * @param texture The spherical {@link Texture} to display over sky pixels.
+     */
+    public void setSkyEffectTexture(Texture texture) {
+        nativeSetSkyEffectTexture(mNativeRef, texture.mNativeRef);
+    }
+
+    /**
+     * Remove the sky-effect background previously set via {@link #setSkyEffectTexture(Texture)}.
+     */
+    public void removeSkyEffect() {
+        nativeRemoveSkyEffect(mNativeRef);
+    }
+
     private native long nativeCreatePortalScene();
     private native long nativeCreatePortalDelegate();
     private native long nativeDestroyPortalScene(long nativeRef);
@@ -275,6 +296,8 @@ public class PortalScene extends Node {
     private native long nativeAttachDelegate(long nativeRef, long delegateRef);
     private native void nativeSetPassable(long nativeRef, boolean passable);
     private native void nativeSetPortalEntrance(long nativeRef, long portalNativeRef);
+    private native void nativeSetSkyEffectTexture(long nativeRef, long textureRef);
+    private native void nativeRemoveSkyEffect(long nativeRef);
 
     /*
      Invoked from JNI.
