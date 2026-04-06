@@ -1126,18 +1126,18 @@ void VROARSessionARCore::processUpdatedAnchors(VROARFrameARCore *frameAR) {
       if (imageIsTracked) {
         auto it = _nativeAnchorMap.find(key);
 
-        // Old image tracking target: update it
+        // Old image tracking target: update tracking method and imageAnchor pose.
+        // Position sync for the scene node is handled by the per-frame sync loop below,
+        // which ensures updates happen every frame regardless of getUpdatedTrackables.
         if (it != _nativeAnchorMap.end()) {
           std::shared_ptr<VROARAnchorARCore> vAnchor = it->second;
           std::shared_ptr<VROARImageAnchor> imageAnchor =
               std::dynamic_pointer_cast<VROARImageAnchor>(
                   vAnchor->getTrackable());
 
-          if (vAnchor) {
+          if (imageAnchor) {
             imageAnchor->setTrackingMethod(trackingMethod);
             syncImageAnchorWithARCore(imageAnchor, image);
-            vAnchor->sync();
-            updateAnchor(vAnchor);
           } else {
             pwarn("Anchor processing error: expected to find an image anchor");
           }
@@ -1202,6 +1202,27 @@ void VROARSessionARCore::processUpdatedAnchors(VROARFrameARCore *frameAR) {
       }
     }
     delete (imageList);
+
+    // Per-frame position sync for all active image anchors.
+    //
+    // ARCore updates the ArAnchor pose on every ArSession_update() for anchors attached to
+    // trackables — regardless of whether the image appears in getUpdatedTrackables() that
+    // frame. By syncing here we guarantee the scene node is always at the current world-space
+    // pose of the image, not just on frames where ARCore happens to report the trackable as
+    // "updated".
+    for (auto& entry : _nativeAnchorMap) {
+      std::shared_ptr<VROARAnchorARCore> vAnchor = entry.second;
+      if (!vAnchor || !vAnchor->isManaged() || !vAnchor->getARNode()) {
+        continue;
+      }
+      std::shared_ptr<VROARImageAnchor> imageAnchor =
+          std::dynamic_pointer_cast<VROARImageAnchor>(vAnchor->getTrackable());
+      if (!imageAnchor) {
+        continue;
+      }
+      vAnchor->sync();
+      updateAnchor(vAnchor);
+    }
   }
 
   delete (anchorList);
