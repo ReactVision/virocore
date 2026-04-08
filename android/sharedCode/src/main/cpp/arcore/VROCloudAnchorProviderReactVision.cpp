@@ -47,6 +47,7 @@ public:
         ReactVisionCCA::RVCCACloudAnchorProvider::Config cfg;
         cfg.apiKey    = apiKey;
         cfg.projectId = projectId;
+        if (!endpoint.empty()) cfg.endpoint = endpoint;
 
         // ARCore feature points have much lower confidence values than ARKit (typically
         // 0.1–0.5 vs 0.8–1.0). The default minPointConfidence of 0.5 discards the

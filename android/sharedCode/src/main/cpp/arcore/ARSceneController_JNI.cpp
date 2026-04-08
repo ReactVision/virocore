@@ -922,6 +922,29 @@ VRO_METHOD(void, nativeRvGetSceneAssets)(VRO_ARGS
     });
 }
 
+VRO_METHOD(void, nativeRvGetScene)(VRO_ARGS
+                                    VRO_REF(VROARSceneController) arSceneControllerPtr,
+                                    jstring key_j,
+                                    jstring sceneId_j) {
+    std::string keyStr     = VRO_STRING_STL(key_j);
+    std::string sceneIdStr = VRO_STRING_STL(sceneId_j);
+    std::weak_ptr<VROARScene> arScene_w = std::dynamic_pointer_cast<VROARScene>(
+        VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
+    VRO_WEAK weakObj = VRO_NEW_WEAK_GLOBAL_REF(obj);
+    VROPlatformDispatchAsyncRenderer([arScene_w, weakObj, keyStr, sceneIdStr] {
+        std::shared_ptr<VROARScene> arScene = arScene_w.lock();
+        std::shared_ptr<VROARSession> arSession = arScene ? arScene->getARSession() : nullptr;
+        if (!arSession) {
+            rvFireCloudResult(weakObj, keyStr, false, "", "AR session not available");
+            return;
+        }
+        arSession->rvGetScene(sceneIdStr,
+            [weakObj, keyStr](bool success, std::string jsonData, std::string error) {
+                rvFireCloudResult(weakObj, keyStr, success, jsonData, error);
+            });
+    });
+}
+
 VRO_METHOD(void, nativeResetPointCloudSurface)(VRO_ARGS
                                                VRO_REF(VROARSceneController) arSceneControllerPtr) {
     std::weak_ptr<VROARScene> arScene_w = std::dynamic_pointer_cast<VROARScene>(
@@ -1465,22 +1488,24 @@ VRO_METHOD(void, nativeResolveCloudAnchor)(VRO_ARGS
 VRO_METHOD(void, nativeSetReactVisionConfig)(VRO_ARGS
                                              VRO_REF(VROARSceneController) sceneController_j,
                                              VRO_STRING apiKey_j,
-                                             VRO_STRING projectId_j) {
+                                             VRO_STRING projectId_j,
+                                             VRO_STRING endpoint_j) {
     VRO_METHOD_PREAMBLE;
 
     std::string apiKey    = VRO_STRING_STL(apiKey_j);
     std::string projectId = VRO_STRING_STL(projectId_j);
+    std::string endpoint  = VRO_STRING_STL(endpoint_j);
 
     std::weak_ptr<VROARScene> scene_w = std::dynamic_pointer_cast<VROARScene>(
             VRO_REF_GET(VROARSceneController, sceneController_j)->getScene());
 
-    VROPlatformDispatchAsyncRenderer([scene_w, apiKey, projectId] {
+    VROPlatformDispatchAsyncRenderer([scene_w, apiKey, projectId, endpoint] {
         std::shared_ptr<VROARScene> scene = scene_w.lock();
         if (!scene) return;
         std::shared_ptr<VROARSessionARCore> session =
             std::dynamic_pointer_cast<VROARSessionARCore>(scene->getARSession());
         if (!session) return;
-        session->setReactVisionConfig(apiKey, projectId);
+        session->setReactVisionConfig(apiKey, projectId, endpoint);
     });
 }
 

@@ -527,10 +527,11 @@ void VROARSessioniOS::setCloudAnchorProvider(VROCloudAnchorProvider provider) {
     // Initialize ReactVision cloud anchor provider; reads credentials from Info.plist
     NSString *apiKey    = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"RVApiKey"];
     NSString *projectId = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"RVProjectId"];
+    NSString *endpoint  = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"RVEndpoint"];
     if (apiKey.length && projectId.length) {
       if (_cloudAnchorProviderRV == nil) {
         _cloudAnchorProviderRV = [[VROCloudAnchorProviderReactVision alloc]
-            initWithApiKey:apiKey projectId:projectId endpoint:nil];
+            initWithApiKey:apiKey projectId:projectId endpoint:endpoint];
         if (_cloudAnchorProviderRV) {
           pinfo("ReactVision Cloud Anchor provider initialized successfully");
         } else {
@@ -545,6 +546,7 @@ void VROARSessioniOS::setCloudAnchorProvider(VROCloudAnchorProvider provider) {
         ReactVisionCCA::RVCCAGeospatialProvider::Config cfg;
         cfg.apiKey    = std::string([apiKey UTF8String]);
         cfg.projectId = std::string([projectId UTF8String]);
+        if (endpoint.length) cfg.endpoint = std::string([endpoint UTF8String]);
         _rvGeoProjectId = cfg.projectId;
         _geospatialProviderRV = std::make_shared<ReactVisionCCA::RVCCAGeospatialProvider>(cfg);
         pinfo("ReactVision Geospatial provider initialized via setCloudAnchorProvider");
@@ -2501,6 +2503,24 @@ void VROARSessioniOS::rvTrackCloudAnchorResolution(
   }
 #endif
   if (callback) callback(false, "ReactVision cloud anchor provider not available");
+}
+
+void VROARSessioniOS::rvGetScene(
+    const std::string& sceneId,
+    std::function<void(bool, std::string, std::string)> callback) {
+#if RVCCA_AVAILABLE
+  auto p = [_cloudAnchorProviderRV cppProvider];
+  if (p) {
+    p->getScene(sceneId,
+        [callback](ReactVisionCCA::ApiResult<std::string> r) {
+      if (callback) {
+        callback(r.success, r.data, r.success ? "" : r.error.message);
+      }
+    });
+    return;
+  }
+#endif
+  if (callback) callback(false, "", "ReactVision cloud anchor provider not available");
 }
 
 void VROARSessioniOS::rvGetSceneAssets(

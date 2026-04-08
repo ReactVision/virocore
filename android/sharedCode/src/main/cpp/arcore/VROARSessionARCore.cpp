@@ -279,9 +279,11 @@ bool VROARSessionARCore::setAnchorDetection(
 }
 
 void VROARSessionARCore::setReactVisionConfig(const std::string &apiKey,
-                                              const std::string &projectId) {
+                                              const std::string &projectId,
+                                              const std::string &endpoint) {
   _rvApiKey    = apiKey;
   _rvProjectId = projectId;
+  _rvEndpoint  = endpoint;
   // Credentials supplied — activate the ReactVision cloud anchor provider.
   setCloudAnchorProvider(VROCloudAnchorProvider::ReactVision);
 #if RVCCA_AVAILABLE
@@ -292,6 +294,7 @@ void VROARSessionARCore::setReactVisionConfig(const std::string &apiKey,
     ReactVisionCCA::RVCCAGeospatialProvider::Config cfg;
     cfg.apiKey    = _rvApiKey;
     cfg.projectId = _rvProjectId;
+    if (!_rvEndpoint.empty()) cfg.endpoint = _rvEndpoint;
     _geospatialProviderRV = std::make_shared<ReactVisionCCA::RVCCAGeospatialProvider>(cfg);
     pinfo("VROARSessionARCore: ReactVision Geospatial provider initialized");
   }
@@ -311,7 +314,7 @@ void VROARSessionARCore::setCloudAnchorProvider(
     // renderer-task batch.
     if (!_cloudAnchorProviderRV && !_rvApiKey.empty() && !_rvProjectId.empty()) {
       _cloudAnchorProviderRV = std::make_shared<VROCloudAnchorProviderReactVision>(
-          shared_from_this(), _rvApiKey, _rvProjectId);
+          shared_from_this(), _rvApiKey, _rvProjectId, _rvEndpoint);
       // Improvement 1 + 6B: register as frame listener so onFrameDidRender()
       // drives multi-frame host accumulation and resolve localization.
       if (_synchronizer) {
@@ -2495,6 +2498,26 @@ void VROARSessionARCore::rvTrackCloudAnchorResolution(
     }
 #endif
     if (callback) callback(false, "ReactVision cloud anchor provider not available");
+}
+
+void VROARSessionARCore::rvGetScene(
+    const std::string& sceneId,
+    std::function<void(bool, std::string, std::string)> callback) {
+#if RVCCA_AVAILABLE
+    if (_cloudAnchorProviderRV) {
+        auto p = _cloudAnchorProviderRV->getProvider();
+        if (p) {
+            p->getScene(sceneId,
+                [callback](ReactVisionCCA::ApiResult<std::string> r) {
+                if (callback) {
+                    callback(r.success, r.data, r.success ? "" : r.error.message);
+                }
+            });
+            return;
+        }
+    }
+#endif
+    if (callback) callback(false, "", "ReactVision cloud anchor provider not available");
 }
 
 void VROARSessionARCore::rvGetSceneAssets(
