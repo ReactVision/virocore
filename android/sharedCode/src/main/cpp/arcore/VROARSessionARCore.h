@@ -82,7 +82,8 @@ public:
      Must be called before setCloudAnchorProvider(ReactVision).
      Reads RVApiKey / RVProjectId from AndroidManifest meta-data if not called.
      */
-    void setReactVisionConfig(const std::string &apiKey, const std::string &projectId);
+    void setReactVisionConfig(const std::string &apiKey, const std::string &projectId,
+                              const std::string &endpoint = "");
 
     /*
      Update the cached GPS pose used by getCameraGeospatialPose() when the
@@ -224,6 +225,8 @@ public:
         double confidence, int matchCount, int inlierCount, int processingTimeMs,
         const std::string& platform, const std::string& externalUserId,
         std::function<void(bool, std::string)> callback) override;
+    void rvGetScene(const std::string& sceneId,
+        std::function<void(bool, std::string, std::string)> callback) override;
     void rvGetSceneAssets(const std::string& sceneId,
         std::function<void(bool, std::string, std::string)> callback) override;
 
@@ -369,6 +372,7 @@ private:
     std::shared_ptr<VROCloudAnchorProviderReactVision> _cloudAnchorProviderRV;
     std::string _rvApiKey;
     std::string _rvProjectId;
+    std::string _rvEndpoint;
 
     /*
      Manages geospatial anchors via ReactVision backend.
