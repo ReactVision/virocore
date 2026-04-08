@@ -297,6 +297,7 @@ private:
     ReactVisionCCA::RVCCACloudAnchorProvider::Config cfg;
     cfg.apiKey    = apiKey.UTF8String;
     cfg.projectId = projectId.UTF8String;
+    if (endpoint.length) cfg.endpoint = endpoint.UTF8String;
     cfg.enableLogging = YES;  // DEBUG: enable to trace SIFT pipeline
 
     try {

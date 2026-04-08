@@ -528,6 +528,7 @@ void VROARSessioniOS::setCloudAnchorProvider(VROCloudAnchorProvider provider) {
     NSString *apiKey    = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"RVApiKey"];
     NSString *projectId = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"RVProjectId"];
     NSString *endpoint  = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"RVEndpoint"];
+
     if (apiKey.length && projectId.length) {
       if (_cloudAnchorProviderRV == nil) {
         _cloudAnchorProviderRV = [[VROCloudAnchorProviderReactVision alloc]
