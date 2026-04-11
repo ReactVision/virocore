@@ -1,0 +1,197 @@
+// ViroKit-visionOS.xcconfig
+// Build settings applied by build_visionos.sh when archiving for xros / xrsimulator.
+//
+// Strategy: exclude iOS-only source files from the xros compilation unit.
+// VRODriverVisionOS (in VisionOS/ subdirectory) provides Metal-only replacements.
+// No source files are modified — the exclusions live entirely here.
+
+// ── SDK / deployment ──────────────────────────────────────────────────────────
+SDKROOT = xros
+SUPPORTED_PLATFORMS = xros xrsimulator
+XROS_DEPLOYMENT_TARGET = 1.0
+TARGETED_DEVICE_FAMILY = 7
+
+// ── Metal-only path ───────────────────────────────────────────────────────────
+// VRODefines.h defaults VRO_METAL=0; we force it on for visionOS.
+OTHER_CFLAGS = $(inherited) -DVRO_METAL=1
+
+// ── Linker ────────────────────────────────────────────────────────────────────
+// The Xcode project hard-links -lGVRAudioSDK (iOS-only pod).
+// Override for xros to avoid "library not found" linker errors.
+OTHER_LDFLAGS[sdk=xros*] =
+
+// Library search paths for xros: the project only defines iphoneos*/iphonesimulator*
+// variants, so nothing is inherited for xros. Point to the arm64 static libs.
+// These were compiled for iOS arm64 but contain only ARM64 object code and link fine
+// for visionOS (same ISA). We add -Wl,-w to suppress platform-mismatch warnings.
+LIBRARY_SEARCH_PATHS[sdk=xros*] = $(inherited) "$(PROJECT_DIR)/Libraries/freetype/armv7_arm64" "$(PROJECT_DIR)/Libraries/protobuf/armv7_arm64" "$(PROJECT_DIR)/Libraries/bullet/armv7_arm64" "$(PROJECT_DIR)/Libraries/harfbuzz/armv7_arm64" "$(PROJECT_DIR)/Libraries/reactvisioncca/arm64"
+
+// Stub frameworks for iOS-only system frameworks that appear in the Frameworks
+// build phase but are unavailable on visionOS. The stubs export zero symbols so
+// the linker is satisfied; no runtime dependency is added.
+FRAMEWORK_SEARCH_PATHS[sdk=xros*] = $(inherited) "$(SRCROOT)/Stubs"
+
+// GoogleUtilities (pulled in by ARCore) has functions that don't return on visionOS
+// code paths because it checks TARGET_OS_IOS/TVOS/OSX but not TARGET_OS_VISION.
+// ARCore is iOS-only and unused on xros — suppress the error so the build proceeds.
+OTHER_CFLAGS[sdk=xros*] = $(inherited) -Wno-return-type
+
+// ── Header search paths ───────────────────────────────────────────────────────
+// ViroKit/ files include each other by basename (e.g. "VROAudioPlayeriOS.h"),
+// so the ViroKit source directory must be in the search path.
+HEADER_SEARCH_PATHS = $(inherited) "$(SRCROOT)/ViroKit" "$(SRCROOT)/ViroKit/VisionOS"
+
+// ── Excluded iOS-only sources ─────────────────────────────────────────────────
+// These files use OpenGL ES, GLKit, AVFoundation camera, or iOS ARKit APIs
+// that do not exist on visionOS.  VRODriverVisionOS provides Metal replacements.
+//
+// Format: space-separated basenames (or glob patterns) — no directory prefix.
+
+EXCLUDED_SOURCE_FILE_NAMES[sdk=xros*] = \
+    VRODisplayOpenGLiOS.h \
+    VRODisplayOpenGLiOS.cpp \
+    VRODisplayOpenGLGVR.h \
+    VRODriverOpenGLiOS.h \
+    VRODriverOpenGLiOS.cpp \
+    VROVideoTextureCacheOpenGL.h \
+    VROVideoTextureCacheOpenGL.cpp \
+    VRODistortionRenderer.h \
+    VRODistortionRenderer.cpp \
+    VROViewScene.h \
+    VROViewScene.mm \
+    VROViewAR.h \
+    VROViewAR.mm \
+    VROViewMetal.h \
+    VROViewMetal.m \
+    VROViewRecorder.h \
+    VROViewRecorder.mm \
+    VROAVCaptureController.h \
+    VROAVCaptureController.cpp \
+    VROCameraTextureiOS.h \
+    VROCameraTextureiOS.cpp \
+    VROObjectRecognizeriOS.h \
+    VROObjectRecognizeriOS.cpp \
+    VROBodyTrackerYolo.h \
+    VROBodyTrackerYolo.cpp \
+    VROMonocularDepthEstimator.h \
+    VROMonocularDepthEstimator.mm \
+    VROARSessioniOS.h \
+    VROARSessioniOS.cpp \
+    VROARCameraiOS.h \
+    VROARCameraiOS.cpp \
+    VROARFrameiOS.h \
+    VROARFrameiOS.cpp \
+    VROARHitTestResultiOS.h \
+    VROARHitTestResultiOS.mm \
+    VROARImageTargetiOS.h \
+    VROARImageTargetiOS.cpp \
+    VROARObjectTargetiOS.h \
+    VROARObjectTargetiOS.cpp \
+    VROARAnchoriOS.h \
+    VROARAnchoriOS.cpp \
+    VROARCameraInertial.h \
+    VROARCameraInertial.cpp \
+    VROARFrameInertial.h \
+    VROARFrameInertial.cpp \
+    VROVideoTextureiOS.h \
+    VROVideoTextureiOS.cpp \
+    VROAudioPlayeriOS.h \
+    VROAudioPlayeriOS.cpp \
+    VROSoundDelegateiOS.h \
+    VROTypefaceiOS.h \
+    VROTypefaceiOS.cpp \
+    VROAnimBodyDataiOS.h \
+    VROAnimBodyDataiOS.cpp \
+    VROARNodeDelegateiOS.h \
+    VROARSceneDelegateiOS.h \
+    VROARCameraPrerecorded.h \
+    VROARCameraPrerecorded.cpp \
+    VROApiKeyValidatorDynamo.h \
+    VROApiKeyValidatorDynamo.m \
+    VROApiKeyMetrics.h \
+    VROApiKeyMetrics.m \
+    VROApiMetricsIncrementRequest.h \
+    VROApiMetricsIncrementRequest.m \
+    VROApiMetricsRequest.h \
+    VROApiMetricsRequest.m \
+    VROWeakProxy.h \
+    VROWeakProxy.mm \
+    VROHeadTracker.h \
+    VROHeadTracker.cpp \
+    OrientationEKF.h \
+    OrientationEKF.mm \
+    SO3Util.h \
+    SO3Util.mm \
+    Matrix3x3d.h \
+    Matrix3x3d.mm \
+    Vector3d.h \
+    Vector3d.mm \
+    VROBodyIKController.h \
+    VROBodyIKController.cpp \
+    VROBodyTrackerController.h \
+    VROBodyTrackerController.cpp \
+    VROBodyPlayeriOS.h \
+    VROBodyTrackerTest.h \
+    VROBodyTrackerTest.cpp \
+    VROObjectRecognitionTest.h \
+    VROObjectRecognitionTest.cpp \
+    VROBodyRecognitionTest.h \
+    VROBodyRecognitionTest.cpp \
+    VROBodyMesherTest.h \
+    VROBodyMesherTest.cpp \
+    VROTextTest.h \
+    VROTextTest.cpp \
+    VROARPlaneTest.h \
+    VROARPlaneTest.cpp \
+    VROAnimatedTextureOpenGL.h \
+    VROAnimatedTextureOpenGL.cpp \
+    VRODisplayOpenGL.h \
+    VRODriverOpenGL.h \
+    VRODriverOpenGL.cpp \
+    VROGeometrySubstrateOpenGL.h \
+    VROGeometrySubstrateOpenGL.cpp \
+    VROGlyphAtlasOpenGL.h \
+    VROGlyphAtlasOpenGL.cpp \
+    VROGlyphOpenGL.h \
+    VROGlyphOpenGL.cpp \
+    VROImagePostProcessOpenGL.h \
+    VROImagePostProcessOpenGL.cpp \
+    VROMaterialSubstrateOpenGL.h \
+    VROMaterialSubstrateOpenGL.cpp \
+    VRORenderTargetOpenGL.h \
+    VRORenderTargetOpenGL.cpp \
+    VROTextureSubstrateOpenGL.h \
+    VROTextureSubstrateOpenGL.cpp \
+    VROVertexBufferOpenGL.h \
+    VROVertexBufferOpenGL.cpp \
+    VROShaderProgram.h \
+    VROShaderProgram.cpp \
+    VROShaderFactory.h \
+    VROShaderFactory.cpp \
+    VROLightingUBO.h \
+    VROLightingUBO.cpp \
+    VROBoneUBO.h \
+    VROBoneUBO.cpp \
+    VROParticleUBO.h \
+    VROParticleUBO.cpp \
+    VROMaterialShaderBinding.h \
+    VROMaterialShaderBinding.cpp \
+    VROVisionEngine.h \
+    VROVisionEngine.cpp \
+    VROSoundGVR.h \
+    VROSoundGVR.cpp \
+    VROScreen.h \
+    VROScreen.cpp \
+    VROSkeletonRenderer.h \
+    VROSkeletonRenderer.cpp \
+    VROBodySurfaceRenderer.h \
+    VROBodySurfaceRenderer.cpp \
+    VROImageShaderProgram.h \
+    VROImageShaderProgram.cpp \
+    VROGVRUtil.h \
+    VROGVRUtil.cpp \
+    VROGeometrySubstrateMetal.cpp \
+    VROCloudAnchorProviderReactVision.h \
+    VROCloudAnchorProviderReactVision.mm \
+    VROCloudAnchorProviderARCore.h \
+    VROCloudAnchorProviderARCore.mm

@@ -1,0 +1,10 @@
+platform :visionos, '1.0'
+workspace 'ViroRenderer'
+
+# No ARCore, no GVRAudioSDK — all iOS-only.
+# ViroKit visionOS uses Metal + CompositorServices directly.
+# This intentionally empty pod target gives us clean CocoaPods integration
+# (xcconfig stubs, PODS_ROOT, etc.) without any iOS-only framework references.
+target 'ViroKit' do
+  use_frameworks!
+end
