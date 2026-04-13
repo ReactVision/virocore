@@ -16,6 +16,7 @@ include_directories(${VIRO_RENDERER_SRC}
                     ${VIRO_CAPI_SRC}
                     ${VIRO_ANDROID_SRC}
                     ${VIRO_ANDROID_SRC}/jni
+                    ${VIRO_ANDROID_SRC}/include        # OpenXR headers (bundled fallback)
                     ${VIRO_ANDROID_INCLUDES}/gvr/include
                     ${VIRO_ANDROID_INCLUDES}/ovr/include
                     ${VIRO_ANDROID_INCLUDES}/freetype/include
@@ -23,6 +24,14 @@ include_directories(${VIRO_RENDERER_SRC}
                     ${VIRO_ANDROID_INCLUDES}/bullet/include
                     ${VIRO_ANDROID_INCLUDES}/opencv/include
                     ${VIRO_ANDROID_INCLUDES}/arcore/include)
+
+# ── OpenXR loader (via Prefab from openxr_loader_for_android AAR) ─────────────
+# AAR is sourced from Khronos GitHub releases (openxr_sdk/maven local repo).
+# Prefab package name: OpenXR  |  module: openxr_loader
+# Requires buildFeatures { prefab true } in viroreact/build.gradle
+find_package(OpenXR REQUIRED CONFIG)
+set(OPENXR_LINK_LIB OpenXR::openxr_loader)
+message(STATUS "OpenXR loader: FOUND via Prefab (OpenXR::openxr_loader)")
 
 # Creates and names a library, sets it as either STATIC
 # or SHARED, and provides the relative paths to its source code.
@@ -46,6 +55,7 @@ add_library( # Sets the name of the library.
              ${VIRO_ANDROID_SRC}/VROSceneRenderer.cpp
              ${VIRO_ANDROID_SRC}/VROSceneRendererGVR.cpp
              ${VIRO_ANDROID_SRC}/VROSceneRendererOVR.cpp
+             ${VIRO_ANDROID_SRC}/VROSceneRendererOpenXR.cpp
              ${VIRO_ANDROID_SRC}/VROSceneRendererSceneView.cpp
              ${VIRO_ANDROID_SRC}/VROSample.cpp
              ${VIRO_ANDROID_SRC}/VROImageAndroid.cpp
@@ -56,6 +66,7 @@ add_library( # Sets the name of the library.
              ${VIRO_ANDROID_SRC}/VROInputControllerDaydream.cpp
              ${VIRO_ANDROID_SRC}/VROInputControllerCardboard.cpp
              ${VIRO_ANDROID_SRC}/VROInputControllerOVR.cpp
+             ${VIRO_ANDROID_SRC}/VROInputControllerOpenXR.cpp
              ${VIRO_ANDROID_SRC}/VROAVRecorderAndroid.cpp
              ${VIRO_ANDROID_SRC}/VROTextureReader.cpp
              ${VIRO_ANDROID_SRC}/VROAndroidViewTexture.cpp
@@ -497,6 +508,7 @@ target_link_libraries( # Specifies the target library.
                        lib-LinearMath
 
                        ${RVCCA_LINK_LIB}
+                       ${OPENXR_LINK_LIB}
 
                        cpufeatures
                        ${lib-z}

@@ -53,6 +53,7 @@ enum class VROPlatformType {
     Unknown,
     AndroidGVR,
     AndroidOVR,
+    AndroidOpenXR,
     AndroidARCore,
     AndroidSceneView,
     iOSCardboard,

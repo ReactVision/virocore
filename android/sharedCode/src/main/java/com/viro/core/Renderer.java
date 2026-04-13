@@ -106,6 +106,14 @@ public class Renderer {
 
     public void onSurfaceDestroyed(Surface surface) { nativeOnSurfaceDestroyed(mNativeRef); }
 
+    /* ----------     OpenXR (Meta Quest) methods    ---------- */
+    public Renderer(ClassLoader appClassLoader, Context context,
+                    ViroViewOpenXR view, Activity activity, AssetManager assets, PlatformUtil platformUtil,
+                    RendererConfiguration config) {
+        mNativeRef = nativeCreateRendererOpenXR(appClassLoader, context, view, activity, assets, platformUtil,
+                config.isShadowsEnabled(), config.isHDREnabled(), config.isPBREnabled(), config.isBloomEnabled());
+    }
+
     public void recenterTracking() { nativeRecenterTracking(mNativeRef); }
 
     /* ----------     Common lifecycle methods    ---------- */
@@ -296,6 +304,9 @@ public class Renderer {
     private native long nativeCreateRendererOVR(ClassLoader appClassLoader, Context context,
                                                 ViroViewOVR view, Activity activity, AssetManager assets, PlatformUtil platformUtil,
                                                 boolean enableShadows, boolean enableHDR, boolean enablePBR, boolean enableBloom);
+    private native long nativeCreateRendererOpenXR(ClassLoader appClassLoader, Context context,
+                                                   ViroViewOpenXR view, Activity activity, AssetManager assets, PlatformUtil platformUtil,
+                                                   boolean enableShadows, boolean enableHDR, boolean enablePBR, boolean enableBloom);
     private native long nativeCreateRendererSceneView(ClassLoader appClassLoader, Context context,
                                                       ViroViewScene view, AssetManager assets, PlatformUtil platformUtil,
                                                       boolean enableShadows, boolean enableHDR, boolean enablePBR, boolean enableBloom);
