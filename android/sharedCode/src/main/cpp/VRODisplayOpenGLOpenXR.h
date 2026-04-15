@@ -92,6 +92,10 @@ public:
                    _viewport.getWidth(), _viewport.getHeight());
         glScissor(_viewport.getX(), _viewport.getY(),
                   _viewport.getWidth(), _viewport.getHeight());
+        // Explicit opaque-black clear — GL default clear color is (0,0,0,0) which
+        // gives alpha=0 pixels in the GL_SRGB8_ALPHA8 swapchain.  Quest's compositor
+        // may blend alpha=0 pixels with the passthrough feed even in OPAQUE blend mode.
+        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
     }
 

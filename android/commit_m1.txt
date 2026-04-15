@@ -1,0 +1,21 @@
+feat(openxr): M1 complete — HDR/PBR/shadows/bloom/GLB/VRX device-validated on Quest 3
+
+All renderer features confirmed working in stereo at 90fps on Quest 3.
+
+Two bugs found and fixed during M1 device validation:
+
+1. Reference space: createReferenceSpace() was trying STAGE first. After the
+   Quest Guardian was configured between M0 and M1 testing, STAGE succeeded —
+   placing Y=0 at the floor with the eye at Y≈1.6m. Objects at Viro world
+   origin appeared 39° below center, past the Quest 3's physical downward FOV,
+   invisible with no error. Fixed: force XR_REFERENCE_SPACE_TYPE_LOCAL so the
+   world origin matches eye level at session start, consistent with all other
+   Viro platforms.
+
+2. endFrame() never called: VROSceneRendererOpenXR::renderFrame() called
+   prepareFrame() and renderEye() but never _renderer->endFrame(). endFrame()
+   is where VROFrameScheduler::processTasks() runs — without it, texture
+   hydration tasks queue forever. Models parsed and downloaded correctly but
+   onObject3DLoaded never fired and nothing appeared, with zero error logs.
+   Fixed: call _renderer->endFrame(_driver) after both eye renders, before
+   xrEndFrame.

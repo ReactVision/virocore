@@ -380,17 +380,22 @@ bool VROSceneRendererOpenXR::createSession() {
 }
 
 bool VROSceneRendererOpenXR::createReferenceSpace() {
+    // Use LOCAL space so the Viro world origin matches the eye level at session start.
+    // STAGE space places Y=0 at the floor (~1.6 m below the eye), which causes objects
+    // placed at Viro world (0,0,-2) to appear ~39° below the horizon — near or past
+    // the bottom of the Quest 3's physical FOV. LOCAL space matches every other Viro
+    // platform's convention (camera at scene origin, looking forward).
+    // Floor-relative placement (STAGE) can be addressed in a dedicated M-series milestone.
     XrReferenceSpaceCreateInfo spaceInfo = { XR_TYPE_REFERENCE_SPACE_CREATE_INFO };
-    spaceInfo.referenceSpaceType    = XR_REFERENCE_SPACE_TYPE_STAGE;
+    spaceInfo.referenceSpaceType    = XR_REFERENCE_SPACE_TYPE_LOCAL;
     spaceInfo.poseInReferenceSpace  = { {0, 0, 0, 1}, {0, 0, 0} };  // identity
 
     XrResult r = xrCreateReferenceSpace(_session, &spaceInfo, &_stageSpace);
     if (XR_FAILED(r)) {
-        ALOGW("STAGE space unavailable (%d), falling back to LOCAL", r);
-        spaceInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
-        XR_RETURN_FALSE(xrCreateReferenceSpace(_session, &spaceInfo, &_stageSpace));
+        ALOGE("LOCAL reference space creation failed: %d", r);
+        return false;
     }
-    ALOGV("Reference space created");
+    ALOGV("Reference space created (LOCAL — eye-level origin)");
     return true;
 }
 
@@ -867,6 +872,13 @@ void VROSceneRendererOpenXR::renderFrame() {
             };
             projViews[eye].subImage.imageArrayIndex = 0;
         }
+
+        // Tick the frame scheduler so that queued tasks (texture hydration,
+        // model load callbacks, etc.) are processed. Must be called after
+        // prepareFrame() and after all eye rendering is done.
+        if (_renderer && _renderer->hasRenderContext()) {
+            _renderer->endFrame(_driver);
+        }
     }
 
     // ── End frame — assemble layer list ──────────────────────────────────────
@@ -897,8 +909,22 @@ void VROSceneRendererOpenXR::renderFrame() {
                                        ? XR_ENVIRONMENT_BLEND_MODE_ALPHA_BLEND
                                        : XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
     endInfo.layerCount  = (uint32_t)layers.size();
-    endInfo.layers      = layers.data();
-    XR_CHECK(xrEndFrame(_session, &endInfo));
+    // OpenXR spec: layers must be NULL when layerCount==0
+    endInfo.layers      = layers.empty() ? nullptr : layers.data();
+
+    static uint32_t sFrameLog = 0;
+    if (sFrameLog++ < 10 || (sFrameLog % 90 == 0)) {
+        ALOGV("xrEndFrame: state=%d shouldRender=%d viewsValid=%d layerCount=%u",
+              (int)_sessionState, (int)frameState.shouldRender,
+              (int)viewsValid, endInfo.layerCount);
+    }
+
+    XrResult endResult = xrEndFrame(_session, &endInfo);
+    if (XR_FAILED(endResult)) {
+        ALOGE("xrEndFrame FAILED: result=%d state=%d shouldRender=%d layerCount=%u",
+              (int)endResult, (int)_sessionState,
+              (int)frameState.shouldRender, endInfo.layerCount);
+    }
 }
 
 void VROSceneRendererOpenXR::renderEye(int eyeIndex,
