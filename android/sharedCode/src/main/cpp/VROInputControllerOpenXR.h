@@ -105,6 +105,7 @@ private:
     // Last known button state (for edge detection)
     bool _prevSelectLeft  = false;
     bool _prevSelectRight = false;
+    bool _prevMenuButton  = false;
 
     XrAction createAction(XrActionSet actionSet, XrActionType type,
                           const char *name, const char *localizedName);

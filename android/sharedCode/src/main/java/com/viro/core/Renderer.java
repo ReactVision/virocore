@@ -116,6 +116,11 @@ public class Renderer {
 
     public void recenterTracking() { nativeRecenterTracking(mNativeRef); }
 
+    /** Enable or disable XR_FB_passthrough mixed-reality mode (Quest 3 / Quest Pro only). */
+    public void setPassthroughEnabled(boolean enabled) {
+        nativeSetPassthroughEnabled(mNativeRef, enabled);
+    }
+
     /* ----------     Common lifecycle methods    ---------- */
 
     public void destroy() {
@@ -334,6 +339,7 @@ public class Renderer {
     private native String nativeGetController(long nativeRenderer);
     private native void nativeSetDebugHUDEnabled(long nativeRenderer, boolean enabled);
     private native void nativeRecenterTracking(long nativeRenderer);
+    private native void nativeSetPassthroughEnabled(long nativeRenderer, boolean enabled);
     private native void nativeSetClearColor(long sceneRef, int color);
     private native void nativeSetShadowsEnabled(long nativeRef, boolean enabled);
     private native void nativeSetHDREnabled(long nativeRef, boolean enabled);

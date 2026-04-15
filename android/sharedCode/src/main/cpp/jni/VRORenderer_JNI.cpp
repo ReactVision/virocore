@@ -148,6 +148,16 @@ VRO_METHOD(jlong, nativeCreateRendererOpenXR)(VRO_ARGS
     return Renderer::jptr(renderer);
 }
 
+VRO_METHOD(void, nativeSetPassthroughEnabled)(VRO_ARGS
+                                              jlong rendererRef,
+                                              jboolean enabled) {
+    auto base = Renderer::native(rendererRef);
+    auto xrRenderer = std::dynamic_pointer_cast<VROSceneRendererOpenXR>(base);
+    if (xrRenderer) {
+        xrRenderer->setPassthroughEnabled((bool)enabled);
+    }
+}
+
 VRO_METHOD(jlong, nativeCreateRendererSceneView)(VRO_ARGS
                                                  jobject class_loader,
                                                  jobject android_context,

@@ -70,6 +70,14 @@ public:
     void onKeyEvent(int keyCode, int action);
     void setVRModeEnabled(bool enabled) {}
     void recenterTracking();
+
+    // ── OpenXR extensions (callable from Java via JNI) ────────────────────────
+    /**
+     * Enable or disable XR_FB_passthrough mixed-reality mode.
+     * No-op if the extension is unavailable on the current device.
+     * Safe to call from any thread — changes take effect on the next frame.
+     */
+    void setPassthroughEnabled(bool enabled);
     void onStart();
     void onResume();
     void onPause();
@@ -98,6 +106,17 @@ private:
     XrPassthroughFB      _passthrough      = XR_NULL_HANDLE;
     XrPassthroughLayerFB _passthroughLayer = XR_NULL_HANDLE;
 
+    // Extension function pointers — loaded in initPassthrough() via xrGetInstanceProcAddr.
+    // All are null until XR_FB_passthrough is confirmed available and initialised.
+    PFN_xrCreatePassthroughFB       _pfnCreatePassthrough       = nullptr;
+    PFN_xrDestroyPassthroughFB      _pfnDestroyPassthrough      = nullptr;
+    PFN_xrPassthroughStartFB        _pfnPassthroughStart        = nullptr;
+    PFN_xrPassthroughPauseFB        _pfnPassthroughPause        = nullptr;
+    PFN_xrCreatePassthroughLayerFB  _pfnCreatePassthroughLayer  = nullptr;
+    PFN_xrDestroyPassthroughLayerFB _pfnDestroyPassthroughLayer = nullptr;
+    PFN_xrPassthroughLayerResumeFB  _pfnPassthroughLayerResume  = nullptr;
+    PFN_xrPassthroughLayerPauseFB   _pfnPassthroughLayerPause   = nullptr;
+
     // ── EGL ──────────────────────────────────────────────────────────────────
     EGLDisplay  _eglDisplay  = EGL_NO_DISPLAY;
     EGLConfig   _eglConfig   = nullptr;
@@ -110,7 +129,10 @@ private:
     std::atomic<bool> _paused   { true  };
 
     // ── Viro subsystems ───────────────────────────────────────────────────────
-    std::shared_ptr<VRODriverOpenGLAndroidOpenXR> _driver;
+    // _openxrDriver holds the derived type for getOpenXRDisplay(); base class
+    // _driver (VRODriverOpenGLAndroid) is also set to the same shared_ptr in the
+    // constructor so that VROSceneRenderer methods (setSceneController, etc.) work.
+    std::shared_ptr<VRODriverOpenGLAndroidOpenXR> _openxrDriver;
     std::shared_ptr<VROInputControllerOpenXR>     _inputController;
     std::shared_ptr<gvr::AudioApi>                _gvrAudio;
     jobject                                        _activity = nullptr;

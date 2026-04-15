@@ -28,6 +28,27 @@ static VROQuaternion xrQuatToVRO(XrQuaternionf q) {
     return VROQuaternion(q.x, q.y, q.z, q.w);
 }
 
+// Build a 4×4 column-major pose matrix from an OpenXR pose.
+// Translation in column 3 (indices 12-14); rotation from quaternion.
+static VROMatrix4f xrPoseToMatrix(const XrPosef &pose) {
+    VROQuaternion q(pose.orientation.x, pose.orientation.y,
+                    pose.orientation.z, pose.orientation.w);
+    VROMatrix4f rot = q.getMatrix();
+    rot[12] = pose.position.x;
+    rot[13] = pose.position.y;
+    rot[14] = pose.position.z;
+    return rot;
+}
+
+// Derive the aim-forward direction (-Z column of the pose rotation matrix).
+// OpenXR uses a right-handed coordinate system where -Z is the "look" direction.
+static VROVector3f xrAimForward(const XrPosef &pose) {
+    VROMatrix4f m = xrPoseToMatrix(pose);
+    VROVector3f fwd(-m[8], -m[9], -m[10]);
+    fwd.normalize();
+    return fwd;
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // Lifecycle
 // ──────────────────────────────────────────────────────────────────────────────
@@ -197,7 +218,7 @@ void VROInputControllerOpenXR::onProcess(XrSession session, XrSpace baseSpace,
     syncInfo.countActiveActionSets = 1;
     xrSyncActions(session, &syncInfo);
 
-    // ── Query right controller aim pose ───────────────────────────────────────
+    // ── Right controller aim pose → hover / drag / click ─────────────────────
     if (_rightSpace != XR_NULL_HANDLE) {
         XrSpaceLocation loc = { XR_TYPE_SPACE_LOCATION };
         XrResult r = xrLocateSpace(_rightSpace, baseSpace, time, &loc);
@@ -205,16 +226,28 @@ void VROInputControllerOpenXR::onProcess(XrSession session, XrSpace baseSpace,
             (loc.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) &&
             (loc.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT)) {
 
-            VROVector3f    pos = xrVec3ToVRO(loc.pose.position);
-            VROQuaternion  rot = xrQuatToVRO(loc.pose.orientation);
+            VROVector3f   pos     = xrVec3ToVRO(loc.pose.position);
+            VROQuaternion rot     = xrQuatToVRO(loc.pose.orientation);
+            VROVector3f   forward = xrAimForward(loc.pose);
 
-            // TODO (M2): update right controller ray origin + orientation in
-            //            VROInputControllerBase and emit hover events
-            (void)pos; (void)rot;
+            VROInputControllerBase::updateHitNode(camera, pos, forward);
+            VROInputControllerBase::onMove(ViroOculus::InputSource::Controller,
+                                           pos, rot, forward);
+            VROInputControllerBase::processGazeEvent(ViroOculus::InputSource::Controller);
         }
     }
 
-    // ── Query select (trigger click) ─────────────────────────────────────────
+    // ── Left controller aim pose (secondary pointer — same source for now) ───
+    // TODO (M2): assign a dedicated left-controller source ID once available.
+    if (_leftSpace != XR_NULL_HANDLE) {
+        XrSpaceLocation loc = { XR_TYPE_SPACE_LOCATION };
+        xrLocateSpace(_leftSpace, baseSpace, time, &loc);
+        // Left controller pose is available but not yet mapped to a separate Viro
+        // input source. Reserved for M2 full input system.
+        (void)loc;
+    }
+
+    // ── Right trigger click ───────────────────────────────────────────────────
     {
         XrActionStateBoolean state = { XR_TYPE_ACTION_STATE_BOOLEAN };
         XrActionStateGetInfo getInfo = { XR_TYPE_ACTION_STATE_GET_INFO };
@@ -224,11 +257,33 @@ void VROInputControllerOpenXR::onProcess(XrSession session, XrSpace baseSpace,
         if (state.isActive) {
             bool pressed = (state.currentState == XR_TRUE);
             if (pressed && !_prevSelectRight) {
-                // TODO (M2): onButtonEvent(ViroControllerRight, VROEventDelegate::EventAction::ClickDown)
+                VROInputControllerBase::onButtonEvent(ViroOculus::InputSource::Controller,
+                                                      VROEventDelegate::ClickState::ClickDown);
             } else if (!pressed && _prevSelectRight) {
-                // TODO (M2): onButtonEvent(ViroControllerRight, VROEventDelegate::EventAction::ClickUp)
+                VROInputControllerBase::onButtonEvent(ViroOculus::InputSource::Controller,
+                                                      VROEventDelegate::ClickState::ClickUp);
             }
             _prevSelectRight = pressed;
+        }
+    }
+
+    // ── Menu / B button → Viro back-button event ─────────────────────────────
+    {
+        XrActionStateBoolean state = { XR_TYPE_ACTION_STATE_BOOLEAN };
+        XrActionStateGetInfo getInfo = { XR_TYPE_ACTION_STATE_GET_INFO };
+        getInfo.action = _menuAction;
+        xrGetActionStateBoolean(session, &getInfo, &state);
+
+        if (state.isActive) {
+            bool pressed = (state.currentState == XR_TRUE);
+            if (pressed && !_prevMenuButton) {
+                VROInputControllerBase::onButtonEvent(ViroOculus::BackButton,
+                                                      VROEventDelegate::ClickState::ClickDown);
+            } else if (!pressed && _prevMenuButton) {
+                VROInputControllerBase::onButtonEvent(ViroOculus::BackButton,
+                                                      VROEventDelegate::ClickState::ClickUp);
+            }
+            _prevMenuButton = pressed;
         }
     }
 }

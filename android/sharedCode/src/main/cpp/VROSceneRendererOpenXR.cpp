@@ -129,8 +129,11 @@ VROSceneRendererOpenXR::VROSceneRendererOpenXR(VRORendererConfiguration config,
         return;
     }
 
-    _driver = std::make_shared<VRODriverOpenGLAndroidOpenXR>(gvrAudio);
-    _inputController = std::make_shared<VROInputControllerOpenXR>(_driver);
+    // Create the OpenXR driver and assign it to both the derived-class field
+    // (for getOpenXRDisplay()) and the base-class _driver (for setSceneController etc.)
+    _openxrDriver = std::make_shared<VRODriverOpenGLAndroidOpenXR>(gvrAudio);
+    _driver = _openxrDriver;  // base class std::shared_ptr<VRODriverOpenGLAndroid>
+    _inputController = std::make_shared<VROInputControllerOpenXR>(_openxrDriver);
     _inputController->createActionSet(_instance, _session);
 
     // Create the shared VRORenderer and wire it to the input controller.
@@ -453,12 +456,86 @@ bool VROSceneRendererOpenXR::createSwapchains() {
 }
 
 bool VROSceneRendererOpenXR::initPassthrough() {
-    // Week 4 implementation.
-    // XR_FB_passthrough functions (xrCreatePassthroughFB, etc.) are extension entry points
-    // that must be loaded via xrGetInstanceProcAddr — they are not direct API calls.
-    // Stub until Week 4 when function pointer loading is wired.
-    ALOGV("Passthrough init deferred to Week 4");
-    return false;
+    // Extension functions are NOT direct API calls — they must be loaded via
+    // xrGetInstanceProcAddr. The extension guard (XR_FB_passthrough) was already
+    // checked during instance creation; if we reach here it was enabled.
+
+    auto loadFn = [&](const char *name, void **fn) -> bool {
+        XrResult r = xrGetInstanceProcAddr(_instance, name, (PFN_xrVoidFunction *)fn);
+        if (XR_FAILED(r)) {
+            ALOGW("xrGetInstanceProcAddr('%s') failed: %d", name, (int)r);
+            return false;
+        }
+        return (*fn != nullptr);
+    };
+
+    bool ok = true;
+    ok &= loadFn("xrCreatePassthroughFB",       (void **)&_pfnCreatePassthrough);
+    ok &= loadFn("xrDestroyPassthroughFB",      (void **)&_pfnDestroyPassthrough);
+    ok &= loadFn("xrPassthroughStartFB",        (void **)&_pfnPassthroughStart);
+    ok &= loadFn("xrPassthroughPauseFB",        (void **)&_pfnPassthroughPause);
+    ok &= loadFn("xrCreatePassthroughLayerFB",  (void **)&_pfnCreatePassthroughLayer);
+    ok &= loadFn("xrDestroyPassthroughLayerFB", (void **)&_pfnDestroyPassthroughLayer);
+    ok &= loadFn("xrPassthroughLayerResumeFB",  (void **)&_pfnPassthroughLayerResume);
+    ok &= loadFn("xrPassthroughLayerPauseFB",   (void **)&_pfnPassthroughLayerPause);
+
+    if (!ok) {
+        ALOGW("XR_FB_passthrough functions not fully available — passthrough disabled");
+        return false;
+    }
+
+    // Create the XrPassthroughFB handle. Do NOT set the running-at-creation flag
+    // so passthrough starts in paused state — enabled only on demand.
+    XrPassthroughCreateInfoFB ptInfo = { XR_TYPE_PASSTHROUGH_CREATE_INFO_FB };
+    ptInfo.flags = 0;
+    XrResult r = _pfnCreatePassthrough(_session, &ptInfo, &_passthrough);
+    if (XR_FAILED(r)) {
+        ALOGE("xrCreatePassthroughFB failed: %d", (int)r);
+        return false;
+    }
+
+    // Create a full-reconstruction layer. The layer itself starts running
+    // (XR_PASSTHROUGH_IS_RUNNING_AT_CREATION_BIT_FB) but we immediately pause it;
+    // this avoids a stop/start round-trip on first enable.
+    XrPassthroughLayerCreateInfoFB layerInfo = { XR_TYPE_PASSTHROUGH_LAYER_CREATE_INFO_FB };
+    layerInfo.passthrough = _passthrough;
+    layerInfo.flags       = XR_PASSTHROUGH_IS_RUNNING_AT_CREATION_BIT_FB;
+    layerInfo.purpose     = XR_PASSTHROUGH_LAYER_PURPOSE_RECONSTRUCTION_FB;
+    r = _pfnCreatePassthroughLayer(_session, &layerInfo, &_passthroughLayer);
+    if (XR_FAILED(r)) {
+        ALOGE("xrCreatePassthroughLayerFB failed: %d", (int)r);
+        _pfnDestroyPassthrough(_passthrough);
+        _passthrough = XR_NULL_HANDLE;
+        return false;
+    }
+
+    // Pause immediately — layer is ready but not composited until setPassthroughEnabled(true).
+    _pfnPassthroughLayerPause(_passthroughLayer);
+
+    ALOGV("XR_FB_passthrough initialised (paused — call setPassthroughEnabled(true) to enable)");
+    return true;
+}
+
+void VROSceneRendererOpenXR::setPassthroughEnabled(bool enabled) {
+    if (_passthrough == XR_NULL_HANDLE || _passthroughLayer == XR_NULL_HANDLE) {
+        ALOGW("setPassthroughEnabled(%s): XR_FB_passthrough not available on this device",
+              enabled ? "true" : "false");
+        _passthroughEnabled = false;
+        return;
+    }
+
+    if (enabled) {
+        // Ensure the passthrough subsystem is running before resuming the layer.
+        XR_CHECK(_pfnPassthroughStart(_passthrough));
+        XR_CHECK(_pfnPassthroughLayerResume(_passthroughLayer));
+    } else {
+        // Pause the layer first, then pause the subsystem (saves power).
+        XR_CHECK(_pfnPassthroughLayerPause(_passthroughLayer));
+        XR_CHECK(_pfnPassthroughPause(_passthrough));
+    }
+
+    _passthroughEnabled = enabled;
+    ALOGV("setPassthroughEnabled: %s", enabled ? "true" : "false");
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -476,10 +553,15 @@ void VROSceneRendererOpenXR::destroySwapchains() {
 }
 
 void VROSceneRendererOpenXR::destroySession() {
-    // Passthrough teardown (Week 4): xrDestroyPassthroughLayerFB / xrDestroyPassthroughFB
-    // must be called via loaded function pointers — deferred until passthrough is wired.
-    _passthroughLayer = XR_NULL_HANDLE;
-    _passthrough      = XR_NULL_HANDLE;
+    // Passthrough teardown — must use loaded function pointers, not direct calls.
+    if (_passthroughLayer != XR_NULL_HANDLE && _pfnDestroyPassthroughLayer) {
+        _pfnDestroyPassthroughLayer(_passthroughLayer);
+        _passthroughLayer = XR_NULL_HANDLE;
+    }
+    if (_passthrough != XR_NULL_HANDLE && _pfnDestroyPassthrough) {
+        _pfnDestroyPassthrough(_passthrough);
+        _passthrough = XR_NULL_HANDLE;
+    }
     destroySwapchains();
     if (_stageSpace != XR_NULL_HANDLE) {
         xrDestroySpace(_stageSpace);
@@ -733,12 +815,35 @@ void VROSceneRendererOpenXR::renderFrame() {
         (viewState.viewStateFlags & XR_VIEW_STATE_ORIENTATION_VALID_BIT);
 
     if (viewsValid && frameState.shouldRender) {
-        // Process input before rendering — only when the Viro renderer has been
-        // fully initialized (scene set). getCamera() crashes if _renderContext is null.
-        if (_inputController && getRenderer() && getRenderer()->hasRenderContext()) {
+        // ── Prepare the Viro renderer (once per frame, before any eye render) ─
+        // Use the left eye pose/fov to drive scene-level preparation (culling,
+        // animation ticks, physics, etc.). Per-eye projection is applied in renderEye.
+        if (_renderer && _renderer->hasRenderContext()) {
+            VROViewport leftViewport(0, 0, _swapchains[0].width, _swapchains[0].height);
+
+            // Convert OpenXR half-angle tangents (radians, signed) → degrees, positive
+            constexpr float kRad2Deg = 180.0f / M_PI;
+            const XrFovf &fov0 = views[0].fov;
+            VROFieldOfView viroFov(
+                -fov0.angleLeft  * kRad2Deg,   // left  half-angle (positive)
+                 fov0.angleRight * kRad2Deg,   // right half-angle
+                -fov0.angleDown  * kRad2Deg,   // bottom half-angle
+                 fov0.angleUp    * kRad2Deg    // top half-angle
+            );
+            // headRotation = head pose in world space (NOT inverted — that's the view matrix).
+            // The per-eye poses include the IPD offset; approximate head as left eye pose.
+            VROMatrix4f headPoseMatrix  = xrPoseToMatrix(views[0].pose);
+            VROMatrix4f leftProjMatrix  = xrFovToProjection(fov0);
+
+            _renderer->prepareFrame(_frame++, leftViewport, viroFov,
+                                    headPoseMatrix, leftProjMatrix, _driver);
+        }
+
+        // Process input after prepareFrame so the camera is valid for hit-testing.
+        if (_inputController && _renderer && _renderer->hasRenderContext()) {
             _inputController->onProcess(_session, _stageSpace,
                                          frameState.predictedDisplayTime,
-                                         getRenderer()->getCamera());
+                                         _renderer->getCamera());
         }
 
         for (uint32_t eye = 0; eye < 2; ++eye) {
@@ -804,7 +909,7 @@ void VROSceneRendererOpenXR::renderEye(int eyeIndex,
     // ── Bind the FBO for this eye ─────────────────────────────────────────────
     GLuint colorTex = swapchain.images[imageIndex].image;
 
-    auto display = _driver->getOpenXRDisplay();
+    auto display = _openxrDriver->getOpenXRDisplay();
     display->setSwapchainImage(colorTex,
                                 (GLsizei)swapchain.width,
                                 (GLsizei)swapchain.height);
@@ -813,19 +918,19 @@ void VROSceneRendererOpenXR::renderEye(int eyeIndex,
     display->bind();
 
     // ── Compute view + projection matrices ───────────────────────────────────
+    // viewMatrix = inverted pose (world→eye transform for rendering)
     VROMatrix4f viewMatrix = xrPoseToMatrix(view.pose).invert();
     VROMatrix4f projMatrix = xrFovToProjection(view.fov);
 
-    // TODO (Week 3): wire viewMatrix + projMatrix into VRORenderer::renderFrame()
-    //   getRenderer()->prepareFrame(context);           // once, outside this loop
-    //   getRenderer()->renderFrame(context, driver);    // per-eye with overridden matrices
-    //
-    // For Week 1 / POC validation: clear to a recognisable colour so we can
-    // confirm stereo output is reaching both eyes.
-    float r = (eyeIndex == 0) ? 0.05f : 0.0f;
-    float g = (eyeIndex == 1) ? 0.05f : 0.0f;
-    glClearColor(r, g, 0.1f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    // ── Render the Viro scene for this eye ───────────────────────────────────
+    if (_renderer && _renderer->hasRenderContext()) {
+        VROEyeType eyeType = (eyeIndex == 0) ? VROEyeType::Left : VROEyeType::Right;
+        _renderer->renderEye(eyeType, viewMatrix, projMatrix, viewport, _driver);
+    } else {
+        // Renderer not yet initialized — clear to black so the swapchain is valid.
+        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    }
 
     // ── Release swapchain image ───────────────────────────────────────────────
     XrSwapchainImageReleaseInfo releaseInfo = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };

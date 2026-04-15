@@ -217,6 +217,18 @@ public class ViroViewOpenXR extends ViroView {
         mNativeRenderer.recenterTracking();
     }
 
+    /**
+     * Enable or disable XR_FB_passthrough mixed-reality mode.
+     * On Quest 3 / Quest Pro the camera feed is shown behind virtual content.
+     * On Quest 2 the feed is grayscale. No-op on devices that do not support
+     * the XR_FB_passthrough extension.
+     *
+     * @param enabled {@code true} to show passthrough; {@code false} for fully virtual.
+     */
+    public void setPassthroughEnabled(boolean enabled) {
+        mNativeRenderer.setPassthroughEnabled(enabled);
+    }
+
     @Override
     public ViroMediaRecorder getRecorder() {
         return null; // Not supported on Quest.
