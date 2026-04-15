@@ -830,9 +830,16 @@ void VROSceneRendererOpenXR::renderFrame() {
                 -fov0.angleDown  * kRad2Deg,   // bottom half-angle
                  fov0.angleUp    * kRad2Deg    // top half-angle
             );
-            // headRotation = head pose in world space (NOT inverted — that's the view matrix).
-            // The per-eye poses include the IPD offset; approximate head as left eye pose.
+            // headRotation must be rotation-only. VROMatrix4f::multiply(VROVector3f) always
+            // adds the matrix's translation column (m[12..14]), so passing the full pose
+            // matrix shifts the computed camera forward/up vectors by the head's stage-space
+            // position (~1.6 m on Y), tilting the frustum upward and culling objects placed
+            // at (0, 0, -2). Strip translation so only orientation drives the frustum.
+            // Per-eye view matrices (which include head position) are computed in renderEye().
             VROMatrix4f headPoseMatrix  = xrPoseToMatrix(views[0].pose);
+            headPoseMatrix[12] = 0.0f;
+            headPoseMatrix[13] = 0.0f;
+            headPoseMatrix[14] = 0.0f;
             VROMatrix4f leftProjMatrix  = xrFovToProjection(fov0);
 
             _renderer->prepareFrame(_frame++, leftViewport, viroFov,

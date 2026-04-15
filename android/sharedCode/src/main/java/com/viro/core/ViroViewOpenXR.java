@@ -32,6 +32,9 @@ import com.google.vr.cardboard.ContextUtils;
 import com.viro.core.internal.PlatformUtil;
 import com.viro.core.internal.RenderCommandQueue;
 
+import android.os.Handler;
+import android.os.Looper;
+
 import java.util.List;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -192,8 +195,18 @@ public class ViroViewOpenXR extends ViroView {
         mNativeViroContext = new ViroContext(mNativeRenderer.mNativeRef);
 
         // Notify caller that the renderer is ready.
+        // Post to the main looper so onSuccess() always fires AFTER the constructor
+        // returns — callers (e.g. MainActivity) assign the view reference in the same
+        // expression that calls the constructor, so a synchronous callback would see
+        // a null reference. All other ViroViews fire onSuccess from their render thread
+        // (always async); this matches that contract.
         if (mStartupListener != null && !mDestroyed) {
-            mStartupListener.onSuccess();
+            final StartupListener listener = mStartupListener;
+            new Handler(Looper.getMainLooper()).post(() -> {
+                if (!mDestroyed) {
+                    listener.onSuccess();
+                }
+            });
         }
 
         activity.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
