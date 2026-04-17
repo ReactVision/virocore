@@ -95,9 +95,12 @@ private:
     XrSession       _session    = XR_NULL_HANDLE;
     XrSpace         _stageSpace = XR_NULL_HANDLE;  // XR_REFERENCE_SPACE_TYPE_STAGE
 
-    XrSessionState  _sessionState       = XR_SESSION_STATE_UNKNOWN;
-    bool            _sessionRunning     = false;
-    bool            _passthroughEnabled = false;
+    XrSessionState  _sessionState             = XR_SESSION_STATE_UNKNOWN;
+    XrTime          _lastPredictedDisplayTime = 0;  // updated each frame; used by recenterTracking()
+    bool            _sessionRunning        = false;
+    bool            _passthroughEnabled    = false;
+    bool            _handTrackingAvailable = false;  // XR_EXT_hand_tracking present
+    bool            _handAimExtAvailable   = false;  // XR_FB_hand_tracking_aim present
 
     // Per-eye swapchains (index 0 = left, 1 = right)
     VROOpenXRSwapchain _swapchains[2];
@@ -148,6 +151,7 @@ private:
     bool createReferenceSpace();
     bool createSwapchains();
     bool initPassthrough();
+    bool initHandTracking();     // XR_EXT_hand_tracking — no-op if extension unavailable
     void destroySwapchains();
     void destroySession();
     void destroyEGLContext();

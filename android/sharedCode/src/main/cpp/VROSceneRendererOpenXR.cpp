@@ -18,6 +18,7 @@
 #include "VROAllocationTracker.h"
 #include "VROTime.h"
 #include "VROThreadRestricted.h"
+#include "VROPlatformUtil.h"
 
 #define LOG_TAG "VRORendererOpenXR"
 #define ALOGE(...) __android_log_print(ANDROID_LOG_ERROR,   LOG_TAG, __VA_ARGS__)
@@ -36,8 +37,10 @@ static constexpr uint32_t kRequiredExtensionCount =
     sizeof(kRequiredExtensions) / sizeof(kRequiredExtensions[0]);
 
 static const char *const kOptionalExtensions[] = {
-    XR_FB_PASSTHROUGH_EXTENSION_NAME,          // mixed reality (Quest 2 BW, Quest 3 color)
-    XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME, // 90 / 120 Hz mode
+    XR_FB_PASSTHROUGH_EXTENSION_NAME,           // mixed reality (Quest 2 BW, Quest 3 color)
+    XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME,  // 90 / 120 Hz mode
+    XR_EXT_HAND_TRACKING_EXTENSION_NAME,        // M3: skeletal hand tracking (26 joints)
+    XR_FB_HAND_TRACKING_AIM_EXTENSION_NAME,     // M3: aim pose + pinch strength from runtime
 };
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -135,11 +138,16 @@ VROSceneRendererOpenXR::VROSceneRendererOpenXR(VRORendererConfiguration config,
     _driver = _openxrDriver;  // base class std::shared_ptr<VRODriverOpenGLAndroid>
     _inputController = std::make_shared<VROInputControllerOpenXR>(_openxrDriver);
     _inputController->createActionSet(_instance, _session);
+    initHandTracking();  // no-op if XR_EXT_hand_tracking not available on this device
 
     // Create the shared VRORenderer and wire it to the input controller.
     // VROSceneRenderer::_renderer is null until explicitly set here — every other
     // platform (GVR, OVR) does the equivalent in their constructor.
     _renderer = std::make_shared<VRORenderer>(config, _inputController);
+
+    // OpenXR owns its own render thread — bypass the GLSurfaceView dispatcher.
+    // VROPlatformDrainRendererQueue() is called at the top of each renderFrame().
+    VROPlatformSetUseDirectRendererQueue(true);
 
     // Release the EGL context from the main thread so the render thread can
     // take exclusive ownership via eglMakeCurrent in renderLoop().
@@ -214,6 +222,10 @@ bool VROSceneRendererOpenXR::initOpenXR() {
             if (strcmp(ext.extensionName, optExt) == 0) {
                 enabledExts.push_back(optExt);
                 ALOGV("Optional extension enabled: %s", optExt);
+                if (strcmp(optExt, XR_EXT_HAND_TRACKING_EXTENSION_NAME) == 0)
+                    _handTrackingAvailable = true;
+                if (strcmp(optExt, XR_FB_HAND_TRACKING_AIM_EXTENSION_NAME) == 0)
+                    _handAimExtAvailable = true;
                 break;
             }
         }
@@ -377,6 +389,14 @@ bool VROSceneRendererOpenXR::createSession() {
     initPassthrough();
 
     return true;
+}
+
+bool VROSceneRendererOpenXR::initHandTracking() {
+    if (!_handTrackingAvailable || !_inputController) return false;
+    bool ok = _inputController->initHandTracking(_instance, _session, _handAimExtAvailable);
+    ALOGV("Hand tracking init: %s (aim ext: %s)", ok ? "OK" : "FAILED",
+          _handAimExtAvailable ? "yes" : "no");
+    return ok;
 }
 
 bool VROSceneRendererOpenXR::createReferenceSpace() {
@@ -629,7 +649,10 @@ void VROSceneRendererOpenXR::onStop() {
 
 void VROSceneRendererOpenXR::onDestroy() {
     onStop();
-    if (_inputController) _inputController->destroySpaces();
+    if (_inputController) {
+        _inputController->destroyHandTrackers();
+        _inputController->destroySpaces();
+    }
     destroySession();
     destroyEGLContext();
     destroyOpenXR();
@@ -654,25 +677,52 @@ void VROSceneRendererOpenXR::onTouchEvent(int /*action*/, float /*x*/, float /*y
 void VROSceneRendererOpenXR::onKeyEvent(int /*keyCode*/, int /*action*/) {}
 
 void VROSceneRendererOpenXR::recenterTracking() {
-    // Create a new reference space anchored to current head pose.
-    // This effectively recenters the world-locked content.
     if (_session == XR_NULL_HANDLE) return;
 
-    XrSpaceLocation headLoc = { XR_TYPE_SPACE_LOCATION };
-    XrTime          now     = 0;
-    // Get an approximate "now" by using 0 — the runtime will use its best guess.
-    // In a real integration, use frameState.predictedDisplayTime.
-    xrLocateSpace(_stageSpace, _stageSpace, now, &headLoc);
+    // Create a temporary VIEW space to locate the head pose.
+    XrReferenceSpaceCreateInfo viewSpaceInfo = { XR_TYPE_REFERENCE_SPACE_CREATE_INFO };
+    viewSpaceInfo.referenceSpaceType    = XR_REFERENCE_SPACE_TYPE_VIEW;
+    viewSpaceInfo.poseInReferenceSpace  = { {0, 0, 0, 1}, {0, 0, 0} };
+    XrSpace viewSpace = XR_NULL_HANDLE;
+    if (XR_FAILED(xrCreateReferenceSpace(_session, &viewSpaceInfo, &viewSpace))) {
+        ALOGE("recenterTracking: failed to create VIEW space");
+        return;
+    }
 
+    // Locate head (VIEW) relative to the current stage space.
+    // Use _lastPredictedDisplayTime so the pose is from the most recent frame.
+    XrSpaceLocation headLoc = { XR_TYPE_SPACE_LOCATION };
+    xrLocateSpace(viewSpace, _stageSpace, _lastPredictedDisplayTime, &headLoc);
+    xrDestroySpace(viewSpace);
+
+    if (!(headLoc.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT)) {
+        ALOGW("recenterTracking: head orientation not valid — skipped");
+        return;
+    }
+
+    // Extract yaw from head orientation (keep scene upright — Y-axis rotation only).
+    XrQuaternionf &q = headLoc.pose.orientation;
+    float yaw = atan2f(2.0f * (q.w * q.y + q.x * q.z),
+                       1.0f - 2.0f * (q.y * q.y + q.z * q.z));
+
+    // Create a new LOCAL space centered at current head XZ position, facing forward.
     XrReferenceSpaceCreateInfo spaceInfo = { XR_TYPE_REFERENCE_SPACE_CREATE_INFO };
-    spaceInfo.referenceSpaceType   = XR_REFERENCE_SPACE_TYPE_LOCAL;
-    spaceInfo.poseInReferenceSpace = headLoc.pose;
+    spaceInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
+    spaceInfo.poseInReferenceSpace.position    = { headLoc.pose.position.x,
+                                                    0.0f,
+                                                    headLoc.pose.position.z };
+    spaceInfo.poseInReferenceSpace.orientation = { 0.0f,
+                                                    sinf(yaw * 0.5f),
+                                                    0.0f,
+                                                    cosf(yaw * 0.5f) };
 
     XrSpace newSpace = XR_NULL_HANDLE;
     if (XR_SUCCEEDED(xrCreateReferenceSpace(_session, &spaceInfo, &newSpace))) {
         xrDestroySpace(_stageSpace);
         _stageSpace = newSpace;
-        ALOGV("recenterTracking: new reference space created at current head pose");
+        ALOGV("recenterTracking: recentered (yaw=%.2f rad)", yaw);
+    } else {
+        ALOGE("recenterTracking: xrCreateReferenceSpace failed");
     }
 }
 
@@ -792,10 +842,15 @@ void VROSceneRendererOpenXR::handleSessionStateChange(
 // ──────────────────────────────────────────────────────────────────────────────
 
 void VROSceneRendererOpenXR::renderFrame() {
+    // Drain pending renderer tasks (setSceneController, texture uploads, etc.)
+    // submitted via VROPlatformDispatchAsyncRenderer from any thread.
+    VROPlatformDrainRendererQueue();
+
     // ── Wait for the display ──────────────────────────────────────────────────
     XrFrameWaitInfo waitInfo  = { XR_TYPE_FRAME_WAIT_INFO };
     XrFrameState    frameState= { XR_TYPE_FRAME_STATE };
     XR_CHECK(xrWaitFrame(_session, &waitInfo, &frameState));
+    _lastPredictedDisplayTime = frameState.predictedDisplayTime;
 
     // ── Begin frame ───────────────────────────────────────────────────────────
     XrFrameBeginInfo beginInfo = { XR_TYPE_FRAME_BEGIN_INFO };

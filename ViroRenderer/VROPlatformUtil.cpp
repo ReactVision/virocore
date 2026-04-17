@@ -572,7 +572,7 @@ std::string VROPlatformDownloadURLToFile(std::string url, bool *temp, bool *succ
     JNIEnv *env = VROPlatformGetJNIEnv();
     VRO_STRING jurl = VRO_NEW_STRING(url.c_str());
     
-    jclass cls = env->FindClass("com/viro/core/internal/PlatformUtil");
+    jclass cls = env->GetObjectClass(sPlatformUtil);
     jmethodID jmethod = env->GetMethodID(cls, "downloadURLToTempFile", "(Ljava/lang/String;)Ljava/lang/String;");
     VRO_STRING jpath = (VRO_STRING) env->CallObjectMethod(sPlatformUtil, jmethod, jurl);
     
@@ -1069,14 +1069,42 @@ void VROPlatformDispatchAsyncBackground(std::function<void()> fcn) {
     JNIEnv *env;
     getJNIEnv(&env);
 
-    jclass cls = env->FindClass("com/viro/core/internal/PlatformUtil");
+    // GetObjectClass works on any thread (no class-loader dependency).
+    // FindClass("com/viro/core/...") fails on pure-native threads that only
+    // have the bootstrap class loader (e.g. the OpenXR render thread).
+    jclass cls = env->GetObjectClass(sPlatformUtil);
     jmethodID jmethod = env->GetMethodID(cls, "dispatchAsyncBackground", "(I)V");
     env->CallVoidMethod(sPlatformUtil, jmethod, task);
 
     env->DeleteLocalRef(cls);
 }
 
+// ── Direct renderer queue (for OpenXR / renderers without GLSurfaceView) ──────
+static std::atomic<bool>            sUseDirectRendererQueue { false };
+static std::mutex                   sDirectRendererQueueMutex;
+static std::vector<std::function<void()>> sDirectRendererQueue;
+
+void VROPlatformSetUseDirectRendererQueue(bool use) {
+    sUseDirectRendererQueue.store(use);
+}
+
+void VROPlatformDrainRendererQueue() {
+    std::vector<std::function<void()>> tasks;
+    {
+        std::lock_guard<std::mutex> guard(sDirectRendererQueueMutex);
+        tasks.swap(sDirectRendererQueue);
+    }
+    for (auto &task : tasks) {
+        task();
+    }
+}
+
 void VROPlatformDispatchAsyncRenderer(std::function<void()> fcn) {
+    if (sUseDirectRendererQueue.load()) {
+        std::lock_guard<std::mutex> guard(sDirectRendererQueueMutex);
+        sDirectRendererQueue.push_back(std::move(fcn));
+        return;
+    }
     int task = VROPlatformGenerateTask(fcn);
     if (!sPlatformUtil) {
         std::lock_guard<std::mutex> guard(sRendererQueueMutex);
@@ -1105,7 +1133,7 @@ void VROPlatformFlushTaskQueues() {
             JNIEnv *env;
             getJNIEnv(&env);
 
-            jclass cls = env->FindClass("com/viro/core/internal/PlatformUtil");
+            jclass cls = env->GetObjectClass(sPlatformUtil);
             jmethodID jmethod = env->GetMethodID(cls, "dispatchAsyncBackground", "(I)V");
             env->CallVoidMethod(sPlatformUtil, jmethod, task);
 
@@ -1299,7 +1327,7 @@ std::string VROPlatformGetCacheDirectory() {
     JNIEnv *env;
     getJNIEnv(&env);
 
-    jclass cls = env->FindClass("com/viro/core/internal/PlatformUtil");
+    jclass cls = env->GetObjectClass(sPlatformUtil);
     jmethodID jmethod = env->GetMethodID(cls, "getCacheDirectory", "()Ljava/lang/String;");
     VRO_STRING jpath = (VRO_STRING) env->CallObjectMethod(sPlatformUtil, jmethod);
 
