@@ -1637,6 +1637,7 @@ void VROARSessionARCore::checkVPSAvailability(double latitude, double longitude,
 // acquireNewAnchor. No VPS required — placed by GPS + compass + VIO.
 // AR placement math is delegated to RVCCAGeospatialProvider::computeArPosition()
 // (proprietary algorithm inside libreactvisioncca — not exposed in open-source virocore).
+#if RVCCA_AVAILABLE
 static std::shared_ptr<VROGeospatialAnchor> createLocalGPSAnchor(
     arcore::Session *session,
     const VROGeospatialPose &devicePose,
@@ -1682,6 +1683,7 @@ static std::shared_ptr<VROGeospatialAnchor> createLocalGPSAnchor(
     arSession->addAnchor(vAnchor);
     return geoAnchor;
 }
+#endif // RVCCA_AVAILABLE
 
 void VROARSessionARCore::createGeospatialAnchor(double latitude, double longitude, double altitude,
                                                 VROQuaternion quaternion,
