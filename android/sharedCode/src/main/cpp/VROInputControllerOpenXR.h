@@ -161,6 +161,15 @@ private:
     bool createActionSpaces(XrSession session);
     void processHands(XrSpace baseSpace, XrTime time, const VROCamera &camera);
 
+    /**
+     * Push the current aim ray to the input presenter so it can render the
+     * visible laser line. If the most recent updateHitNode produced a hit,
+     * the line stops at the hit point; otherwise it extends a fixed distance
+     * along the forward direction so the user always sees where they're aiming.
+     * Call once per frame, immediately after updateHitNode + processGazeEvent.
+     */
+    void updateLaserViz(const VROVector3f &origin, const VROVector3f &forward);
+
 public:
     /** Enable or disable hand tracking gesture processing. Thread-safe (atomic store). */
     void setHandTrackingEnabled(bool enabled) { _handTrackingEnabled = enabled; }

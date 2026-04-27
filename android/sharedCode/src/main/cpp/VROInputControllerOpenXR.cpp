@@ -8,7 +8,7 @@
 #include <android/log.h>
 #include <cmath>
 #include "VROLog.h"
-#include "VROInputPresenterOVR.h"
+#include "VROInputPresenterOpenXR.h"
 #include "VROVector3f.h"
 #include "VROCamera.h"
 #include "VROInputType.h"
@@ -256,6 +256,7 @@ void VROInputControllerOpenXR::onProcess(XrSession session, XrSpace baseSpace,
             VROInputControllerBase::updateHitNode(camera, pos, forward);
             VROInputControllerBase::onMove(ViroOculus::Controller, pos, rot, forward);
             VROInputControllerBase::processGazeEvent(ViroOculus::Controller);
+            updateLaserViz(pos, forward);
         }
     }
 
@@ -573,6 +574,7 @@ void VROInputControllerOpenXR::processHands(XrSpace baseSpace, XrTime time,
             if (hand == 1) {  // right hand = primary pointer
                 VROInputControllerBase::updateHitNode(camera, pos, forward);
                 VROInputControllerBase::processGazeEvent(source);
+                updateLaserViz(pos, forward);
             }
             VROInputControllerBase::onMove(source, pos, rot, forward);
         } else {
@@ -597,6 +599,7 @@ void VROInputControllerOpenXR::processHands(XrSpace baseSpace, XrTime time,
                 if (hand == 1) {
                     VROInputControllerBase::updateHitNode(camera, pos, forward);
                     VROInputControllerBase::processGazeEvent(source);
+                    updateLaserViz(pos, forward);
                 }
                 VROInputControllerBase::onMove(source, pos, rot, forward);
             }
@@ -653,5 +656,22 @@ VROVector3f VROInputControllerOpenXR::getDragForwardOffset() {
 
 std::shared_ptr<VROInputPresenter>
 VROInputControllerOpenXR::createPresenter(std::shared_ptr<VRODriver> driver) {
-    return std::make_shared<VROInputPresenterOVR>();
+    return std::make_shared<VROInputPresenterOpenXR>();
+}
+
+void VROInputControllerOpenXR::updateLaserViz(const VROVector3f &origin,
+                                              const VROVector3f &forward) {
+    auto presenter = std::dynamic_pointer_cast<VROInputPresenterOpenXR>(getPresenter());
+    if (!presenter) return;
+
+    // If we have a hit, end the laser at the hit point. Otherwise, extend it
+    // a fixed distance forward so the user always sees their aim ray.
+    constexpr float kNoHitRange = 4.0f;  // meters
+    VROVector3f hitPoint;
+    if (_hitResult) {
+        hitPoint = _hitResult->getLocation();
+    } else {
+        hitPoint = origin + forward.scale(kNoHitRange);
+    }
+    presenter->updateAimRay(origin, hitPoint, true /* visible */);
 }
