@@ -147,6 +147,7 @@ private:
     XrHandTrackerEXT _leftHandTracker  = XR_NULL_HANDLE;
     XrHandTrackerEXT _rightHandTracker = XR_NULL_HANDLE;
     bool             _aimExtEnabled    = false;
+    bool             _handTrackingEnabled = true;
 
     // Per-hand gesture state (edge detection)
     bool _prevPinchLeft  = false;
@@ -159,6 +160,10 @@ private:
                           const char *name, const char *localizedName);
     bool createActionSpaces(XrSession session);
     void processHands(XrSpace baseSpace, XrTime time, const VROCamera &camera);
+
+public:
+    /** Enable or disable hand tracking gesture processing. Thread-safe (atomic store). */
+    void setHandTrackingEnabled(bool enabled) { _handTrackingEnabled = enabled; }
 };
 
 #endif  // ANDROID_VROINPUTCONTROLLEROPENXR_H

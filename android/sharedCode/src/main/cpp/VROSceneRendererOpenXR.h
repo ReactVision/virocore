@@ -78,6 +78,7 @@ public:
      * Safe to call from any thread — changes take effect on the next frame.
      */
     void setPassthroughEnabled(bool enabled);
+    void setHandTrackingEnabled(bool enabled);
     void onStart();
     void onResume();
     void onPause();

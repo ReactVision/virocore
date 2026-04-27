@@ -121,6 +121,11 @@ public class Renderer {
         nativeSetPassthroughEnabled(mNativeRef, enabled);
     }
 
+    /** Enable or disable XR_EXT_hand_tracking gesture processing (Quest only). */
+    public void setHandTrackingEnabled(boolean enabled) {
+        nativeSetHandTrackingEnabled(mNativeRef, enabled);
+    }
+
     /* ----------     Common lifecycle methods    ---------- */
 
     public void destroy() {
@@ -340,6 +345,7 @@ public class Renderer {
     private native void nativeSetDebugHUDEnabled(long nativeRenderer, boolean enabled);
     private native void nativeRecenterTracking(long nativeRenderer);
     private native void nativeSetPassthroughEnabled(long nativeRenderer, boolean enabled);
+    private native void nativeSetHandTrackingEnabled(long nativeRenderer, boolean enabled);
     private native void nativeSetClearColor(long sceneRef, int color);
     private native void nativeSetShadowsEnabled(long nativeRef, boolean enabled);
     private native void nativeSetHDREnabled(long nativeRef, boolean enabled);

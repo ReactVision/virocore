@@ -529,7 +529,7 @@ void VROInputControllerOpenXR::destroyHandTrackers() {
 
 void VROInputControllerOpenXR::processHands(XrSpace baseSpace, XrTime time,
                                               const VROCamera &camera) {
-    if (!_pfnLocateHandJoints) return;
+    if (!_pfnLocateHandJoints || !_handTrackingEnabled) return;
 
     for (int hand = 0; hand < 2; ++hand) {
         XrHandTrackerEXT tracker = (hand == 0) ? _leftHandTracker : _rightHandTracker;

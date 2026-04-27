@@ -563,6 +563,12 @@ void VROSceneRendererOpenXR::setPassthroughEnabled(bool enabled) {
     ALOGV("setPassthroughEnabled: %s", enabled ? "true" : "false");
 }
 
+void VROSceneRendererOpenXR::setHandTrackingEnabled(bool enabled) {
+    if (_inputController) {
+        _inputController->setHandTrackingEnabled(enabled);
+    }
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // Teardown
 // ──────────────────────────────────────────────────────────────────────────────
@@ -626,6 +632,17 @@ void VROSceneRendererOpenXR::onStart() {
 }
 
 void VROSceneRendererOpenXR::onResume() {
+    // Idempotent: must be safe to call multiple times. The Java side may end up
+    // calling this from both onAttachedToWindow (manual catch-up for a missed
+    // onResume) AND a later RN LifecycleEventListener.onHostResume firing.
+    // std::thread::operator= terminates the process if the LHS is joinable, so
+    // assigning a new thread on top of an already-running render thread aborts
+    // the app. Re-entering when already running just clears the paused flag.
+    if (_running) {
+        ALOGV("onResume — already running, clearing paused flag");
+        _paused = false;
+        return;
+    }
     ALOGV("onResume — starting render thread");
     _paused  = false;
     _running = true;
@@ -633,6 +650,10 @@ void VROSceneRendererOpenXR::onResume() {
 }
 
 void VROSceneRendererOpenXR::onPause() {
+    if (!_running || _paused) {
+        ALOGV("onPause — already paused or not running, skipping");
+        return;
+    }
     ALOGV("onPause — pausing render thread");
     _paused = true;
     // The render loop checks _paused and idles; session state will transition

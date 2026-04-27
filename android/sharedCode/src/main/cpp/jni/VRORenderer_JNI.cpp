@@ -158,6 +158,16 @@ VRO_METHOD(void, nativeSetPassthroughEnabled)(VRO_ARGS
     }
 }
 
+VRO_METHOD(void, nativeSetHandTrackingEnabled)(VRO_ARGS
+                                               jlong rendererRef,
+                                               jboolean enabled) {
+    auto base = Renderer::native(rendererRef);
+    auto xrRenderer = std::dynamic_pointer_cast<VROSceneRendererOpenXR>(base);
+    if (xrRenderer) {
+        xrRenderer->setHandTrackingEnabled((bool)enabled);
+    }
+}
+
 VRO_METHOD(jlong, nativeCreateRendererSceneView)(VRO_ARGS
                                                  jobject class_loader,
                                                  jobject android_context,
