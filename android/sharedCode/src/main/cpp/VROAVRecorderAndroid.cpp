@@ -86,7 +86,16 @@ bool VROAVRecorderAndroid::onRenderedFrameTexture(std::shared_ptr<VRORenderTarge
         _recorderDisplay->setViewport({0, 0, input->getWidth(), input->getHeight()});
 
         driver->bindRenderTarget(_recorderDisplay, VRORenderTargetUnbindOp::Invalidate);
-        _recordingPostProcess->blit({ input->getTexture(0) }, driver);
+
+        // In linear color mode (HDR enabled) the scene framebuffer holds linear RGB values;
+        // gamma-encode them before the encoder reads the surface, otherwise recorded video
+        // is noticeably darker than the live view. In non-linear mode the framebuffer is
+        // already sRGB-encoded and can be blit straight through.
+        if (driver->getColorRenderingMode() == VROColorRenderingMode::Linear) {
+            getGammaPostProcess(driver)->blit({ input->getTexture(0) }, driver);
+        } else {
+            _recordingPostProcess->blit({ input->getTexture(0) }, driver);
+        }
     }
 
     if (_scheduledScreenShot) {
@@ -156,11 +165,16 @@ std::shared_ptr<VRORenderTarget> VROAVRecorderAndroid::bindScreenshotLDRTarget(i
 
 std::shared_ptr<VROImagePostProcess> VROAVRecorderAndroid::getGammaPostProcess(std::shared_ptr<VRODriver> driver) {
     if (!_gammaPostProcess) {
-        std::vector<std::string> samplers = { "hdr_texture", "tone_mapping_mask" };
+        // The sampler name in `samplers` must match the uniform name in the shader
+        // code below — VROImagePostProcess uses `samplers` to locate and bind the
+        // input texture(s) to the corresponding shader uniform(s). A name mismatch
+        // leaves the sampler unbound and the shader reads from texture unit 0 with
+        // no texture attached, producing a black frame.
+        std::vector<std::string> samplers = { "hdr_texture" };
         std::vector<std::string> code = {
                 "const highp float gamma = 2.2;",
-                "uniform sampler2D srgb_texture;",
-                "highp vec4 srgb_color = texture(srgb_texture, v_texcoord);",
+                "uniform sampler2D hdr_texture;",
+                "highp vec4 srgb_color = texture(hdr_texture, v_texcoord);",
                 "highp vec3 gamma_color = pow(srgb_color.xyz, vec3(1.0 / gamma));",
                 "frag_color = vec4(gamma_color, srgb_color.a);",
         };
