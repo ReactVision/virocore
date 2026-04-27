@@ -34,6 +34,7 @@
 #include "VROProjector.h"
 #include "VROSceneRendererGVR.h"
 #include "VROSceneRendererOVR.h"
+#include "VROSceneRendererOpenXR.h"
 #include "VROSceneRendererSceneView.h"
 #include "VROPlatformUtil.h"
 #include "VROSample.h"
@@ -116,6 +117,55 @@ VRO_METHOD(jlong, nativeCreateRendererOVR)(VRO_ARGS
     std::shared_ptr<VROSceneRenderer> renderer
             = std::make_shared<VROSceneRendererOVR>(config, gvrAudio, view, activity, env);
     return Renderer::jptr(renderer);
+}
+
+VRO_METHOD(jlong, nativeCreateRendererOpenXR)(VRO_ARGS
+                                              jobject class_loader,
+                                              jobject android_context,
+                                              jobject view,
+                                              jobject activity,
+                                              jobject asset_mgr,
+                                              jobject platform_util,
+                                              jboolean enableShadows,
+                                              jboolean enableHDR,
+                                              jboolean enablePBR,
+                                              jboolean enableBloom) {
+    VROPlatformSetType(VROPlatformType::AndroidOpenXR);
+    VROPlatformSetEnv(env, android_context, asset_mgr, platform_util);
+
+    VRORendererConfiguration config;
+    config.enableShadows = enableShadows;
+    config.enableHDR = enableHDR;
+    config.enablePBR = enablePBR;
+    config.enableBloom = enableBloom;
+
+    // gvrAudio is not used by OpenXR but kept for driver compatibility
+    std::shared_ptr<gvr::AudioApi> gvrAudio = std::make_shared<gvr::AudioApi>();
+    gvrAudio->Init(env, android_context, class_loader, GVR_AUDIO_RENDERING_BINAURAL_HIGH_QUALITY);
+
+    std::shared_ptr<VROSceneRenderer> renderer
+            = std::make_shared<VROSceneRendererOpenXR>(config, gvrAudio, view, activity, env);
+    return Renderer::jptr(renderer);
+}
+
+VRO_METHOD(void, nativeSetPassthroughEnabled)(VRO_ARGS
+                                              jlong rendererRef,
+                                              jboolean enabled) {
+    auto base = Renderer::native(rendererRef);
+    auto xrRenderer = std::dynamic_pointer_cast<VROSceneRendererOpenXR>(base);
+    if (xrRenderer) {
+        xrRenderer->setPassthroughEnabled((bool)enabled);
+    }
+}
+
+VRO_METHOD(void, nativeSetHandTrackingEnabled)(VRO_ARGS
+                                               jlong rendererRef,
+                                               jboolean enabled) {
+    auto base = Renderer::native(rendererRef);
+    auto xrRenderer = std::dynamic_pointer_cast<VROSceneRendererOpenXR>(base);
+    if (xrRenderer) {
+        xrRenderer->setHandTrackingEnabled((bool)enabled);
+    }
 }
 
 VRO_METHOD(jlong, nativeCreateRendererSceneView)(VRO_ARGS

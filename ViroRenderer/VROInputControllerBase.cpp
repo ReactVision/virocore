@@ -454,6 +454,9 @@ void VROInputControllerBase::onScroll(int source, float x, float y) {
 }
 
 void VROInputControllerBase::processGazeEvent(int source) {
+    if (_hitResult == nullptr) {
+        return;
+    }
     std::shared_ptr<VRONode> newNode = getNodeToHandleEvent(VROEventDelegate::EventAction::OnHover,
                                                                 _hitResult->getNode());
     for (std::shared_ptr<VROEventDelegate> delegate : _delegates) {

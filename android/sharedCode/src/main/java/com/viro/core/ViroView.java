@@ -518,12 +518,21 @@ public abstract class ViroView extends FrameLayout implements Application.Activi
      * @hide
      */
     public final String getHeadset() {
+        // mNativeRenderer can be null on ViroViewOpenXR before its host Activity
+        // resumes (lazy init). Return placeholder so bridge code that consults
+        // getHeadset() during early surface mount doesn't NPE.
+        if (mNativeRenderer == null) {
+            return "";
+        }
         return mNativeRenderer.getHeadset();
     }
     /**
      * @hide
      */
     public final String getControllerType() {
+        if (mNativeRenderer == null) {
+            return "";
+        }
         return mNativeRenderer.getController();
     }
     /**
@@ -543,6 +552,12 @@ public abstract class ViroView extends FrameLayout implements Application.Activi
      * @param enabled
      */
     public final void setDebugHUDEnabled(boolean enabled) {
+        // mNativeRenderer can be null on ViroViewOpenXR before its host Activity
+        // resumes. Silently no-op rather than NPE; debug HUD is bridge-only and
+        // not used on Quest, so dropping the call is safe.
+        if (mNativeRenderer == null) {
+            return;
+        }
         mNativeRenderer.setDebugHUDEnabled(enabled);
     }
 

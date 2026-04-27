@@ -105,12 +105,14 @@ public class MediaRecorderSurface {
             return false;
         }
 
-        // Finally, create a window egl surface with the shared eglContext and mRecorderSurface.
-        final int EGL_GL_COLORSPACE_KHR = 0x309D;
-        final int EGL_GL_COLORSPACE_SRGB_KHR = 0x3089;
+        // Create a window egl surface with the shared eglContext and mRecorderSurface.
+        // Only EGL_NONE is passed — no EGL_GL_COLORSPACE_* attribute. On Tensor/Mali drivers,
+        // tagging the encoder-input surface as sRGB causes the driver to gamma-linearize
+        // every framebuffer write and the encoder to emit color_transfer=iec61966-2-1,
+        // producing mis-tagged pixels that no post-hoc remux can repair and throttling GPU
+        // throughput. With no colorspace attribute the encoder emits plain BT.709 SDR
+        // consistently across SoCs.
         final int[] surfaceAttribs = {
-                EGL_GL_COLORSPACE_KHR,
-                EGL_GL_COLORSPACE_SRGB_KHR,
                 EGL14.EGL_NONE
         };
         mEGLSurface = EGL14.eglCreateWindowSurface(mEGLDisplay, configs[0], mRecorderSurface,

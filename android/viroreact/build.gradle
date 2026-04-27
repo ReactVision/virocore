@@ -6,7 +6,8 @@ android {
     namespace "com.viro.viroreact"
     buildFeatures {
         buildConfig = true
-    }  
+        prefab true   // required to consume native headers + libopenxr_loader.so from the AAR
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -24,12 +25,14 @@ android {
             abiFilters "arm64-v8a", "armeabi-v7a"
         }
 
-        // Note that viro_arcore does not use STL, so we can still use static STL in viro_native
-        // (thereby avoiding conflicts with React Android's shared STL)
+        // c++_shared STL: pre-built Bullet/GVR libs require libc++_shared.so.
+        // When used with React Native, RN provides libc++_shared.so. For standalone
+        // apps (openxrtest), the NDK packages it automatically with c++_shared.
         externalNativeBuild {
             cmake {
                 targets "viro_renderer"
                 cppFlags "-std=c++14 -frtti -fexceptions"
+                arguments "-DANDROID_STL=c++_shared"
             }
         }
 
@@ -101,6 +104,10 @@ dependencies {
     implementation project(':libs:gvr')
     implementation 'com.google.ar:core:1.51.0'
     implementation 'com.google.protobuf.nano:protobuf-javanano:3.0.0-alpha-7'
+    // OpenXR loader — from local Maven repo (openxr_sdk/maven), sourced from Khronos GitHub releases.
+    // Provides libopenxr_loader.so (arm64-v8a) + native headers via Prefab.
+    // Note: artifact ID is openxr_loader_for_android (not openxr_loader_android).
+    implementation 'org.khronos.openxr:openxr_loader_for_android:1.1.38'
 }
 
 task copyReleaseAAR(type: Copy) {
