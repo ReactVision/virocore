@@ -678,13 +678,32 @@ void VROSceneRendererOpenXR::onDestroy() {
     destroyEGLContext();
     destroyOpenXR();
 
-    // Release global refs after the render thread is fully stopped
+    // Release global refs after the render thread is fully stopped.
+    //
+    // onDestroy is invoked from `Java_com_viro_core_Renderer_nativeDestroyRenderer`,
+    // i.e. the JVM main thread already attached by the JNI bridge. Calling
+    // DetachCurrentThread on a thread that's mid-JNI-call aborts ART with
+    // "attempting to detach while still running code" (SIGABRT). Use GetEnv
+    // to detect attached state and only Attach/Detach if we were actually
+    // running on a non-attached thread.
     if (_jvm && _jview) {
-        JNIEnv *env = nullptr;
-        _jvm->AttachCurrentThread(&env, nullptr);
-        env->DeleteGlobalRef(_jview);
-        env->DeleteGlobalRef(_activity);
-        _jvm->DetachCurrentThread();
+        JNIEnv *env       = nullptr;
+        bool    attached  = false;
+        jint    res       = _jvm->GetEnv((void **) &env, JNI_VERSION_1_6);
+        if (res == JNI_EDETACHED) {
+            if (_jvm->AttachCurrentThread(&env, nullptr) == JNI_OK) {
+                attached = true;
+            } else {
+                env = nullptr;
+            }
+        }
+        if (env) {
+            env->DeleteGlobalRef(_jview);
+            env->DeleteGlobalRef(_activity);
+        }
+        if (attached) {
+            _jvm->DetachCurrentThread();
+        }
         _jview    = nullptr;
         _activity = nullptr;
     }

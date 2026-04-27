@@ -155,20 +155,79 @@ private:
     bool _prevGrabLeft   = false;
     bool _prevGrabRight  = false;
 
+    // ── Pose hysteresis (B18) ─────────────────────────────────────────────────
+    // OpenXR pose probes (`xrLocateSpace`, FB hand-aim) routinely report
+    // invalid for one or two frames during normal use (occlusion, IMU
+    // settling, controller-hand handoff). Without smoothing, the aim source
+    // flips between controller and synthesized hand pose every other frame,
+    // producing rapid hover ENTER/EXIT oscillation and missed clicks. We
+    // cache each side+source's last known good pose and re-use it for up
+    // to `kMaxStaleFrames` frames before declaring the source unavailable.
+    struct PersistentAim {
+        bool          haveCached    = false;
+        VROVector3f   pos;
+        VROQuaternion rot;
+        VROVector3f   forward;
+        int           framesStale   = 0;
+    };
+    static constexpr int kMaxStaleFrames = 5;
+    PersistentAim _rightCtrlAim;
+    PersistentAim _leftCtrlAim;
+    PersistentAim _rightHandAim;
+    PersistentAim _leftHandAim;
+
+    /**
+     * Apply hysteresis to a single source's pose. If `currentValid`, refreshes
+     * the cache and returns true. Otherwise returns the cached pose for up to
+     * `kMaxStaleFrames` frames so the aim doesn't flip to a different source
+     * on a single bad probe. Returns false (and leaves out-params untouched)
+     * once the cache has aged out.
+     */
+    static bool stickyPose(PersistentAim &state, bool currentValid,
+                           VROVector3f &pos, VROQuaternion &rot,
+                           VROVector3f &forward);
+
     // ── Private helpers ───────────────────────────────────────────────────────
     XrAction createAction(XrActionSet actionSet, XrActionType type,
                           const char *name, const char *localizedName);
     bool createActionSpaces(XrSession session);
-    void processHands(XrSpace baseSpace, XrTime time, const VROCamera &camera);
 
     /**
-     * Push the current aim ray to the input presenter so it can render the
-     * visible laser line. If the most recent updateHitNode produced a hit,
-     * the line stops at the hit point; otherwise it extends a fixed distance
-     * along the forward direction so the user always sees where they're aiming.
-     * Call once per frame, immediately after updateHitNode + processGazeEvent.
+     * Process hand-tracking joints: fire pinch/grab gesture events and emit
+     * the per-hand aim pose via out-params. Hit-testing, processGazeEvent and
+     * the laser update are dispatched in `onProcess` (once per source, for
+     * both right and left independently). This method only collects state.
+     *
+     * `skipRight` / `skipLeft` are true when the matching controller already
+     * produced a valid aim this frame — in that case we still run gesture
+     * detection (pinch, grab) but do not collect the hand's aim pose.
      */
-    void updateLaserViz(const VROVector3f &origin, const VROVector3f &forward);
+    void processHands(XrSpace baseSpace, XrTime time, const VROCamera &camera,
+                      bool skipRight, bool skipLeft,
+                      bool &rightAimValidOut,
+                      VROVector3f &rightAimPosOut,
+                      VROQuaternion &rightAimRotOut,
+                      VROVector3f &rightAimForwardOut,
+                      bool &leftAimValidOut,
+                      VROVector3f &leftAimPosOut,
+                      VROQuaternion &leftAimRotOut,
+                      VROVector3f &leftAimForwardOut);
+
+    /**
+     * Push the aim ray for one source to the input presenter so it can render
+     * (or hide) that source's laser line. Each source keeps its own polyline,
+     * so left and right can be visible simultaneously.
+     *
+     * @param source   ViroOculus source ID (Controller for right, LeftController for left)
+     * @param origin   World-space origin (ignored when !visible).
+     * @param forward  Unit forward direction (ignored when !visible).
+     *                 Hidden if magnitude < epsilon.
+     * @param visible  False hides; true uses this source's `_hitResultsBySource`
+     *                 entry as the endpoint, falling back to a fixed forward
+     *                 distance when the source has no hit.
+     */
+    void updateLaserViz(int source, const VROVector3f &origin,
+                        const VROVector3f &forward, bool visible);
 
 public:
     /** Enable or disable hand tracking gesture processing. Thread-safe (atomic store). */

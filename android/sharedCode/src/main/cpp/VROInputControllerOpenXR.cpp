@@ -241,40 +241,52 @@ void VROInputControllerOpenXR::onProcess(XrSession session, XrSpace baseSpace,
     syncInfo.countActiveActionSets = 1;
     xrSyncActions(session, &syncInfo);
 
-    // ── Right controller — primary pointer ───────────────────────────────────
+    // ── Capture poses for both hands (no dispatch yet) ───────────────────────
+    // Each hand can be supplied by either a held controller or by tracked
+    // hand joints. We probe controllers first, and the hand-tracking step
+    // below fills in any side that didn't get a controller pose. All
+    // hit-test / processGazeEvent / laser-viz dispatches happen in a single
+    // pass at end-of-frame, once per source — preventing the dual-dispatch
+    // hover oscillation that the previous single-aim implementation hit.
+    bool          rightValid   = false;
+    VROVector3f   rightPos;
+    VROQuaternion rightRot;
+    VROVector3f   rightForward;
     if (_rightSpace != XR_NULL_HANDLE) {
         XrSpaceLocation loc = { XR_TYPE_SPACE_LOCATION };
         XrResult r = xrLocateSpace(_rightSpace, baseSpace, time, &loc);
         if (XR_SUCCEEDED(r) &&
             (loc.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) &&
             (loc.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT)) {
-
-            VROVector3f   pos     = xrVec3ToVRO(loc.pose.position);
-            VROQuaternion rot     = xrQuatToVRO(loc.pose.orientation);
-            VROVector3f   forward = xrAimForward(loc.pose);
-
-            VROInputControllerBase::updateHitNode(camera, pos, forward);
-            VROInputControllerBase::onMove(ViroOculus::Controller, pos, rot, forward);
-            VROInputControllerBase::processGazeEvent(ViroOculus::Controller);
-            updateLaserViz(pos, forward);
+            rightPos     = xrVec3ToVRO(loc.pose.position);
+            rightRot     = xrQuatToVRO(loc.pose.orientation);
+            rightForward = xrAimForward(loc.pose);
+            rightValid   = true;
         }
     }
 
-    // ── Left controller — secondary pointer (pose + events, no hit-test) ─────
+    bool          leftValid   = false;
+    VROVector3f   leftPos;
+    VROQuaternion leftRot;
+    VROVector3f   leftForward;
     if (_leftSpace != XR_NULL_HANDLE) {
         XrSpaceLocation loc = { XR_TYPE_SPACE_LOCATION };
         XrResult r = xrLocateSpace(_leftSpace, baseSpace, time, &loc);
         if (XR_SUCCEEDED(r) &&
             (loc.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) &&
             (loc.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT)) {
-
-            VROVector3f   pos     = xrVec3ToVRO(loc.pose.position);
-            VROQuaternion rot     = xrQuatToVRO(loc.pose.orientation);
-            VROVector3f   forward = xrAimForward(loc.pose);
-
-            VROInputControllerBase::onMove(ViroOculus::LeftController, pos, rot, forward);
+            leftPos     = xrVec3ToVRO(loc.pose.position);
+            leftRot     = xrQuatToVRO(loc.pose.orientation);
+            leftForward = xrAimForward(loc.pose);
+            leftValid   = true;
         }
     }
+
+    // Apply per-source hysteresis (B18) so a single bad probe doesn't flip
+    // the aim source over to hand tracking and back, which previously caused
+    // hover ENTER/EXIT oscillation.
+    rightValid = stickyPose(_rightCtrlAim, rightValid, rightPos, rightRot, rightForward);
+    leftValid  = stickyPose(_leftCtrlAim,  leftValid,  leftPos,  leftRot,  leftForward);
 
     // ── Right trigger ─────────────────────────────────────────────────────────
     {
@@ -450,8 +462,60 @@ void VROInputControllerOpenXR::onProcess(XrSession session, XrSpace baseSpace,
         }
     }
 
-    // ── Hand tracking — runs after controller; no-op if trackers not created ─
-    processHands(baseSpace, time, camera);
+    // ── Hand tracking — gestures + fill missing-side aim from joints ────────
+    bool          rightHandValid = false;
+    VROVector3f   rightHandPos;
+    VROQuaternion rightHandRot;
+    VROVector3f   rightHandForward;
+    bool          leftHandValid  = false;
+    VROVector3f   leftHandPos;
+    VROQuaternion leftHandRot;
+    VROVector3f   leftHandForward;
+    processHands(baseSpace, time, camera,
+                 /*skipRight=*/rightValid, /*skipLeft=*/leftValid,
+                 rightHandValid, rightHandPos, rightHandRot, rightHandForward,
+                 leftHandValid,  leftHandPos,  leftHandRot,  leftHandForward);
+
+    // Hysteresis on hand-tracking poses too — they flicker more than
+    // controllers (joint visibility depends on hand orientation).
+    rightHandValid = stickyPose(_rightHandAim, rightHandValid,
+                                rightHandPos, rightHandRot, rightHandForward);
+    leftHandValid  = stickyPose(_leftHandAim,  leftHandValid,
+                                leftHandPos,  leftHandRot,  leftHandForward);
+
+    // Fill in any side that controller didn't provide, from hand tracking.
+    if (!rightValid && rightHandValid) {
+        rightPos     = rightHandPos;
+        rightRot     = rightHandRot;
+        rightForward = rightHandForward;
+        rightValid   = true;
+    }
+    if (!leftValid && leftHandValid) {
+        leftPos     = leftHandPos;
+        leftRot     = leftHandRot;
+        leftForward = leftHandForward;
+        leftValid   = true;
+    }
+
+    // ── Per-source dispatch — both hands handled independently ──────────────
+    // Each side calls the source-aware updateHitNode so its hit/hover/click
+    // state is tracked separately in VROInputControllerBase. Pinch / trigger
+    // edge events emitted earlier in this frame already carry the correct
+    // source, so onButtonEvent will resolve against this side's hit result.
+    auto dispatchSide = [this, &camera](
+        bool valid, int source,
+        const VROVector3f &pos, const VROQuaternion &rot, const VROVector3f &fwd) {
+        if (valid) {
+            VROInputControllerBase::updateHitNode(source, camera, pos, fwd);
+            VROInputControllerBase::onMove(source, pos, rot, fwd);
+            VROInputControllerBase::processGazeEvent(source);
+            updateLaserViz(source, pos, fwd, /*visible=*/true);
+        } else {
+            updateLaserViz(source, {}, {}, /*visible=*/false);
+        }
+    };
+    dispatchSide(rightValid, ViroOculus::Controller,     rightPos, rightRot, rightForward);
+    dispatchSide(leftValid,  ViroOculus::LeftController, leftPos,  leftRot,  leftForward);
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -529,7 +593,18 @@ void VROInputControllerOpenXR::destroyHandTrackers() {
 }
 
 void VROInputControllerOpenXR::processHands(XrSpace baseSpace, XrTime time,
-                                              const VROCamera &camera) {
+                                              const VROCamera &camera,
+                                              bool skipRight, bool skipLeft,
+                                              bool &rightAimValidOut,
+                                              VROVector3f &rightAimPosOut,
+                                              VROQuaternion &rightAimRotOut,
+                                              VROVector3f &rightAimForwardOut,
+                                              bool &leftAimValidOut,
+                                              VROVector3f &leftAimPosOut,
+                                              VROQuaternion &leftAimRotOut,
+                                              VROVector3f &leftAimForwardOut) {
+    rightAimValidOut = false;
+    leftAimValidOut  = false;
     if (!_pfnLocateHandJoints || !_handTrackingEnabled) return;
 
     for (int hand = 0; hand < 2; ++hand) {
@@ -563,20 +638,23 @@ void VROInputControllerOpenXR::processHands(XrSpace baseSpace, XrTime time,
         bool &prevPinch = (hand == 0) ? _prevPinchLeft  : _prevPinchRight;
         bool &prevGrab  = (hand == 0) ? _prevGrabLeft   : _prevGrabRight;
 
-        // ── Aim pose → onMove + hit test (right hand is primary pointer) ──────
+        // ── Aim pose extraction (FB aim ext preferred, joint-derived fallback)
+        // Hit-test, processGazeEvent, laser update and onMove are NOT done
+        // here — `onProcess` consolidates them after this method returns,
+        // dispatching once per side (right + left) so each hand has
+        // independent hover/click/laser state. We only stash this hand's
+        // aim pose in the matching out-params for the caller to use.
         bool aimComputed = _aimExtEnabled &&
                            (aimState.status & XR_HAND_TRACKING_AIM_COMPUTED_BIT_FB);
+        bool          handAimValid   = false;
+        VROVector3f   handAimPos;
+        VROQuaternion handAimRot;
+        VROVector3f   handAimForward;
         if (aimComputed) {
-            VROVector3f   pos     = xrVec3ToVRO(aimState.aimPose.position);
-            VROQuaternion rot     = xrQuatToVRO(aimState.aimPose.orientation);
-            VROVector3f   forward = xrAimForward(aimState.aimPose);
-
-            if (hand == 1) {  // right hand = primary pointer
-                VROInputControllerBase::updateHitNode(camera, pos, forward);
-                VROInputControllerBase::processGazeEvent(source);
-                updateLaserViz(pos, forward);
-            }
-            VROInputControllerBase::onMove(source, pos, rot, forward);
+            handAimPos     = xrVec3ToVRO(aimState.aimPose.position);
+            handAimRot     = xrQuatToVRO(aimState.aimPose.orientation);
+            handAimForward = xrAimForward(aimState.aimPose);
+            handAimValid   = true;
         } else {
             // Fallback: derive aim from index proximal → tip direction,
             // use wrist joint for position/orientation.
@@ -591,17 +669,27 @@ void VROInputControllerOpenXR::processHands(XrSpace baseSpace, XrTime time,
             if (tipValid && proxValid && wristValid) {
                 VROVector3f tipPos  = xrVec3ToVRO(indexTip.pose.position);
                 VROVector3f proxPos = xrVec3ToVRO(indexProx.pose.position);
-                VROVector3f forward = (tipPos - proxPos);
-                forward.normalize();
-                VROVector3f   pos = xrVec3ToVRO(wrist.pose.position);
-                VROQuaternion rot = xrQuatToVRO(wrist.pose.orientation);
+                handAimForward = (tipPos - proxPos);
+                handAimForward.normalize();
+                handAimPos     = xrVec3ToVRO(wrist.pose.position);
+                handAimRot     = xrQuatToVRO(wrist.pose.orientation);
+                handAimValid   = true;
+            }
+        }
 
-                if (hand == 1) {
-                    VROInputControllerBase::updateHitNode(camera, pos, forward);
-                    VROInputControllerBase::processGazeEvent(source);
-                    updateLaserViz(pos, forward);
-                }
-                VROInputControllerBase::onMove(source, pos, rot, forward);
+        if (handAimValid) {
+            if (hand == 0 && !skipLeft) {
+                // Left hand: only relevant when the left controller didn't
+                // provide an aim. Caller will dispatch via LeftController source.
+                leftAimValidOut    = true;
+                leftAimPosOut      = handAimPos;
+                leftAimRotOut      = handAimRot;
+                leftAimForwardOut  = handAimForward;
+            } else if (hand == 1 && !skipRight) {
+                rightAimValidOut   = true;
+                rightAimPosOut     = handAimPos;
+                rightAimRotOut     = handAimRot;
+                rightAimForwardOut = handAimForward;
             }
         }
 
@@ -654,24 +742,68 @@ VROVector3f VROInputControllerOpenXR::getDragForwardOffset() {
     return VROVector3f(0, 0, 0);
 }
 
+bool VROInputControllerOpenXR::stickyPose(PersistentAim &state, bool currentValid,
+                                          VROVector3f &pos, VROQuaternion &rot,
+                                          VROVector3f &forward) {
+    if (currentValid) {
+        state.haveCached  = true;
+        state.pos         = pos;
+        state.rot         = rot;
+        state.forward     = forward;
+        state.framesStale = 0;
+        return true;
+    }
+    if (state.haveCached && state.framesStale < kMaxStaleFrames) {
+        state.framesStale++;
+        pos     = state.pos;
+        rot     = state.rot;
+        forward = state.forward;
+        return true;
+    }
+    // Aged out — drop the cache so a long absence doesn't leave stale data
+    // hanging around.
+    if (state.framesStale >= kMaxStaleFrames) {
+        state.haveCached = false;
+    }
+    state.framesStale++;
+    return false;
+}
+
 std::shared_ptr<VROInputPresenter>
 VROInputControllerOpenXR::createPresenter(std::shared_ptr<VRODriver> driver) {
     return std::make_shared<VROInputPresenterOpenXR>();
 }
 
-void VROInputControllerOpenXR::updateLaserViz(const VROVector3f &origin,
-                                              const VROVector3f &forward) {
+void VROInputControllerOpenXR::updateLaserViz(int source,
+                                              const VROVector3f &origin,
+                                              const VROVector3f &forward,
+                                              bool visible) {
     auto presenter = std::dynamic_pointer_cast<VROInputPresenterOpenXR>(getPresenter());
     if (!presenter) return;
 
-    // If we have a hit, end the laser at the hit point. Otherwise, extend it
-    // a fixed distance forward so the user always sees their aim ray.
+    if (!visible) {
+        presenter->updateAimRay(source, {}, {}, false);
+        return;
+    }
+
+    // Hide on degenerate forward — happens transiently if a pose is reported
+    // valid but the orientation hasn't been computed yet (zero quaternion),
+    // which would produce an invisible zero-length polyline anyway.
+    if (forward.magnitude() < 0.001f) {
+        presenter->updateAimRay(source, {}, {}, false);
+        return;
+    }
+
+    // Use this source's hit result (per-source via base class) if any;
+    // otherwise extend a fixed forward distance so the user always sees
+    // where they're aiming.
     constexpr float kNoHitRange = 4.0f;  // meters
     VROVector3f hitPoint;
-    if (_hitResult) {
-        hitPoint = _hitResult->getLocation();
+    auto hit = getHitResultForSource(source);
+    if (hit) {
+        hitPoint = hit->getLocation();
     } else {
         hitPoint = origin + forward.scale(kNoHitRange);
     }
-    presenter->updateAimRay(origin, hitPoint, true /* visible */);
+    presenter->updateAimRay(source, origin, hitPoint, true /* visible */);
 }

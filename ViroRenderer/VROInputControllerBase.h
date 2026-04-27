@@ -27,6 +27,7 @@
 #define VROInputControllerBase_h
 
 #include <stdio.h>
+#include <map>
 #include <vector>
 #include <string>
 #include <memory>
@@ -181,6 +182,23 @@ protected:
     void updateHitNode(const VROCamera &camera, VROVector3f origin, VROVector3f ray);
 
     /*
+     Source-aware hit-node update. Stores the result both in the legacy
+     `_hitResult` (so single-pointer subsystems — drag, fuse, pinch, rotate —
+     keep working unchanged) and in `_hitResultsBySource[source]` so that
+     gaze/click events can resolve against the specific input source that
+     produced them. Used by backends with multiple simultaneous pointers
+     (e.g. OpenXR with two hands tracked at once).
+     */
+    void updateHitNode(int source, const VROCamera &camera,
+                       VROVector3f origin, VROVector3f ray);
+
+    /*
+     Returns the per-source hit result if one was recorded for this source,
+     otherwise falls back to the legacy single-source `_hitResult`.
+     */
+    std::shared_ptr<VROHitTestResult> getHitResultForSource(int source) const;
+
+    /*
      VRODraggedObject encapsulates all the information that needs to be tracked
      and processed for onDrag events for a given dragged node.
      */
@@ -226,6 +244,12 @@ protected:
      Last result that was returned from the hit test.
      */
     std::shared_ptr<VROHitTestResult> _hitResult;
+
+    /*
+     Per-source hit results, populated by the source-aware updateHitNode
+     overload. Empty entry → no per-source override; falls back to `_hitResult`.
+     */
+    std::map<int, std::shared_ptr<VROHitTestResult>> _hitResultsBySource;
     
     /*
      Last known posiiton of the controller.
@@ -297,9 +321,23 @@ private:
     std::shared_ptr<VRONode> _lastClickedNode;
 
     /*
+     Per-source last clicked node — used to detect a "completed" click
+     (ClickDown + ClickUp on the same node from the same source) when
+     multiple pointers are active simultaneously.
+     */
+    std::map<int, std::shared_ptr<VRONode>> _lastClickedNodesBySource;
+
+    /*
      Last known that was successfully hovered upon.
      */
     std::shared_ptr<VRONode> _lastHoveredNode;
+
+    /*
+     Per-source last hovered node, used by the source-aware hover dispatch in
+     `processGazeEvent`. An entry's presence is the signal that this source
+     has its own hover state; otherwise we fall back to `_lastHoveredNode`.
+     */
+    std::map<int, std::shared_ptr<VRONode>> _lastHoveredNodesBySource;
 
     /*
      Returns the first node that is able to handle the event action by bubbling it up.
