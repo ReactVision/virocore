@@ -18,6 +18,8 @@ allprojects {
         mavenCentral()
         google()
         maven { url 'https://jitpack.io' }
+        // OpenXR loader — downloaded from Khronos GitHub releases (not on Maven Central)
+        maven { url "${rootProject.projectDir}/openxr_sdk/maven" }
     }
 }
 
