@@ -1393,6 +1393,12 @@ public class ARScene extends Scene {
         nativeRvRemoveAssetFromCloudAnchor(mNativeRef, key, anchorId, assetId);
     }
 
+    public void rvGetProject(String projectId, RvCloudAnchorCallback callback) {
+        String key = "rvGetProject_" + System.nanoTime();
+        mRvCloudCallbacks.put(key, callback);
+        nativeRvGetProject(mNativeRef, key, projectId);
+    }
+
     public void rvGetScene(String sceneId, RvCloudAnchorCallback callback) {
         String key = "rvGetScene_" + System.nanoTime();
         mRvCloudCallbacks.put(key, callback);
@@ -1706,6 +1712,7 @@ public class ARScene extends Scene {
     private native void nativeRvFindNearbyCloudAnchors(long sceneControllerRef, String key,
                                                         double lat, double lng,
                                                         double radius, int limit);
+    private native void nativeRvGetProject(long sceneControllerRef, String key, String projectId);
     private native void nativeRvGetScene(long sceneControllerRef, String key, String sceneId);
     private native void nativeRvGetSceneAssets(long sceneControllerRef, String key, String sceneId);
     private native void nativeRvAttachAssetToCloudAnchor(long sceneControllerRef, String key,

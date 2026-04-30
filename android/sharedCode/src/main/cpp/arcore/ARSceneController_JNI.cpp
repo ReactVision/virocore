@@ -922,6 +922,29 @@ VRO_METHOD(void, nativeRvGetSceneAssets)(VRO_ARGS
     });
 }
 
+VRO_METHOD(void, nativeRvGetProject)(VRO_ARGS
+                                      VRO_REF(VROARSceneController) arSceneControllerPtr,
+                                      jstring key_j,
+                                      jstring projectId_j) {
+    std::string keyStr       = VRO_STRING_STL(key_j);
+    std::string projectIdStr = VRO_STRING_STL(projectId_j);
+    std::weak_ptr<VROARScene> arScene_w = std::dynamic_pointer_cast<VROARScene>(
+        VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
+    VRO_WEAK weakObj = VRO_NEW_WEAK_GLOBAL_REF(obj);
+    VROPlatformDispatchAsyncRenderer([arScene_w, weakObj, keyStr, projectIdStr] {
+        std::shared_ptr<VROARScene> arScene = arScene_w.lock();
+        std::shared_ptr<VROARSession> arSession = arScene ? arScene->getARSession() : nullptr;
+        if (!arSession) {
+            rvFireCloudResult(weakObj, keyStr, false, "", "AR session not available");
+            return;
+        }
+        arSession->rvGetProject(projectIdStr,
+            [weakObj, keyStr](bool success, std::string jsonData, std::string error) {
+                rvFireCloudResult(weakObj, keyStr, success, jsonData, error);
+            });
+    });
+}
+
 VRO_METHOD(void, nativeRvGetScene)(VRO_ARGS
                                     VRO_REF(VROARSceneController) arSceneControllerPtr,
                                     jstring key_j,

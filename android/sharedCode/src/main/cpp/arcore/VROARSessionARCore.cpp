@@ -2502,6 +2502,26 @@ void VROARSessionARCore::rvTrackCloudAnchorResolution(
     if (callback) callback(false, "ReactVision cloud anchor provider not available");
 }
 
+void VROARSessionARCore::rvGetProject(
+    const std::string& projectId,
+    std::function<void(bool, std::string, std::string)> callback) {
+#if RVCCA_AVAILABLE
+    if (_cloudAnchorProviderRV) {
+        auto p = _cloudAnchorProviderRV->getProvider();
+        if (p) {
+            p->getProject(projectId,
+                [callback](ReactVisionCCA::ApiResult<std::string> r) {
+                if (callback) {
+                    callback(r.success, r.data, r.success ? "" : r.error.message);
+                }
+            });
+            return;
+        }
+    }
+#endif
+    if (callback) callback(false, "", "ReactVision cloud anchor provider not available");
+}
+
 void VROARSessionARCore::rvGetScene(
     const std::string& sceneId,
     std::function<void(bool, std::string, std::string)> callback) {

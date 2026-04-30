@@ -581,6 +581,11 @@ public:
         std::function<void(bool success, std::string jsonData, std::string error)> callback) {
         if (callback) callback(false, "", "Not supported");
     }
+    virtual void rvGetProject(
+        const std::string& projectId,
+        std::function<void(bool success, std::string jsonData, std::string error)> callback) {
+        if (callback) callback(false, "", "Not supported");
+    }
 
     // ========================================================================
     // ReactVision Geospatial CRUD API
