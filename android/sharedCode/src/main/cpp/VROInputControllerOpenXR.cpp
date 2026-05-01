@@ -376,10 +376,12 @@ void VROInputControllerOpenXR::onProcess(XrSession session, XrSpace baseSpace,
         xrGetActionStateBoolean(session, &info, &state);
         if (state.isActive) {
             bool pressed = (state.currentState == XR_TRUE);
-            if (pressed && !_prevBButton)
+            if (pressed && !_prevBButton) {
                 VROInputControllerBase::onButtonEvent(ViroOculus::BackButton, VROEventDelegate::ClickState::ClickDown);
-            else if (!pressed && _prevBButton)
+                if (_backButtonCallback) _backButtonCallback();
+            } else if (!pressed && _prevBButton) {
                 VROInputControllerBase::onButtonEvent(ViroOculus::BackButton, VROEventDelegate::ClickState::ClickUp);
+            }
             _prevBButton = pressed;
         }
     }
@@ -424,10 +426,12 @@ void VROInputControllerOpenXR::onProcess(XrSession session, XrSpace baseSpace,
         xrGetActionStateBoolean(session, &info, &state);
         if (state.isActive) {
             bool pressed = (state.currentState == XR_TRUE);
-            if (pressed && !_prevMenuButton)
+            if (pressed && !_prevMenuButton) {
                 VROInputControllerBase::onButtonEvent(ViroOculus::BackButton, VROEventDelegate::ClickState::ClickDown);
-            else if (!pressed && _prevMenuButton)
+                if (_backButtonCallback) _backButtonCallback();
+            } else if (!pressed && _prevMenuButton) {
                 VROInputControllerBase::onButtonEvent(ViroOculus::BackButton, VROEventDelegate::ClickState::ClickUp);
+            }
             _prevMenuButton = pressed;
         }
     }

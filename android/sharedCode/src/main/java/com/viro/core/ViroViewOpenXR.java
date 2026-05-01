@@ -604,6 +604,20 @@ public class ViroViewOpenXR extends ViroView {
     // ── Callbacks from native (VROSceneRendererOpenXR) ─────────────────────────────
 
     /**
+     * Called by native code (render thread) when the B or Menu controller button
+     * is pressed. Posts Activity.onBackPressed() to the UI thread so React Native's
+     * BackHandler receives the event in VRActivity.
+     *
+     * @hide
+     */
+    void onNativeBackButton() {
+        Activity activity = mWeakActivity.get();
+        if (activity != null) {
+            activity.runOnUiThread(activity::onBackPressed);
+        }
+    }
+
+    /**
      * Called by native code each frame on the render thread so that queued
      * Java callbacks (frame listeners) are executed on the correct thread.
      *

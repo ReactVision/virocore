@@ -140,6 +140,29 @@ VROSceneRendererOpenXR::VROSceneRendererOpenXR(VRORendererConfiguration config,
     _inputController->createActionSet(_instance, _session);
     initHandTracking();  // no-op if XR_EXT_hand_tracking not available on this device
 
+    // Wire the B/Menu button back to Android's back-press so React Native's
+    // BackHandler fires in VRActivity. The callback runs on the render thread;
+    // ViroViewOpenXR.onNativeBackButton() posts to the UI thread internally.
+    {
+        JavaVM *jvm = _jvm;
+        jobject jview = _jview;  // global ref — safe to capture
+        _inputController->setBackButtonCallback([jvm, jview]() {
+            JNIEnv *env = nullptr;
+            bool attached = false;
+            if (jvm->GetEnv((void **)&env, JNI_VERSION_1_6) == JNI_EDETACHED) {
+                jvm->AttachCurrentThread(&env, nullptr);
+                attached = true;
+            }
+            if (env) {
+                jclass cls = env->GetObjectClass(jview);
+                jmethodID mid = env->GetMethodID(cls, "onNativeBackButton", "()V");
+                env->DeleteLocalRef(cls);
+                if (mid) env->CallVoidMethod(jview, mid);
+            }
+            if (attached) jvm->DetachCurrentThread();
+        });
+    }
+
     // Create the shared VRORenderer and wire it to the input controller.
     // VROSceneRenderer::_renderer is null until explicitly set here — every other
     // platform (GVR, OVR) does the equivalent in their constructor.

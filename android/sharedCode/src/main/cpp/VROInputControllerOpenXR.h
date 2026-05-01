@@ -27,6 +27,7 @@
 #ifndef ANDROID_VROINPUTCONTROLLEROPENXR_H
 #define ANDROID_VROINPUTCONTROLLEROPENXR_H
 
+#include <functional>
 #include <memory>
 #include <openxr/openxr.h>
 #include "VROInputControllerBase.h"
@@ -89,6 +90,15 @@ public:
     std::string getHeadset()    override { return "quest"; }
     std::string getController() override { return "touch"; }
 
+    /*
+     * Set a callback invoked on the render thread when the B/Menu button is
+     * pressed (ClickDown). Used to dispatch KEYCODE_BACK to the host Activity
+     * so React Native's BackHandler fires in VRActivity.
+     */
+    void setBackButtonCallback(std::function<void()> callback) {
+        _backButtonCallback = std::move(callback);
+    }
+
 protected:
     std::shared_ptr<VROInputPresenter> createPresenter(
         std::shared_ptr<VRODriver> driver) override;
@@ -127,6 +137,9 @@ private:
     // ── Action spaces for aim poses ───────────────────────────────────────────
     XrSpace _leftSpace  = XR_NULL_HANDLE;
     XrSpace _rightSpace = XR_NULL_HANDLE;
+
+    // ── Back button callback ──────────────────────────────────────────────────
+    std::function<void()> _backButtonCallback;
 
     // ── Edge-detection state (previous frame) ────────────────────────────────
     bool _prevTriggerLeft  = false;
