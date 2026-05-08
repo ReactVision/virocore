@@ -92,6 +92,12 @@ void VROInputControllerBase::onButtonEvent(int source, VROEventDelegate::ClickSt
     std::shared_ptr<VRONode> &lastClicked = sourceAware
         ? _lastClickedNodesBySource[source]
         : _lastClickedNode;
+    std::shared_ptr<VRONode> &lastHovered = sourceAware
+        ? _lastHoveredNodesBySource[source]
+        : _lastHoveredNode;
+    HoverPending &pending = sourceAware
+        ? _hoverPendingBySource[source]
+        : _hoverPending;
 
     VROVector3f hitLoc = hit->getLocation();
     std::vector<float> pos = {hitLoc.x, hitLoc.y, hitLoc.z};
@@ -99,8 +105,28 @@ void VROInputControllerBase::onButtonEvent(int source, VROEventDelegate::ClickSt
         pos.clear();
     }
 
+    // Hover-hysteresis stickiness: if the user pulled the trigger while the
+    // ray-cast was momentarily jittered off the target — i.e. a hover
+    // pending-exit window is still open and the current hit does not land
+    // on `lastHovered` — re-route the click to `lastHovered`. From the
+    // user's perspective they are still pointing at the last hovered
+    // node; the raycast just blinked off for 1–3 frames. Without this,
+    // the trigger pull resolved against background and JS callers had to
+    // press "dozens of times" to land a single click.
+    std::shared_ptr<VRONode> hitNode = hit->getNode();
+    if (lastHovered != nullptr &&
+        hitNode != lastHovered &&
+        pending.candidateNode != nullptr &&
+        pending.startedMillis >= 0 &&
+        (VROTimeCurrentMillis() - pending.startedMillis) < kHoverHysteresisMillis) {
+        hitNode = lastHovered;
+        pos.clear();  // we don't retain the on-target hit position; payload
+                      // shape matches a background hit. Handlers usually
+                      // care about source / clickState, not position.
+    }
+
     // Notify internal delegates
-    std::shared_ptr<VRONode> focusedNode = getNodeToHandleEvent(VROEventDelegate::EventAction::OnClick, hit->getNode());
+    std::shared_ptr<VRONode> focusedNode = getNodeToHandleEvent(VROEventDelegate::EventAction::OnClick, hitNode);
     for (std::shared_ptr<VROEventDelegate> delegate : _delegates) {
         delegate->onClick(source, focusedNode, clickState, pos);
     }
@@ -113,7 +139,7 @@ void VROInputControllerBase::onButtonEvent(int source, VROEventDelegate::ClickSt
      given Node and source, trigger an onClicked event.
      */
     if (clickState == VROEventDelegate::ClickUp) {
-        if (hit->getNode() == lastClicked) {
+        if (hitNode == lastClicked) {
             for (std::shared_ptr<VROEventDelegate> delegate : _delegates){
                 delegate->onClick(source, focusedNode, VROEventDelegate::ClickState::Clicked, pos);
             }
@@ -130,12 +156,12 @@ void VROInputControllerBase::onButtonEvent(int source, VROEventDelegate::ClickSt
         }
         _lastDraggedNode = nullptr;
     } else if (clickState == VROEventDelegate::ClickDown){
-        lastClicked = hit->getNode();
+        lastClicked = hitNode;
 
         // Identify if object is draggable.
         std::shared_ptr<VRONode> draggableNode
                 = getNodeToHandleEvent(VROEventDelegate::EventAction::OnDrag,
-                                       hit->getNode());
+                                       hitNode);
         
         if (draggableNode == nullptr){
             return;
@@ -490,6 +516,9 @@ void VROInputControllerBase::processGazeEvent(int source) {
     std::shared_ptr<VRONode> &lastHovered = sourceAware
         ? _lastHoveredNodesBySource[source]
         : _lastHoveredNode;
+    HoverPending &pending = sourceAware
+        ? _hoverPendingBySource[source]
+        : _hoverPending;
 
     std::shared_ptr<VRONode> newNode = getNodeToHandleEvent(VROEventDelegate::EventAction::OnHover,
                                                                 hit->getNode());
@@ -497,31 +526,60 @@ void VROInputControllerBase::processGazeEvent(int source) {
         delegate->onGazeHit(source, newNode, *hit.get());
     }
 
+    // Hysteresis: if the hit-test result returns to the currently-hovered
+    // node, cancel any in-flight pending exit and emit nothing — the user
+    // never actually saw a transition.
     if (lastHovered == newNode) {
+        pending = HoverPending{};
         return;
     }
 
     VROVector3f hitLoc = hit->getLocation();
     std::vector<float> pos = {hitLoc.x, hitLoc.y, hitLoc.z};
-    if (hit->isBackgroundHit()) {
+    bool isBgHit = hit->isBackgroundHit();
+    if (isBgHit) {
         pos.clear();
     }
 
+    // First-ever hover into a node (no prior hovered) — fire enter immediately.
+    // No exit to defer, so no point holding it in pending.
+    if (lastHovered == nullptr) {
+        if (newNode && newNode->getEventDelegate()) {
+            newNode->getEventDelegate()->onHover(source, newNode, true, pos);
+        }
+        lastHovered = newNode;
+        pending = HoverPending{};
+        return;
+    }
+
+    // From here on `lastHovered != nullptr` and `newNode != lastHovered`.
+    // Record / update the pending candidate. We confirm the change only
+    // after `kHoverHysteresisMillis` of the new candidate persisting,
+    // which absorbs the 1–3 frame ray-cast jitter of unsteady aim.
+    double now = VROTimeCurrentMillis();
+    if (pending.candidateNode != newNode || pending.startedMillis < 0) {
+        pending.candidateNode  = newNode;
+        pending.candidatePos   = hitLoc;
+        pending.candidateBgHit = isBgHit;
+        pending.startedMillis  = now;
+        return;
+    }
+    if (now - pending.startedMillis < kHoverHysteresisMillis) {
+        // Same candidate as before, but window not elapsed — keep waiting.
+        pending.candidatePos   = hitLoc;
+        pending.candidateBgHit = isBgHit;
+        return;
+    }
+
+    // Window elapsed and candidate held — confirm the transition.
     if (newNode && newNode->getEventDelegate()) {
-        std::shared_ptr<VROEventDelegate> delegate = newNode->getEventDelegate();
-        if (delegate) {
-            delegate->onHover(source, newNode, true, pos);
-        }
+        newNode->getEventDelegate()->onHover(source, newNode, true, pos);
     }
-
     if (lastHovered && lastHovered->getEventDelegate()) {
-        std::shared_ptr<VROEventDelegate> delegate = lastHovered->getEventDelegate();
-        if (delegate) {
-            delegate->onHover(source, lastHovered, false, pos);
-        }
+        lastHovered->getEventDelegate()->onHover(source, lastHovered, false, pos);
     }
-
     lastHovered = newNode;
+    pending = HoverPending{};
 }
 
 void VROInputControllerBase::processOnFuseEvent(int source, std::shared_ptr<VRONode> newNode) {
