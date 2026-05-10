@@ -129,9 +129,6 @@ public class ViroViewOpenXR extends ViroView {
      */
     public ViroViewOpenXR(final Activity activity, final StartupListener startupListener) {
         super(activity, null);
-        android.util.Log.i("ViroDiag", "ViroViewOpenXR<init> ctor activity=" + activity.getClass().getSimpleName() +
-                "(" + System.identityHashCode(activity) + ") this=" + System.identityHashCode(this) +
-                " ctxClass=" + activity.getClass().getName());
         init(startupListener);
     }
 
@@ -558,13 +555,6 @@ public class ViroViewOpenXR extends ViroView {
     /** @hide */
     @Override
     public void onActivityDestroyed(Activity activity) {
-        Activity host = mWeakActivity.get();
-        boolean match = (host == activity);
-        android.util.Log.i("ViroDiag", "ViroViewOpenXR.onActivityDestroyed activity=" +
-                activity.getClass().getSimpleName() + "(" + System.identityHashCode(activity) +
-                ") host=" + (host == null ? "null" : host.getClass().getSimpleName() +
-                "(" + System.identityHashCode(host) + ")") + " match=" + match +
-                " this=" + System.identityHashCode(this));
         // Only dispose when our host Activity is destroyed. We are now registered
         // with the Application's ActivityLifecycleCallbacks so we receive
         // onActivityDestroyed for *every* Activity in the process — including
@@ -580,10 +570,6 @@ public class ViroViewOpenXR extends ViroView {
     /** @hide */
     @Override
     public void dispose() {
-        android.util.Log.i("ViroDiag", "ViroViewOpenXR.dispose() this=" +
-                System.identityHashCode(this) + " mApplication=" +
-                (mApplication == null ? "null" : "set") +
-                " mDestroyed=" + mDestroyed);
         if (mApplication != null) {
             mApplication.unregisterActivityLifecycleCallbacks(this);
             mApplication = null;
