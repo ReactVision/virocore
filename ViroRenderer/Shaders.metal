@@ -30,6 +30,7 @@
 #include "VRODefines.h"
 #if VRO_METAL
 
+#include <metal_stdlib>
 using namespace metal;
 
 struct VROCustomUniforms {
@@ -54,41 +55,8 @@ typedef struct {
 
 /* ---------------------------------------
    MODIFIER STRUCTURES
+   (defined in VROSharedStructures.h)
    --------------------------------------- */
-
-struct VROShaderGeometry {
-    float3 position;
-    float3 normal;
-    float2 texcoord;
-    float4 tangent;
-    float4 bone_weights;
-    int4   bone_indices;
-};
-
-struct VROShaderVertex {
-    float4 position;
-};
-
-struct VROTransforms {
-    float4x4 model_matrix;
-    float4x4 view_matrix;
-    float4x4 projection_matrix;
-};
-
-struct VROSurface {
-    float4 diffuse_color;
-    float2 diffuse_texcoord;
-    float  diffuse_intensity;
-    float  shininess;
-    float3 specular_color;
-    float  roughness;
-    float  metalness;
-    float  ao;
-    float  alpha;
-    float3 normal;
-    float3 position;
-    float3 view;
-};
 
 /* ---------------------------------------
    SHARED LIGHTING FUNCTIONS
@@ -374,12 +342,28 @@ float3 apply_light_lambert(constant VROLightUniforms &light,
                            float3 surface_pos,
                            float3 surface_normal,
                            float4 material_color) {
-    
+
     thread float3 surface_to_light;
     float attenuation = compute_attenuation(light, surface_pos, &surface_to_light);
-    
+
     float diffuse_coeff = fmax(0.0, dot(-surface_normal, surface_to_light));
     return attenuation * diffuse_coeff * material_color.rgb * light.color;
+}
+
+float3 apply_light_lambert(constant VROLightUniforms &light,
+                           float3 surface_pos,
+                           float3 surface_normal,
+                           float3 material_color,
+                           float  diffuse_intensity);
+float3 apply_light_lambert(constant VROLightUniforms &light,
+                           float3 surface_pos,
+                           float3 surface_normal,
+                           float3 material_color,
+                           float  diffuse_intensity) {
+    thread float3 surface_to_light;
+    float attenuation = compute_attenuation(light, surface_pos, &surface_to_light);
+    float diffuse_coeff = fmax(0.0, dot(-surface_normal, surface_to_light));
+    return attenuation * diffuse_coeff * material_color * diffuse_intensity * light.color;
 }
 
 float4 lambert_lighting_diffuse_fixed(VROLambertLightingVertexOut in,
@@ -668,15 +652,13 @@ float3 apply_light_phong(constant VROLightUniforms &light,
                          float4 material_diffuse_color,
                          float4 material_specular_color,
                          float  material_shininess) {
-    
+
     thread float3 surface_to_light;
     float attenuation = compute_attenuation(light, surface_pos, &surface_to_light);
-    
-    // Diffuse
+
     float diffuse_coeff = fmax(0.0, dot(-surface_normal, surface_to_light));
     float3 diffuse = diffuse_coeff * material_diffuse_color.rgb * light.color;
-    
-    // Specular
+
     float specular_coeff = 0.0;
     if (diffuse_coeff > 0.0) {
         specular_coeff = pow(max(0.0, dot(surface_to_camera,
@@ -684,6 +666,34 @@ float3 apply_light_phong(constant VROLightUniforms &light,
                              material_shininess);
     }
 
+    float3 specular = specular_coeff * material_specular_color.rgb * light.color;
+    return attenuation * (diffuse + specular);
+}
+
+float3 apply_light_phong(constant VROLightUniforms &light,
+                         float3 surface_pos,
+                         float3 surface_normal,
+                         float3 surface_to_camera,
+                         float3 material_diffuse_color,
+                         float4 material_specular_color,
+                         float  material_shininess);
+float3 apply_light_phong(constant VROLightUniforms &light,
+                         float3 surface_pos,
+                         float3 surface_normal,
+                         float3 surface_to_camera,
+                         float3 material_diffuse_color,
+                         float4 material_specular_color,
+                         float  material_shininess) {
+    thread float3 surface_to_light;
+    float attenuation = compute_attenuation(light, surface_pos, &surface_to_light);
+    float diffuse_coeff = fmax(0.0, dot(-surface_normal, surface_to_light));
+    float3 diffuse = diffuse_coeff * material_diffuse_color * light.color;
+    float specular_coeff = 0.0;
+    if (diffuse_coeff > 0.0) {
+        specular_coeff = pow(max(0.0, dot(surface_to_camera,
+                                          reflect(surface_to_light, -surface_normal))),
+                             material_shininess);
+    }
     float3 specular = specular_coeff * material_specular_color.rgb * light.color;
     return attenuation * (diffuse + specular);
 }
@@ -921,6 +931,10 @@ fragment float4 phong_lighting_fragment_t_reflect(VROPhongLightingVertexOut in [
 #pragma fragment_modifier_body
 
     return _output_color;
+}
+
+/* ---------------------------------------
+   BLINN LIGHTING MODEL
    --------------------------------------- */
 
 typedef struct {
@@ -928,10 +942,10 @@ typedef struct {
     float3 normal;
     float4 color;
     float2 texcoord;
-    
+
     float3 surface_position;
     float3 camera_position;
-    
+
     float3 ambient_color;
     float4 material_color;
     float  material_shininess;
@@ -1004,22 +1018,48 @@ float3 apply_light_blinn(constant VROLightUniforms &light,
                          float4 material_diffuse_color,
                          float4 material_specular_color,
                          float  material_shininess) {
-    
+
     thread float3 surface_to_light;
     float attenuation = compute_attenuation(light, surface_pos, &surface_to_light);
-    
-    // Diffuse
+
     float diffuse_coeff = fmax(0.0, dot(-surface_normal, surface_to_light));
     float3 diffuse = diffuse_coeff * material_diffuse_color.rgb * light.color;
-    
-    // Specular
+
     float specular_coeff = 0.0;
     if (diffuse_coeff > 0.0) {
         specular_coeff = pow(max(0.0, dot(normalize(-surface_to_camera + surface_to_light),
                                           -surface_normal)),
                              material_shininess);
     }
-    
+
+    float3 specular = specular_coeff * material_specular_color.rgb * light.color;
+    return attenuation * (diffuse + specular);
+}
+
+float3 apply_light_blinn(constant VROLightUniforms &light,
+                         float3 surface_pos,
+                         float3 surface_normal,
+                         float3 surface_to_camera,
+                         float3 material_diffuse_color,
+                         float4 material_specular_color,
+                         float  material_shininess);
+float3 apply_light_blinn(constant VROLightUniforms &light,
+                         float3 surface_pos,
+                         float3 surface_normal,
+                         float3 surface_to_camera,
+                         float3 material_diffuse_color,
+                         float4 material_specular_color,
+                         float  material_shininess) {
+    thread float3 surface_to_light;
+    float attenuation = compute_attenuation(light, surface_pos, &surface_to_light);
+    float diffuse_coeff = fmax(0.0, dot(-surface_normal, surface_to_light));
+    float3 diffuse = diffuse_coeff * material_diffuse_color * light.color;
+    float specular_coeff = 0.0;
+    if (diffuse_coeff > 0.0) {
+        specular_coeff = pow(max(0.0, dot(normalize(-surface_to_camera + surface_to_light),
+                                          -surface_normal)),
+                             material_shininess);
+    }
     float3 specular = specular_coeff * material_specular_color.rgb * light.color;
     return attenuation * (diffuse + specular);
 }
@@ -1317,11 +1357,28 @@ vertex VRODistortionAberrationVertexOut distortion_aberration_vertex(VRODistorti
 
 fragment float4 distortion_aberration_fragment(VRODistortionAberrationVertexOut in [[ stage_in ]],
                                                texture2d<float> texture [[ texture(0) ]]) {
-    
+
     return in.vignette * float4(texture.sample(s, in.red_texcoord).r,
                                 texture.sample(s, in.green_texcoord).g,
                                 texture.sample(s, in.blue_texcoord).b,
                                 1.0);
+}
+
+// ── Diagnostic test shaders ───────────────────────────────────────────────────
+// Hardcoded screen-space triangle covering the upper-right quadrant.
+// Used by VRORendererBridge raw-draw test to verify the encoder produces output.
+vertex float4 viro_test_vertex(uint vid [[ vertex_id ]]) {
+    // Small triangle in top-left corner so it doesn't cover the Viro scene.
+    const float2 positions[3] = {
+        float2(-0.95,  0.95),  // top-left
+        float2(-0.50,  0.95),  // top-right
+        float2(-0.95,  0.50)   // bottom-left
+    };
+    return float4(positions[vid], 0.5, 1.0);
+}
+
+fragment half4 viro_test_fragment() {
+    return half4(1.0, 0.0, 0.0, 1.0);   // solid red
 }
 
 #endif

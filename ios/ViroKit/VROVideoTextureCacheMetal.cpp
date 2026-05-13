@@ -49,7 +49,8 @@ VROVideoTextureCacheMetal::~VROVideoTextureCacheMetal() {
     }
 }
 
-std::unique_ptr<VROTextureSubstrate> VROVideoTextureCacheMetal::createTextureSubstrate(CMSampleBufferRef sampleBuffer) {
+std::unique_ptr<VROTextureSubstrate> VROVideoTextureCacheMetal::createTextureSubstrate(CMSampleBufferRef sampleBuffer, bool sRGB) {
+    (void)sRGB;
     CVReturn error;
 
     // Flush cache periodically to prevent accumulation
@@ -78,7 +79,8 @@ std::unique_ptr<VROTextureSubstrate> VROVideoTextureCacheMetal::createTextureSub
     return std::unique_ptr<VROTextureSubstrateMetal>(new VROTextureSubstrateMetal(texture));
 }
 
-std::unique_ptr<VROTextureSubstrate> VROVideoTextureCacheMetal::createTextureSubstrate(CVPixelBufferRef pixelBuffer) {
+std::unique_ptr<VROTextureSubstrate> VROVideoTextureCacheMetal::createTextureSubstrate(CVPixelBufferRef pixelBuffer, bool sRGB) {
+    (void)sRGB;
     CVReturn error;
 
     // Flush cache periodically to prevent accumulation

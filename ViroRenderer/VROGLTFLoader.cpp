@@ -1731,7 +1731,9 @@ bool VROGLTFLoader::processNode(const tinygltf::Model &gModel, std::shared_ptr<V
         skinner->setSkinnerNode(node);
         geom->setSkinner(skinner);
         for (const std::shared_ptr<VROMaterial> &material : geom->getMaterials()) {
+#if !VRO_METAL
             material->addShaderModifier(VROBoneUBO::createSkinningShaderModifier(false));
+#endif
         }
 
         // The bone UBO already encodes world-space vertex positions including all ancestor

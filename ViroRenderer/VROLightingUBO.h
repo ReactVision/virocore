@@ -27,10 +27,13 @@
 #ifndef VROLightingUBO_h
 #define VROLightingUBO_h
 
-#include "VROOpenGL.h"
+#include "VRODefines.h"
 #include <vector>
 #include <atomic>
 #include <memory>
+#if !VRO_METAL
+#include "VROOpenGL.h"
+#endif
 
 /*
  The maximum number of lights that can be in use at *one time*.
@@ -81,6 +84,7 @@ typedef struct {
     float shadow_projection_matrices[kFloatsPerMatrix * kMaxLights];
 } VROLightingVertexData;
 
+#if !VRO_METAL
 class VROLight;
 class VROShaderProgram;
 class VRODriverOpenGL;
@@ -200,7 +204,8 @@ private:
      */
     void updateLightsFragment();
     void updateLightsVertex();
-    
+
 };
+#endif  // !VRO_METAL
 
 #endif

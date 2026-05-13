@@ -82,19 +82,35 @@ public:
                               VRODriverMetal &driver);
     virtual ~VROGeometrySubstrateMetal();
     
+    void update(const VROGeometry &geometry,
+                std::shared_ptr<VRODriver> &driver) override {}
+
     void render(const VROGeometry &geometry,
                 int elementIndex,
                 VROMatrix4f transform,
                 VROMatrix4f normalMatrix,
                 float opacity,
-                std::shared_ptr<VROMaterial> &material,
+                const std::shared_ptr<VROMaterial> &material,
                 const VRORenderContext &context,
-                std::shared_ptr<VRODriver> &driver);
-    
+                std::shared_ptr<VRODriver> &driver) override;
+
+    void renderSilhouette(const VROGeometry &geometry,
+                          VROMatrix4f transform,
+                          std::shared_ptr<VROMaterial> &material,
+                          const VRORenderContext &context,
+                          std::shared_ptr<VRODriver> &driver) override {}
+
+    void renderSilhouetteTextured(const VROGeometry &geometry,
+                                  int element,
+                                  VROMatrix4f transform,
+                                  std::shared_ptr<VROMaterial> &material,
+                                  const VRORenderContext &context,
+                                  std::shared_ptr<VRODriver> &driver) override {}
+
 private:
     
     MTLVertexDescriptor *_vertexDescriptor;
-    VROVertexArrayMetal _var;
+    std::vector<VROVertexArrayMetal> _vars;
     std::vector<VROGeometryElementMetal> _elements;
     
     /*

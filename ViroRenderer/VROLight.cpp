@@ -173,12 +173,14 @@ void VROLight::propagateFragmentUpdates() {
     if (!_updatedFragmentData) {
         return;
     }
+#if !VRO_METAL
     for (std::weak_ptr<VROLightingUBO> ubo_weak : _ubos) {
         std::shared_ptr<VROLightingUBO> ubo = ubo_weak.lock();
         if (ubo) {
             ubo->setNeedsFragmentUpdate();
         }
     }
+#endif
     _updatedFragmentData = false;
 }
 
@@ -186,12 +188,14 @@ void VROLight::propagateVertexUpdates() {
     if (!_updatedVertexData) {
         return;
     }
+#if !VRO_METAL
     for (std::weak_ptr<VROLightingUBO> ubo_weak : _ubos) {
         std::shared_ptr<VROLightingUBO> ubo = ubo_weak.lock();
         if (ubo) {
             ubo->setNeedsVertexUpdate();
         }
     }
+#endif
     _updatedVertexData = false;
 }
 

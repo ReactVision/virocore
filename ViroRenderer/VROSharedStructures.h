@@ -90,6 +90,7 @@ typedef struct {
     simd_float2 diffuse_texcoord;
     simd_float2 specular_texcoord;
     float alpha;
+    simd_float3 position;
 } VROSurface;
 
 typedef struct {

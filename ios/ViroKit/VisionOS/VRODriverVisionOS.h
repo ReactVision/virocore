@@ -23,9 +23,17 @@
 #include "VRORenderTargetMetal.h"
 #include "VROTextureSubstrateMetal.h"
 #include "VROMaterial.h"
+#include "VROVertexBuffer.h"
+#include "VROFrameScheduler.h"
 #include <memory>
 
-class VROFrameScheduler;
+// CPU-only vertex buffer: holds VROData for CPU-side operations (e.g. processTangent).
+// hydrate() is a no-op because VROGeometrySubstrateMetal creates its own MTLBuffer.
+class VROVertexBufferCPU final : public VROVertexBuffer {
+public:
+    explicit VROVertexBufferCPU(std::shared_ptr<VROData> data) : VROVertexBuffer(data) {}
+    void hydrate() override {}
+};
 
 class VRODriverVisionOS : public VRODriverMetal,
                           public std::enable_shared_from_this<VRODriverVisionOS> {
@@ -115,9 +123,10 @@ public:
                                              VROFilterMode magFilter,
                                              VROFilterMode mipFilter) override;
 
-    // Vertex buffer — Metal geometry substrate uses MTLBuffer directly; return null
-    std::shared_ptr<VROVertexBuffer> newVertexBuffer(std::shared_ptr<VROData>) override {
-        return nullptr;
+    // CPU-backed vertex buffer for processTangent and VROGeometrySubstrateMetal.
+    // The Metal substrate reads getData() to create its own MTLBuffer; hydrate() is a no-op.
+    std::shared_ptr<VROVertexBuffer> newVertexBuffer(std::shared_ptr<VROData> data) override {
+        return std::make_shared<VROVertexBufferCPU>(data);
     }
 
     // Image post-process — not needed for basic scenes; return null stub
@@ -138,14 +147,14 @@ public:
     std::shared_ptr<VROTypefaceCollection> newTypefaceCollection(std::string, int,
                                                                   VROFontStyle, VROFontWeight) override;
 
-    // Frame scheduler — not needed for visionOS POC
-    std::shared_ptr<VROFrameScheduler> getFrameScheduler() override { return nullptr; }
+    std::shared_ptr<VROFrameScheduler> getFrameScheduler() override { return _frameScheduler; }
 
     // Raw graphics context — not applicable
     void *getGraphicsContext() override { return nullptr; }
 
 private:
     std::shared_ptr<VRORenderTargetMetal> _displayTarget;
+    std::shared_ptr<VROFrameScheduler> _frameScheduler = std::make_shared<VROFrameScheduler>();
 };
 
 #endif  // VRO_METAL

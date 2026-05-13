@@ -27,6 +27,9 @@
 #ifndef VROGeometrySubstrateOpenGL_h
 #define VROGeometrySubstrateOpenGL_h
 
+#include "VRODefines.h"
+#if !VRO_METAL
+
 #include <map>
 #include "VROGeometrySubstrate.h"
 #include "VROOpenGL.h"
@@ -157,7 +160,8 @@ private:
                         float opacity,
                         const VRORenderContext &renderContext,
                         std::shared_ptr<VRODriver> &driver);
-    
+
 };
 
+#endif  // !VRO_METAL
 #endif /* VROGeometrySubstrateOpenGL_h */

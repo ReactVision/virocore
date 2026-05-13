@@ -27,6 +27,7 @@
 #include "VROGeometrySubstrateMetal.h"
 #if VRO_METAL
 
+#include "VROImageUtil.h"
 #include "VROGeometry.h"
 #include "VROGeometrySource.h"
 #include "VROGeometryElement.h"
@@ -78,71 +79,71 @@ void VROGeometrySubstrateMetal::readGeometryElements(id <MTLDevice> device,
 
 void VROGeometrySubstrateMetal::readGeometrySources(id <MTLDevice> device,
                                                     const std::vector<std::shared_ptr<VROGeometrySource>> &sources) {
-        
-    std::shared_ptr<VROGeometrySource> source = sources.front();
-    std::map<std::shared_ptr<VROData>, std::vector<std::shared_ptr<VROGeometrySource>>> dataMap;
-    
-    /*
-     Sort the sources into groups defined by the data array they're using.
-     */
-    for (std::shared_ptr<VROGeometrySource> source : sources) {
-        std::shared_ptr<VROData> data = source->getData();
-        
-        auto it = dataMap.find(data);
-        if (it == dataMap.end()) {
-            std::vector<std::shared_ptr<VROGeometrySource>> group = { source };
-            dataMap[data] = group;
-        }
-        else {
-            std::vector<std::shared_ptr<VROGeometrySource>> &group = it->second;
-            group.push_back(source);
-        }
-    }
-    
+
     _vertexDescriptor = [MTLVertexDescriptor vertexDescriptor];
-    int bufferIndex = 0;
-    
-    /*
-     Our shaders currently only support a single data array, so we abort if we have multiple
-     arrays (i.e. if we have geometry sources that aren't interleaved into a single array).
-     */
-    passert (dataMap.size() == 1);
-    auto iterator = dataMap.begin();
-    
-    std::vector<std::shared_ptr<VROGeometrySource>> group = iterator->second;
-    
-    /*
-     Create an MTLBuffer that wraps over the VROData.
-     */
-    int dataSize = 0;
-    for (std::shared_ptr<VROGeometrySource> source : group) {
-        int size = source->getVertexCount() * source->getDataStride();
-        dataSize = std::max(dataSize, size);
+
+    // Partition sources by geometry element index.
+    // Each GLTF primitive becomes one element; sources from different primitives
+    // share buffer views but have different accessor offsets and vertex counts.
+    // We build one interleaved MTL buffer per element so that render(elementIndex)
+    // can bind _vars[elementIndex] at atIndex:0 with no uniform-slot conflicts.
+    std::map<int, std::vector<std::shared_ptr<VROGeometrySource>>> byElement;
+    for (const std::shared_ptr<VROGeometrySource> &src : sources) {
+        byElement[src->getGeometryElementIndex()].push_back(src);
     }
-    
-    _var.buffer = [device newBufferWithBytes:iterator->first->getData()
-                                     length:dataSize options:0];
-    _var.buffer.label = @"VROGeometryVertexBuffer";
-    
-    /*
-     Create the layout for this MTL buffer.
-     */
-    _vertexDescriptor.layouts[bufferIndex].stepRate = 1;
-    _vertexDescriptor.layouts[bufferIndex].stride = group[0]->getDataStride();
-    _vertexDescriptor.layouts[bufferIndex].stepFunction = MTLVertexStepFunctionPerVertex;
-    
-    /*
-     Create an attribute for each geometry source in this group.
-     */
-    for (int i = 0; i < group.size(); i++) {
-        std::shared_ptr<VROGeometrySource> source = group[i];
-        int attrIdx = VROGeometryUtilParseAttributeIndex(source->getSemantic());
-        
-        _vertexDescriptor.attributes[attrIdx].format = parseVertexFormat(source);
-        _vertexDescriptor.attributes[attrIdx].offset = source->getDataOffset();
-        _vertexDescriptor.attributes[attrIdx].bufferIndex = bufferIndex;
-        
-        passert (source->getDataStride() == _vertexDescriptor.layouts[bufferIndex].stride);
+
+    bool descriptorBuilt = false;
+
+    for (auto &kv : byElement) {
+        const std::vector<std::shared_ptr<VROGeometrySource>> &elemSrcs = kv.second;
+        int vertexCount = elemSrcs.front()->getVertexCount();
+
+        // Assign each source its own contiguous slot in the interleaved stride.
+        // Each source is copied independently so that sources sharing a VROData
+        // but at different byte offsets (packed-sequential non-interleaved GLTF)
+        // are handled correctly.
+        std::vector<int> srcOffset;
+        int totalStride = 0;
+        for (const std::shared_ptr<VROGeometrySource> &src : elemSrcs) {
+            srcOffset.push_back(totalStride);
+            totalStride += src->getDataStride();
+        }
+
+        std::vector<uint8_t> buf(vertexCount * totalStride, 0);
+        for (int si = 0; si < (int)elemSrcs.size(); si++) {
+            const std::shared_ptr<VROGeometrySource> &src = elemSrcs[si];
+            std::shared_ptr<VROData> gData = src->getData();
+            if (!gData || src->getDataStride() == 0) continue;
+            int gStride     = src->getDataStride();
+            int gDataOffset = src->getDataOffset();
+            const uint8_t *pSrc = (const uint8_t *)gData->getData() + gDataOffset;
+            for (int v = 0; v < vertexCount; v++) {
+                memcpy(buf.data() + v * totalStride + srcOffset[si],
+                       pSrc + v * gStride, gStride);
+            }
+        }
+
+        VROVertexArrayMetal var;
+        var.buffer = [device newBufferWithBytes:buf.data() length:buf.size() options:0];
+        var.buffer.label = @"VROGeometryVertexBuffer";
+        _vars.push_back(var);
+
+        // Build the shared vertex descriptor from the first element.
+        // All elements are assumed to have the same attribute layout.
+        if (!descriptorBuilt) {
+            _vertexDescriptor.layouts[0].stepRate     = 1;
+            _vertexDescriptor.layouts[0].stride       = totalStride;
+            _vertexDescriptor.layouts[0].stepFunction = MTLVertexStepFunctionPerVertex;
+
+            for (int si = 0; si < (int)elemSrcs.size(); si++) {
+                std::shared_ptr<VROGeometrySource> src = elemSrcs[si];
+                int attrIdx = VROGeometryUtilParseAttributeIndex(src->getSemantic());
+                _vertexDescriptor.attributes[attrIdx].format      = parseVertexFormat(src);
+                _vertexDescriptor.attributes[attrIdx].offset      = srcOffset[si];
+                _vertexDescriptor.attributes[attrIdx].bufferIndex = 0;
+            }
+            descriptorBuilt = true;
+        }
     }
 }
 
@@ -168,17 +169,18 @@ id <MTLRenderPipelineState> VROGeometrySubstrateMetal::createRenderPipelineState
                                                                                  VRODriverMetal &driver) {
     
     id <MTLDevice> device = driver.getDevice();
-    std::shared_ptr<VRORenderTarget> renderTarget = driver.getRenderTarget();
-    
-    VROMaterialSubstrateMetal *substrate = static_cast<VROMaterialSubstrateMetal *>(material->getSubstrate(driver));
-    
+    // Non-owning shared_ptr: driver is managed externally (e.g. by VROViewMetal or
+    // the CompositorServices render loop). The null deleter prevents double-free.
+    std::shared_ptr<VRODriver> driverPtr(static_cast<VRODriver *>(&driver), [](VRODriver *) {});
+    VROMaterialSubstrateMetal *substrate = static_cast<VROMaterialSubstrateMetal *>(material->getSubstrate(driverPtr));
+
     MTLRenderPipelineDescriptor *pipelineStateDescriptor = [[MTLRenderPipelineDescriptor alloc] init];
     pipelineStateDescriptor.label = @"VROLayerPipeline";
-    pipelineStateDescriptor.sampleCount = renderTarget->getSampleCount();
+    pipelineStateDescriptor.sampleCount = driver.getSampleCount();
     pipelineStateDescriptor.vertexFunction = substrate->getVertexProgram();
     pipelineStateDescriptor.fragmentFunction = substrate->getFragmentProgram();
     pipelineStateDescriptor.vertexDescriptor = _vertexDescriptor;
-    pipelineStateDescriptor.colorAttachments[0].pixelFormat = renderTarget->getColorPixelFormat();
+    pipelineStateDescriptor.colorAttachments[0].pixelFormat = driver.getColorPixelFormat();
     pipelineStateDescriptor.colorAttachments[0].blendingEnabled = YES;
     pipelineStateDescriptor.colorAttachments[0].rgbBlendOperation = MTLBlendOperationAdd;
     pipelineStateDescriptor.colorAttachments[0].alphaBlendOperation = MTLBlendOperationAdd;
@@ -186,8 +188,8 @@ id <MTLRenderPipelineState> VROGeometrySubstrateMetal::createRenderPipelineState
     pipelineStateDescriptor.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorSourceAlpha;
     pipelineStateDescriptor.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
     pipelineStateDescriptor.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
-    pipelineStateDescriptor.depthAttachmentPixelFormat = renderTarget->getDepthStencilPixelFormat();
-    pipelineStateDescriptor.stencilAttachmentPixelFormat = renderTarget->getDepthStencilPixelFormat();
+    pipelineStateDescriptor.depthAttachmentPixelFormat = driver.getDepthPixelFormat();
+    pipelineStateDescriptor.stencilAttachmentPixelFormat = driver.getStencilPixelFormat();
     
     NSError *error = NULL;
     id <MTLRenderPipelineState> pipelineState = [device newRenderPipelineStateWithDescriptor:pipelineStateDescriptor
@@ -291,12 +293,12 @@ void VROGeometrySubstrateMetal::render(const VROGeometry &geometry,
                                        VROMatrix4f transform,
                                        VROMatrix4f normalMatrix,
                                        float opacity,
-                                       std::shared_ptr<VROMaterial> &material,
+                                       const std::shared_ptr<VROMaterial> &material,
                                        const VRORenderContext &context,
                                        std::shared_ptr<VRODriver> &driver) {
     
-    VRODriverMetal &metal = (VRODriverMetal &)driver;
-    id <MTLRenderCommandEncoder> renderEncoder = metal.getRenderTarget()->getRenderEncoder();
+    VRODriverMetal &metal = (VRODriverMetal &)(*driver);
+    id <MTLRenderCommandEncoder> renderEncoder = metal.getActiveEncoder();
     
     int frame = context.getFrame();
     VROEyeType eyeType = context.getEyeType();
@@ -341,7 +343,9 @@ void VROGeometrySubstrateMetal::render(const VROGeometry &geometry,
     id <MTLRenderPipelineState> pipelineState = _elementPipelineStates[elementIndex];
     id <MTLDepthStencilState> depthState = _elementDepthStates[elementIndex];
     
-    [renderEncoder setVertexBuffer:_var.buffer offset:0 atIndex:0];
+    if (elementIndex < (int)_vars.size()) {
+        [renderEncoder setVertexBuffer:_vars[elementIndex].buffer offset:0 atIndex:0];
+    }
     
     /*
      Note that outgoing materials share the same pipeline state as their counterparts. This is because
@@ -389,12 +393,12 @@ void VROGeometrySubstrateMetal::renderMaterial(VROMaterialSubstrateMetal *materi
     
     const std::vector<std::shared_ptr<VROTexture>> &textures = material->getTextures();
     for (int j = 0; j < textures.size(); ++j) {
-        VROTextureSubstrateMetal *substrate = (VROTextureSubstrateMetal *) textures[j]->getSubstrate(driver);
+        VROTextureSubstrateMetal *substrate = (VROTextureSubstrateMetal *) textures[j]->getSubstrate(0, driver, true);
         if (!substrate) {
             // Use a blank placeholder if a texture is not yet available (i.e.
             // during video texture loading)
-            std::shared_ptr<VROTexture> blank = getBlankTexture();
-            substrate = (VROTextureSubstrateMetal *) blank->getSubstrate(driver);
+            std::shared_ptr<VROTexture> blank = getBlankTexture(VROTextureType::Texture2D);
+            substrate = (VROTextureSubstrateMetal *) blank->getSubstrate(0, driver, true);
         }
         
         [renderEncoder setFragmentTexture:substrate->getTexture() atIndex:j];

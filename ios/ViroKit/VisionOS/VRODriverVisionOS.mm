@@ -56,6 +56,9 @@ std::shared_ptr<VRORenderTarget> VRODriverVisionOS::newRenderTarget(
 void VRODriverVisionOS::setCullMode(VROCullMode cullMode) {
     id <MTLRenderCommandEncoder> encoder = getActiveEncoder();
     if (!encoder) { return; }
+    // GLTF (and OpenGL) define CCW as the front face; Metal's default is CW.
+    // Set CCW explicitly so backface culling removes the correct faces.
+    [encoder setFrontFacingWinding:MTLWindingCounterClockwise];
     switch (cullMode) {
         case VROCullMode::None:  [encoder setCullMode:MTLCullModeNone];  break;
         case VROCullMode::Back:  [encoder setCullMode:MTLCullModeBack];  break;

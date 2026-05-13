@@ -1,0 +1,437 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 46;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		09246380CF0B9F80FAA62036 /* Shaders.metal in Sources */ = {isa = PBXBuildFile; fileRef = 39A5876AE5C9C8A7F0A0640C /* Shaders.metal */; };
+		14493EB06DC2CF09C1ADCBA5 /* VRORendererBridge.mm in Sources */ = {isa = PBXBuildFile; fileRef = B2D8275BE5EBE1FCCCC9243D /* VRORendererBridge.mm */; };
+		170DBA9C1706F872A13EF10D /* ViroKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = AF6CA2E5DBEA40C5563D2B44 /* ViroKit.xcframework */; };
+		1FED144A51634F8404989768 /* ViroKitVisionOSTestApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA5E437D45A3FD76561F7905 /* ViroKitVisionOSTestApp.swift */; };
+		2FAD3A7960EC6BB773D31FAD /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8A8B96073B0F338F063303CD /* Foundation.framework */; };
+		3D28B8ABAB0E726934723067 /* ViroImmersiveRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83373494ECFFB003D8250D1C /* ViroImmersiveRenderer.swift */; };
+		54F8FAA93F6E49038D41216A /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87F0D12727799D8549A697BB /* ContentView.swift */; };
+		87A6671082280ABE2ED3122D /* ViroImmersiveSpace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 220A2746ABFED3E4D24F80A3 /* ViroImmersiveSpace.swift */; };
+		F2D88EADF893A3BB695FCEB1 /* ViroKit.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = AF6CA2E5DBEA40C5563D2B44 /* ViroKit.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		F40FB32E411CED8B4632BB82 /* ViroImmersiveCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80360FEA3D6EF6BC0017D88B /* ViroImmersiveCoordinator.swift */; };
+		AA11BB22CC33DD44EE55FF00 /* shiba.glb in Resources */ = {isa = PBXBuildFile; fileRef = BB22CC33DD44EE55FF00AA11 /* shiba.glb */; };
+		CC33DD44EE55FF00AA11BB22 /* Accelerate.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DD44EE55FF00AA11BB22CC33 /* Accelerate.framework */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		664EF48F72E909D2BA20C617 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				F2D88EADF893A3BB695FCEB1 /* ViroKit.xcframework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		220A2746ABFED3E4D24F80A3 /* ViroImmersiveSpace.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ViroImmersiveSpace.swift; sourceTree = "<group>"; };
+		39A5876AE5C9C8A7F0A0640C /* Shaders.metal */ = {isa = PBXFileReference; includeInIndex = 1; path = Shaders.metal; sourceTree = "<group>"; };
+		657CBA5513FCE67545DDBD75 /* ViroKitVisionOSTest.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ViroKitVisionOSTest.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		7EB2A45A72A550C394486E9A /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		80360FEA3D6EF6BC0017D88B /* ViroImmersiveCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ViroImmersiveCoordinator.swift; sourceTree = "<group>"; };
+		83373494ECFFB003D8250D1C /* ViroImmersiveRenderer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ViroImmersiveRenderer.swift; sourceTree = "<group>"; };
+		838017A544325DD2C573C5C0 /* BridgingHeader.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = BridgingHeader.h; sourceTree = "<group>"; };
+		87F0D12727799D8549A697BB /* ContentView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		8A8B96073B0F338F063303CD /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
+		DD44EE55FF00AA11BB22CC33 /* Accelerate.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Accelerate.framework; path = System/Library/Frameworks/Accelerate.framework; sourceTree = SDKROOT; };
+		AF6CA2E5DBEA40C5563D2B44 /* ViroKit.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = ViroKit.xcframework; path = ../../../viro/ios/dist/ViroRendererVisionOS/ViroKit.xcframework; sourceTree = "<group>"; };
+		B2D8275BE5EBE1FCCCC9243D /* VRORendererBridge.mm */ = {isa = PBXFileReference; includeInIndex = 1; path = VRORendererBridge.mm; sourceTree = "<group>"; };
+		BD4A175078D88E89F9FA9977 /* VRORendererBridge.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = VRORendererBridge.h; sourceTree = "<group>"; };
+		EA5E437D45A3FD76561F7905 /* ViroKitVisionOSTestApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ViroKitVisionOSTestApp.swift; sourceTree = "<group>"; };
+		BB22CC33DD44EE55FF00AA11 /* shiba.glb */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = file; path = shiba.glb; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		4B25984028BE59690CC47ECC /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2FAD3A7960EC6BB773D31FAD /* Foundation.framework in Frameworks */,
+				170DBA9C1706F872A13EF10D /* ViroKit.xcframework in Frameworks */,
+				CC33DD44EE55FF00AA11BB22 /* Accelerate.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		07BB710225A34B0FFB89B8CD /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				8A8B96073B0F338F063303CD /* Foundation.framework */,
+				DD44EE55FF00AA11BB22CC33 /* Accelerate.framework */,
+			);
+			name = iOS;
+			sourceTree = "<group>";
+		};
+		32787600C9AC3E4D65AA1FA0 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				EA5E437D45A3FD76561F7905 /* ViroKitVisionOSTestApp.swift */,
+				87F0D12727799D8549A697BB /* ContentView.swift */,
+				838017A544325DD2C573C5C0 /* BridgingHeader.h */,
+				7EB2A45A72A550C394486E9A /* Info.plist */,
+				BB22CC33DD44EE55FF00AA11 /* shiba.glb */,
+			);
+			name = App;
+			path = App;
+			sourceTree = "<group>";
+		};
+		99DD88767324269696B2AEA4 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				657CBA5513FCE67545DDBD75 /* ViroKitVisionOSTest.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		A7B33025F073197BC47CB7A0 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				AF6CA2E5DBEA40C5563D2B44 /* ViroKit.xcframework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		A89021F1941E0B125DF65727 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				07BB710225A34B0FFB89B8CD /* iOS */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		CAAAC45131B95037BB018663 /* VisionOS */ = {
+			isa = PBXGroup;
+			children = (
+				B2D8275BE5EBE1FCCCC9243D /* VRORendererBridge.mm */,
+				83373494ECFFB003D8250D1C /* ViroImmersiveRenderer.swift */,
+				220A2746ABFED3E4D24F80A3 /* ViroImmersiveSpace.swift */,
+				80360FEA3D6EF6BC0017D88B /* ViroImmersiveCoordinator.swift */,
+				BD4A175078D88E89F9FA9977 /* VRORendererBridge.h */,
+			);
+			name = VisionOS;
+			path = ../../../viro/ios/ViroReact/VisionOS;
+			sourceTree = "<group>";
+		};
+		CE82C304C023346AE454109F /* Renderer */ = {
+			isa = PBXGroup;
+			children = (
+				39A5876AE5C9C8A7F0A0640C /* Shaders.metal */,
+			);
+			name = Renderer;
+			path = ../../ViroRenderer;
+			sourceTree = "<group>";
+		};
+		FFCA809695C7701A7F1C1BB3 = {
+			isa = PBXGroup;
+			children = (
+				99DD88767324269696B2AEA4 /* Products */,
+				A89021F1941E0B125DF65727 /* Frameworks */,
+				32787600C9AC3E4D65AA1FA0 /* App */,
+				CAAAC45131B95037BB018663 /* VisionOS */,
+				CE82C304C023346AE454109F /* Renderer */,
+				A7B33025F073197BC47CB7A0 /* Frameworks */,
+			);
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		54A09520D0AB7E6F6425B267 /* ViroKitVisionOSTest */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 440A39EBF846909105B536C1 /* Build configuration list for PBXNativeTarget "ViroKitVisionOSTest" */;
+			buildPhases = (
+				7E85A7C21D65D4C046E8ACC1 /* Sources */,
+				4B25984028BE59690CC47ECC /* Frameworks */,
+				C01F005734A4344330F30F32 /* Resources */,
+				664EF48F72E909D2BA20C617 /* Embed Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = ViroKitVisionOSTest;
+			productName = ViroKitVisionOSTest;
+			productReference = 657CBA5513FCE67545DDBD75 /* ViroKitVisionOSTest.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		F3D934C556105D10524D77F9 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				LastSwiftUpdateCheck = 1600;
+				LastUpgradeCheck = 1600;
+			};
+			buildConfigurationList = C372BE182A6F933531EAF62B /* Build configuration list for PBXProject "ViroKitVisionOSTest" */;
+			compatibilityVersion = "Xcode 3.2";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = FFCA809695C7701A7F1C1BB3;
+			minimizedProjectReferenceProxies = 0;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 99DD88767324269696B2AEA4 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				54A09520D0AB7E6F6425B267 /* ViroKitVisionOSTest */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		C01F005734A4344330F30F32 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA11BB22CC33DD44EE55FF00 /* shiba.glb in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		7E85A7C21D65D4C046E8ACC1 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1FED144A51634F8404989768 /* ViroKitVisionOSTestApp.swift in Sources */,
+				54F8FAA93F6E49038D41216A /* ContentView.swift in Sources */,
+				14493EB06DC2CF09C1ADCBA5 /* VRORendererBridge.mm in Sources */,
+				3D28B8ABAB0E726934723067 /* ViroImmersiveRenderer.swift in Sources */,
+				87A6671082280ABE2ED3122D /* ViroImmersiveSpace.swift in Sources */,
+				F40FB32E411CED8B4632BB82 /* ViroImmersiveCoordinator.swift in Sources */,
+				09246380CF0B9F80FAA62036 /* Shaders.metal in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		5E1BCADAD6EF69483CFAFB57 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++17";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = "";
+				ENABLE_BITCODE = NO;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"VRO_METAL=1",
+					"VRO_PLATFORM_VISION=1",
+				);
+				INFOPLIST_FILE = App/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = "";
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+				MTL_PREPROCESSOR_DEFINITIONS = "$(inherited) VRO_METAL=1";
+				PRODUCT_BUNDLE_IDENTIFIER = com.reactvision.ViroKitVisionOSTest;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = xros;
+				SUPPORTED_PLATFORMS = "xros xrsimulator";
+				SWIFT_OBJC_BRIDGING_HEADER = App/BridgingHeader.h;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = 7;
+				VALIDATE_PRODUCT = YES;
+				XROS_DEPLOYMENT_TARGET = 26.0;
+			};
+			name = Release;
+		};
+		779DB6409C64F3D51377D08E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		99BE104CFC46789B3983670C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		E5C8384EF5C2A448C5799BB7 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++17";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_BITCODE = NO;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"VRO_METAL=1",
+					"VRO_PLATFORM_VISION=1",
+				);
+				INFOPLIST_FILE = App/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = "";
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+				MTL_PREPROCESSOR_DEFINITIONS = "$(inherited) VRO_METAL=1";
+				PRODUCT_BUNDLE_IDENTIFIER = com.reactvision.ViroKitVisionOSTest;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = xros;
+				SUPPORTED_PLATFORMS = "xros xrsimulator";
+				SWIFT_OBJC_BRIDGING_HEADER = App/BridgingHeader.h;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = 7;
+				XROS_DEPLOYMENT_TARGET = 26.0;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		440A39EBF846909105B536C1 /* Build configuration list for PBXNativeTarget "ViroKitVisionOSTest" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5E1BCADAD6EF69483CFAFB57 /* Release */,
+				E5C8384EF5C2A448C5799BB7 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C372BE182A6F933531EAF62B /* Build configuration list for PBXProject "ViroKitVisionOSTest" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				99BE104CFC46789B3983670C /* Debug */,
+				779DB6409C64F3D51377D08E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = F3D934C556105D10524D77F9 /* Project object */;
+}

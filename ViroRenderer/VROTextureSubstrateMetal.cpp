@@ -36,17 +36,17 @@
 VROTextureSubstrateMetal::VROTextureSubstrateMetal(VROTextureType type, std::vector<std::shared_ptr<VROImage>> &images,
                                                    std::shared_ptr<VRODriver> &driver) {
     
-    VRODriverMetal &metal = (VRODriverMetal &)driver;
+    VRODriverMetal &metal = (VRODriverMetal &)(*driver);
     id <MTLDevice> device = metal.getDevice();
-    
+
     if (type == VROTextureType::Texture2D) {
         std::shared_ptr<VROImage> &image = images.front();
         int width = image->getWidth();
         int height = image->getHeight();
         
         size_t dataLength;
-        void *data = image->extractRGBA8888(&dataLength);
-        
+        unsigned char *data = image->getData(&dataLength);
+
         int bytesPerPixel = 4;
         MTLTextureDescriptor *descriptor = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
                                                                                               width:width
@@ -92,7 +92,7 @@ VROTextureSubstrateMetal::VROTextureSubstrateMetal(VROTextureType type, std::vec
             std::shared_ptr<VROImage> &image = images[slice];
             
             size_t dataLength;
-            void *data = image->extractRGBA8888(&dataLength);
+            unsigned char *data = image->getData(&dataLength);
             
             passert_msg(image->getWidth() == cubeSize && image->getHeight() == cubeSize,
                         "Cube map images must be square and uniformly-sized");
@@ -117,8 +117,8 @@ VROTextureSubstrateMetal::VROTextureSubstrateMetal(VROTextureType type, VROTextu
                                                    std::shared_ptr<VROData> data, int width, int height,
                                                    std::shared_ptr<VRODriver> &driver) {
     
-    if (format == VROTextureFormat::ETC2) {
-        VRODriverMetal &metal = (VRODriverMetal &)driver;
+    if (format == VROTextureFormat::ETC2_RGBA8_EAC) {
+        VRODriverMetal &metal = (VRODriverMetal &)(*driver);
         id <MTLDevice> device = metal.getDevice();
         
         if (type == VROTextureType::Texture2D) {
@@ -137,7 +137,7 @@ VROTextureSubstrateMetal::VROTextureSubstrateMetal(VROTextureType type, VROTextu
         }
     }
     else if (format == VROTextureFormat::ASTC_4x4_LDR) {
-        VRODriverMetal &metal = (VRODriverMetal &)driver;
+        VRODriverMetal &metal = (VRODriverMetal &)(*driver);
         id <MTLDevice> device = metal.getDevice();
         
         if (type == VROTextureType::Texture2D) {
@@ -155,17 +155,19 @@ VROTextureSubstrateMetal::VROTextureSubstrateMetal(VROTextureType type, VROTextu
             pabort();
         }
     }
-    else if (format == VROTextureFormat::RGBA8) {
-        id <MTLDevice> device = ((VRODriverMetal &)driver).getDevice();
-        
+    else if (format == VROTextureFormat::RGBA8 || format == VROTextureFormat::RGB8) {
+        // RGB8 images (from VROImageiOS) are also stored as 4 bytes/pixel (RGBA layout),
+        // so both formats upload identically as MTLPixelFormatRGBA8Unorm.
+        id <MTLDevice> device = ((VRODriverMetal &)(*driver)).getDevice();
+
         int bytesPerPixel = 4;
         MTLTextureDescriptor *descriptor = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
                                                                                               width:width
                                                                                              height:height
                                                                                           mipmapped:NO];
-        
+
         _texture = [device newTextureWithDescriptor:descriptor];
-        
+
         MTLRegion region = MTLRegionMake2D(0, 0, width, height);
         [_texture replaceRegion:region mipmapLevel:0 withBytes:data->getData() bytesPerRow:bytesPerPixel * width];
     }

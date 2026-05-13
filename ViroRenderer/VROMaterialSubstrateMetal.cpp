@@ -29,6 +29,7 @@
 
 #include "VROSharedStructures.h"
 #include "VROMetalUtils.h"
+#include "VROShaderModifier.h"
 #include "VRODriverMetal.h"
 #include "VROMatrix4f.h"
 #include "VROLight.h"
@@ -153,7 +154,7 @@ void VROMaterialSubstrateMetal::inflateModifiers(std::string &source, const std:
             if (line.empty() || line.find("uniform") == std::string::npos) continue;
             
             // Extract type and name: uniform type name;
-            std::vector<std::string> parts = VROStringUtil::split(line, " \t;");
+            std::vector<std::string> parts = VROStringUtil::split(line, " \t;", false);
             if (parts.size() < 3) continue;
             
             std::string type = parts[1];
@@ -513,7 +514,7 @@ void VROMaterialSubstrateMetal::bindLights(int lightsHash,
     NSLog(@"[METAL LIGHTING] bindLights() starting - received %zu lights", lights.size());
 
     VRODriverMetal &metal = (VRODriverMetal &)(*driver.get());
-    id <MTLRenderCommandEncoder> renderEncoder = metal.getRenderTarget()->getRenderEncoder();
+    id <MTLRenderCommandEncoder> renderEncoder = metal.getActiveEncoder();
 
     VROEyeType eyeType = context.getEyeType();
     int frame = context.getFrame();
