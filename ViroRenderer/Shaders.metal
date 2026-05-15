@@ -51,6 +51,8 @@ typedef struct {
     float3 normal         [[ attribute(1) ]];
     float4 color          [[ attribute(2) ]];
     float2 texcoord       [[ attribute(3) ]];
+    float4 bone_weights   [[ attribute(7) ]];
+    uint4  bone_indices   [[ attribute(8) ]];
 } VRORendererAttributes;
 
 /* ---------------------------------------
@@ -134,8 +136,9 @@ vertex VROConstantLightingVertexOut constant_lighting_vertex(VRORendererAttribut
                                                              constant VROViewUniforms &view [[ buffer(1) ]],
                                                              constant VROMaterialUniforms &material [[ buffer(2) ]],
                                                              constant VROCustomUniforms &_custom [[ buffer(3) ]],
-                                                             constant VROSceneLightingUniforms &lighting [[ buffer(4) ]]) {
-    
+                                                             constant VROSceneLightingUniforms &lighting [[ buffer(4) ]],
+                                                             constant float4x4 *bone_matrices [[ buffer(5) ]]) {
+
 #pragma geometry_modifier_uniforms
 #pragma vertex_modifier_uniforms
 
@@ -145,6 +148,8 @@ vertex VROConstantLightingVertexOut constant_lighting_vertex(VRORendererAttribut
     _geometry.position = attributes.position;
     _geometry.normal = attributes.normal;
     _geometry.texcoord = attributes.texcoord;
+    _geometry.bone_weights = attributes.bone_weights;
+    _geometry.bone_indices = attributes.bone_indices;
 
     VROTransforms _transforms;
     _transforms.model_matrix = view.model_matrix;
@@ -288,8 +293,9 @@ vertex VROLambertLightingVertexOut lambert_lighting_vertex(VRORendererAttributes
                                                            constant VROViewUniforms &view [[ buffer(1) ]],
                                                            constant VROMaterialUniforms &material [[ buffer(2) ]],
                                                            constant VROCustomUniforms &_custom [[ buffer(3) ]],
-                                                           constant VROSceneLightingUniforms &lighting [[ buffer(4) ]]) {
-    
+                                                           constant VROSceneLightingUniforms &lighting [[ buffer(4) ]],
+                                                           constant float4x4 *bone_matrices [[ buffer(5) ]]) {
+
 #pragma geometry_modifier_uniforms
 #pragma vertex_modifier_uniforms
 
@@ -300,6 +306,8 @@ vertex VROLambertLightingVertexOut lambert_lighting_vertex(VRORendererAttributes
     _geometry.normal = attributes.normal;
     _geometry.texcoord = attributes.texcoord;
     _geometry.color = attributes.color;
+    _geometry.bone_weights = attributes.bone_weights;
+    _geometry.bone_indices = attributes.bone_indices;
 
     VROTransforms _transforms;
     _transforms.model_matrix = view.model_matrix;
@@ -591,8 +599,9 @@ vertex VROPhongLightingVertexOut phong_lighting_vertex(VRORendererAttributes att
                                                        constant VROViewUniforms &view [[ buffer(1) ]],
                                                        constant VROMaterialUniforms &material [[ buffer(2) ]],
                                                        constant VROCustomUniforms &_custom [[ buffer(3) ]],
-                                                       constant VROSceneLightingUniforms &lighting [[ buffer(4) ]]) {
-    
+                                                       constant VROSceneLightingUniforms &lighting [[ buffer(4) ]],
+                                                       constant float4x4 *bone_matrices [[ buffer(5) ]]) {
+
 #pragma geometry_modifier_uniforms
 #pragma vertex_modifier_uniforms
 
@@ -603,6 +612,8 @@ vertex VROPhongLightingVertexOut phong_lighting_vertex(VRORendererAttributes att
     _geometry.normal = attributes.normal;
     _geometry.texcoord = attributes.texcoord;
     _geometry.color = attributes.color;
+    _geometry.bone_weights = attributes.bone_weights;
+    _geometry.bone_indices = attributes.bone_indices;
 
     VROTransforms _transforms;
     _transforms.model_matrix = view.model_matrix;
@@ -957,8 +968,9 @@ vertex VROBlinnLightingVertexOut blinn_lighting_vertex(VRORendererAttributes att
                                                        constant VROViewUniforms &view [[ buffer(1) ]],
                                                        constant VROMaterialUniforms &material [[ buffer(2) ]],
                                                        constant VROCustomUniforms &_custom [[ buffer(3) ]],
-                                                       constant VROSceneLightingUniforms &lighting [[ buffer(4) ]]) {
-    
+                                                       constant VROSceneLightingUniforms &lighting [[ buffer(4) ]],
+                                                       constant float4x4 *bone_matrices [[ buffer(5) ]]) {
+
 #pragma geometry_modifier_uniforms
 #pragma vertex_modifier_uniforms
 
@@ -969,6 +981,8 @@ vertex VROBlinnLightingVertexOut blinn_lighting_vertex(VRORendererAttributes att
     _geometry.normal = attributes.normal;
     _geometry.texcoord = attributes.texcoord;
     _geometry.color = attributes.color;
+    _geometry.bone_weights = attributes.bone_weights;
+    _geometry.bone_indices = attributes.bone_indices;
 
     VROTransforms _transforms;
     _transforms.model_matrix = view.model_matrix;

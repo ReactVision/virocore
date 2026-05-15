@@ -92,10 +92,15 @@ public:
     void setActiveTextureUnit(int unit) override {}
     void bindTexture(int target, int texture) override {}
     void bindTexture(int unit, int target, int texture) override {}
+    // Per-material depth write is handled in VROGeometrySubstrateMetal::createDepthStencilState
+    // via material->getWritesToDepthBuffer(). The global override below is needed for
+    // depth-only passes (shadow maps) and stencil-only passes (portals) — implement in Phase D.
     void setDepthWritingEnabled(bool enabled) override {}
     void setDepthReadingEnabled(bool enabled) override {}
     void setStencilTestEnabled(bool enabled) override {}
     void setCullMode(VROCullMode cullMode) override {}
+    // Color write mask is baked into MTLRenderPipelineState. Full support requires
+    // passing the mask through createRenderPipelineState — implement in Phase D (portals/shadows).
     void setRenderTargetColorWritingMask(VROColorMask mask) override {}
     void setMaterialColorWritingMask(VROColorMask mask) override {}
     void bindShader(std::shared_ptr<VROShaderProgram> program) override {}

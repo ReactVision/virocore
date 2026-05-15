@@ -39,6 +39,8 @@
 #include "VROSharedStructures.h"
 #include "VROMetalUtils.h"
 #include "VROConcurrentBuffer.h"
+#include "VROBoneUBOMetal.h"
+#include "VROSkinner.h"
 #include <map>
 
 VROGeometrySubstrateMetal::VROGeometrySubstrateMetal(const VROGeometry &geometry,
@@ -46,9 +48,21 @@ VROGeometrySubstrateMetal::VROGeometrySubstrateMetal(const VROGeometry &geometry
     id <MTLDevice> device = driver.getDevice();
 
     readGeometryElements(device, geometry.getGeometryElements());
-    readGeometrySources(device, geometry.getGeometrySources());
+
+    // Augment the source list with bone-index / bone-weight sources when the
+    // geometry is skinned, matching the OpenGL path in VROGeometrySubstrateOpenGL.
+    std::vector<std::shared_ptr<VROGeometrySource>> sources = geometry.getGeometrySources();
+    if (geometry.getSkinner()) {
+        _boneUBO = std::make_unique<VROBoneUBOMetal>(device);
+        if (geometry.getSkinner()->getBoneIndices() != nullptr) {
+            sources.push_back(geometry.getSkinner()->getBoneIndices());
+            sources.push_back(geometry.getSkinner()->getBoneWeights());
+        }
+    }
+
+    readGeometrySources(device, sources);
     updatePipelineStates(geometry, driver);
-    
+
     _viewUniformsBuffer = new VROConcurrentBuffer(sizeof(VROViewUniforms), @"VROViewUniformBuffer", device);
 }
 
@@ -181,13 +195,68 @@ id <MTLRenderPipelineState> VROGeometrySubstrateMetal::createRenderPipelineState
     pipelineStateDescriptor.fragmentFunction = substrate->getFragmentProgram();
     pipelineStateDescriptor.vertexDescriptor = _vertexDescriptor;
     pipelineStateDescriptor.colorAttachments[0].pixelFormat = driver.getColorPixelFormat();
-    pipelineStateDescriptor.colorAttachments[0].blendingEnabled = YES;
-    pipelineStateDescriptor.colorAttachments[0].rgbBlendOperation = MTLBlendOperationAdd;
-    pipelineStateDescriptor.colorAttachments[0].alphaBlendOperation = MTLBlendOperationAdd;
-    pipelineStateDescriptor.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
-    pipelineStateDescriptor.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorSourceAlpha;
-    pipelineStateDescriptor.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
-    pipelineStateDescriptor.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+    {
+        MTLRenderPipelineColorAttachmentDescriptor *ca = pipelineStateDescriptor.colorAttachments[0];
+        switch (material->getBlendMode()) {
+            case VROBlendMode::None:
+                ca.blendingEnabled = NO;
+                break;
+            case VROBlendMode::Alpha:
+                ca.blendingEnabled = YES;
+                ca.rgbBlendOperation   = MTLBlendOperationAdd;
+                ca.alphaBlendOperation = MTLBlendOperationAdd;
+                ca.sourceRGBBlendFactor        = MTLBlendFactorSourceAlpha;
+                ca.sourceAlphaBlendFactor      = MTLBlendFactorSourceAlpha;
+                ca.destinationRGBBlendFactor   = MTLBlendFactorOneMinusSourceAlpha;
+                ca.destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+                break;
+            case VROBlendMode::Add:
+                ca.blendingEnabled = YES;
+                ca.rgbBlendOperation   = MTLBlendOperationAdd;
+                ca.alphaBlendOperation = MTLBlendOperationAdd;
+                ca.sourceRGBBlendFactor        = MTLBlendFactorSourceAlpha;
+                ca.sourceAlphaBlendFactor      = MTLBlendFactorSourceAlpha;
+                ca.destinationRGBBlendFactor   = MTLBlendFactorOne;
+                ca.destinationAlphaBlendFactor = MTLBlendFactorOne;
+                break;
+            case VROBlendMode::Multiply:
+                ca.blendingEnabled = YES;
+                ca.rgbBlendOperation   = MTLBlendOperationAdd;
+                ca.alphaBlendOperation = MTLBlendOperationAdd;
+                ca.sourceRGBBlendFactor        = MTLBlendFactorDestinationColor;
+                ca.sourceAlphaBlendFactor      = MTLBlendFactorDestinationAlpha;
+                ca.destinationRGBBlendFactor   = MTLBlendFactorZero;
+                ca.destinationAlphaBlendFactor = MTLBlendFactorZero;
+                break;
+            case VROBlendMode::Subtract:
+                ca.blendingEnabled = YES;
+                ca.rgbBlendOperation   = MTLBlendOperationReverseSubtract;
+                ca.alphaBlendOperation = MTLBlendOperationReverseSubtract;
+                ca.sourceRGBBlendFactor        = MTLBlendFactorSourceAlpha;
+                ca.sourceAlphaBlendFactor      = MTLBlendFactorSourceAlpha;
+                ca.destinationRGBBlendFactor   = MTLBlendFactorOne;
+                ca.destinationAlphaBlendFactor = MTLBlendFactorOne;
+                break;
+            case VROBlendMode::Screen:
+                ca.blendingEnabled = YES;
+                ca.rgbBlendOperation   = MTLBlendOperationAdd;
+                ca.alphaBlendOperation = MTLBlendOperationAdd;
+                ca.sourceRGBBlendFactor        = MTLBlendFactorOne;
+                ca.sourceAlphaBlendFactor      = MTLBlendFactorOne;
+                ca.destinationRGBBlendFactor   = MTLBlendFactorOneMinusSourceColor;
+                ca.destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+                break;
+            case VROBlendMode::PremultiplyAlpha:
+                ca.blendingEnabled = YES;
+                ca.rgbBlendOperation   = MTLBlendOperationAdd;
+                ca.alphaBlendOperation = MTLBlendOperationAdd;
+                ca.sourceRGBBlendFactor        = MTLBlendFactorOne;
+                ca.sourceAlphaBlendFactor      = MTLBlendFactorOne;
+                ca.destinationRGBBlendFactor   = MTLBlendFactorOneMinusSourceAlpha;
+                ca.destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+                break;
+        }
+    }
     pipelineStateDescriptor.depthAttachmentPixelFormat = driver.getDepthPixelFormat();
     pipelineStateDescriptor.stencilAttachmentPixelFormat = driver.getStencilPixelFormat();
     
@@ -223,22 +292,35 @@ id <MTLDepthStencilState> VROGeometrySubstrateMetal::createDepthStencilState(con
 }
 
 MTLVertexFormat VROGeometrySubstrateMetal::parseVertexFormat(std::shared_ptr<VROGeometrySource> &source) {
-    // Currently assuming floats
     switch (source->getBytesPerComponent()) {
+        // 1-byte integer components (e.g. JOINTS_0 stored as UNSIGNED_BYTE)
+        case 1:
+            switch (source->getComponentsPerVertex()) {
+                case 4: return MTLVertexFormatUChar4;
+                default: pabort(); return MTLVertexFormatUChar4;
+            }
+
         case 2:
+            if (!source->isFloatComponents()) {
+                // 2-byte unsigned integer (e.g. JOINTS_0 stored as UNSIGNED_SHORT)
+                switch (source->getComponentsPerVertex()) {
+                    case 4: return MTLVertexFormatUShort4;
+                    default: pabort(); return MTLVertexFormatUShort4;
+                }
+            }
             switch (source->getComponentsPerVertex()) {
                 case 1:
                     return MTLVertexFormatFloat;
-                    
+
                 case 2:
                     return MTLVertexFormatFloat2;
-                    
+
                 case 3:
                     return MTLVertexFormatFloat3;
-                    
+
                 case 4:
                     return MTLVertexFormatFloat4;
-                    
+
                 default:
                     pabort();
                     return MTLVertexFormatFloat;
@@ -346,7 +428,13 @@ void VROGeometrySubstrateMetal::render(const VROGeometry &geometry,
     if (elementIndex < (int)_vars.size()) {
         [renderEncoder setVertexBuffer:_vars[elementIndex].buffer offset:0 atIndex:0];
     }
-    
+
+    // Upload latest bone transforms and bind at buffer(5) for skinned geometry.
+    if (_boneUBO && geometry.getSkinner()) {
+        _boneUBO->update(geometry.getSkinner());
+        [renderEncoder setVertexBuffer:_boneUBO->getBuffer() offset:0 atIndex:5];
+    }
+
     /*
      Note that outgoing materials share the same pipeline state as their counterparts. This is because
      they always have the same shaders and vertex layouts.

@@ -39,6 +39,8 @@
 #include <Metal/Metal.h>
 #include <MetalKit/MetalKit.h>
 
+#include "VROBoneUBOMetal.h"
+
 class VROGeometry;
 class VROMaterial;
 class VROGeometrySource;
@@ -125,6 +127,12 @@ private:
      Uniforms for the view.
      */
     VROConcurrentBuffer *_viewUniformsBuffer;
+
+    /*
+     Bone transform buffer — non-null when the geometry has a VROSkinner.
+     Updated every draw call before binding at vertex-buffer index 5.
+     */
+    std::unique_ptr<VROBoneUBOMetal> _boneUBO;
     
     /*
      Parse the given geometry elements and populate the _elements vector with the

@@ -72,6 +72,8 @@ typedef struct {
     simd_float2 texcoord;
     simd_float4 color;
     simd_float3 tangent;
+    simd_float4 bone_weights;
+    simd_uint4  bone_indices;
 } VROShaderGeometry;
 
 typedef struct {

@@ -197,6 +197,8 @@ OBJCPP_NAMES = %w[
   VROVideoTextureCacheMetal.cpp
   VROConcurrentBuffer.cpp
   VROPlatformUtil.cpp
+  VROBoneUBOMetal.cpp
+  VROGLTFLoader.cpp
 ].freeze
 
 # Collect .cpp files from ViroRenderer/, splitting into plain C++ vs forced ObjC++
