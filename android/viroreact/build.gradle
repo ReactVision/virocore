@@ -102,7 +102,7 @@ dependencies {
     implementation 'androidx.media3:media3-exoplayer-hls:1.1.1'
     implementation 'androidx.media3:media3-exoplayer-smoothstreaming:1.1.1'
     implementation project(':libs:gvr')
-    implementation 'com.google.ar:core:1.51.0'
+    implementation 'com.google.ar:core:1.54.0'
     implementation 'com.google.protobuf.nano:protobuf-javanano:3.0.0-alpha-7'
     // OpenXR loader — from local Maven repo (openxr_sdk/maven), sourced from Khronos GitHub releases.
     // Provides libopenxr_loader.so (arm64-v8a) + native headers via Prefab.
