@@ -44,7 +44,10 @@
 #include <map>
 
 VROGeometrySubstrateMetal::VROGeometrySubstrateMetal(const VROGeometry &geometry,
-                                                     VRODriverMetal &driver) {
+                                                     VRODriverMetal &driver) :
+    _needsFakeColorBuffer(false),
+    _fakeColorBuffer(nil)
+{
     id <MTLDevice> device = driver.getDevice();
 
     readGeometryElements(device, geometry.getGeometryElements());
@@ -149,12 +152,34 @@ void VROGeometrySubstrateMetal::readGeometrySources(id <MTLDevice> device,
             _vertexDescriptor.layouts[0].stride       = totalStride;
             _vertexDescriptor.layouts[0].stepFunction = MTLVertexStepFunctionPerVertex;
 
+            bool hasColor = false;
             for (int si = 0; si < (int)elemSrcs.size(); si++) {
                 std::shared_ptr<VROGeometrySource> src = elemSrcs[si];
                 int attrIdx = VROGeometryUtilParseAttributeIndex(src->getSemantic());
                 _vertexDescriptor.attributes[attrIdx].format      = parseVertexFormat(src);
                 _vertexDescriptor.attributes[attrIdx].offset      = srcOffset[si];
                 _vertexDescriptor.attributes[attrIdx].bufferIndex = 0;
+                if (src->getSemantic() == VROGeometrySourceSemantic::Color) {
+                    hasColor = true;
+                }
+            }
+
+            // Phong shaders require attribute(2) = float4 color. Geometries without
+            // per-vertex colors (VROBox, VROSphere, VROSurface) get a constant white
+            // injected via a single-element buffer at vertex slot 1.
+            if (!hasColor) {
+                _needsFakeColorBuffer = true;
+                _vertexDescriptor.attributes[2].format      = MTLVertexFormatFloat4;
+                _vertexDescriptor.attributes[2].offset      = 0;
+                _vertexDescriptor.attributes[2].bufferIndex = 6;
+                _vertexDescriptor.layouts[6].stride         = sizeof(simd_float4);
+                _vertexDescriptor.layouts[6].stepFunction   = MTLVertexStepFunctionConstant;
+                _vertexDescriptor.layouts[6].stepRate       = 0;
+                simd_float4 white = {1.0f, 1.0f, 1.0f, 1.0f};
+                _fakeColorBuffer = [device newBufferWithBytes:&white
+                                                       length:sizeof(white)
+                                                      options:MTLResourceStorageModeShared];
+                _fakeColorBuffer.label = @"VROFakeColorBuffer";
             }
             descriptorBuilt = true;
         }
@@ -428,6 +453,9 @@ void VROGeometrySubstrateMetal::render(const VROGeometry &geometry,
     if (elementIndex < (int)_vars.size()) {
         [renderEncoder setVertexBuffer:_vars[elementIndex].buffer offset:0 atIndex:0];
     }
+    if (_needsFakeColorBuffer) {
+        [renderEncoder setVertexBuffer:_fakeColorBuffer offset:0 atIndex:6];
+    }
 
     // Upload latest bone transforms and bind at buffer(5) for skinned geometry.
     if (_boneUBO && geometry.getSkinner()) {
@@ -457,6 +485,10 @@ void VROGeometrySubstrateMetal::renderMaterial(VROMaterialSubstrateMetal *materi
     int frame = renderContext.getFrame();
     VROEyeType eyeType = renderContext.getEyeType();
     
+    if (!pipelineState) {
+        NSLog(@"[Viro] nil pipelineState for element, skipping draw call");
+        return;
+    }
     [renderEncoder setRenderPipelineState:pipelineState];
     [renderEncoder setDepthStencilState:depthStencilState];
     

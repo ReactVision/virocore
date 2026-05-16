@@ -70,13 +70,21 @@ public:
             _library = [device newDefaultLibrary];
         }
 
+        // Try the named ViroKit bundle first, then fall back to the host app's main bundle.
+        // The main-bundle fallback covers static-library deployments (visionOS xcframework)
+        // where there is no separate ViroKit bundle. The source is bundled as
+        // ViroShadersSource.txt (a copy of Shaders.metal) to avoid a duplicate-task conflict
+        // when the host app also compiles Shaders.metal in its Sources build phase.
         NSString *shadersSrcPath = bundle ? [bundle pathForResource:@"Shaders" ofType:@"metal"] : nil;
+        if (!shadersSrcPath) {
+            shadersSrcPath = [[NSBundle mainBundle] pathForResource:@"ViroShadersSource" ofType:@"txt"];
+        }
         if (shadersSrcPath) {
             NSLog(@"VRODriverMetal: Found shaders at %@, loading source", shadersSrcPath);
             _librarySource = std::string([[NSString stringWithContentsOfFile:shadersSrcPath encoding:NSUTF8StringEncoding error:nil] UTF8String]);
             NSLog(@"VRODriverMetal: Loaded %lu bytes of shader source", _librarySource.length());
         } else {
-            NSLog(@"VRODriverMetal: Warning! Could not find Shaders.metal in ViroKit bundle");
+            NSLog(@"VRODriverMetal: Warning! Could not find Shaders.metal in ViroKit bundle or main bundle");
         }
     }
 

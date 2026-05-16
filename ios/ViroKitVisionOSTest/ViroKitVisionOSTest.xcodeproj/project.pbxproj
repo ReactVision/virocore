@@ -18,7 +18,11 @@
 		F2D88EADF893A3BB695FCEB1 /* ViroKit.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = AF6CA2E5DBEA40C5563D2B44 /* ViroKit.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		F40FB32E411CED8B4632BB82 /* ViroImmersiveCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80360FEA3D6EF6BC0017D88B /* ViroImmersiveCoordinator.swift */; };
 		AA11BB22CC33DD44EE55FF00 /* shiba.glb in Resources */ = {isa = PBXBuildFile; fileRef = BB22CC33DD44EE55FF00AA11 /* shiba.glb */; };
+		EE11FF22AA33BB44CC55DD66 /* Soldier.glb in Resources */ = {isa = PBXBuildFile; fileRef = FF22AA33BB44CC55DD66EE11 /* Soldier.glb */; };
+		AA22BB33CC44DD55EE66FF00 /* ViroShadersSource.txt in Resources */ = {isa = PBXBuildFile; fileRef = BB33CC44DD55EE66FF00AA22 /* ViroShadersSource.txt */; };
+		FF33AA44BB55CC66DD77EE00 /* 360_space.jpg in Resources */ = {isa = PBXBuildFile; fileRef = EE33FF44AA55BB66CC77DD00 /* 360_space.jpg */; };
 		CC33DD44EE55FF00AA11BB22 /* Accelerate.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DD44EE55FF00AA11BB22CC33 /* Accelerate.framework */; };
+		DD44EE55FF11AA22BB33CC00 /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EE55FF00AA11BB22CC33DD44 /* MetalKit.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -46,11 +50,15 @@
 		87F0D12727799D8549A697BB /* ContentView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		8A8B96073B0F338F063303CD /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
 		DD44EE55FF00AA11BB22CC33 /* Accelerate.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Accelerate.framework; path = System/Library/Frameworks/Accelerate.framework; sourceTree = SDKROOT; };
+		EE55FF00AA11BB22CC33DD44 /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
 		AF6CA2E5DBEA40C5563D2B44 /* ViroKit.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = ViroKit.xcframework; path = ../../../viro/ios/dist/ViroRendererVisionOS/ViroKit.xcframework; sourceTree = "<group>"; };
 		B2D8275BE5EBE1FCCCC9243D /* VRORendererBridge.mm */ = {isa = PBXFileReference; includeInIndex = 1; path = VRORendererBridge.mm; sourceTree = "<group>"; };
 		BD4A175078D88E89F9FA9977 /* VRORendererBridge.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = VRORendererBridge.h; sourceTree = "<group>"; };
 		EA5E437D45A3FD76561F7905 /* ViroKitVisionOSTestApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ViroKitVisionOSTestApp.swift; sourceTree = "<group>"; };
 		BB22CC33DD44EE55FF00AA11 /* shiba.glb */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = file; path = shiba.glb; sourceTree = "<group>"; };
+		FF22AA33BB44CC55DD66EE11 /* Soldier.glb */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = file; path = Soldier.glb; sourceTree = "<group>"; };
+		BB33CC44DD55EE66FF00AA22 /* ViroShadersSource.txt */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text; path = ViroShadersSource.txt; sourceTree = "<group>"; };
+		EE33FF44AA55BB66CC77DD00 /* 360_space.jpg */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = image.jpeg; path = "360_space.jpg"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -61,6 +69,7 @@
 				2FAD3A7960EC6BB773D31FAD /* Foundation.framework in Frameworks */,
 				170DBA9C1706F872A13EF10D /* ViroKit.xcframework in Frameworks */,
 				CC33DD44EE55FF00AA11BB22 /* Accelerate.framework in Frameworks */,
+				DD44EE55FF11AA22BB33CC00 /* MetalKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -72,6 +81,7 @@
 			children = (
 				8A8B96073B0F338F063303CD /* Foundation.framework */,
 				DD44EE55FF00AA11BB22CC33 /* Accelerate.framework */,
+				EE55FF00AA11BB22CC33DD44 /* MetalKit.framework */,
 			);
 			name = iOS;
 			sourceTree = "<group>";
@@ -84,6 +94,9 @@
 				838017A544325DD2C573C5C0 /* BridgingHeader.h */,
 				7EB2A45A72A550C394486E9A /* Info.plist */,
 				BB22CC33DD44EE55FF00AA11 /* shiba.glb */,
+				FF22AA33BB44CC55DD66EE11 /* Soldier.glb */,
+				BB33CC44DD55EE66FF00AA22 /* ViroShadersSource.txt */,
+				EE33FF44AA55BB66CC77DD00 /* 360_space.jpg */,
 			);
 			name = App;
 			path = App;
@@ -203,6 +216,9 @@
 			buildActionMask = 2147483647;
 			files = (
 				AA11BB22CC33DD44EE55FF00 /* shiba.glb in Resources */,
+				EE11FF22AA33BB44CC55DD66 /* Soldier.glb in Resources */,
+				AA22BB33CC44DD55EE66FF00 /* ViroShadersSource.txt in Resources */,
+				FF33AA44BB55CC66DD77EE00 /* 360_space.jpg in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

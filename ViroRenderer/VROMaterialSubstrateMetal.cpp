@@ -47,8 +47,12 @@ static std::map<std::string, std::shared_ptr<VROMetalShader>> _sharedPrograms;
 std::shared_ptr<VROMetalShader> VROMaterialSubstrateMetal::getPooledShader(std::string vertexShader,
                                                                            std::string fragmentShader,
                                                                            id <MTLLibrary> library) {
-    std::string name = vertexShader + "_" + fragmentShader;
-    
+    // Include the library address in the key so static-library and dynamic-library variants
+    // (which have different function objects despite the same name) never share a cache entry.
+    // Without this, skinned materials would get the cached static-library vertex function
+    // that lacks the #pragma geometry_modifier_body injection.
+    std::string name = vertexShader + "_" + fragmentShader + "_" + std::to_string((uintptr_t)(void*)library);
+
     std::map<std::string, std::shared_ptr<VROMetalShader>>::iterator it = _sharedPrograms.find(name);
     if (it == _sharedPrograms.end()) {
         id <MTLFunction> vertexProgram = [library newFunctionWithName:[NSString stringWithUTF8String:vertexShader.c_str()]];

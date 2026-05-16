@@ -133,6 +133,14 @@ private:
      Updated every draw call before binding at vertex-buffer index 5.
      */
     std::unique_ptr<VROBoneUBOMetal> _boneUBO;
+
+    /*
+     Phong shaders require a per-vertex float4 color at attribute(2).
+     Geometries that lack a Color source (VROBox, VROSphere, VROSurface) get a
+     constant white value injected via a 1-element buffer at vertex slot 1.
+     */
+    bool _needsFakeColorBuffer;
+    id <MTLBuffer> _fakeColorBuffer;
     
     /*
      Parse the given geometry elements and populate the _elements vector with the
