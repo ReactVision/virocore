@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 46;
+	objectVersion = 54;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -15,14 +15,14 @@
 		3D28B8ABAB0E726934723067 /* ViroImmersiveRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83373494ECFFB003D8250D1C /* ViroImmersiveRenderer.swift */; };
 		54F8FAA93F6E49038D41216A /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87F0D12727799D8549A697BB /* ContentView.swift */; };
 		87A6671082280ABE2ED3122D /* ViroImmersiveSpace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 220A2746ABFED3E4D24F80A3 /* ViroImmersiveSpace.swift */; };
-		F2D88EADF893A3BB695FCEB1 /* ViroKit.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = AF6CA2E5DBEA40C5563D2B44 /* ViroKit.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
-		F40FB32E411CED8B4632BB82 /* ViroImmersiveCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80360FEA3D6EF6BC0017D88B /* ViroImmersiveCoordinator.swift */; };
 		AA11BB22CC33DD44EE55FF00 /* shiba.glb in Resources */ = {isa = PBXBuildFile; fileRef = BB22CC33DD44EE55FF00AA11 /* shiba.glb */; };
-		EE11FF22AA33BB44CC55DD66 /* Soldier.glb in Resources */ = {isa = PBXBuildFile; fileRef = FF22AA33BB44CC55DD66EE11 /* Soldier.glb */; };
 		AA22BB33CC44DD55EE66FF00 /* ViroShadersSource.txt in Resources */ = {isa = PBXBuildFile; fileRef = BB33CC44DD55EE66FF00AA22 /* ViroShadersSource.txt */; };
-		FF33AA44BB55CC66DD77EE00 /* 360_space.jpg in Resources */ = {isa = PBXBuildFile; fileRef = EE33FF44AA55BB66CC77DD00 /* 360_space.jpg */; };
 		CC33DD44EE55FF00AA11BB22 /* Accelerate.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DD44EE55FF00AA11BB22CC33 /* Accelerate.framework */; };
 		DD44EE55FF11AA22BB33CC00 /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EE55FF00AA11BB22CC33DD44 /* MetalKit.framework */; };
+		EE11FF22AA33BB44CC55DD66 /* Soldier.glb in Resources */ = {isa = PBXBuildFile; fileRef = FF22AA33BB44CC55DD66EE11 /* Soldier.glb */; };
+		F2D88EADF893A3BB695FCEB1 /* ViroKit.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = AF6CA2E5DBEA40C5563D2B44 /* ViroKit.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		F40FB32E411CED8B4632BB82 /* ViroImmersiveCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80360FEA3D6EF6BC0017D88B /* ViroImmersiveCoordinator.swift */; };
+		FF33AA44BB55CC66DD77EE00 /* 360_space.jpg in Resources */ = {isa = PBXBuildFile; fileRef = EE33FF44AA55BB66CC77DD00 /* 360_space.jpg */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -41,7 +41,7 @@
 
 /* Begin PBXFileReference section */
 		220A2746ABFED3E4D24F80A3 /* ViroImmersiveSpace.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ViroImmersiveSpace.swift; sourceTree = "<group>"; };
-		39A5876AE5C9C8A7F0A0640C /* Shaders.metal */ = {isa = PBXFileReference; includeInIndex = 1; path = Shaders.metal; sourceTree = "<group>"; };
+		39A5876AE5C9C8A7F0A0640C /* Shaders.metal */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.metal; path = Shaders.metal; sourceTree = "<group>"; };
 		657CBA5513FCE67545DDBD75 /* ViroKitVisionOSTest.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ViroKitVisionOSTest.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		7EB2A45A72A550C394486E9A /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		80360FEA3D6EF6BC0017D88B /* ViroImmersiveCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ViroImmersiveCoordinator.swift; sourceTree = "<group>"; };
@@ -49,16 +49,16 @@
 		838017A544325DD2C573C5C0 /* BridgingHeader.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = BridgingHeader.h; sourceTree = "<group>"; };
 		87F0D12727799D8549A697BB /* ContentView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		8A8B96073B0F338F063303CD /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
-		DD44EE55FF00AA11BB22CC33 /* Accelerate.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Accelerate.framework; path = System/Library/Frameworks/Accelerate.framework; sourceTree = SDKROOT; };
-		EE55FF00AA11BB22CC33DD44 /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
 		AF6CA2E5DBEA40C5563D2B44 /* ViroKit.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = ViroKit.xcframework; path = ../../../viro/ios/dist/ViroRendererVisionOS/ViroKit.xcframework; sourceTree = "<group>"; };
-		B2D8275BE5EBE1FCCCC9243D /* VRORendererBridge.mm */ = {isa = PBXFileReference; includeInIndex = 1; path = VRORendererBridge.mm; sourceTree = "<group>"; };
-		BD4A175078D88E89F9FA9977 /* VRORendererBridge.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = VRORendererBridge.h; sourceTree = "<group>"; };
-		EA5E437D45A3FD76561F7905 /* ViroKitVisionOSTestApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ViroKitVisionOSTestApp.swift; sourceTree = "<group>"; };
+		B2D8275BE5EBE1FCCCC9243D /* VRORendererBridge.mm */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.objcpp; path = VRORendererBridge.mm; sourceTree = "<group>"; };
 		BB22CC33DD44EE55FF00AA11 /* shiba.glb */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = file; path = shiba.glb; sourceTree = "<group>"; };
-		FF22AA33BB44CC55DD66EE11 /* Soldier.glb */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = file; path = Soldier.glb; sourceTree = "<group>"; };
 		BB33CC44DD55EE66FF00AA22 /* ViroShadersSource.txt */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text; path = ViroShadersSource.txt; sourceTree = "<group>"; };
-		EE33FF44AA55BB66CC77DD00 /* 360_space.jpg */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = image.jpeg; path = "360_space.jpg"; sourceTree = "<group>"; };
+		BD4A175078D88E89F9FA9977 /* VRORendererBridge.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = VRORendererBridge.h; sourceTree = "<group>"; };
+		DD44EE55FF00AA11BB22CC33 /* Accelerate.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Accelerate.framework; path = System/Library/Frameworks/Accelerate.framework; sourceTree = SDKROOT; };
+		EA5E437D45A3FD76561F7905 /* ViroKitVisionOSTestApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ViroKitVisionOSTestApp.swift; sourceTree = "<group>"; };
+		EE33FF44AA55BB66CC77DD00 /* 360_space.jpg */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = image.jpeg; path = 360_space.jpg; sourceTree = "<group>"; };
+		EE55FF00AA11BB22CC33DD44 /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
+		FF22AA33BB44CC55DD66EE11 /* Soldier.glb */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = file; path = Soldier.glb; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -98,7 +98,6 @@
 				BB33CC44DD55EE66FF00AA22 /* ViroShadersSource.txt */,
 				EE33FF44AA55BB66CC77DD00 /* 360_space.jpg */,
 			);
-			name = App;
 			path = App;
 			sourceTree = "<group>";
 		};
@@ -199,8 +198,6 @@
 				Base,
 			);
 			mainGroup = FFCA809695C7701A7F1C1BB3;
-			minimizedProjectReferenceProxies = 0;
-			preferredProjectObjectVersion = 77;
 			productRefGroup = 99DD88767324269696B2AEA4 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -253,7 +250,7 @@
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_STYLE = Automatic;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = K9FMHQ779Z;
 				ENABLE_BITCODE = NO;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					"$(inherited)",
@@ -262,7 +259,10 @@
 				);
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = "";
-				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
 				MTL_PREPROCESSOR_DEFINITIONS = "$(inherited) VRO_METAL=1";
 				PRODUCT_BUNDLE_IDENTIFIER = com.reactvision.ViroKitVisionOSTest;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -403,7 +403,7 @@
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_STYLE = Automatic;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = K9FMHQ779Z;
 				ENABLE_BITCODE = NO;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					"$(inherited)",
@@ -412,7 +412,10 @@
 				);
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = "";
-				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
 				MTL_PREPROCESSOR_DEFINITIONS = "$(inherited) VRO_METAL=1";
 				PRODUCT_BUNDLE_IDENTIFIER = com.reactvision.ViroKitVisionOSTest;
 				PRODUCT_NAME = "$(TARGET_NAME)";

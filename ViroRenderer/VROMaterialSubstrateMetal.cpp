@@ -83,27 +83,19 @@ VROMaterialSubstrateMetal::VROMaterialSubstrateMetal(const VROMaterial &material
     if (modifierCount > 0) {
         std::string source = driver.getLibrarySource();
         if (!source.empty()) {
-            NSLog(@"VROMaterialSubstrateMetal: Inflating %lu modifiers", material.getShaderModifiers().size());
-            // Log a bit of the source to verify pragmas exist
-            NSLog(@"VROMaterialSubstrateMetal: Source prefix: %s", source.substr(0, 100).c_str());
             if (source.find("#pragma surface_modifier_body") == std::string::npos) {
                 NSLog(@"VROMaterialSubstrateMetal: Warning: Pragmas not found in source!");
             }
-            
             inflateModifiers(source, material.getShaderModifiers());
             _dynamicLibrary = driver.newLibraryWithSource(source);
             if (_dynamicLibrary) {
-                NSLog(@"VROMaterialSubstrateMetal: Successfully compiled dynamic shader library");
                 library = _dynamicLibrary;
             } else {
                 NSLog(@"VROMaterialSubstrateMetal: Failed to compile dynamic shader library. Source length: %lu", source.length());
-                // The error is already logged in VRODriverMetal::newLibraryWithSource
             }
         } else {
             NSLog(@"VROMaterialSubstrateMetal: Warning: Driver library source is empty");
         }
-    } else {
-        NSLog(@"VROMaterialSubstrateMetal: Material has NO modifiers");
     }
 
     _lightingUniformsBuffer = new VROConcurrentBuffer(sizeof(VROSceneLightingUniforms), @"VROSceneLightingUniformBuffer", device);
@@ -479,9 +471,7 @@ bool VROMaterialSubstrateMetal::bindShader(int lightsHash,
     // In Metal, pipeline state is bound by the geometry substrate, not the material substrate.
     // However, we need to bind the lighting uniforms here, similar to OpenGL.
     // This is the CRITICAL FIX: bindLights was defined but never called!
-    NSLog(@"[METAL LIGHTING] bindShader() called with %zu lights, hash=%d", lights.size(), lightsHash);
     bindLights(lightsHash, lights, context, driver);
-    NSLog(@"[METAL LIGHTING] bindLights() completed");
     return true;
 }
 
@@ -514,8 +504,6 @@ void VROMaterialSubstrateMetal::bindLights(int lightsHash,
                                            const std::vector<std::shared_ptr<VROLight>> &lights,
                                            const VRORenderContext &context,
                                            std::shared_ptr<VRODriver> &driver) {
-
-    NSLog(@"[METAL LIGHTING] bindLights() starting - received %zu lights", lights.size());
 
     VRODriverMetal &metal = (VRODriverMetal &)(*driver.get());
     id <MTLRenderCommandEncoder> renderEncoder = metal.getActiveEncoder();
@@ -550,20 +538,12 @@ void VROMaterialSubstrateMetal::bindLights(int lightsHash,
     
     uniforms->ambient_light_color = toVectorFloat3(ambientLight);
 
-    NSLog(@"[METAL LIGHTING] Final values - num_lights=%d, ambient=(%f,%f,%f)",
-          uniforms->num_lights,
-          uniforms->ambient_light_color.x,
-          uniforms->ambient_light_color.y,
-          uniforms->ambient_light_color.z);
-
     [renderEncoder setVertexBuffer:_lightingUniformsBuffer->getMTLBuffer(eyeType)
                             offset:_lightingUniformsBuffer->getWriteOffset(frame)
                            atIndex:4];
     [renderEncoder setFragmentBuffer:_lightingUniformsBuffer->getMTLBuffer(eyeType)
                               offset:_lightingUniformsBuffer->getWriteOffset(frame)
                              atIndex:4];
-
-    NSLog(@"[METAL LIGHTING] Lighting buffer bound at index 4 for vertex and fragment shaders");
 }
 
 uint32_t VROMaterialSubstrateMetal::hashTextures(const std::vector<std::shared_ptr<VROTexture>> &textures) const {
