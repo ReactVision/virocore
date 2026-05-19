@@ -29,28 +29,69 @@
 
 #include <stdio.h>
 #include "VROData.h"
+#include "VROLog.h"
+
+/*
+ Hint indicating how often the buffer's contents will be updated. Maps to GL_*_DRAW
+ hints on OpenGL ES and informs storage mode selection on Metal. Static buffers
+ cannot be updated after the initial hydrate() and will warn if updateData() is
+ called on them.
+ */
+enum class VROVertexBufferUsage {
+    Static,    // Set once, drawn many times (default; matches legacy behaviour)
+    Dynamic,   // Updated occasionally
+    Stream,    // Updated every frame
+};
 
 class VROVertexBuffer {
 public:
-    
+
     VROVertexBuffer(std::shared_ptr<VROData> data) :
-        _data(data) {}
+        _data(data),
+        _usage(VROVertexBufferUsage::Static) {}
+
+    VROVertexBuffer(std::shared_ptr<VROData> data, VROVertexBufferUsage usage) :
+        _data(data),
+        _usage(usage) {}
+
     virtual ~VROVertexBuffer() {}
-    
+
     /*
      Upload this buffer to the GPU. No-op if this buffer is already on the GPU.
      */
     virtual void hydrate() = 0;
-    
+
+    /*
+     Replace the underlying CPU data and re-upload the new contents to the existing
+     GPU buffer object in place. Preserves the GPU handle (no new VBO allocation), so
+     any geometry substrate that references this buffer continues to work without
+     being rebuilt.
+
+     Subclasses that don't support mutable updates should override this method and
+     emit a warning; the default implementation logs and is a no-op.
+
+     The new data's size must not exceed the size with which the buffer was first
+     hydrated. Larger updates require recreating the substrate.
+     */
+    virtual void updateData(std::shared_ptr<VROData> newData) {
+        pwarn("VROVertexBuffer::updateData not implemented for this backend; ignoring");
+    }
+
     /*
      Get the data (on the CPU) underlying this vertex buffer.
      */
     std::shared_ptr<VROData> getData() const { return _data; }
-    
+
+    /*
+     Get the update-frequency hint declared at construction.
+     */
+    VROVertexBufferUsage getUsage() const { return _usage; }
+
 protected:
-    
+
     std::shared_ptr<VROData> _data;
-    
+    VROVertexBufferUsage _usage;
+
 };
 
 #endif /* VROVertexBuffer_h */
