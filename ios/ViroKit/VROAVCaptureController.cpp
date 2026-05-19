@@ -38,8 +38,11 @@
 
 VROAVCaptureController::VROAVCaptureController() :
     _paused(true),
+    _isRecording(false),
+    _photoOutput(nil),
+    _movieOutput(nil),
+    _recordingPath(nil),
     _lastSampleBuffer(nil) {
-    
 }
 
 void VROAVCaptureController::initCapture(VROCameraPosition position, VROCameraOrientation orientation,
@@ -104,6 +107,13 @@ void VROAVCaptureController::initCapture(VROCameraPosition position, VROCameraOr
     [dataOutput setSampleBufferDelegate:_delegate queue:dispatch_get_main_queue()];
     
     [_captureSession addOutput:dataOutput];
+
+    // Add AVCapturePhotoOutput so still captures are always available.
+    _photoOutput = [[AVCapturePhotoOutput alloc] init];
+    if ([_captureSession canAddOutput:_photoOutput]) {
+        [_captureSession addOutput:_photoOutput];
+    }
+
     updateOrientation(orientation);
     [_captureSession commitConfiguration];
     
@@ -204,6 +214,88 @@ void VROAVCaptureController::update(CMSampleBufferRef sampleBuffer, std::vector<
     }
 }
 
+#pragma mark - Photo capture
+
+void VROAVCaptureController::capturePhoto(NSString *outputPath,
+                                          std::function<void(bool, NSString *, NSString *)> onComplete) {
+    if (!_captureSession || !_photoOutput) {
+        onComplete(false, nil, @"Camera not initialised");
+        return;
+    }
+    if (outputPath == nil || outputPath.length == 0) {
+        NSString *ts = [NSString stringWithFormat:@"viro_photo_%lld.jpg",
+                        (long long)([[NSDate date] timeIntervalSince1970] * 1000)];
+        outputPath = [NSTemporaryDirectory() stringByAppendingPathComponent:ts];
+    }
+
+    _photoCompletion = onComplete;
+
+    AVCapturePhotoSettings *settings = [AVCapturePhotoSettings photoSettingsWithFormat:
+        @{AVVideoCodecKey: AVVideoCodecTypeJPEG}];
+    VROCameraPhotoDelegate *delegate = [[VROCameraPhotoDelegate alloc]
+                                        initWithOutputPath:outputPath
+                                                completion:onComplete];
+    [_photoOutput capturePhotoWithSettings:settings delegate:delegate];
+}
+
+#pragma mark - Video recording
+
+void VROAVCaptureController::startRecording(NSString *outputPath,
+                                            std::function<void(bool, NSString *, NSString *)> onStarted) {
+    if (_isRecording) {
+        onStarted(false, nil, @"Already recording");
+        return;
+    }
+    if (!_captureSession) {
+        onStarted(false, nil, @"Camera not initialised");
+        return;
+    }
+    if (outputPath == nil || outputPath.length == 0) {
+        NSString *ts = [NSString stringWithFormat:@"viro_video_%lld.mp4",
+                        (long long)([[NSDate date] timeIntervalSince1970] * 1000)];
+        outputPath = [NSTemporaryDirectory() stringByAppendingPathComponent:ts];
+    }
+
+    _recordingPath = outputPath;
+
+    [_captureSession beginConfiguration];
+    _movieOutput = [[AVCaptureMovieFileOutput alloc] init];
+    if ([_captureSession canAddOutput:_movieOutput]) {
+        [_captureSession addOutput:_movieOutput];
+    }
+    [_captureSession commitConfiguration];
+
+    NSURL *url = [NSURL fileURLWithPath:outputPath];
+    VROCameraMovieDelegate *delegate = [[VROCameraMovieDelegate alloc]
+                                        initWithCompletion:onStarted];
+    [_movieOutput startRecordingToOutputFileURL:url recordingDelegate:delegate];
+    _isRecording = true;
+}
+
+void VROAVCaptureController::stopRecording(std::function<void(bool, NSString *, NSString *)> onStopped) {
+    if (!_isRecording || !_movieOutput) {
+        onStopped(false, nil, @"Not recording");
+        return;
+    }
+    _recordingCompletion = onStopped;
+    NSString *path = _recordingPath;
+    [_movieOutput stopRecording];
+    _isRecording = false;
+
+    // Remove the movie output from the session to free resources.
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self->_captureSession beginConfiguration];
+        [self->_captureSession removeOutput:self->_movieOutput];
+        [self->_captureSession commitConfiguration];
+        self->_movieOutput = nil;
+        self->_recordingPath = nil;
+        if (self->_recordingCompletion) {
+            self->_recordingCompletion(true, path, nil);
+            self->_recordingCompletion = nullptr;
+        }
+    });
+}
+
 #pragma mark - VROCameraCaptureDelegate
 
 @interface VROCameraCaptureDelegate ()
@@ -273,9 +365,92 @@ fromConnection:(AVCaptureConnection *)connection {
     if (!controller) {
         return;
     }
-    
+
     UIInterfaceOrientation orientation = [[UIApplication sharedApplication] statusBarOrientation];
     controller->updateOrientation(VROConvert::toCameraOrientation(orientation));
+}
+
+@end
+
+#pragma mark - VROCameraPhotoDelegate
+
+@interface VROCameraPhotoDelegate ()
+@property (nonatomic, copy) NSString *outputPath;
+@property (nonatomic, assign) std::function<void(bool, NSString *, NSString *)> completion;
+@end
+
+@implementation VROCameraPhotoDelegate
+
+- (id)initWithOutputPath:(NSString *)path
+              completion:(std::function<void(bool, NSString *, NSString *)>)completion {
+    self = [super init];
+    if (self) {
+        _outputPath = path;
+        _completion = completion;
+    }
+    return self;
+}
+
+- (void)captureOutput:(AVCapturePhotoOutput *)output
+didFinishProcessingPhoto:(AVCapturePhoto *)photo
+                error:(NSError *)error {
+    if (error) {
+        _completion(false, nil, error.localizedDescription);
+        return;
+    }
+    NSData *data = [photo fileDataRepresentation];
+    if (!data) {
+        _completion(false, nil, @"No image data");
+        return;
+    }
+    NSError *writeError = nil;
+    [data writeToFile:_outputPath options:NSDataWritingAtomic error:&writeError];
+    if (writeError) {
+        _completion(false, nil, writeError.localizedDescription);
+    } else {
+        _completion(true, _outputPath, nil);
+    }
+}
+
+@end
+
+#pragma mark - VROCameraMovieDelegate
+
+@interface VROCameraMovieDelegate ()
+@property (nonatomic, assign) std::function<void(bool, NSString *, NSString *)> completion;
+@end
+
+@implementation VROCameraMovieDelegate
+
+- (id)initWithCompletion:(std::function<void(bool, NSString *, NSString *)>)completion {
+    self = [super init];
+    if (self) {
+        _completion = completion;
+    }
+    return self;
+}
+
+// Called when recording successfully starts — fire the onStarted callback.
+- (void)fileOutput:(AVCaptureFileOutput *)output
+didStartRecordingToOutputFileAtURL:(NSURL *)fileURL
+   fromConnections:(NSArray<AVCaptureConnection *> *)connections {
+    if (_completion) {
+        _completion(true, fileURL.path, nil);
+        _completion = nullptr;  // only fire once for "started"
+    }
+}
+
+// Called when recording finishes (after stopRecording). Errors are surfaced here.
+- (void)fileOutput:(AVCaptureFileOutput *)output
+didFinishRecordingToOutputFileAtURL:(NSURL *)outputFileURL
+   fromConnections:(NSArray<AVCaptureConnection *> *)connections
+             error:(NSError *)error {
+    // The completion for stop is handled synchronously in stopRecording(); nothing to do here.
+    // If recording was interrupted by an error before stop, surface it.
+    if (error && _completion) {
+        _completion(false, nil, error.localizedDescription);
+        _completion = nullptr;
+    }
 }
 
 @end

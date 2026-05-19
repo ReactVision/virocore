@@ -62,7 +62,15 @@ public:
      texture.
      */
     std::vector<float> getCameraIntrinsics() const;
-    
+
+    /*
+     Expose the underlying capture controller so that callers (e.g. VRTCameraTexture)
+     can invoke photo / video capture directly.
+     */
+    std::shared_ptr<VROAVCaptureController> getCaptureController() const {
+        return _controller;
+    }
+
 private:
     
     /*
