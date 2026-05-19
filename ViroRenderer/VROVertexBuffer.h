@@ -70,14 +70,16 @@ public:
      any geometry substrate that references this buffer continues to work without
      being rebuilt.
 
-     Subclasses that don't support mutable updates should override this method and
-     emit a warning; the default implementation logs and is a no-op.
+     The default implementation is a silent no-op so that subclasses which don't
+     support mutable updates compile without changes. Subclasses that DO support
+     updates should override and may warn when called on a Static-usage buffer
+     (see VROVertexBufferOpenGL::updateData for the canonical implementation).
 
      The new data's size must not exceed the size with which the buffer was first
      hydrated. Larger updates require recreating the substrate.
      */
     virtual void updateData(std::shared_ptr<VROData> newData) {
-        pwarn("VROVertexBuffer::updateData not implemented for this backend; ignoring");
+        // Intentional no-op default. See class comment above.
     }
 
     /*

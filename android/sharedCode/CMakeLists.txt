@@ -178,6 +178,8 @@ add_library( # Sets the name of the library.
              ${VIRO_RENDERER_SRC}/VROGeometryElement.cpp
              ${VIRO_RENDERER_SRC}/VROGeometrySource.cpp
              ${VIRO_RENDERER_SRC}/VRODynamicGeometry.cpp
+             ${VIRO_RENDERER_SRC}/VROInputState.cpp
+             ${VIRO_RENDERER_SRC}/VROVirtualControllerRegistry.cpp
              ${VIRO_RENDERER_SRC}/VROMaterial.cpp
              ${VIRO_RENDERER_SRC}/VROMaterialVisual.cpp
              ${VIRO_RENDERER_SRC}/VROTexture.cpp

@@ -933,6 +933,12 @@
 		E1BD617D2FBBE52A008FDF74 /* VRODynamicGeometry.h in Headers */ = {isa = PBXBuildFile; fileRef = E1BD617B2FBBE52A008FDF74 /* VRODynamicGeometry.h */; };
 		E1BD617E2FBBE52A008FDF74 /* VRODynamicGeometry.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E1BD617C2FBBE52A008FDF74 /* VRODynamicGeometry.cpp */; };
 		E1BD617F2FBBE574008FDF74 /* VRODynamicGeometry.h in Sources */ = {isa = PBXBuildFile; fileRef = E1BD617B2FBBE52A008FDF74 /* VRODynamicGeometry.h */; };
+		E1BD61842FBBEA76008FDF74 /* VROVirtualControllerRegistry.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E1BD61832FBBEA76008FDF74 /* VROVirtualControllerRegistry.cpp */; };
+		E1BD61852FBBEA76008FDF74 /* VROInputState.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E1BD61812FBBEA76008FDF74 /* VROInputState.cpp */; };
+		E1BD61862FBBEA76008FDF74 /* VROInputState.h in Headers */ = {isa = PBXBuildFile; fileRef = E1BD61802FBBEA76008FDF74 /* VROInputState.h */; };
+		E1BD61872FBBEA76008FDF74 /* VROVirtualControllerRegistry.h in Headers */ = {isa = PBXBuildFile; fileRef = E1BD61822FBBEA76008FDF74 /* VROVirtualControllerRegistry.h */; };
+		E1BD61882FBBEA93008FDF74 /* VROInputState.h in Sources */ = {isa = PBXBuildFile; fileRef = E1BD61802FBBEA76008FDF74 /* VROInputState.h */; };
+		E1BD61892FBBEA95008FDF74 /* VROVirtualControllerRegistry.h in Sources */ = {isa = PBXBuildFile; fileRef = E1BD61822FBBEA76008FDF74 /* VROVirtualControllerRegistry.h */; };
 		E1E71AAD2EE4B64E00CA1D20 /* VROSemantics.h in Headers */ = {isa = PBXBuildFile; fileRef = E1E71AAC2EE4B64E00CA1D20 /* VROSemantics.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		EAD7E32D2DFA518AEAAB48C2 /* (null) in Frameworks */ = {isa = PBXBuildFile; };
 /* End PBXBuildFile section */
@@ -1934,7 +1940,11 @@
 		E1B267D72EE5263A00F0718C /* VROARDepthMesh.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = VROARDepthMesh.mm; sourceTree = "<group>"; };
 		E1B267D82EE5263A00F0718C /* VROARWorldMesh.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = VROARWorldMesh.mm; sourceTree = "<group>"; };
 		E1BD617B2FBBE52A008FDF74 /* VRODynamicGeometry.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VRODynamicGeometry.h; sourceTree = "<group>"; };
-		E1BD617C2FBBE52A008FDF74 /* VRODynamicGeometry.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = VRODynamicGeometry.cpp; sourceTree = "<group>"; };
+		E1BD617C2FBBE52A008FDF74 /* VRODynamicGeometry.cpp */ = {isa = PBXFileReference; explicitFileType = sourcecode.cpp.objcpp; path = VRODynamicGeometry.cpp; sourceTree = "<group>"; };
+		E1BD61802FBBEA76008FDF74 /* VROInputState.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VROInputState.h; sourceTree = "<group>"; };
+		E1BD61812FBBEA76008FDF74 /* VROInputState.cpp */ = {isa = PBXFileReference; explicitFileType = sourcecode.cpp.objcpp; path = VROInputState.cpp; sourceTree = "<group>"; };
+		E1BD61822FBBEA76008FDF74 /* VROVirtualControllerRegistry.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VROVirtualControllerRegistry.h; sourceTree = "<group>"; };
+		E1BD61832FBBEA76008FDF74 /* VROVirtualControllerRegistry.cpp */ = {isa = PBXFileReference; explicitFileType = sourcecode.cpp.objcpp; path = VROVirtualControllerRegistry.cpp; sourceTree = "<group>"; };
 		E1E71AAC2EE4B64E00CA1D20 /* VROSemantics.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VROSemantics.h; sourceTree = "<group>"; };
 		EFE739A6468B94B79ECAD5E5 /* Pods-ViroSample.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-ViroSample.debug.xcconfig"; path = "Target Support Files/Pods-ViroSample/Pods-ViroSample.debug.xcconfig"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -2054,6 +2064,10 @@
 				8FCB6C851C3C826C00C14158 /* IO */,
 				8F4DCE441BFBF3A800061DD7 /* Shapes */,
 				8F4DCE4B1BFD617200061DD7 /* Private */,
+				E1BD61802FBBEA76008FDF74 /* VROInputState.h */,
+				E1BD61812FBBEA76008FDF74 /* VROInputState.cpp */,
+				E1BD61822FBBEA76008FDF74 /* VROVirtualControllerRegistry.h */,
+				E1BD61832FBBEA76008FDF74 /* VROVirtualControllerRegistry.cpp */,
 				E1BD617B2FBBE52A008FDF74 /* VRODynamicGeometry.h */,
 				E1BD617C2FBBE52A008FDF74 /* VRODynamicGeometry.cpp */,
 				A586977F1E30843000191090 /* VROInputControllerBase.h */,
@@ -3628,6 +3642,8 @@
 				8F203F0B1DCD245200DC50F2 /* VROOpenGL.h in Headers */,
 				8FCB10231DD544E800FE425C /* VROVideoTextureCacheMetal.h in Headers */,
 				8F828EF21FACB3FF0068159E /* VROARDeclarativeNode.h in Headers */,
+				E1BD61862FBBEA76008FDF74 /* VROInputState.h in Headers */,
+				E1BD61872FBBEA76008FDF74 /* VROVirtualControllerRegistry.h in Headers */,
 				8FD4DF521C18F5EB003DC425 /* VROTransaction.h in Headers */,
 				8FDDB4A91DAF2A3E00DE0968 /* VROPolyline.h in Headers */,
 				E1BD617D2FBBE52A008FDF74 /* VRODynamicGeometry.h in Headers */,
@@ -4286,6 +4302,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E1BD61882FBBEA93008FDF74 /* VROInputState.h in Sources */,
+				E1BD61892FBBEA95008FDF74 /* VROVirtualControllerRegistry.h in Sources */,
 				E1BD617F2FBBE574008FDF74 /* VRODynamicGeometry.h in Sources */,
 				E1626A1A2F46B83E005AA731 /* VROCloudAnchorProviderReactVision.h in Sources */,
 				8FE52F3721E82A8400BA63D4 /* VROObjectRecognitionTest.cpp in Sources */,
@@ -4304,6 +4322,8 @@
 				8FA9D6C92225FEF60003C9D2 /* VROPoseFilter.cpp in Sources */,
 				8FD2A54C1F813C4100E831A6 /* VROPerfTest.cpp in Sources */,
 				8FEACF0020181DDF0082D18B /* VRODiffuseIrradianceTest.cpp in Sources */,
+				E1BD61842FBBEA76008FDF74 /* VROVirtualControllerRegistry.cpp in Sources */,
+				E1BD61852FBBEA76008FDF74 /* VROInputState.cpp in Sources */,
 				8FAE18C71EE79D6D0021C7BB /* VROARFrameiOS.cpp in Sources */,
 				8F705DE21E8ACFD0008BE8F8 /* VRODebugHUD.cpp in Sources */,
 				8F0E5E9C1F3BA9120007AD03 /* VROChoreographer.cpp in Sources */,
