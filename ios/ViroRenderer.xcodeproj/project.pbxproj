@@ -540,7 +540,7 @@
 		8FC6E1DB1CECB376008EFD5F /* constant_q_fsh.glsl in Resources */ = {isa = PBXBuildFile; fileRef = 8FC6E1D11CECB364008EFD5F /* constant_q_fsh.glsl */; };
 		8FC908861CA458EB00069C89 /* VRONodeCamera.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 8FC908841CA458EB00069C89 /* VRONodeCamera.cpp */; };
 		8FC908871CA458EB00069C89 /* VRONodeCamera.h in Headers */ = {isa = PBXBuildFile; fileRef = 8FC908851CA458EB00069C89 /* VRONodeCamera.h */; settings = {ATTRIBUTES = (Public, ); }; };
-		8FCA009A22C7DA0E00BB1D70 /* VROVertexBuffer.h in Headers */ = {isa = PBXBuildFile; fileRef = 8FCA009822C7DA0E00BB1D70 /* VROVertexBuffer.h */; };
+		8FCA009A22C7DA0E00BB1D70 /* VROVertexBuffer.h in Headers */ = {isa = PBXBuildFile; fileRef = 8FCA009822C7DA0E00BB1D70 /* VROVertexBuffer.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		8FCA009D22C7DB2E00BB1D70 /* VROVertexBufferOpenGL.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 8FCA009B22C7DB2E00BB1D70 /* VROVertexBufferOpenGL.cpp */; };
 		8FCA009E22C7DB2E00BB1D70 /* VROVertexBufferOpenGL.h in Headers */ = {isa = PBXBuildFile; fileRef = 8FCA009C22C7DB2E00BB1D70 /* VROVertexBufferOpenGL.h */; };
 		8FCB0FFA1DCFF68E00FE425C /* VROAudioPlayeriOS.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 8FCB0FF81DCFF68E00FE425C /* VROAudioPlayeriOS.cpp */; };
@@ -930,13 +930,13 @@
 		E1B267D62EE5228E00F0718C /* VROARDepthMesh.h in Headers */ = {isa = PBXBuildFile; fileRef = E1B267CF2EE5228E00F0718C /* VROARDepthMesh.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		E1B267D92EE5263A00F0718C /* VROARWorldMesh.mm in Sources */ = {isa = PBXBuildFile; fileRef = E1B267D82EE5263A00F0718C /* VROARWorldMesh.mm */; };
 		E1B267DA2EE5263A00F0718C /* VROARDepthMesh.mm in Sources */ = {isa = PBXBuildFile; fileRef = E1B267D72EE5263A00F0718C /* VROARDepthMesh.mm */; };
-		E1BD617D2FBBE52A008FDF74 /* VRODynamicGeometry.h in Headers */ = {isa = PBXBuildFile; fileRef = E1BD617B2FBBE52A008FDF74 /* VRODynamicGeometry.h */; };
+		E1BD617D2FBBE52A008FDF74 /* VRODynamicGeometry.h in Headers */ = {isa = PBXBuildFile; fileRef = E1BD617B2FBBE52A008FDF74 /* VRODynamicGeometry.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		E1BD617E2FBBE52A008FDF74 /* VRODynamicGeometry.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E1BD617C2FBBE52A008FDF74 /* VRODynamicGeometry.cpp */; };
 		E1BD617F2FBBE574008FDF74 /* VRODynamicGeometry.h in Sources */ = {isa = PBXBuildFile; fileRef = E1BD617B2FBBE52A008FDF74 /* VRODynamicGeometry.h */; };
 		E1BD61842FBBEA76008FDF74 /* VROVirtualControllerRegistry.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E1BD61832FBBEA76008FDF74 /* VROVirtualControllerRegistry.cpp */; };
 		E1BD61852FBBEA76008FDF74 /* VROInputState.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E1BD61812FBBEA76008FDF74 /* VROInputState.cpp */; };
-		E1BD61862FBBEA76008FDF74 /* VROInputState.h in Headers */ = {isa = PBXBuildFile; fileRef = E1BD61802FBBEA76008FDF74 /* VROInputState.h */; };
-		E1BD61872FBBEA76008FDF74 /* VROVirtualControllerRegistry.h in Headers */ = {isa = PBXBuildFile; fileRef = E1BD61822FBBEA76008FDF74 /* VROVirtualControllerRegistry.h */; };
+		E1BD61862FBBEA76008FDF74 /* VROInputState.h in Headers */ = {isa = PBXBuildFile; fileRef = E1BD61802FBBEA76008FDF74 /* VROInputState.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		E1BD61872FBBEA76008FDF74 /* VROVirtualControllerRegistry.h in Headers */ = {isa = PBXBuildFile; fileRef = E1BD61822FBBEA76008FDF74 /* VROVirtualControllerRegistry.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		E1BD61882FBBEA93008FDF74 /* VROInputState.h in Sources */ = {isa = PBXBuildFile; fileRef = E1BD61802FBBEA76008FDF74 /* VROInputState.h */; };
 		E1BD61892FBBEA95008FDF74 /* VROVirtualControllerRegistry.h in Sources */ = {isa = PBXBuildFile; fileRef = E1BD61822FBBEA76008FDF74 /* VROVirtualControllerRegistry.h */; };
 		E1E71AAD2EE4B64E00CA1D20 /* VROSemantics.h in Headers */ = {isa = PBXBuildFile; fileRef = E1E71AAC2EE4B64E00CA1D20 /* VROSemantics.h */; settings = {ATTRIBUTES = (Public, ); }; };
@@ -3370,6 +3370,11 @@
 			isa = PBXHeadersBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				8FCA009A22C7DA0E00BB1D70 /* VROVertexBuffer.h in Headers */,
+				A586978A1E308B4500191090 /* VROInputControllerBase.h in Headers */,
+				E1BD617D2FBBE52A008FDF74 /* VRODynamicGeometry.h in Headers */,
+				E1BD61872FBBEA76008FDF74 /* VROVirtualControllerRegistry.h in Headers */,
+				E1BD61862FBBEA76008FDF74 /* VROInputState.h in Headers */,
 				E15075862F185C5700653622 /* VROARHitTestResultiOS.h in Headers */,
 				E11308292EF0F574008AB6A1 /* VROModelDownloader.h in Headers */,
 				E113082D2EF0F57D008AB6A1 /* VROMonocularDepthEstimator.h in Headers */,
@@ -3423,7 +3428,6 @@
 				8B835CBA21F667430043F172 /* VROBodyPlayeriOS.h in Headers */,
 				8FAE5065223AED530043220B /* VROOneEuroFilter.h in Headers */,
 				A586978C1E308BD300191090 /* VROInputPresenter.h in Headers */,
-				8FCA009A22C7DA0E00BB1D70 /* VROVertexBuffer.h in Headers */,
 				8F0E5E9D1F3BA9120007AD03 /* VROChoreographer.h in Headers */,
 				8FD2A53B1F813C4100E831A6 /* VROARDraggableNodeTest.h in Headers */,
 				A566EB3D1E1B47B7008B4AE2 /* VROEventDelegateiOS.h in Headers */,
@@ -3431,7 +3435,6 @@
 				A566EB391E1B38A3008B4AE2 /* VROSceneDelegateiOS.h in Headers */,
 				A58697871E3084A400191090 /* VROInputPresenterCardboardiOS.h in Headers */,
 				8F2C7B0121ECCE5300B8A154 /* VROImagePreprocessor.h in Headers */,
-				A586978A1E308B4500191090 /* VROInputControllerBase.h in Headers */,
 				A58697861E3084A400191090 /* VROInputControllerCardboardiOS.h in Headers */,
 				A566EB301E1B129E008B4AE2 /* VROSceneController.h in Headers */,
 				8AE44CA02021542000CE8394 /* VROARImageTargetiOS.h in Headers */,
@@ -3642,11 +3645,8 @@
 				8F203F0B1DCD245200DC50F2 /* VROOpenGL.h in Headers */,
 				8FCB10231DD544E800FE425C /* VROVideoTextureCacheMetal.h in Headers */,
 				8F828EF21FACB3FF0068159E /* VROARDeclarativeNode.h in Headers */,
-				E1BD61862FBBEA76008FDF74 /* VROInputState.h in Headers */,
-				E1BD61872FBBEA76008FDF74 /* VROVirtualControllerRegistry.h in Headers */,
 				8FD4DF521C18F5EB003DC425 /* VROTransaction.h in Headers */,
 				8FDDB4A91DAF2A3E00DE0968 /* VROPolyline.h in Headers */,
-				E1BD617D2FBBE52A008FDF74 /* VRODynamicGeometry.h in Headers */,
 				8F11B7BD1C1F8F1E0026D150 /* VRORenderContext.h in Headers */,
 				8FD1E1C01C4093790005BE4E /* VROVideoTexture.h in Headers */,
 				8F83DE921C474A800089C31A /* VROProjector.h in Headers */,
