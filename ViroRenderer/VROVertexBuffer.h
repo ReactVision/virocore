@@ -29,15 +29,18 @@
 
 #include <stdio.h>
 #include "VROData.h"
-#include "VROLog.h"
 
 /*
  Hint indicating how often the buffer's contents will be updated. Maps to GL_*_DRAW
  hints on OpenGL ES and informs storage mode selection on Metal. Static buffers
- cannot be updated after the initial hydrate() and will warn if updateData() is
- called on them.
+ cannot be updated after the initial hydrate(); subclasses that support updates
+ should warn when updateData() is called on a Static buffer.
+
+ NOTE: an explicit underlying type (`int`) is fixed so this enum can be
+ forward-declared in other headers (e.g. VRODriver.h) without dragging in
+ VROVertexBuffer.h's transitive includes.
  */
-enum class VROVertexBufferUsage {
+enum class VROVertexBufferUsage : int {
     Static,    // Set once, drawn many times (default; matches legacy behaviour)
     Dynamic,   // Updated occasionally
     Stream,    // Updated every frame
