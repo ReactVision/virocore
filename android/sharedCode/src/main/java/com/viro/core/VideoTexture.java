@@ -190,7 +190,9 @@ public class VideoTexture extends Texture {
      */
     public void play() {
         mPaused = false;
-        nativePlay(mNativeRef);
+        if (mNativeRef != 0) {
+            nativePlay(mNativeRef);
+        }
     }
 
     /**
@@ -198,7 +200,9 @@ public class VideoTexture extends Texture {
      */
     public void pause() {
         mPaused = true;
-        nativePause(mNativeRef);
+        if (mNativeRef != 0) {
+            nativePause(mNativeRef);
+        }
     }
 
     /**

@@ -86,6 +86,10 @@ public class AVPlayer {
     private boolean mMute;
     private int mPrevExoPlayerState = -1;
     private boolean mWasBuffering = false;
+    // Guards native callbacks after the C++ VROAVPlayer has been destroyed.
+    // Set to true in destroy() before releasing the ExoPlayer so that any
+    // in-flight or post-release listener callbacks do not reach dangling native memory.
+    private volatile boolean mDestroyed = false;
 
     public AVPlayer(long nativeReference, Context context) {
         mVolume = 1.0f;
@@ -112,13 +116,13 @@ public class AVPlayer {
                 switch (playbackState) {
                     case Player.STATE_BUFFERING:
                         if (!mWasBuffering) {
-                            nativeWillBuffer(mNativeReference);
+                            if (!mDestroyed) nativeWillBuffer(mNativeReference);
                             mWasBuffering = true;
                         }
                         break;
                     case Player.STATE_READY:
                         if (mWasBuffering) {
-                            nativeDidBuffer(mNativeReference);
+                            if (!mDestroyed) nativeDidBuffer(mNativeReference);
                             mWasBuffering = false;
                         }
                         break;
@@ -126,7 +130,7 @@ public class AVPlayer {
                         if (mLoop) {
                             mExoPlayer.seekToDefaultPosition();
                         }
-                        nativeOnFinished(mNativeReference);
+                        if (!mDestroyed) nativeOnFinished(mNativeReference);
                         break;
                 }
             }
@@ -134,7 +138,7 @@ public class AVPlayer {
             @Override
             public void onPlayerError(@NonNull PlaybackException error) {
                 Log.w(TAG, "AVPlayer encountered error [" + error + "]", error);
-                nativeOnError(mNativeReference, error.getLocalizedMessage());
+                if (!mDestroyed) nativeOnError(mNativeReference, error.getLocalizedMessage());
             }
         });
     }
@@ -200,7 +204,7 @@ public class AVPlayer {
                 player.seekToDefaultPosition();
                 mState = State.PREPARED;
                 Log.i(TAG, "AVPlayer prepared for playback");
-                nativeOnPrepared(mNativeReference);
+                if (!mDestroyed) nativeOnPrepared(mNativeReference);
                 return true;
             });
         } catch (Exception e) {
@@ -271,6 +275,9 @@ public class AVPlayer {
     }
 
     public void destroy() {
+        // Mark as destroyed BEFORE releasing so that any in-flight or post-release
+        // ExoPlayer listener callbacks do not call back into the (now-deleted) C++ VROAVPlayer.
+        mDestroyed = true;
         try {
             runSynchronouslyOnMainThread(player -> {
                     player.stop();
