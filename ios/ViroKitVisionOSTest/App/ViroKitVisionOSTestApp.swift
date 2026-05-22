@@ -2,10 +2,7 @@ import SwiftUI
 
 @main
 struct ViroKitVisionOSTestApp: App {
-    // DIAG: .full immersion — no passthrough compositing, GPU output fills the
-    // entire display. If green appears here but not in .mixed, the issue is
-    // mixed-mode compositor alpha/depth treatment.
-    @State private var immersionStyle: ImmersionStyle = .full
+    @State private var immersionStyle: ImmersionStyle = .mixed
 
     var body: some Scene {
         WindowGroup {
@@ -16,6 +13,6 @@ struct ViroKitVisionOSTestApp: App {
         ImmersiveSpace(id: ViroImmersiveSpace.id) {
             ViroImmersiveSpaceView()
         }
-        .immersionStyle(selection: $immersionStyle, in: .full)
+        .immersionStyle(selection: $immersionStyle, in: .mixed, .full)
     }
 }
