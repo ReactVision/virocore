@@ -76,15 +76,17 @@ CVPixelBufferRef VROARFrameiOS::getImage() const {
 }
 
 CGImagePropertyOrientation VROARFrameiOS::getImageOrientation() const {
-    // Image orientation is determined by ARKit and is based on the camera orientation.
-    // When in portrait mode, for example, ARKit returns its image rotated to the right.
-    if (_orientation == VROCameraOrientation::Portrait) {
-        return kCGImagePropertyOrientationRight;
+    switch (_orientation) {
+        case VROCameraOrientation::Portrait:
+            return kCGImagePropertyOrientationRight;
+        case VROCameraOrientation::PortraitUpsideDown:
+            return kCGImagePropertyOrientationLeft;
+        case VROCameraOrientation::LandscapeRight:
+            return kCGImagePropertyOrientationUp;
+        case VROCameraOrientation::LandscapeLeft:
+            return kCGImagePropertyOrientationDown;
     }
-    else {
-        // TODO Fill in proper image orientation types
-        return kCGImagePropertyOrientationRight;
-    }
+    return kCGImagePropertyOrientationRight;
 }
 
 double VROARFrameiOS::getTimestamp() const {
@@ -501,34 +503,19 @@ VROMatrix4f VROARFrameiOS::getDepthTextureTransform() const {
         /*
          Monocular depth texture transform: screenUV → depth texture UV.
 
-         The monocular depth buffer is in PORTRAIT orientation because Vision applies
-         kCGImagePropertyOrientationRight (90° CW rotation) before feeding the model.
-         LiDAR depth is in landscape camera space.
+         Chain: screenUV → arkitInverse → landscape camera UV
+                         → Step 2 rotation (orientation-dependent) → model input UV
+                         → Step 3 ScaleFill crop → depth texture UV
 
-         Chain: screenUV → arkitInverse → landscape camera UV → portrait UV → ScaleFill crop → depth texture UV
-
-         Step 1: arkitInverse gives landscape camera UV (same as LiDAR)
-         Step 2: Landscape → Portrait (90° CW rotation): portrait_u = 1 - landscape_v, portrait_v = landscape_u
-         Step 3: ScaleFill center-crop correction on portrait_v (model crops tall portrait to square)
+         Step 1: arkitInverse gives landscape camera UV (pixel buffer is always landscape in ARKit).
+         Step 2: Rotate to match the orientation tag passed to Vision (getImageOrientation()).
+                 The depth output is in the same space as the model input.
+         Step 3: ScaleFill center-crop: model crops modelW×modelH to depthW×depthH.
          */
 
-        // Get arkitInverse components
         float ai_a = arkitInverse.a, ai_b = arkitInverse.b;
         float ai_c = arkitInverse.c, ai_d = arkitInverse.d;
         float ai_tx = arkitInverse.tx, ai_ty = arkitInverse.ty;
-        // landscape_u = ai_a * sx + ai_c * sy + ai_tx
-        // landscape_v = ai_b * sx + ai_d * sy + ai_ty
-
-        // Step 2: portrait_u = 1 - landscape_v, portrait_v = landscape_u
-        // portrait_u = -ai_b * sx - ai_d * sy + (1 - ai_ty)
-        // portrait_v = ai_a * sx + ai_c * sy + ai_tx
-
-        // Step 3: ScaleFill crop correction
-        // Portrait image: camLandscapeH x camLandscapeW (e.g. 2160 x 3840)
-        // Model input: depthW x depthH (e.g. 518 x 518)
-        CGSize imageRes = _frame.camera.imageResolution;
-        float portraitW = imageRes.height;  // 2160
-        float portraitH = imageRes.width;   // 3840
 
         int depthW = 518, depthH = 518;
         if (session) {
@@ -540,31 +527,71 @@ VROMatrix4f VROARFrameiOS::getDepthTextureTransform() const {
             }
         }
 
-        float scale = std::max((float)depthW / portraitW, (float)depthH / portraitH);
-        float scaledW = portraitW * scale;
-        float scaledH = portraitH * scale;
-        float cropU = (scaledW - depthW) / (2.0f * scaledW);  // crop in portrait u (should be ~0)
-        float cropV = (scaledH - depthH) / (2.0f * scaledH);  // crop in portrait v (~0.219)
+        CGSize imageRes = _frame.camera.imageResolution;
+        float imgW = imageRes.width;   // landscape pixel-buffer width  (e.g. 3840)
+        float imgH = imageRes.height;  // landscape pixel-buffer height (e.g. 2160)
+
+        // Pre-crop UV coefficients:  pre_u = a_sx*sx + a_sy*sy + a_c
+        //                            pre_v = b_sx*sx + b_sy*sy + b_c
+        float a_sx, a_sy, a_c;
+        float b_sx, b_sy, b_c;
+        float modelW, modelH;
+
+        switch (_orientation) {
+            case VROCameraOrientation::Portrait:
+                // Vision tag: Right (90°CW) → pre_u = 1-lv, pre_v = lu
+                a_sx = -ai_b;  a_sy = -ai_d;  a_c = 1.0f - ai_ty;
+                b_sx =  ai_a;  b_sy =  ai_c;  b_c = ai_tx;
+                modelW = imgH; modelH = imgW;
+                break;
+            case VROCameraOrientation::PortraitUpsideDown:
+                // Vision tag: Left (90°CCW) → pre_u = lv, pre_v = 1-lu
+                a_sx =  ai_b;  a_sy =  ai_d;  a_c = ai_ty;
+                b_sx = -ai_a;  b_sy = -ai_c;  b_c = 1.0f - ai_tx;
+                modelW = imgH; modelH = imgW;
+                break;
+            case VROCameraOrientation::LandscapeRight:
+                // Vision tag: Up (identity) → pre_u = lu, pre_v = lv
+                a_sx =  ai_a;  a_sy =  ai_c;  a_c = ai_tx;
+                b_sx =  ai_b;  b_sy =  ai_d;  b_c = ai_ty;
+                modelW = imgW; modelH = imgH;
+                break;
+            case VROCameraOrientation::LandscapeLeft:
+                // Vision tag: Down (180°) → pre_u = 1-lu, pre_v = 1-lv
+                a_sx = -ai_a;  a_sy = -ai_c;  a_c = 1.0f - ai_tx;
+                b_sx = -ai_b;  b_sy = -ai_d;  b_c = 1.0f - ai_ty;
+                modelW = imgW; modelH = imgH;
+                break;
+            default:
+                a_sx = -ai_b;  a_sy = -ai_d;  a_c = 1.0f - ai_ty;
+                b_sx =  ai_a;  b_sy =  ai_c;  b_c = ai_tx;
+                modelW = imgH; modelH = imgW;
+                break;
+        }
+
+        // ScaleFill: model center-crops modelW×modelH image to depthW×depthH square
+        float scale = std::max((float)depthW / modelW, (float)depthH / modelH);
+        float scaledW = modelW * scale;
+        float scaledH = modelH * scale;
+        float cropU = (scaledW - depthW) / (2.0f * scaledW);
+        float cropV = (scaledH - depthH) / (2.0f * scaledH);
         float visU = 1.0f - 2.0f * cropU;
         float visV = 1.0f - 2.0f * cropV;
 
-        // depth_u = (portrait_u - cropU) / visU
-        // depth_v = (portrait_v - cropV) / visV
-        float du_sx = -ai_b / visU;
-        float du_sy = -ai_d / visU;
-        float du_c  = (1.0f - ai_ty - cropU) / visU;
-
-        float dv_sx = ai_a / visV;
-        float dv_sy = ai_c / visV;
-        float dv_c  = (ai_tx - cropV) / visV;
+        float du_sx = a_sx / visU;
+        float du_sy = a_sy / visU;
+        float du_c  = (a_c - cropU) / visU;
+        float dv_sx = b_sx / visV;
+        float dv_sy = b_sy / visV;
+        float dv_c  = (b_c - cropV) / visV;
 
         VROMatrix4f matrix;
-        matrix[0]  = du_sx;    // col 0, row 0
-        matrix[1]  = dv_sx;    // col 0, row 1
-        matrix[4]  = du_sy;    // col 1, row 0
-        matrix[5]  = dv_sy;    // col 1, row 1
-        matrix[12] = du_c;     // tx
-        matrix[13] = dv_c;     // ty
+        matrix[0]  = du_sx;
+        matrix[1]  = dv_sx;
+        matrix[4]  = du_sy;
+        matrix[5]  = dv_sy;
+        matrix[12] = du_c;
+        matrix[13] = dv_c;
         return matrix;
     }
 

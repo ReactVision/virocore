@@ -28,6 +28,7 @@
 
 #include "VROMonocularDepthEstimator.h"
 #include "VROARFrameiOS.h"
+#include "VROTextureSubstrate.h"
 #include "VRODriver.h"
 #include "VROData.h"
 #include "VROLog.h"
@@ -85,6 +86,7 @@ VROMonocularDepthEstimator::VROMonocularDepthEstimator(std::shared_ptr<VRODriver
     _depthWidth(0),
     _depthHeight(0),
     _depthScaleFactor(1.0f),
+    _calibrationMode(VROMonocularDepthCalibration::Manual),
     _temporalFilteringEnabled(true),
     _temporalFilterAlpha(0.3f),
     _targetFPS(15),
@@ -93,7 +95,8 @@ VROMonocularDepthEstimator::VROMonocularDepthEstimator(std::shared_ptr<VRODriver
     _averageLatencyMs(0),
     _frameCount(0),
     _fpsAccumulator(0),
-    _latencyAccumulator(0) {
+    _latencyAccumulator(0),
+    _stagingDirty(false) {
 
     // Create serial dispatch queue for depth inference
     _depthQueue = dispatch_queue_create("com.viro.depthQueue", DISPATCH_QUEUE_SERIAL);
@@ -605,6 +608,8 @@ void VROMonocularDepthEstimator::processDepthOutput(VNCoreMLFeatureValueObservat
 
     float minRaw = FLT_MAX;
     float maxRaw = -FLT_MAX;
+    const float effectiveScale = (_calibrationMode == VROMonocularDepthCalibration::None)
+                                 ? 1.0f : _depthScaleFactor;
 
     for (int y = 0; y < height; y++) {
         for (int x = 0; x < width; x++) {
@@ -631,7 +636,7 @@ void VROMonocularDepthEstimator::processDepthOutput(VNCoreMLFeatureValueObservat
             if (rawVal > maxRaw) maxRaw = rawVal;
 
             if (rawVal < 0.0f) rawVal = 0.0f;
-            rawVal *= _depthScaleFactor;
+            rawVal *= effectiveScale;
 
             _depthBuffer[packedIndex] = rawVal;
         }
@@ -744,42 +749,10 @@ void VROMonocularDepthEstimator::updateDepthTexture(const float *depthData, int 
 
         pinfo("VROMonocularDepthEstimator: Created depth texture %dx%d", width, height);
     } else {
-        // Update existing texture data
-        // Note: VROTexture doesn't have updateData, so we recreate
-        size_t dataSize = width * height * sizeof(float);
-        std::shared_ptr<VROData> depthVROData = std::make_shared<VROData>(
-            (void *)depthData, dataSize, VRODataOwnership::Copy);
-        std::vector<std::shared_ptr<VROData>> dataVec = { depthVROData };
-
-        // CAUTION: Destructing the old texture on this background thread (DepthQueue)
-        // can cause a freeze/crash if it holds OpenGL resources (TextureSubstrate)
-        // and this thread has no GL context. We must ensure the old texture is lived
-        // until we can release it on the main thread (which usually shares GL context).
-        std::shared_ptr<VROTexture> oldTexture = _currentDepthTexture;
-
-        _currentDepthTexture = std::make_shared<VROTexture>(
-            VROTextureType::Texture2D,
-            VROTextureFormat::R32F,
-            VROTextureInternalFormat::R32F,
-            false,
-            VROMipmapMode::None,
-            dataVec,
-            width, height,
-            std::vector<uint32_t>());
-
-        _currentDepthTexture->setMinificationFilter(VROFilterMode::Linear);
-        _currentDepthTexture->setMagnificationFilter(VROFilterMode::Linear);
-        _currentDepthTexture->setWrapS(VROWrapMode::Clamp);
-        _currentDepthTexture->setWrapT(VROWrapMode::Clamp);
-        
-        // Dispatch release of old texture to main thread to ensure safe GL cleanup
-        if (oldTexture) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                // Capturing oldTexture keeps it alive until this block runs on main thread
-                // When block finishes, oldTexture is destroyed here on main thread
-                volatile auto keepAlive = oldTexture;
-            });
-        }
+        // Same dimensions: write to staging buffer; render thread flushes via glTexSubImage2D
+        _stagingDepthBuffer.assign(depthData, depthData + width * height);
+        _stagingDirty.store(true);
+        return;
     }
 }
 
@@ -828,6 +801,38 @@ const float* VROMonocularDepthEstimator::getDepthBufferData() const {
 
 void VROMonocularDepthEstimator::setScaleFactor(float scale) {
     _depthScaleFactor = scale;
+    _calibrationMode = VROMonocularDepthCalibration::Manual;
+}
+
+void VROMonocularDepthEstimator::setCalibrationMode(VROMonocularDepthCalibration mode) {
+    if (mode == VROMonocularDepthCalibration::LiDARReference) {
+        NSLog(@"[ViroMono] LiDARReference calibration not yet implemented — falling back to Manual");
+        _calibrationMode = VROMonocularDepthCalibration::Manual;
+        return;
+    }
+    _calibrationMode = mode;
+    if (mode == VROMonocularDepthCalibration::None) {
+        _depthScaleFactor = 1.0f;
+    }
+}
+
+VROMonocularDepthCalibration VROMonocularDepthEstimator::getCalibrationMode() const {
+    return _calibrationMode;
+}
+
+void VROMonocularDepthEstimator::flushPendingDepthUpdate() {
+    if (!_stagingDirty.load()) return;
+    std::lock_guard<std::mutex> lock(_depthMutex);
+    if (!_stagingDirty.load() || !_currentDepthTexture || _stagingDepthBuffer.empty()) return;
+
+    std::shared_ptr<VRODriver> driver = _driver.lock();
+    if (!driver) return;
+
+    VROTextureSubstrate *sub = _currentDepthTexture->getSubstrate(0, driver, false);
+    if (sub) {
+        sub->updateR32FData(_stagingDepthBuffer.data(), _depthWidth, _depthHeight);
+    }
+    _stagingDirty.store(false);
 }
 
 void VROMonocularDepthEstimator::setTemporalFilteringEnabled(bool enabled) {

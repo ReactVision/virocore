@@ -866,6 +866,8 @@ std::unique_ptr<VROARFrame> &VROARSessioniOS::updateFrame() {
   // or monocular depth is explicitly preferred.
   if (_monocularDepthEnabled && _monocularDepthEstimator) {
     if (_preferMonocularDepth || !frameiOS->hasLiDARDepth()) {
+      // W4: upload previous frame's pending depth data on the render (GL) thread
+      _monocularDepthEstimator->flushPendingDepthUpdate();
       _monocularDepthEstimator->update(frameiOS);
     }
   }
