@@ -169,9 +169,7 @@ EXCLUDE_PATTERNS = [
   /VROImageShaderProgram\.cpp/,
   /VROBoneUBO\.cpp/,
   /VROLightingUBO\.cpp/,
-  /VROParticleUBO\.cpp/,
-  /VROParticleEmitter\.cpp/,        # particles use GL UBOs; Metal particle support is M4+
-  /VROFixedParticleEmitter\.cpp/,   # also uses GL UBOs
+  /VROParticleUBO\.cpp/,            # OpenGL UBO — Metal uses VROParticleUBOMetal instead
   /VROInstancedUBO\.cpp/,
 ]
 
@@ -198,6 +196,9 @@ OBJCPP_NAMES = %w[
   VROConcurrentBuffer.cpp
   VROPlatformUtil.cpp
   VROBoneUBOMetal.cpp
+  VROParticleUBOMetal.cpp
+  VROParticleEmitter.cpp
+  VROFixedParticleEmitter.cpp
   VROGLTFLoader.cpp
 ].freeze
 

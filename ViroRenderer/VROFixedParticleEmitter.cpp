@@ -27,11 +27,17 @@
 #include "VROImageUtil.h"
 #include "VROSurface.h"
 #include "VROMaterial.h"
-#include "VROARSession.h"
-#include "VROARFrame.h"
+#if !VRO_METAL
+#  include "VROARSession.h"
+#  include "VROARFrame.h"
+#endif
 #include "VRONode.h"
 #include "VROBillboardConstraint.h"
-#include "VROParticleUBO.h"
+#if VRO_METAL
+#  include "VROParticleUBOMetal.h"
+#else
+#  include "VROParticleUBO.h"
+#endif
 
 VROFixedParticleEmitter::VROFixedParticleEmitter(){}
 VROFixedParticleEmitter::~VROFixedParticleEmitter(){}
@@ -168,7 +174,11 @@ void VROFixedParticleEmitter::updateUBO(VROBoundingBox boundingBox) {
         boundingBox = VROBoundingBox(0,0,0,0,0,0);
     }
     std::shared_ptr<VROInstancedUBO> instancedUBO = _particleGeometry->getInstancedUBO();
+#if VRO_METAL
+    std::static_pointer_cast<VROParticleUBOMetal>(instancedUBO)->update(_particles, boundingBox);
+#else
     std::static_pointer_cast<VROParticleUBO>(instancedUBO)->update(_particles, boundingBox);
+#endif
 }
 
 void VROFixedParticleEmitter::zombifyParticles(int startIndex) {

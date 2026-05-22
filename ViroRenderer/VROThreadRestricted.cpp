@@ -25,6 +25,7 @@
 //  SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #include "VROThreadRestricted.h"
+#include "VRODefines.h"
 #include "VROLog.h"
 #include <map>
 #include <atomic>
@@ -73,17 +74,16 @@ VROThreadRestricted::~VROThreadRestricted() {
 }
 
 void VROThreadRestricted::passert_thread(std::string method) {
+#if VRO_PLATFORM_VISION
+    // On visionOS the render loop is driven by CompositorServices; thread affinity
+    // is managed by the OS and does not match the traditional Viro render-thread
+    // model. The warnings are noise — suppress them entirely on this platform.
+    return;
+#endif
+
     if (!sRenderingThreadSet || !_enabled) {
         return;
     }
-
-// TODO: VIRO-3320 made us change this from a passert_msg to a pwarn so we don't immediately crash
-//    passert_msg(tThreadName == _restricted_thread_name,
-//                "For object %p, current thread [%d] does not match object's thread restriction [%d]. Method: %s",
-//                this,
-//                tThreadName,
-//                _restricted_thread_name,
-//                method.c_str());
 
     if (tThreadName != _restricted_thread_name) {
         pwarn("For object %p, current thread [%d] does not match object's thread restriction [%d]. Method: %s",

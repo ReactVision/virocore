@@ -195,7 +195,8 @@ private:
                         id <MTLRenderCommandEncoder> renderEncoder,
                         float opacity,
                         const VRORenderContext &renderContext,
-                        std::shared_ptr<VRODriver> &driver);
+                        std::shared_ptr<VRODriver> &driver,
+                        int instanceCount = 1);
     
 };
 

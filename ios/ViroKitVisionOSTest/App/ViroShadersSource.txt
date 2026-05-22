@@ -211,6 +211,7 @@ typedef struct {
     float4 material_color;
     float  diffuse_intensity;
     float  material_alpha;
+    uint   instance_id [[ flat ]];
 } VROConstantLightingVertexOut;
 
 vertex VROConstantLightingVertexOut constant_lighting_vertex(VRORendererAttributes attributes [[ stage_in ]],
@@ -218,7 +219,9 @@ vertex VROConstantLightingVertexOut constant_lighting_vertex(VRORendererAttribut
                                                              constant VROMaterialUniforms &material [[ buffer(2) ]],
                                                              constant VROCustomUniforms &_custom [[ buffer(3) ]],
                                                              constant VROSceneLightingUniforms &lighting [[ buffer(4) ]],
-                                                             constant float4x4 *bone_matrices [[ buffer(5) ]]) {
+                                                             constant float4x4 *bone_matrices [[ buffer(5) ]],
+                                                             constant float4x4 *particle_transforms [[ buffer(7) ]],
+                                                             uint v_instance_id [[ instance_id ]]) {
 
 #pragma geometry_modifier_uniforms
 #pragma vertex_modifier_uniforms
@@ -255,6 +258,7 @@ vertex VROConstantLightingVertexOut constant_lighting_vertex(VRORendererAttribut
     out.material_alpha = material.alpha;
     out.surface_position = v_position;
     out.camera_position = view.camera_position;
+    out.instance_id = v_instance_id;
 
     return out;
 }
@@ -262,8 +266,9 @@ vertex VROConstantLightingVertexOut constant_lighting_vertex(VRORendererAttribut
 fragment float4 constant_lighting_fragment_c(VROConstantLightingVertexOut in [[ stage_in ]],
                                              constant VROMaterialUniforms &material [[ buffer(2) ]],
                                              constant VROCustomUniforms &_custom [[ buffer(3) ]],
-                                             constant VROSceneLightingUniforms &lighting [[ buffer(4) ]]) {
-    
+                                             constant VROSceneLightingUniforms &lighting [[ buffer(4) ]],
+                                             constant float4 *particle_colors [[ buffer(7) ]]) {
+
 #pragma surface_modifier_uniforms
 #pragma fragment_modifier_uniforms
 
@@ -295,7 +300,8 @@ fragment float4 constant_lighting_fragment_t(VROConstantLightingVertexOut in [[ 
                                              texture2d<float> texture [[ texture(0) ]],
                                              constant VROMaterialUniforms &material [[ buffer(2) ]],
                                              constant VROCustomUniforms &_custom [[ buffer(3) ]],
-                                             constant VROSceneLightingUniforms &lighting [[ buffer(4) ]]) {
+                                             constant VROSceneLightingUniforms &lighting [[ buffer(4) ]],
+                                             constant float4 *particle_colors [[ buffer(7) ]]) {
     
 #pragma surface_modifier_uniforms
 #pragma fragment_modifier_uniforms
@@ -325,7 +331,8 @@ fragment float4 constant_lighting_fragment_q(VROConstantLightingVertexOut in [[ 
                                              texturecube<float> texture [[ texture(0) ]],
                                              constant VROMaterialUniforms &material [[ buffer(2) ]],
                                              constant VROCustomUniforms &_custom [[ buffer(3) ]],
-                                             constant VROSceneLightingUniforms &lighting [[ buffer(4) ]]) {
+                                             constant VROSceneLightingUniforms &lighting [[ buffer(4) ]],
+                                             constant float4 *particle_colors [[ buffer(7) ]]) {
     
 #pragma surface_modifier_uniforms
 #pragma fragment_modifier_uniforms
@@ -368,6 +375,7 @@ typedef struct {
     float4 material_color;
     float  diffuse_intensity;
     float  material_alpha;
+    uint   instance_id [[ flat ]];
 } VROLambertLightingVertexOut;
 
 vertex VROLambertLightingVertexOut lambert_lighting_vertex(VRORendererAttributes attributes [[ stage_in ]],
@@ -375,7 +383,9 @@ vertex VROLambertLightingVertexOut lambert_lighting_vertex(VRORendererAttributes
                                                            constant VROMaterialUniforms &material [[ buffer(2) ]],
                                                            constant VROCustomUniforms &_custom [[ buffer(3) ]],
                                                            constant VROSceneLightingUniforms &lighting [[ buffer(4) ]],
-                                                           constant float4x4 *bone_matrices [[ buffer(5) ]]) {
+                                                           constant float4x4 *bone_matrices [[ buffer(5) ]],
+                                                           constant float4x4 *particle_transforms [[ buffer(7) ]],
+                                                           uint v_instance_id [[ instance_id ]]) {
 
 #pragma geometry_modifier_uniforms
 #pragma vertex_modifier_uniforms
@@ -419,7 +429,8 @@ vertex VROLambertLightingVertexOut lambert_lighting_vertex(VRORendererAttributes
     out.material_color = material.diffuse_surface_color;
     out.diffuse_intensity = material.diffuse_intensity;
     out.material_alpha = material.alpha;
-    
+    out.instance_id = v_instance_id;
+
     return out;
 }
 
@@ -501,7 +512,8 @@ float4 lambert_lighting_diffuse_texture(VROLambertLightingVertexOut in,
 fragment float4 lambert_lighting_fragment_c(VROLambertLightingVertexOut in [[ stage_in ]],
                                             constant VROMaterialUniforms &material [[ buffer(2) ]],
                                             constant VROCustomUniforms &_custom [[ buffer(3) ]],
-                                            constant VROSceneLightingUniforms &lighting [[ buffer(4) ]]) {
+                                            constant VROSceneLightingUniforms &lighting [[ buffer(4) ]],
+                                            constant float4 *particle_colors [[ buffer(7) ]]) {
     
 #pragma surface_modifier_uniforms
 #pragma fragment_modifier_uniforms
@@ -539,7 +551,8 @@ fragment float4 lambert_lighting_fragment_c_reflect(VROLambertLightingVertexOut 
                                                     texturecube<float> reflect_texture [[ texture(0) ]],
                                                     constant VROMaterialUniforms &material [[ buffer(2) ]],
                                                     constant VROCustomUniforms &_custom [[ buffer(3) ]],
-                                                    constant VROSceneLightingUniforms &lighting [[ buffer(4) ]]) {
+                                                    constant VROSceneLightingUniforms &lighting [[ buffer(4) ]],
+                                                    constant float4 *particle_colors [[ buffer(7) ]]) {
     
 #pragma surface_modifier_uniforms
 #pragma fragment_modifier_uniforms
@@ -578,7 +591,8 @@ fragment float4 lambert_lighting_fragment_t(VROLambertLightingVertexOut in [[ st
                                             texture2d<float> texture [[ texture(0) ]],
                                             constant VROMaterialUniforms &material [[ buffer(2) ]],
                                             constant VROCustomUniforms &_custom [[ buffer(3) ]],
-                                            constant VROSceneLightingUniforms &lighting [[ buffer(4) ]]) {
+                                            constant VROSceneLightingUniforms &lighting [[ buffer(4) ]],
+                                            constant float4 *particle_colors [[ buffer(7) ]]) {
     
 #pragma surface_modifier_uniforms
 #pragma fragment_modifier_uniforms
@@ -619,7 +633,8 @@ fragment float4 lambert_lighting_fragment_t_reflect(VROLambertLightingVertexOut 
                                                     texturecube<float> reflect_texture [[ texture(1) ]],
                                                     constant VROMaterialUniforms &material [[ buffer(2) ]],
                                                     constant VROCustomUniforms &_custom [[ buffer(3) ]],
-                                                    constant VROSceneLightingUniforms &lighting [[ buffer(4) ]]) {
+                                                    constant VROSceneLightingUniforms &lighting [[ buffer(4) ]],
+                                                    constant float4 *particle_colors [[ buffer(7) ]]) {
     
 #pragma surface_modifier_uniforms
 #pragma fragment_modifier_uniforms
@@ -674,6 +689,7 @@ typedef struct {
     float  material_shininess;
     float  diffuse_intensity;
     float  material_alpha;
+    uint   instance_id [[ flat ]];
 } VROPhongLightingVertexOut;
 
 vertex VROPhongLightingVertexOut phong_lighting_vertex(VRORendererAttributes attributes [[ stage_in ]],
@@ -681,7 +697,9 @@ vertex VROPhongLightingVertexOut phong_lighting_vertex(VRORendererAttributes att
                                                        constant VROMaterialUniforms &material [[ buffer(2) ]],
                                                        constant VROCustomUniforms &_custom [[ buffer(3) ]],
                                                        constant VROSceneLightingUniforms &lighting [[ buffer(4) ]],
-                                                       constant float4x4 *bone_matrices [[ buffer(5) ]]) {
+                                                       constant float4x4 *bone_matrices [[ buffer(5) ]],
+                                                       constant float4x4 *particle_transforms [[ buffer(7) ]],
+                                                       uint v_instance_id [[ instance_id ]]) {
 
 #pragma geometry_modifier_uniforms
 #pragma vertex_modifier_uniforms
@@ -726,7 +744,8 @@ vertex VROPhongLightingVertexOut phong_lighting_vertex(VRORendererAttributes att
     out.material_shininess = material.shininess;
     out.diffuse_intensity = material.diffuse_intensity;
     out.material_alpha = material.alpha;
-    
+    out.instance_id = v_instance_id;
+
     return out;
 }
 
@@ -853,7 +872,8 @@ fragment float4 phong_lighting_fragment_c(VROPhongLightingVertexOut in [[ stage_
                                           texture2d<float> specular_texture [[ texture(0) ]],
                                           constant VROMaterialUniforms &material [[ buffer(2) ]],
                                           constant VROCustomUniforms &_custom [[ buffer(3) ]],
-                                          constant VROSceneLightingUniforms &lighting [[ buffer(4) ]]) {
+                                          constant VROSceneLightingUniforms &lighting [[ buffer(4) ]],
+                                          constant float4 *particle_colors [[ buffer(7) ]]) {
     
 #pragma surface_modifier_uniforms
 #pragma fragment_modifier_uniforms
@@ -896,7 +916,8 @@ fragment float4 phong_lighting_fragment_c_reflect(VROPhongLightingVertexOut in [
                                                   texturecube<float> reflect_texture [[ texture(1) ]],
                                                   constant VROMaterialUniforms &material [[ buffer(2) ]],
                                                   constant VROCustomUniforms &_custom [[ buffer(3) ]],
-                                                  constant VROSceneLightingUniforms &lighting [[ buffer(4) ]]) {
+                                                  constant VROSceneLightingUniforms &lighting [[ buffer(4) ]],
+                                                  constant float4 *particle_colors [[ buffer(7) ]]) {
     
 #pragma surface_modifier_uniforms
 #pragma fragment_modifier_uniforms
@@ -939,7 +960,8 @@ fragment float4 phong_lighting_fragment_t(VROPhongLightingVertexOut in [[ stage_
                                           texture2d<float> specular_texture [[ texture(1) ]],
                                           constant VROMaterialUniforms &material [[ buffer(2) ]],
                                           constant VROCustomUniforms &_custom [[ buffer(3) ]],
-                                          constant VROSceneLightingUniforms &lighting [[ buffer(4) ]]) {
+                                          constant VROSceneLightingUniforms &lighting [[ buffer(4) ]],
+                                          constant float4 *particle_colors [[ buffer(7) ]]) {
     
 #pragma surface_modifier_uniforms
 #pragma fragment_modifier_uniforms
@@ -985,7 +1007,8 @@ fragment float4 phong_lighting_fragment_t_reflect(VROPhongLightingVertexOut in [
                                           texturecube<float> reflect_texture [[ texture(2) ]],
                                                   constant VROMaterialUniforms &material [[ buffer(2) ]],
                                                   constant VROCustomUniforms &_custom [[ buffer(3) ]],
-                                                  constant VROSceneLightingUniforms &lighting [[ buffer(4) ]]) {
+                                                  constant VROSceneLightingUniforms &lighting [[ buffer(4) ]],
+                                                  constant float4 *particle_colors [[ buffer(7) ]]) {
     
 #pragma surface_modifier_uniforms
 #pragma fragment_modifier_uniforms
@@ -1043,6 +1066,7 @@ typedef struct {
     float  material_shininess;
     float  diffuse_intensity;
     float  material_alpha;
+    uint   instance_id [[ flat ]];
 } VROBlinnLightingVertexOut;
 
 vertex VROBlinnLightingVertexOut blinn_lighting_vertex(VRORendererAttributes attributes [[ stage_in ]],
@@ -1050,7 +1074,9 @@ vertex VROBlinnLightingVertexOut blinn_lighting_vertex(VRORendererAttributes att
                                                        constant VROMaterialUniforms &material [[ buffer(2) ]],
                                                        constant VROCustomUniforms &_custom [[ buffer(3) ]],
                                                        constant VROSceneLightingUniforms &lighting [[ buffer(4) ]],
-                                                       constant float4x4 *bone_matrices [[ buffer(5) ]]) {
+                                                       constant float4x4 *bone_matrices [[ buffer(5) ]],
+                                                       constant float4x4 *particle_transforms [[ buffer(7) ]],
+                                                       uint v_instance_id [[ instance_id ]]) {
 
 #pragma geometry_modifier_uniforms
 #pragma vertex_modifier_uniforms
@@ -1095,7 +1121,8 @@ vertex VROBlinnLightingVertexOut blinn_lighting_vertex(VRORendererAttributes att
     out.material_shininess = material.shininess;
     out.diffuse_intensity = material.diffuse_intensity;
     out.material_alpha = material.alpha;
-    
+    out.instance_id = v_instance_id;
+
     return out;
 }
 
@@ -1222,7 +1249,8 @@ fragment float4 blinn_lighting_fragment_c(VROBlinnLightingVertexOut in [[ stage_
                                           texture2d<float> specular_texture [[ texture(0) ]],
                                           constant VROMaterialUniforms &material [[ buffer(2) ]],
                                           constant VROCustomUniforms &_custom [[ buffer(3) ]],
-                                          constant VROSceneLightingUniforms &lighting [[ buffer(4) ]]) {
+                                          constant VROSceneLightingUniforms &lighting [[ buffer(4) ]],
+                                          constant float4 *particle_colors [[ buffer(7) ]]) {
     
 #pragma surface_modifier_uniforms
 #pragma fragment_modifier_uniforms
@@ -1265,7 +1293,8 @@ fragment float4 blinn_lighting_fragment_c_reflect(VROBlinnLightingVertexOut in [
                                                   texturecube<float> reflect_texture [[ texture(1) ]],
                                                   constant VROMaterialUniforms &material [[ buffer(2) ]],
                                                   constant VROCustomUniforms &_custom [[ buffer(3) ]],
-                                                  constant VROSceneLightingUniforms &lighting [[ buffer(4) ]]) {
+                                                  constant VROSceneLightingUniforms &lighting [[ buffer(4) ]],
+                                                  constant float4 *particle_colors [[ buffer(7) ]]) {
     
 #pragma surface_modifier_uniforms
 #pragma fragment_modifier_uniforms
@@ -1308,7 +1337,8 @@ fragment float4 blinn_lighting_fragment_t(VROBlinnLightingVertexOut in [[ stage_
                                           texture2d<float> specular_texture [[ texture(1) ]],
                                           constant VROMaterialUniforms &material [[ buffer(2) ]],
                                           constant VROCustomUniforms &_custom [[ buffer(3) ]],
-                                          constant VROSceneLightingUniforms &lighting [[ buffer(4) ]]) {
+                                          constant VROSceneLightingUniforms &lighting [[ buffer(4) ]],
+                                          constant float4 *particle_colors [[ buffer(7) ]]) {
     
 #pragma surface_modifier_uniforms
 #pragma fragment_modifier_uniforms
@@ -1354,7 +1384,8 @@ fragment float4 blinn_lighting_fragment_t_reflect(VROBlinnLightingVertexOut in [
                                                   texturecube<float> reflect_texture [[ texture(2) ]],
                                                   constant VROMaterialUniforms &material [[ buffer(2) ]],
                                                   constant VROCustomUniforms &_custom [[ buffer(3) ]],
-                                                  constant VROSceneLightingUniforms &lighting [[ buffer(4) ]]) {
+                                                  constant VROSceneLightingUniforms &lighting [[ buffer(4) ]],
+                                                  constant float4 *particle_colors [[ buffer(7) ]]) {
     
 #pragma surface_modifier_uniforms
 #pragma fragment_modifier_uniforms

@@ -40,6 +40,7 @@
 #include "VROMetalUtils.h"
 #include "VROConcurrentBuffer.h"
 #include "VROBoneUBOMetal.h"
+#include "VROParticleUBOMetal.h"
 #include "VROSkinner.h"
 #include <map>
 
@@ -463,13 +464,50 @@ void VROGeometrySubstrateMetal::render(const VROGeometry &geometry,
         [renderEncoder setVertexBuffer:_boneUBO->getBuffer() offset:0 atIndex:5];
     }
 
+    // Instanced draw path for particle emitters (VROParticleUBOMetal).
+    // Each draw call covers a window of up to kMaxParticlesPerUBO particles.
+    const std::shared_ptr<VROInstancedUBO> &instancedUBO = geometry.getInstancedUBO();
+    if (instancedUBO) {
+        if (VROParticleUBOMetal *metalUBO = dynamic_cast<VROParticleUBOMetal *>(instancedUBO.get())) {
+            metalUBO->setEncoder(renderEncoder);
+            int numDrawCalls = metalUBO->getNumberOfDrawCalls();
+            if (numDrawCalls > 0) {
+                for (int i = 0; i < numDrawCalls; i++) {
+                    int instances = metalUBO->bindDrawData(i);
+                    if (instances > 0) {
+                        renderMaterial(substrate, element, pipelineState, depthState,
+                                       renderEncoder, opacity, context, driver, instances);
+                    }
+                }
+                [renderEncoder popDebugGroup];
+                return;
+            }
+        }
+    }
+
+    // Bind dummy buffers at slot 7 to satisfy Metal validation for any shader compiled
+    // from ViroShadersSource.txt, which declares particle_transforms/particle_colors params
+    // in all lighting functions. The particle path overrides these with real data via
+    // bindDrawData() above; this covers every other draw call.
+    // 64 bytes: large enough for float4x4 (vertex slot) and float4 (fragment slot).
+    static id<MTLBuffer> sParticleDummyBuffer = nil;
+    if (!sParticleDummyBuffer) {
+        uint8_t z[64] = {};
+        sParticleDummyBuffer = [metal.getDevice() newBufferWithBytes:z
+                                                              length:64
+                                                             options:MTLResourceStorageModeShared];
+        sParticleDummyBuffer.label = @"VRODummyParticleBuffer";
+    }
+    [renderEncoder setVertexBuffer:sParticleDummyBuffer offset:0 atIndex:7];
+    [renderEncoder setFragmentBuffer:sParticleDummyBuffer offset:0 atIndex:7];
+
     /*
      Note that outgoing materials share the same pipeline state as their counterparts. This is because
      they always have the same shaders and vertex layouts.
      */
     renderMaterial(substrate, element, pipelineState, depthState, renderEncoder, opacity,
                    context, driver);
-    
+
     [renderEncoder popDebugGroup];
 }
 
@@ -480,7 +518,8 @@ void VROGeometrySubstrateMetal::renderMaterial(VROMaterialSubstrateMetal *materi
                                                id <MTLRenderCommandEncoder> renderEncoder,
                                                float opacity,
                                                const VRORenderContext &renderContext,
-                                               std::shared_ptr<VRODriver> &driver) {
+                                               std::shared_ptr<VRODriver> &driver,
+                                               int instanceCount) {
     
     int frame = renderContext.getFrame();
     VROEyeType eyeType = renderContext.getEyeType();
@@ -528,7 +567,8 @@ void VROGeometrySubstrateMetal::renderMaterial(VROMaterialSubstrateMetal *materi
                               indexCount:element.indexCount
                                indexType:element.indexType
                              indexBuffer:element.buffer
-                       indexBufferOffset:0];
+                       indexBufferOffset:0
+                           instanceCount:instanceCount];
 }
 
 #endif

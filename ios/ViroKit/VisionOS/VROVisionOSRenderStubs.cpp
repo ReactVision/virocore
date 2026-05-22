@@ -222,19 +222,6 @@ void VROPortal::renderContents(const VRORenderContext &context, std::shared_ptr<
     }
 }
 
-// ── Particle emitter ──────────────────────────────────────────────────────────
-
-#include "VROParticleEmitter.h"
-
-VROParticleEmitter::VROParticleEmitter(std::shared_ptr<VRODriver> driver,
-                                       std::shared_ptr<VROSurface> particleGeometry) {}
-VROParticleEmitter::VROParticleEmitter() {}
-VROParticleEmitter::~VROParticleEmitter() {}
-std::shared_ptr<VROGeometry> VROParticleEmitter::getParticleSurface() const { return nullptr; }
-void VROParticleEmitter::update(const VRORenderContext &context,
-                                const VROMatrix4f &computedTransform) {}
-void VROParticleEmitter::setParticleSurface(std::shared_ptr<VROSurface> particleSurface) {}
-
 // ── Reticle ───────────────────────────────────────────────────────────────────
 
 #include "VROReticle.h"
