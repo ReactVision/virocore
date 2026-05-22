@@ -60,4 +60,8 @@ VRO_METHOD(void, nativeSetStickR)(VRO_ARGS jlong ref, jfloat x, jfloat y) {
     fromRef(ref)->setStickR((float)x, (float)y);
 }
 
+VRO_METHOD(void, nativeSetButton)(VRO_ARGS jlong ref, jint buttonIndex, jboolean pressed) {
+    fromRef(ref)->setButton((int)buttonIndex, (bool)pressed);
+}
+
 } // extern "C"
