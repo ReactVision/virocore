@@ -60,6 +60,7 @@ add_library( # Sets the name of the library.
              ${VIRO_ANDROID_SRC}/VROSample.cpp
              ${VIRO_ANDROID_SRC}/VROImageAndroid.cpp
              ${VIRO_ANDROID_SRC}/VROAudioPlayerAndroid.cpp
+             ${VIRO_ANDROID_SRC}/VROAudioPlayerStreamAndroid.cpp
              ${VIRO_ANDROID_SRC}/VROAVPlayer.cpp
              ${VIRO_ANDROID_SRC}/VROVideoTextureAVP.cpp
              ${VIRO_ANDROID_SRC}/VROTypefaceAndroid.cpp

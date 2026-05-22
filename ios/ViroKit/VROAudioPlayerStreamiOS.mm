@@ -1,0 +1,135 @@
+//
+//  VROAudioPlayerStreamiOS.mm
+//  ViroKit
+//
+//  Copyright © 2026 ReactVision. All rights reserved.
+//
+//  Permission is hereby granted, free of charge, to any person obtaining
+//  a copy of this software and associated documentation files (the
+//  "Software"), to deal in the Software without restriction, including
+//  without limitation the rights to use, copy, modify, merge, publish,
+//  distribute, sublicense, and/or sell copies of the Software, and to
+//  permit persons to whom the Software is furnished to do so, subject to
+//  the following conditions:
+//
+//  The above copyright notice and this permission notice shall be included
+//  in all copies or substantial portions of the Software.
+
+#import <AVFoundation/AVFoundation.h>
+#include "VROAudioPlayerStreamiOS.h"
+#include "VROLog.h"
+
+VROAudioPlayerStreamiOS::VROAudioPlayerStreamiOS() {
+    _ring = std::make_shared<VROPCMRingBuffer>(16384);  // ~185 ms at 44.1 kHz stereo
+}
+
+VROAudioPlayerStreamiOS::~VROAudioPlayerStreamiOS() {
+    teardown();
+}
+
+void VROAudioPlayerStreamiOS::setup() {
+    // Nothing to do until beginStreaming() is called.
+}
+
+void VROAudioPlayerStreamiOS::beginStreaming(int sampleRate, int channels) {
+    teardown();
+
+    _ring->setSampleRate(sampleRate);
+    _ring->setChannels(channels);
+
+    AVAudioFormat *fmt = [[AVAudioFormat alloc]
+                          initWithCommonFormat:AVAudioPCMFormatFloat32
+                                   sampleRate:(double)sampleRate
+                                     channels:(AVAudioChannelCount)channels
+                                  interleaved:YES];
+    _format = fmt;
+
+    // Capture a raw pointer to the ring buffer for the real-time block.
+    // The block holds a copy of _ring (shared_ptr) to extend its lifetime.
+    std::shared_ptr<VROPCMRingBuffer> ring = _ring;
+    std::atomic<bool> *playing  = &_playing;
+    std::atomic<bool> *muted    = &_muted;
+    std::atomic<float> *volume  = &_volume;
+
+    AVAudioSourceNode *node = [[AVAudioSourceNode alloc]
+        initWithFormat:fmt
+           renderBlock:^OSStatus(BOOL              *isSilence,
+                                 const AudioTimeStamp *timestamp,
+                                 AVAudioFrameCount     frameCount,
+                                 AudioBufferList      *outputData) {
+            AudioBuffer &buf = outputData->mBuffers[0];
+            float *out = (float *)buf.mData;
+            size_t totalSamples = (size_t)frameCount * ring->channels();
+
+            if (!*playing || *muted) {
+                memset(out, 0, totalSamples * sizeof(float));
+                *isSilence = YES;
+                return noErr;
+            }
+
+            ring->read(out, totalSamples);
+
+            float vol = volume->load(std::memory_order_relaxed);
+            if (vol != 1.0f) {
+                for (size_t i = 0; i < totalSamples; ++i) out[i] *= vol;
+            }
+
+            *isSilence = NO;
+            return noErr;
+        }];
+    _sourceNode = node;
+
+    AVAudioEngine *engine = [[AVAudioEngine alloc] init];
+    [engine attachNode:node];
+    [engine connect:node to:engine.mainMixerNode format:fmt];
+
+    NSError *error = nil;
+    [engine prepare];
+    if (![engine startAndReturnError:&error]) {
+        pinfo("VROAudioPlayerStreamiOS: failed to start AVAudioEngine: %s",
+              error.localizedDescription.UTF8String);
+        return;
+    }
+    _engine = engine;
+    _streaming = true;
+
+    if (_delegate) {
+        _delegate->soundIsReady();
+    }
+}
+
+void VROAudioPlayerStreamiOS::play() {
+    if (!_streaming) {
+        pwarn("VROAudioPlayerStreamiOS: play() called before beginStreaming()");
+        return;
+    }
+    _playing.store(true, std::memory_order_relaxed);
+}
+
+void VROAudioPlayerStreamiOS::pause() {
+    _playing.store(false, std::memory_order_relaxed);
+}
+
+void VROAudioPlayerStreamiOS::setVolume(float volume) {
+    _volume.store(volume, std::memory_order_relaxed);
+}
+
+void VROAudioPlayerStreamiOS::setMuted(bool muted) {
+    _muted.store(muted, std::memory_order_relaxed);
+}
+
+size_t VROAudioPlayerStreamiOS::pushSamples(const float *data, size_t count) {
+    if (!_ring) return 0;
+    return _ring->write(data, count);
+}
+
+void VROAudioPlayerStreamiOS::teardown() {
+    _playing.store(false, std::memory_order_relaxed);
+    _streaming = false;
+    if (_engine) {
+        [_engine stop];
+        _engine = nil;
+    }
+    _sourceNode = nil;
+    _format = nil;
+}

@@ -318,6 +318,7 @@
 		8F65F8151CA073C100415115 /* VROTextureUtil.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 8F65F8131CA073C100415115 /* VROTextureUtil.cpp */; };
 		8F65F8161CA073C100415115 /* VROTextureUtil.h in Headers */ = {isa = PBXBuildFile; fileRef = 8F65F8141CA073C100415115 /* VROTextureUtil.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		8F65F82B1CA19A9A00415115 /* VROAudioPlayer.h in Headers */ = {isa = PBXBuildFile; fileRef = 8F65F8291CA19A9A00415115 /* VROAudioPlayer.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		39E86DF2210A484A9FEA54DE /* VROPCMRingBuffer.h in Headers */ = {isa = PBXBuildFile; fileRef = 0E09B0C58A644BB38F9013A5 /* VROPCMRingBuffer.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		8F660AB01E931C6F006D063F /* 4096_bump.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 8F660AAA1E931C6F006D063F /* 4096_bump.jpg */; };
 		8F660AB11E931C6F006D063F /* 4096_clouds.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 8F660AAB1E931C6F006D063F /* 4096_clouds.jpg */; };
 		8F660AB21E931C6F006D063F /* 4096_earth.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 8F660AAC1E931C6F006D063F /* 4096_earth.jpg */; };
@@ -545,6 +546,8 @@
 		8FCA009E22C7DB2E00BB1D70 /* VROVertexBufferOpenGL.h in Headers */ = {isa = PBXBuildFile; fileRef = 8FCA009C22C7DB2E00BB1D70 /* VROVertexBufferOpenGL.h */; };
 		8FCB0FFA1DCFF68E00FE425C /* VROAudioPlayeriOS.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 8FCB0FF81DCFF68E00FE425C /* VROAudioPlayeriOS.cpp */; };
 		8FCB0FFB1DCFF68E00FE425C /* VROAudioPlayeriOS.h in Headers */ = {isa = PBXBuildFile; fileRef = 8FCB0FF91DCFF68E00FE425C /* VROAudioPlayeriOS.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		BFF5F23E6D1A4279BEF76CA8 /* VROAudioPlayerStreamiOS.mm in Sources */ = {isa = PBXBuildFile; fileRef = F9B82612817440F78645E050 /* VROAudioPlayerStreamiOS.mm */; };
+		6CCE5600235C45D8BAF93D21 /* VROAudioPlayerStreamiOS.h in Headers */ = {isa = PBXBuildFile; fileRef = 2B0A44033DC54ADA8FB7E272 /* VROAudioPlayerStreamiOS.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		8FCB10021DD0060E00FE425C /* VRORenderDelegateiOS.h in Headers */ = {isa = PBXBuildFile; fileRef = 8FCB10011DD0060900FE425C /* VRORenderDelegateiOS.h */; };
 		8FCB10031DD0062300FE425C /* VRORenderDelegateInternal.h in Headers */ = {isa = PBXBuildFile; fileRef = 8FCB10001DD0055400FE425C /* VRORenderDelegateInternal.h */; };
 		8FCB10081DD10EF300FE425C /* VROStringUtil.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 8FCB10061DD10EF300FE425C /* VROStringUtil.cpp */; };
@@ -1365,6 +1368,7 @@
 		8F65F8131CA073C100415115 /* VROTextureUtil.cpp */ = {isa = PBXFileReference; explicitFileType = sourcecode.cpp.objcpp; fileEncoding = 4; path = VROTextureUtil.cpp; sourceTree = "<group>"; };
 		8F65F8141CA073C100415115 /* VROTextureUtil.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = VROTextureUtil.h; sourceTree = "<group>"; };
 		8F65F8291CA19A9A00415115 /* VROAudioPlayer.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = VROAudioPlayer.h; sourceTree = "<group>"; };
+		0E09B0C58A644BB38F9013A5 /* VROPCMRingBuffer.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = VROPCMRingBuffer.h; sourceTree = "<group>"; };
 		8F660AAA1E931C6F006D063F /* 4096_bump.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; name = 4096_bump.jpg; path = ViroSample/4096_bump.jpg; sourceTree = "<group>"; };
 		8F660AAB1E931C6F006D063F /* 4096_clouds.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; name = 4096_clouds.jpg; path = ViroSample/4096_clouds.jpg; sourceTree = "<group>"; };
 		8F660AAC1E931C6F006D063F /* 4096_earth.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; name = 4096_earth.jpg; path = ViroSample/4096_earth.jpg; sourceTree = "<group>"; };
@@ -1599,6 +1603,8 @@
 		8FCA009C22C7DB2E00BB1D70 /* VROVertexBufferOpenGL.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VROVertexBufferOpenGL.h; sourceTree = "<group>"; };
 		8FCB0FF81DCFF68E00FE425C /* VROAudioPlayeriOS.cpp */ = {isa = PBXFileReference; explicitFileType = sourcecode.cpp.objcpp; fileEncoding = 4; path = VROAudioPlayeriOS.cpp; sourceTree = "<group>"; };
 		8FCB0FF91DCFF68E00FE425C /* VROAudioPlayeriOS.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = VROAudioPlayeriOS.h; sourceTree = "<group>"; };
+		F9B82612817440F78645E050 /* VROAudioPlayerStreamiOS.mm */ = {isa = PBXFileReference; explicitFileType = sourcecode.cpp.objcpp; fileEncoding = 4; path = VROAudioPlayerStreamiOS.mm; sourceTree = "<group>"; };
+		2B0A44033DC54ADA8FB7E272 /* VROAudioPlayerStreamiOS.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = VROAudioPlayerStreamiOS.h; sourceTree = "<group>"; };
 		8FCB10001DD0055400FE425C /* VRORenderDelegateInternal.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VRORenderDelegateInternal.h; sourceTree = "<group>"; };
 		8FCB10011DD0060900FE425C /* VRORenderDelegateiOS.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VRORenderDelegateiOS.h; sourceTree = "<group>"; };
 		8FCB10061DD10EF300FE425C /* VROStringUtil.cpp */ = {isa = PBXFileReference; explicitFileType = sourcecode.cpp.objcpp; fileEncoding = 4; path = VROStringUtil.cpp; sourceTree = "<group>"; };
@@ -2485,6 +2491,8 @@
 				8F53D3A71DCBA06A001C91A8 /* VROImageiOS.cpp */,
 				8FCB0FF91DCFF68E00FE425C /* VROAudioPlayeriOS.h */,
 				8FCB0FF81DCFF68E00FE425C /* VROAudioPlayeriOS.cpp */,
+				2B0A44033DC54ADA8FB7E272 /* VROAudioPlayerStreamiOS.h */,
+				F9B82612817440F78645E050 /* VROAudioPlayerStreamiOS.mm */,
 				8FCB10011DD0060900FE425C /* VRORenderDelegateiOS.h */,
 				8FCB100A1DD12BDF00FE425C /* VRODriverOpenGLiOS.h */,
 				8FCD02B41FD6F8E0001813D8 /* VRODriverOpenGLiOS.cpp */,
@@ -2578,6 +2586,7 @@
 				8A130D731E3A93720050D83B /* VROSound.h */,
 				8A130D741E3A93720050D83B /* VROSoundDelegateInternal.h */,
 				8F65F8291CA19A9A00415115 /* VROAudioPlayer.h */,
+				0E09B0C58A644BB38F9013A5 /* VROPCMRingBuffer.h */,
 				8A130D771E3AA1E10050D83B /* VROSoundGVR.cpp */,
 				8A130D781E3AA1E10050D83B /* VROSoundGVR.h */,
 			);
@@ -3550,6 +3559,7 @@
 				8F53D3AA1DCBA06A001C91A8 /* VROImageiOS.h in Headers */,
 				8FD4DF3D1C18F5EA003DC425 /* VROByteBuffer.h in Headers */,
 				8FCB0FFB1DCFF68E00FE425C /* VROAudioPlayeriOS.h in Headers */,
+				6CCE5600235C45D8BAF93D21 /* VROAudioPlayerStreamiOS.h in Headers */,
 				8F83DE9D1C4826F80089C31A /* VROTimingFunctionBounce.h in Headers */,
 				8FD06F1E1E831E81003D3BC4 /* VROCameraTexture.h in Headers */,
 				8A2DA3AF1F8B2D25001FC3BA /* VROInputControllerAR.h in Headers */,
@@ -3564,6 +3574,7 @@
 				8FCB101B1DD5449700FE425C /* VROVideoTextureiOS.h in Headers */,
 				8F40541A1F4FAADC008DCBAD /* VROGaussianBlurRenderPass.h in Headers */,
 				8F65F82B1CA19A9A00415115 /* VROAudioPlayer.h in Headers */,
+				39E86DF2210A484A9FEA54DE /* VROPCMRingBuffer.h in Headers */,
 				8FC542922297497C00D2AFBB /* VROBodyMesherTest.h in Headers */,
 				8F2F342A20F54FAC001962D0 /* VROGlyphAtlasOpenGL.h in Headers */,
 				8F0856591C87960900E66709 /* VROGeometryUtil.h in Headers */,
@@ -4554,6 +4565,7 @@
 				8F39A31C1EA57FDB001125FC /* VROFrustumBoxIntersectionMetadata.cpp in Sources */,
 				8FC908861CA458EB00069C89 /* VRONodeCamera.cpp in Sources */,
 				8FCB0FFA1DCFF68E00FE425C /* VROAudioPlayeriOS.cpp in Sources */,
+				BFF5F23E6D1A4279BEF76CA8 /* VROAudioPlayerStreamiOS.mm in Sources */,
 				8F3488B01EE83DD3008917CB /* VROARFrameInertial.cpp in Sources */,
 				8FD2A5491F813C4100E831A6 /* VROOBJTest.cpp in Sources */,
 				8F3488AC1EE83DD3008917CB /* VROARAnchorInertial.cpp in Sources */,
