@@ -199,36 +199,39 @@ std::vector<std::shared_ptr<VROARHitTestResult>> VROARFrameiOS::hitTest(int x, i
             // Sample depth texture at UV
             float depthValue = sampleDepthTextureAtUV(depthTexture, depthUV.x, depthUV.y);
 
-            // Sample confidence if available
+            // Sample confidence
             float confidence = -1.0f;
-            if (confidenceTexture && depthSource == "lidar") {
-                confidence = sampleDepthTextureAtUV(confidenceTexture, depthUV.x, depthUV.y);
+            if (depthSource == "lidar") {
+                if (confidenceTexture) {
+                    confidence = sampleDepthTextureAtUV(confidenceTexture, depthUV.x, depthUV.y);
+                }
+            } else if (depthSource == "monocular") {
+                auto est = session ? session->getMonocularDepthEstimator() : nullptr;
+                if (est) {
+                    confidence = est->sampleConfidenceAtDepthUV(depthUV.x, depthUV.y);
+                }
             }
 
-            // Set depth data on result if valid
+            // Set depth data and conditionally upgrade result type
             if (depthValue > 0.0f) {
                 vResult->setDepthData(depthValue, confidence, depthSource);
 
-                // Upgrade result type to DepthPoint when depth data is available
-                // For LiDAR: Use confidence threshold of > 0.3 (lowered for better detection)
-                // For Monocular: Always upgrade when depth available
                 bool shouldUpgradeToDepthPoint = false;
                 if (depthSource == "lidar") {
-                    // LiDAR: Upgrade if confidence is unavailable or > 0.3
                     shouldUpgradeToDepthPoint = (confidence < 0.0f || confidence > 0.3f);
-                    pinfo("LiDAR depth: %.2fm, confidence: %.2f, upgrading: %s",
-                          depthValue, confidence, shouldUpgradeToDepthPoint ? "YES" : "NO");
                 } else if (depthSource == "monocular") {
-                    // Monocular: Always use depth data when available
-                    shouldUpgradeToDepthPoint = true;
-                    pinfo("Monocular depth: %.2fm, upgrading to DepthPoint", depthValue);
+                    auto est = session ? session->getMonocularDepthEstimator() : nullptr;
+                    if (est) {
+                        // Gate on synthesized temporal-stability confidence
+                        float threshold = est->getHitTestConfidenceThreshold();
+                        shouldUpgradeToDepthPoint = (confidence < 0.0f || confidence > threshold);
+                    } else {
+                        shouldUpgradeToDepthPoint = true; // no estimator → trust depth
+                    }
                 }
 
                 if (shouldUpgradeToDepthPoint) {
-                    pinfo("Upgrading hit result to DepthPoint type");
                     vResult->setType(VROARHitTestResultType::DepthPoint);
-                } else {
-                    pinfo("Keeping original type, depth confidence too low");
                 }
             }
         }
@@ -629,8 +632,114 @@ std::shared_ptr<VROARDepthMesh> VROARFrameiOS::generateDepthMesh(
             depthData = _frame.sceneDepth;
         }
         if (!depthData) {
-            pinfo("VROARFrameiOS: No depth data available");
-            return nullptr;
+            // W5: Fallback to monocular depth on non-LiDAR devices
+            std::shared_ptr<VROARSessioniOS> monoSession = _session.lock();
+            auto est = monoSession ? monoSession->getMonocularDepthEstimator() : nullptr;
+            if (!est || !est->isAvailable()) {
+                return nullptr;
+            }
+
+            std::vector<float> monoDepth, monoConf;
+            int depthW = 0, depthH = 0;
+            if (!est->snapshotDepthBuffers(monoDepth, monoConf, depthW, depthH)) return nullptr;
+
+            matrix_float3x3 intrinsics = _frame.camera.intrinsics;
+            float fx = intrinsics.columns[0][0];
+            float fy = intrinsics.columns[1][1];
+            float cx = intrinsics.columns[2][0];
+            float cy = intrinsics.columns[2][1];
+            CGSize imageRes = _frame.camera.imageResolution;
+            float imgW = imageRes.width;
+            float imgH = imageRes.height;
+
+            // ScaleFill crop parameters (mirrors getDepthTextureTransform logic)
+            float modelW = (_orientation == VROCameraOrientation::Portrait ||
+                            _orientation == VROCameraOrientation::PortraitUpsideDown)
+                           ? imgH : imgW;
+            float modelH = (modelW == imgH) ? imgW : imgH;
+            float scl = std::max((float)depthW / modelW, (float)depthH / modelH);
+            float cropU = (modelW * scl - depthW) / (2.0f * modelW * scl);
+            float cropV = (modelH * scl - depthH) / (2.0f * modelH * scl);
+            float visU = 1.0f - 2.0f * cropU;
+            float visV = 1.0f - 2.0f * cropV;
+
+            VROMatrix4f cameraToWorld = VROConvert::toMatrix4f(_frame.camera.transform);
+            int gridW = (depthW + stride - 1) / stride;
+            int gridH = (depthH + stride - 1) / stride;
+
+            std::vector<VROVector3f> vertices;
+            std::vector<float>      confidences;
+            std::vector<int>        indices;
+            std::vector<float>      depths;
+            std::vector<int>        vmap(gridW * gridH, -1);
+            vertices.reserve(gridW * gridH);
+            confidences.reserve(gridW * gridH);
+            depths.reserve(gridW * gridH);
+            indices.reserve(gridW * gridH * 6);
+
+            int vi = 0;
+            for (int gy = 0; gy < gridH; gy++) {
+                for (int gx = 0; gx < gridW; gx++) {
+                    int px = gx * stride, py = gy * stride;
+                    if (px >= depthW || py >= depthH) continue;
+
+                    float d = monoDepth[py * depthW + px];
+                    if (d <= 0 || d > maxDepth || std::isnan(d) || std::isinf(d)) continue;
+
+                    float conf = monoConf.empty() ? 0.5f : monoConf[py * depthW + px];
+                    if (conf < minConfidence) continue;
+
+                    // Inverse map: depth pixel → camera image pixel
+                    float du = (float)px / std::max(depthW - 1, 1);
+                    float dv = (float)py / std::max(depthH - 1, 1);
+                    float pre_u = du * visU + cropU;
+                    float pre_v = dv * visV + cropV;
+
+                    float lu, lv;
+                    switch (_orientation) {
+                        case VROCameraOrientation::Portrait:
+                            lu = pre_v; lv = 1.0f - pre_u; break;
+                        case VROCameraOrientation::PortraitUpsideDown:
+                            lu = 1.0f - pre_v; lv = pre_u; break;
+                        case VROCameraOrientation::LandscapeLeft:
+                            lu = 1.0f - pre_u; lv = 1.0f - pre_v; break;
+                        default: // LandscapeRight: identity
+                            lu = pre_u; lv = pre_v; break;
+                    }
+
+                    float img_x = lu * imgW;
+                    float img_y = lv * imgH;
+                    float camX = (img_x - cx) * d / fx;
+                    float camY = (img_y - cy) * d / fy;
+                    VROVector4f worldPos = cameraToWorld.multiply(VROVector4f(camX, -camY, -d, 1.0f));
+
+                    vmap[gy * gridW + gx] = vi++;
+                    vertices.push_back(VROVector3f(worldPos.x, worldPos.y, worldPos.z));
+                    confidences.push_back(conf);
+                    depths.push_back(d);
+                }
+            }
+
+            const float maxDiff = 0.3f;
+            for (int gy = 0; gy < gridH - 1; gy++) {
+                for (int gx = 0; gx < gridW - 1; gx++) {
+                    int i00 = vmap[gy * gridW + gx],       i10 = vmap[gy * gridW + (gx+1)];
+                    int i01 = vmap[(gy+1) * gridW + gx],   i11 = vmap[(gy+1) * gridW + (gx+1)];
+                    if (i00 < 0 || i10 < 0 || i01 < 0 || i11 < 0) continue;
+                    float dmax = std::max({std::abs(depths[i00]-depths[i10]),
+                                           std::abs(depths[i00]-depths[i01]),
+                                           std::abs(depths[i10]-depths[i11]),
+                                           std::abs(depths[i01]-depths[i11])});
+                    if (dmax < maxDiff) {
+                        indices.push_back(i00); indices.push_back(i10); indices.push_back(i01);
+                        indices.push_back(i10); indices.push_back(i11); indices.push_back(i01);
+                    }
+                }
+            }
+
+            if (vertices.empty() || indices.empty()) return nullptr;
+            return std::make_shared<VROARDepthMesh>(
+                std::move(vertices), std::move(indices), std::move(confidences), "monocular");
         }
 
         CVPixelBufferRef depthMap = depthData.depthMap;
@@ -851,7 +960,8 @@ std::shared_ptr<VROARDepthMesh> VROARFrameiOS::generateDepthMesh(
         return std::make_shared<VROARDepthMesh>(
             std::move(vertices),
             std::move(indices),
-            std::move(confidences)
+            std::move(confidences),
+            "lidar"
         );
     }
 

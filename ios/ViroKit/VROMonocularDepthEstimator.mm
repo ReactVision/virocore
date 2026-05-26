@@ -87,6 +87,7 @@ VROMonocularDepthEstimator::VROMonocularDepthEstimator(std::shared_ptr<VRODriver
     _depthHeight(0),
     _depthScaleFactor(1.0f),
     _calibrationMode(VROMonocularDepthCalibration::Manual),
+    _hitTestConfidenceThreshold(0.3f),
     _temporalFilteringEnabled(true),
     _temporalFilterAlpha(0.3f),
     _targetFPS(15),
@@ -680,34 +681,37 @@ void VROMonocularDepthEstimator::processDepthOutput(VNCoreMLFeatureValueObservat
 
 void VROMonocularDepthEstimator::applyTemporalFilter(float *depthData, int width, int height) {
     size_t bufferSize = width * height;
+    _confidenceBuffer.resize(bufferSize);
 
-    // Initialize previous buffer on first frame
-    if (_previousDepthBuffer.empty()) {
+    // First frame or size change: no history yet
+    if (_previousDepthBuffer.empty() || _previousDepthBuffer.size() != bufferSize) {
         _previousDepthBuffer.assign(depthData, depthData + bufferSize);
-        return;
-    }
-
-    // Ensure previous buffer matches current size
-    if (_previousDepthBuffer.size() != bufferSize) {
-        _previousDepthBuffer.assign(depthData, depthData + bufferSize);
+        std::fill(_confidenceBuffer.begin(), _confidenceBuffer.end(), 0.5f);
         return;
     }
 
     const float alpha = _temporalFilterAlpha;
-    const float edgeThreshold = 0.3f; // 30cm discontinuity threshold
+    const float edgeThreshold = 0.3f; // 30 cm discontinuity threshold
 
     for (size_t i = 0; i < bufferSize; i++) {
         float prevDepth = _previousDepthBuffer[i];
         float currDepth = depthData[i];
-
-        // Skip filtering at depth discontinuities
         float diff = std::abs(currDepth - prevDepth);
+
+        // Synthesize per-pixel confidence from temporal stability
+        if (currDepth <= 0.0f) {
+            _confidenceBuffer[i] = 0.0f;           // invalid depth
+        } else if (prevDepth <= 0.0f) {
+            _confidenceBuffer[i] = 0.3f;           // no prior history for this pixel
+        } else {
+            // Linear decay: 1.0 at diff=0, 0.0 at diff=edgeThreshold
+            _confidenceBuffer[i] = std::max(0.0f, 1.0f - diff / edgeThreshold);
+        }
+
+        // Apply EMA only away from discontinuities
         if (diff < edgeThreshold && prevDepth > 0 && currDepth > 0) {
-            // Exponential moving average
             depthData[i] = prevDepth + alpha * (currDepth - prevDepth);
         }
-        // else: keep current depth (edge or invalid previous)
-
         _previousDepthBuffer[i] = depthData[i];
     }
 }
@@ -797,6 +801,18 @@ const float* VROMonocularDepthEstimator::getDepthBufferData() const {
     return _depthBuffer.data();
 }
 
+bool VROMonocularDepthEstimator::snapshotDepthBuffers(std::vector<float> &outDepth,
+                                                      std::vector<float> &outConfidence,
+                                                      int &outWidth, int &outHeight) const {
+    std::lock_guard<std::mutex> lock(_depthMutex);
+    if (_depthBuffer.empty() || _depthWidth <= 0 || _depthHeight <= 0) return false;
+    outDepth = _depthBuffer;
+    outConfidence = _confidenceBuffer;
+    outWidth = _depthWidth;
+    outHeight = _depthHeight;
+    return true;
+}
+
 #pragma mark - Configuration
 
 void VROMonocularDepthEstimator::setScaleFactor(float scale) {
@@ -818,6 +834,40 @@ void VROMonocularDepthEstimator::setCalibrationMode(VROMonocularDepthCalibration
 
 VROMonocularDepthCalibration VROMonocularDepthEstimator::getCalibrationMode() const {
     return _calibrationMode;
+}
+
+void VROMonocularDepthEstimator::setHitTestConfidenceThreshold(float threshold) {
+    _hitTestConfidenceThreshold = std::max(0.0f, std::min(1.0f, threshold));
+}
+
+float VROMonocularDepthEstimator::getHitTestConfidenceThreshold() const {
+    return _hitTestConfidenceThreshold;
+}
+
+float VROMonocularDepthEstimator::sampleConfidenceAtDepthUV(float u, float v) const {
+    std::lock_guard<std::mutex> lock(_depthMutex);
+    if (_confidenceBuffer.empty() || _depthWidth <= 0 || _depthHeight <= 0) {
+        return -1.0f;
+    }
+
+    float px = u * (_depthWidth - 1);
+    float py = v * (_depthHeight - 1);
+    int x0 = std::max(0, std::min((int)px, _depthWidth - 1));
+    int y0 = std::max(0, std::min((int)py, _depthHeight - 1));
+    int x1 = std::min(x0 + 1, _depthWidth - 1);
+    int y1 = std::min(y0 + 1, _depthHeight - 1);
+    float fx = px - (int)px;
+    float fy = py - (int)py;
+
+    float c00 = _confidenceBuffer[y0 * _depthWidth + x0];
+    float c10 = _confidenceBuffer[y0 * _depthWidth + x1];
+    float c01 = _confidenceBuffer[y1 * _depthWidth + x0];
+    float c11 = _confidenceBuffer[y1 * _depthWidth + x1];
+
+    return (1.0f - fx) * (1.0f - fy) * c00
+         + fx          * (1.0f - fy) * c10
+         + (1.0f - fx) * fy          * c01
+         + fx          * fy          * c11;
 }
 
 void VROMonocularDepthEstimator::flushPendingDepthUpdate() {
