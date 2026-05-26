@@ -264,6 +264,34 @@ void VROARWorldMesh::unsubscribe(VROWorldMeshSubscriberId id) {
     _subscribers.erase(id);
 }
 
+std::shared_ptr<VROARDepthMesh> VROARWorldMesh::decimateMesh(
+    std::shared_ptr<VROARDepthMesh> mesh, int maxTriangles)
+{
+    int totalTriangles = mesh->getTriangleCount();
+    if (totalTriangles <= maxTriangles) {
+        return mesh;
+    }
+
+    const std::vector<int>& srcIndices = mesh->getIndices();
+    int stride = totalTriangles / maxTriangles;
+
+    std::vector<int> newIndices;
+    newIndices.reserve((size_t)maxTriangles * 3);
+
+    for (int t = 0; t < totalTriangles && (int)(newIndices.size() / 3) < maxTriangles; t += stride) {
+        newIndices.push_back(srcIndices[t * 3 + 0]);
+        newIndices.push_back(srcIndices[t * 3 + 1]);
+        newIndices.push_back(srcIndices[t * 3 + 2]);
+    }
+
+    return std::make_shared<VROARDepthMesh>(
+        mesh->getVertices(),
+        std::move(newIndices),
+        mesh->getConfidences(),
+        mesh->getSource()
+    );
+}
+
 void VROARWorldMesh::notifySubscribers(std::shared_ptr<VROARDepthMesh> mesh) {
     VROWorldMeshStats stats = getStats();
 
@@ -287,7 +315,14 @@ void VROARWorldMesh::notifySubscribers(std::shared_ptr<VROARDepthMesh> mesh) {
         snapshot = _subscribers;
     }
     for (auto& kv : snapshot) {
-        kv.second.first(update);
+        const VROWorldMeshSubscriberOptions& opts = kv.second.second;
+        if (opts.maxTriangles > 0 && mesh->getTriangleCount() > opts.maxTriangles) {
+            VROWorldMeshUpdate decimatedUpdate = update;
+            decimatedUpdate.mesh = decimateMesh(mesh, opts.maxTriangles);
+            kv.second.first(decimatedUpdate);
+        } else {
+            kv.second.first(update);
+        }
     }
 }
 

@@ -98,11 +98,16 @@ struct VROWorldMeshUpdate {
 };
 
 /**
- * Per-subscriber options. maxTriangles = 0 means unlimited.
- * Per-consumer decimation (W3) will be applied when maxTriangles > 0.
+ * Per-subscriber options controlling mesh decimation.
+ * maxTriangles = 0 means no limit (full mesh delivered as-is).
  */
 struct VROWorldMeshSubscriberOptions {
-    int maxTriangles = 0;
+    enum class DecimationStrategy {
+        Stride,       // Take every N-th triangle (O(1) per triangle, default)
+    };
+
+    int maxTriangles = 0;                              // 0 = unlimited
+    DecimationStrategy strategy = DecimationStrategy::Stride;
 };
 
 using VROWorldMeshSubscriberId = uint32_t;
@@ -282,6 +287,14 @@ private:
      * Called on the render thread after a mesh is successfully applied.
      */
     void notifySubscribers(std::shared_ptr<VROARDepthMesh> mesh);
+
+    /**
+     * Return a decimated copy of mesh with at most maxTriangles triangles,
+     * using Stride strategy (every N-th triangle). Vertices are copied as-is;
+     * only the index buffer is thinned. Returns mesh unchanged if already within budget.
+     */
+    static std::shared_ptr<VROARDepthMesh> decimateMesh(
+        std::shared_ptr<VROARDepthMesh> mesh, int maxTriangles);
 };
 
 #endif /* VROARWorldMesh_h */
