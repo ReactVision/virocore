@@ -86,40 +86,49 @@ void VROARWorldMesh::updateFromFrame(const std::unique_ptr<VROARFrame>& frame) {
         return;
     }
 
-    // Check if depth data is available
-    if (!frame->hasDepthData()) {
-        if (isMeshStale()) {
-            pinfo("VROARWorldMesh: depth data lost, mesh is stale");
+    // Source priority:
+    //  1. ARMeshAnchor  — persistent, LiDAR iOS 13.4+
+    //  2. depth map     — LiDAR depth image or monocular
+    //  3. plane anchors — non-LiDAR / non-Depth-API fallback
+    std::shared_ptr<VROARDepthMesh> mesh = frame->generateMeshAnchorMesh();
+
+    if (!mesh || !mesh->isValid()) {
+        if (frame->hasDepthData()) {
+            mesh = frame->generateDepthMesh(_config.stride, _config.minConfidence, _config.maxDepth);
         }
-        return;
     }
 
-    // Generate new mesh from depth data
-    auto mesh = frame->generateDepthMesh(
-        _config.stride,
-        _config.minConfidence,
-        _config.maxDepth
-    );
+    if (!mesh || !mesh->isValid()) {
+        mesh = frame->generatePlaneMesh();
+    }
 
     if (mesh && mesh->isValid()) {
         _lastDepthTimeMs = getCurrentTimeMs();
         applyMeshToPhysics(mesh);
         notifySubscribers(mesh);
+    } else if (isMeshStale()) {
+        pinfo("VROARWorldMesh: no mesh source available, mesh is stale");
     }
 
     _lastUpdateTimeMs = getCurrentTimeMs();
 }
 
 void VROARWorldMesh::forceUpdate(const std::unique_ptr<VROARFrame>& frame) {
-    if (!_enabled || !frame || !frame->hasDepthData()) {
+    if (!_enabled || !frame) {
         return;
     }
 
-    auto mesh = frame->generateDepthMesh(
-        _config.stride,
-        _config.minConfidence,
-        _config.maxDepth
-    );
+    std::shared_ptr<VROARDepthMesh> mesh = frame->generateMeshAnchorMesh();
+
+    if (!mesh || !mesh->isValid()) {
+        if (frame->hasDepthData()) {
+            mesh = frame->generateDepthMesh(_config.stride, _config.minConfidence, _config.maxDepth);
+        }
+    }
+
+    if (!mesh || !mesh->isValid()) {
+        mesh = frame->generatePlaneMesh();
+    }
 
     if (mesh && mesh->isValid()) {
         _lastDepthTimeMs = getCurrentTimeMs();

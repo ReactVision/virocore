@@ -286,6 +286,19 @@ void VROARSessioniOS::updateTrackingType(VROTrackingType trackingType) {
     }
 #endif
 
+    // Enable scene reconstruction (ARMeshAnchor) on LiDAR-capable devices.
+    // ARKit accumulates the mesh persistently across the session, which is consumed
+    // by VROARWorldMesh::generateMeshAnchorMesh() as the primary world-mesh source.
+#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 130400
+    if (@available(iOS 13.4, *)) {
+      if ([ARWorldTrackingConfiguration
+              supportsSceneReconstruction:ARSceneReconstructionMesh]) {
+        config.sceneReconstruction = ARSceneReconstructionMesh;
+        pinfo("VROARSession: ARSceneReconstructionMesh enabled (LiDAR device)");
+      }
+    }
+#endif
+
     // iOS 26 changed AVCapturePhotoOutput internals: ARKit's auto-selected video format
     // can have maxPhotoDimensions not present in supportedMaxPhotoDimensions, causing an
     // NSInvalidArgumentException in ARSession runWithConfiguration. Explicitly selecting

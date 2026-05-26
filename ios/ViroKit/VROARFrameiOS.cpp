@@ -968,6 +968,120 @@ std::shared_ptr<VROARDepthMesh> VROARFrameiOS::generateDepthMesh(
     return nullptr;
 }
 
+std::shared_ptr<VROARDepthMesh> VROARFrameiOS::generateMeshAnchorMesh() {
+#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 130400
+    if (@available(iOS 13.4, *)) {
+        std::vector<VROVector3f> allVertices;
+        std::vector<int> allIndices;
+
+        for (ARAnchor *anchor in _frame.anchors) {
+            if (![anchor isKindOfClass:[ARMeshAnchor class]]) {
+                continue;
+            }
+            ARMeshAnchor *meshAnchor = (ARMeshAnchor *)anchor;
+            ARMeshGeometry *geometry = meshAnchor.geometry;
+            if (!geometry) continue;
+
+            VROMatrix4f transform = VROConvert::toMatrix4f(meshAnchor.transform);
+            int baseIndex = (int)allVertices.size();
+
+            // Vertices are stored in a MTLBuffer in the anchor's local coordinate space
+            ARGeometrySource *vs = geometry.vertices;
+            const uint8_t *vbuf = (const uint8_t *)[vs.buffer contents] + vs.offset;
+            for (NSUInteger i = 0; i < vs.count; i++) {
+                const float *p = (const float *)(vbuf + i * vs.stride);
+                VROVector3f worldPos = transform.multiply(VROVector3f(p[0], p[1], p[2]));
+                allVertices.push_back(worldPos);
+            }
+
+            // Face indices from MTLBuffer (uint32 per ARKit docs)
+            ARGeometryElement *fe = geometry.faces;
+            const uint8_t *fbuf = (const uint8_t *)[fe.buffer contents];
+            NSUInteger triCount = fe.count;
+            NSUInteger bpi = fe.bytesPerIndex;
+            for (NSUInteger t = 0; t < triCount; t++) {
+                for (int v = 0; v < 3; v++) {
+                    NSUInteger off = (t * 3 + v) * bpi;
+                    int idx = (bpi == 4) ? (int)(*(const uint32_t *)(fbuf + off))
+                                        : (int)(*(const uint16_t *)(fbuf + off));
+                    allIndices.push_back(baseIndex + idx);
+                }
+            }
+        }
+
+        if (allVertices.empty() || allIndices.empty()) {
+            return nullptr;
+        }
+
+        return std::make_shared<VROARDepthMesh>(
+            std::move(allVertices),
+            std::move(allIndices),
+            std::vector<float>(),
+            "lidar"
+        );
+    }
+#endif
+    return nullptr;
+}
+
+std::shared_ptr<VROARDepthMesh> VROARFrameiOS::generatePlaneMesh() {
+    std::vector<VROVector3f> allVertices;
+    std::vector<int> allIndices;
+
+    for (ARAnchor *anchor in _frame.anchors) {
+        if (![anchor isKindOfClass:[ARPlaneAnchor class]]) {
+            continue;
+        }
+        ARPlaneAnchor *planeAnchor = (ARPlaneAnchor *)anchor;
+        VROMatrix4f transform = VROConvert::toMatrix4f(planeAnchor.transform);
+        int baseIndex = (int)allVertices.size();
+
+#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 110300
+        if (@available(iOS 11.3, *)) {
+            ARPlaneGeometry *geometry = planeAnchor.geometry;
+            if (geometry && geometry.vertexCount > 0 && geometry.triangleCount > 0) {
+                for (NSUInteger i = 0; i < geometry.vertexCount; i++) {
+                    vector_float3 v = geometry.vertices[i];
+                    allVertices.push_back(transform.multiply(VROVector3f(v.x, v.y, v.z)));
+                }
+                const int16_t *tri = geometry.triangleIndices;
+                for (NSUInteger t = 0; t < geometry.triangleCount; t++) {
+                    allIndices.push_back(baseIndex + (int)tri[t * 3 + 0]);
+                    allIndices.push_back(baseIndex + (int)tri[t * 3 + 1]);
+                    allIndices.push_back(baseIndex + (int)tri[t * 3 + 2]);
+                }
+                continue;
+            }
+        }
+#endif
+        // Fallback: fan-triangulate the boundary polygon
+        if (planeAnchor.geometry && planeAnchor.geometry.boundaryVertexCount >= 3) {
+            ARPlaneGeometry *geometry = planeAnchor.geometry;
+            NSUInteger bCount = geometry.boundaryVertexCount;
+            for (NSUInteger i = 0; i < bCount; i++) {
+                vector_float3 v = geometry.boundaryVertices[i];
+                allVertices.push_back(transform.multiply(VROVector3f(v.x, v.y, v.z)));
+            }
+            for (NSUInteger i = 1; i + 1 < bCount; i++) {
+                allIndices.push_back(baseIndex);
+                allIndices.push_back(baseIndex + (int)i);
+                allIndices.push_back(baseIndex + (int)i + 1);
+            }
+        }
+    }
+
+    if (allVertices.empty() || allIndices.empty()) {
+        return nullptr;
+    }
+
+    return std::make_shared<VROARDepthMesh>(
+        std::move(allVertices),
+        std::move(allIndices),
+        std::vector<float>(),
+        "plane"
+    );
+}
+
 float VROARFrameiOS::sampleDepthTextureAtUV(std::shared_ptr<VROTexture> texture, float u, float v) const {
     if (!texture) {
         return 0.0f;
