@@ -331,6 +331,7 @@ void VROARWorldMesh::debugDraw(std::shared_ptr<VROPencil> pencil) {
         return;
     }
 
+    pencil->setDepthTestEnabled(_config.debugDrawDepthTest);
     pencil->setBrushThickness(_config.debugDrawLineThickness);
 
     const std::vector<VROVector3f>& vertices = _currentMesh->getVertices();

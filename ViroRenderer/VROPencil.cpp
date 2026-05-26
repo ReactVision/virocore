@@ -54,7 +54,7 @@ void VROPencil::render(const VRORenderContext &context, std::shared_ptr<VRODrive
     pencilMaterial->setCullMode(VROCullMode::None);
     pencilMaterial->setLightingModel(VROLightingModel::Constant);
     pencilMaterial->setWritesToDepthBuffer(false);
-    pencilMaterial->setReadsFromDepthBuffer(false);
+    pencilMaterial->setReadsFromDepthBuffer(_depthTestEnabled);
     pencilMaterial->bindShader(0, {}, context, driver);
     pencilMaterial->bindProperties(driver);
 
