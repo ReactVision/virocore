@@ -32,6 +32,13 @@
 #include "VROLog.h"
 #include <btBulletDynamicsCommon.h>
 
+void BulletRigidBodyDeleter::operator()(btRigidBody *body) const {
+    if (!body) return;
+    auto pw = physicsWorld.lock();
+    if (pw) pw->removeRigidBody(body);
+    delete body;
+}
+
 static VROWorldMeshSource sourceFromMeshTag(const std::string& tag) {
     if (tag == "lidar")     return VROWorldMeshSource::LiDAR;
     if (tag == "monocular") return VROWorldMeshSource::Monocular;
@@ -158,17 +165,19 @@ void VROARWorldMesh::applyMeshToPhysics(std::shared_ptr<VROARDepthMesh> mesh) {
     // Create motion state at identity transform (mesh is already in world space)
     btTransform transform;
     transform.setIdentity();
-    _motionState = new btDefaultMotionState(transform);
+    _motionState = std::make_unique<btDefaultMotionState>(transform);
 
     // Create rigid body with mass 0 (static body)
     btRigidBody::btRigidBodyConstructionInfo rbInfo(
         0.0f,  // mass = 0 for static body
-        _motionState,
+        _motionState.get(),
         _physicsShape->getBulletShape(),
         btVector3(0, 0, 0)  // local inertia (unused for static)
     );
 
-    _rigidBody = new btRigidBody(rbInfo);
+    _rigidBody = std::unique_ptr<btRigidBody, BulletRigidBodyDeleter>(
+        new btRigidBody(rbInfo), BulletRigidBodyDeleter{_physicsWorld}
+    );
     _rigidBody->setFriction(_config.friction);
     _rigidBody->setRestitution(_config.restitution);
 
@@ -192,9 +201,7 @@ void VROARWorldMesh::addToPhysicsWorld() {
 
     std::shared_ptr<VROPhysicsWorld> physicsWorld = _physicsWorld.lock();
     if (physicsWorld) {
-        // Add with collision group/mask that collides with everything
-        // Group 1 = default static, Mask -1 = collide with all
-        physicsWorld->addRigidBody(_rigidBody);
+        physicsWorld->addRigidBody(_rigidBody.get());
         pinfo("VROARWorldMesh::addToPhysicsWorld - added rigid body to physics world");
     } else {
         pwarn("VROARWorldMesh::addToPhysicsWorld - physics world is null!");
@@ -202,22 +209,9 @@ void VROARWorldMesh::addToPhysicsWorld() {
 }
 
 void VROARWorldMesh::removeFromPhysicsWorld() {
-    std::shared_ptr<VROPhysicsWorld> physicsWorld = _physicsWorld.lock();
-
-    if (_rigidBody) {
-        if (physicsWorld) {
-            physicsWorld->removeRigidBody(_rigidBody);
-        }
-        delete _rigidBody;
-        _rigidBody = nullptr;
-    }
-
-    if (_motionState) {
-        delete _motionState;
-        _motionState = nullptr;
-    }
-
-    // Physics shape will be cleaned up by shared_ptr
+    // BulletRigidBodyDeleter removes the body from the world before deleting it.
+    _rigidBody.reset();
+    _motionState.reset();
     _physicsShape = nullptr;
 }
 
@@ -302,15 +296,12 @@ void VROARWorldMesh::debugDraw(std::shared_ptr<VROPencil> pencil) {
         return;
     }
 
-    // Set thin line thickness for wireframe (1mm for crisp lines)
-    pencil->setBrushThickness(0.001f);
+    pencil->setBrushThickness(_config.debugDrawLineThickness);
 
     const std::vector<VROVector3f>& vertices = _currentMesh->getVertices();
     const std::vector<int>& indices = _currentMesh->getIndices();
 
-    // Draw more triangles for a better representation of the surroundings
-    // Max 1000 triangles (3000 edges) should give good coverage without overwhelming performance
-    const size_t maxTriangles = 1000;
+    const size_t maxTriangles = (size_t)_config.debugDrawMaxTriangles;
     size_t totalTriangles = indices.size() / 3;
     size_t triangleStride = (totalTriangles > maxTriangles) ? (totalTriangles / maxTriangles) : 1;
 

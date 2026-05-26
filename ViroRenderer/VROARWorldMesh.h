@@ -63,6 +63,8 @@ struct VROWorldMeshConfig {
 
     // Visualization
     bool debugDrawEnabled = false;      // Enable wireframe visualization of mesh
+    int debugDrawMaxTriangles = 1000;   // Triangle cap for wireframe debug draw
+    float debugDrawLineThickness = 0.001f; // Line thickness for wireframe (meters)
 };
 
 /**
@@ -110,6 +112,16 @@ using VROWorldMeshSubscriberCallback = std::function<void(const VROWorldMeshUpda
  * Legacy callback — delivers only stats. Kept for back-compat; prefer subscribe().
  */
 using VROWorldMeshUpdateCallback = std::function<void(const VROWorldMeshStats&)>;
+
+/**
+ * Custom deleter for btRigidBody.
+ * Bullet requires removing the body from the dynamics world before deletion;
+ * this deleter encapsulates that invariant so it can't be forgotten.
+ */
+struct BulletRigidBodyDeleter {
+    std::weak_ptr<VROPhysicsWorld> physicsWorld;
+    void operator()(btRigidBody *body) const;
+};
 
 /**
  * VROARWorldMesh manages the lifecycle of a physics collision mesh generated
@@ -208,9 +220,10 @@ public:
 private:
     std::weak_ptr<VROPhysicsWorld> _physicsWorld;
 
-    // Bullet physics components (direct, without VROPhysicsBody wrapper)
-    btRigidBody* _rigidBody = nullptr;
-    btDefaultMotionState* _motionState = nullptr;
+    // Bullet physics components — smart pointers for exception-safe lifecycle.
+    // BulletRigidBodyDeleter removes the body from the world before deletion.
+    std::unique_ptr<btRigidBody, BulletRigidBodyDeleter> _rigidBody;
+    std::unique_ptr<btDefaultMotionState> _motionState;
     std::shared_ptr<VROPhysicsShape> _physicsShape;
 
     // Current mesh data
