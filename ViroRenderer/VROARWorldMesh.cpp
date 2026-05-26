@@ -32,6 +32,13 @@
 #include "VROLog.h"
 #include <btBulletDynamicsCommon.h>
 
+static VROWorldMeshSource sourceFromMeshTag(const std::string& tag) {
+    if (tag == "lidar")     return VROWorldMeshSource::LiDAR;
+    if (tag == "monocular") return VROWorldMeshSource::Monocular;
+    if (tag == "plane")     return VROWorldMeshSource::Plane;
+    return VROWorldMeshSource::Unknown;
+}
+
 VROARWorldMesh::VROARWorldMesh(std::shared_ptr<VROPhysicsWorld> physicsWorld)
     : _physicsWorld(physicsWorld) {
 }
@@ -97,11 +104,7 @@ void VROARWorldMesh::updateFromFrame(const std::unique_ptr<VROARFrame>& frame) {
     if (mesh && mesh->isValid()) {
         _lastDepthTimeMs = getCurrentTimeMs();
         applyMeshToPhysics(mesh);
-
-        // Notify callback
-        if (_updateCallback) {
-            _updateCallback(getStats());
-        }
+        notifySubscribers(mesh);
     }
 
     _lastUpdateTimeMs = getCurrentTimeMs();
@@ -122,10 +125,7 @@ void VROARWorldMesh::forceUpdate(const std::unique_ptr<VROARFrame>& frame) {
         _lastDepthTimeMs = getCurrentTimeMs();
         _lastUpdateTimeMs = getCurrentTimeMs();
         applyMeshToPhysics(mesh);
-
-        if (_updateCallback) {
-            _updateCallback(getStats());
-        }
+        notifySubscribers(mesh);
     }
 }
 
@@ -246,6 +246,46 @@ bool VROARWorldMesh::isMeshStale() const {
     }
     double currentTime = getCurrentTimeMs();
     return (currentTime - _lastDepthTimeMs) > _config.meshPersistenceMs;
+}
+
+VROWorldMeshSubscriberId VROARWorldMesh::subscribe(VROWorldMeshSubscriberCallback callback,
+                                                    VROWorldMeshSubscriberOptions options) {
+    std::lock_guard<std::mutex> lock(_subscriberMutex);
+    VROWorldMeshSubscriberId id = _nextSubscriberId++;
+    _subscribers[id] = { std::move(callback), options };
+    return id;
+}
+
+void VROARWorldMesh::unsubscribe(VROWorldMeshSubscriberId id) {
+    std::lock_guard<std::mutex> lock(_subscriberMutex);
+    _subscribers.erase(id);
+}
+
+void VROARWorldMesh::notifySubscribers(std::shared_ptr<VROARDepthMesh> mesh) {
+    VROWorldMeshStats stats = getStats();
+
+    if (_updateCallback) {
+        _updateCallback(stats);
+    }
+
+    if (_subscribers.empty()) {
+        return;
+    }
+
+    VROWorldMeshUpdate update;
+    update.mesh   = mesh;
+    update.stats  = stats;
+    update.source = sourceFromMeshTag(mesh->getSource());
+
+    // Snapshot under lock, fire outside to avoid re-entrant deadlock
+    decltype(_subscribers) snapshot;
+    {
+        std::lock_guard<std::mutex> lock(_subscriberMutex);
+        snapshot = _subscribers;
+    }
+    for (auto& kv : snapshot) {
+        kv.second.first(update);
+    }
 }
 
 void VROARWorldMesh::debugDraw(std::shared_ptr<VROPencil> pencil) {
