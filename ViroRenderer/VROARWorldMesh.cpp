@@ -165,7 +165,7 @@ void VROARWorldMesh::applyMeshToPhysics(std::shared_ptr<VROARDepthMesh> mesh) {
     // Create motion state at identity transform (mesh is already in world space)
     btTransform transform;
     transform.setIdentity();
-    _motionState = std::make_unique<btDefaultMotionState>(transform);
+    _motionState = std::unique_ptr<btDefaultMotionState>(new btDefaultMotionState(transform));
 
     // Create rigid body with mass 0 (static body)
     btRigidBody::btRigidBodyConstructionInfo rbInfo(

@@ -155,6 +155,15 @@ public:
      */
     void setOcclusionMode(VROOcclusionMode mode) override;
     bool isOcclusionSupported() const override;
+    void onWorldMeshEnabled(bool enabled) override;
+
+    /*
+     Collect triangulated plane mesh data from all currently tracked ARCore planes.
+     Appends world-space vertices and indices into the provided vectors.
+     Called from VROARFrameARCore::generatePlaneMesh() on the render thread.
+     */
+    void collectPlaneMeshData(std::vector<VROVector3f>& vertices,
+                              std::vector<int>& indices) const;
     bool isOcclusionModeSupported(VROOcclusionMode mode) const override;
 
     /*
@@ -325,8 +334,10 @@ private:
     arcore::SemanticMode _semanticMode;
     arcore::GeospatialMode _geospatialMode;
     bool _semanticModeEnabled = false;
+    bool _worldMeshDepthNeeded = false;  // set by onWorldMeshEnabled
 
     bool updateARCoreConfig();
+    arcore::DepthMode computeNeededDepthMode() const;
 
 #pragma mark - [Private] ARCore Image Tracking
 

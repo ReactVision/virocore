@@ -1428,8 +1428,9 @@ void VROARSessionARCore::setOcclusionMode(VROOcclusionMode mode) {
       break;
     case VROOcclusionMode::Disabled:
     default:
-      // Disable depth when occlusion is disabled
-      newDepthMode = arcore::DepthMode::Disabled;
+      // Keep depth active if world mesh still needs it
+      newDepthMode = _worldMeshDepthNeeded ? arcore::DepthMode::Automatic
+                                           : arcore::DepthMode::Disabled;
       break;
   }
 
@@ -1473,6 +1474,58 @@ bool VROARSessionARCore::isOcclusionModeSupported(VROOcclusionMode mode) const {
              _session->isSemanticModeSupported(arcore::SemanticMode::Enabled);
     default:
       return false;
+  }
+}
+
+arcore::DepthMode VROARSessionARCore::computeNeededDepthMode() const {
+  bool occlusionNeedsDepth = (getOcclusionMode() != VROOcclusionMode::Disabled);
+  return (_worldMeshDepthNeeded || occlusionNeedsDepth)
+      ? arcore::DepthMode::Automatic
+      : arcore::DepthMode::Disabled;
+}
+
+void VROARSessionARCore::onWorldMeshEnabled(bool enabled) {
+  _worldMeshDepthNeeded = enabled;
+  arcore::DepthMode needed = computeNeededDepthMode();
+  if (needed != _depthMode) {
+    _depthMode = needed;
+    if (_session != nullptr) {
+      updateARCoreConfig();
+      pinfo("VROARSessionARCore: world mesh %s, depth mode set to %d",
+            enabled ? "enabled" : "disabled", (int)_depthMode);
+    }
+  }
+}
+
+void VROARSessionARCore::collectPlaneMeshData(
+    std::vector<VROVector3f>& outVertices,
+    std::vector<int>& outIndices) const {
+
+  for (const auto& kv : _nativeAnchorMap) {
+    std::shared_ptr<VROARPlaneAnchor> planeAnchor =
+        std::dynamic_pointer_cast<VROARPlaneAnchor>(kv.second->getTrackable());
+    if (!planeAnchor) {
+      continue;
+    }
+
+    const std::vector<VROVector3f>& boundary = planeAnchor->getBoundaryVertices();
+    if (boundary.size() < 3) {
+      continue;
+    }
+
+    VROMatrix4f transform = planeAnchor->getTransform();
+    int baseIndex = (int)outVertices.size();
+
+    for (const VROVector3f& v : boundary) {
+      outVertices.push_back(transform.multiply(v));
+    }
+
+    // Fan triangulation from first vertex
+    for (int i = 1; i + 1 < (int)boundary.size(); ++i) {
+      outIndices.push_back(baseIndex);
+      outIndices.push_back(baseIndex + i);
+      outIndices.push_back(baseIndex + i + 1);
+    }
   }
 }
 

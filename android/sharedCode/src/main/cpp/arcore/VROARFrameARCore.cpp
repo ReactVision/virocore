@@ -718,6 +718,34 @@ std::shared_ptr<VROARDepthMesh> VROARFrameARCore::generateDepthMesh(
     return std::make_shared<VROARDepthMesh>(
         std::move(vertices),
         std::move(indices),
-        std::move(confidences)
+        std::move(confidences),
+        "lidar"
+    );
+}
+
+std::shared_ptr<VROARDepthMesh> VROARFrameARCore::generatePlaneMesh() {
+    std::shared_ptr<VROARSessionARCore> session = _session.lock();
+    if (!session) {
+        return nullptr;
+    }
+
+    std::vector<VROVector3f> vertices;
+    std::vector<int> indices;
+    session->collectPlaneMeshData(vertices, indices);
+
+    if (vertices.empty() || indices.empty()) {
+        return nullptr;
+    }
+
+    std::vector<float> confidences(vertices.size(), 1.0f);
+
+    pinfo("VROARFrameARCore: Generated plane mesh with %zu vertices, %zu triangles",
+          vertices.size(), indices.size() / 3);
+
+    return std::make_shared<VROARDepthMesh>(
+        std::move(vertices),
+        std::move(indices),
+        std::move(confidences),
+        "plane"
     );
 }

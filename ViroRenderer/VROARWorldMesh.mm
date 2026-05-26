@@ -32,6 +32,20 @@
 #include "VROLog.h"
 #include <btBulletDynamicsCommon.h>
 
+void BulletRigidBodyDeleter::operator()(btRigidBody *body) const {
+    if (!body) return;
+    auto pw = physicsWorld.lock();
+    if (pw) pw->removeRigidBody(body);
+    delete body;
+}
+
+static VROWorldMeshSource sourceFromMeshTag(const std::string& tag) {
+    if (tag == "lidar")     return VROWorldMeshSource::LiDAR;
+    if (tag == "monocular") return VROWorldMeshSource::Monocular;
+    if (tag == "plane")     return VROWorldMeshSource::Plane;
+    return VROWorldMeshSource::Unknown;
+}
+
 VROARWorldMesh::VROARWorldMesh(std::shared_ptr<VROPhysicsWorld> physicsWorld)
     : _physicsWorld(physicsWorld) {
 }
@@ -79,53 +93,55 @@ void VROARWorldMesh::updateFromFrame(const std::unique_ptr<VROARFrame>& frame) {
         return;
     }
 
-    // Check if depth data is available
-    if (!frame->hasDepthData()) {
-        if (isMeshStale()) {
-            pinfo("VROARWorldMesh: depth data lost, mesh is stale");
+    // Source priority:
+    //  1. ARMeshAnchor  — persistent, LiDAR iOS 13.4+
+    //  2. depth map     — LiDAR depth image or monocular
+    //  3. plane anchors — non-LiDAR / non-Depth-API fallback
+    std::shared_ptr<VROARDepthMesh> mesh = frame->generateMeshAnchorMesh();
+
+    if (!mesh || !mesh->isValid()) {
+        if (frame->hasDepthData()) {
+            mesh = frame->generateDepthMesh(_config.stride, _config.minConfidence, _config.maxDepth);
         }
-        return;
     }
 
-    // Generate new mesh from depth data
-    auto mesh = frame->generateDepthMesh(
-        _config.stride,
-        _config.minConfidence,
-        _config.maxDepth
-    );
+    if (!mesh || !mesh->isValid()) {
+        mesh = frame->generatePlaneMesh();
+    }
 
     if (mesh && mesh->isValid()) {
         _lastDepthTimeMs = getCurrentTimeMs();
         applyMeshToPhysics(mesh);
-
-        // Notify callback
-        if (_updateCallback) {
-            _updateCallback(getStats());
-        }
+        notifySubscribers(mesh);
+    } else if (isMeshStale()) {
+        pinfo("VROARWorldMesh: no mesh source available, mesh is stale");
     }
 
     _lastUpdateTimeMs = getCurrentTimeMs();
 }
 
 void VROARWorldMesh::forceUpdate(const std::unique_ptr<VROARFrame>& frame) {
-    if (!_enabled || !frame || !frame->hasDepthData()) {
+    if (!_enabled || !frame) {
         return;
     }
 
-    auto mesh = frame->generateDepthMesh(
-        _config.stride,
-        _config.minConfidence,
-        _config.maxDepth
-    );
+    std::shared_ptr<VROARDepthMesh> mesh = frame->generateMeshAnchorMesh();
+
+    if (!mesh || !mesh->isValid()) {
+        if (frame->hasDepthData()) {
+            mesh = frame->generateDepthMesh(_config.stride, _config.minConfidence, _config.maxDepth);
+        }
+    }
+
+    if (!mesh || !mesh->isValid()) {
+        mesh = frame->generatePlaneMesh();
+    }
 
     if (mesh && mesh->isValid()) {
         _lastDepthTimeMs = getCurrentTimeMs();
         _lastUpdateTimeMs = getCurrentTimeMs();
         applyMeshToPhysics(mesh);
-
-        if (_updateCallback) {
-            _updateCallback(getStats());
-        }
+        notifySubscribers(mesh);
     }
 }
 
@@ -149,17 +165,19 @@ void VROARWorldMesh::applyMeshToPhysics(std::shared_ptr<VROARDepthMesh> mesh) {
     // Create motion state at identity transform (mesh is already in world space)
     btTransform transform;
     transform.setIdentity();
-    _motionState = new btDefaultMotionState(transform);
+    _motionState = std::unique_ptr<btDefaultMotionState>(new btDefaultMotionState(transform));
 
     // Create rigid body with mass 0 (static body)
     btRigidBody::btRigidBodyConstructionInfo rbInfo(
         0.0f,  // mass = 0 for static body
-        _motionState,
+        _motionState.get(),
         _physicsShape->getBulletShape(),
         btVector3(0, 0, 0)  // local inertia (unused for static)
     );
 
-    _rigidBody = new btRigidBody(rbInfo);
+    _rigidBody = std::unique_ptr<btRigidBody, BulletRigidBodyDeleter>(
+        new btRigidBody(rbInfo), BulletRigidBodyDeleter{_physicsWorld}
+    );
     _rigidBody->setFriction(_config.friction);
     _rigidBody->setRestitution(_config.restitution);
 
@@ -183,9 +201,7 @@ void VROARWorldMesh::addToPhysicsWorld() {
 
     std::shared_ptr<VROPhysicsWorld> physicsWorld = _physicsWorld.lock();
     if (physicsWorld) {
-        // Add with collision group/mask that collides with everything
-        // Group 1 = default static, Mask -1 = collide with all
-        physicsWorld->addRigidBody(_rigidBody);
+        physicsWorld->addRigidBody(_rigidBody.get());
         pinfo("VROARWorldMesh::addToPhysicsWorld - added rigid body to physics world");
     } else {
         pwarn("VROARWorldMesh::addToPhysicsWorld - physics world is null!");
@@ -193,22 +209,9 @@ void VROARWorldMesh::addToPhysicsWorld() {
 }
 
 void VROARWorldMesh::removeFromPhysicsWorld() {
-    std::shared_ptr<VROPhysicsWorld> physicsWorld = _physicsWorld.lock();
-
-    if (_rigidBody) {
-        if (physicsWorld) {
-            physicsWorld->removeRigidBody(_rigidBody);
-        }
-        delete _rigidBody;
-        _rigidBody = nullptr;
-    }
-
-    if (_motionState) {
-        delete _motionState;
-        _motionState = nullptr;
-    }
-
-    // Physics shape will be cleaned up by shared_ptr
+    // BulletRigidBodyDeleter removes the body from the world before deleting it.
+    _rigidBody.reset();
+    _motionState.reset();
     _physicsShape = nullptr;
 }
 
@@ -248,20 +251,92 @@ bool VROARWorldMesh::isMeshStale() const {
     return (currentTime - _lastDepthTimeMs) > _config.meshPersistenceMs;
 }
 
+VROWorldMeshSubscriberId VROARWorldMesh::subscribe(VROWorldMeshSubscriberCallback callback,
+                                                    VROWorldMeshSubscriberOptions options) {
+    std::lock_guard<std::mutex> lock(_subscriberMutex);
+    VROWorldMeshSubscriberId id = _nextSubscriberId++;
+    _subscribers[id] = { std::move(callback), options };
+    return id;
+}
+
+void VROARWorldMesh::unsubscribe(VROWorldMeshSubscriberId id) {
+    std::lock_guard<std::mutex> lock(_subscriberMutex);
+    _subscribers.erase(id);
+}
+
+std::shared_ptr<VROARDepthMesh> VROARWorldMesh::decimateMesh(
+    std::shared_ptr<VROARDepthMesh> mesh, int maxTriangles)
+{
+    int totalTriangles = mesh->getTriangleCount();
+    if (totalTriangles <= maxTriangles) {
+        return mesh;
+    }
+
+    const std::vector<int>& srcIndices = mesh->getIndices();
+    int stride = totalTriangles / maxTriangles;
+
+    std::vector<int> newIndices;
+    newIndices.reserve((size_t)maxTriangles * 3);
+
+    for (int t = 0; t < totalTriangles && (int)(newIndices.size() / 3) < maxTriangles; t += stride) {
+        newIndices.push_back(srcIndices[t * 3 + 0]);
+        newIndices.push_back(srcIndices[t * 3 + 1]);
+        newIndices.push_back(srcIndices[t * 3 + 2]);
+    }
+
+    return std::make_shared<VROARDepthMesh>(
+        mesh->getVertices(),
+        std::move(newIndices),
+        mesh->getConfidences(),
+        mesh->getSource()
+    );
+}
+
+void VROARWorldMesh::notifySubscribers(std::shared_ptr<VROARDepthMesh> mesh) {
+    VROWorldMeshStats stats = getStats();
+
+    if (_updateCallback) {
+        _updateCallback(stats);
+    }
+
+    if (_subscribers.empty()) {
+        return;
+    }
+
+    VROWorldMeshUpdate update;
+    update.mesh   = mesh;
+    update.stats  = stats;
+    update.source = sourceFromMeshTag(mesh->getSource());
+
+    // Snapshot under lock, fire outside to avoid re-entrant deadlock
+    decltype(_subscribers) snapshot;
+    {
+        std::lock_guard<std::mutex> lock(_subscriberMutex);
+        snapshot = _subscribers;
+    }
+    for (auto& kv : snapshot) {
+        const VROWorldMeshSubscriberOptions& opts = kv.second.second;
+        if (opts.maxTriangles > 0 && mesh->getTriangleCount() > opts.maxTriangles) {
+            VROWorldMeshUpdate decimatedUpdate = update;
+            decimatedUpdate.mesh = decimateMesh(mesh, opts.maxTriangles);
+            kv.second.first(decimatedUpdate);
+        } else {
+            kv.second.first(update);
+        }
+    }
+}
+
 void VROARWorldMesh::debugDraw(std::shared_ptr<VROPencil> pencil) {
     if (!pencil || !_config.debugDrawEnabled || !_currentMesh || !_currentMesh->isValid()) {
         return;
     }
 
-    // Set thin line thickness for wireframe (1mm for crisp lines)
-    pencil->setBrushThickness(0.001f);
+    pencil->setBrushThickness(_config.debugDrawLineThickness);
 
     const std::vector<VROVector3f>& vertices = _currentMesh->getVertices();
     const std::vector<int>& indices = _currentMesh->getIndices();
 
-    // Draw more triangles for a better representation of the surroundings
-    // Max 1000 triangles (3000 edges) should give good coverage without overwhelming performance
-    const size_t maxTriangles = 1000;
+    const size_t maxTriangles = (size_t)_config.debugDrawMaxTriangles;
     size_t totalTriangles = indices.size() / 3;
     size_t triangleStride = (totalTriangles > maxTriangles) ? (totalTriangles / maxTriangles) : 1;
 
