@@ -936,6 +936,9 @@
 		E1BD617D2FBBE52A008FDF74 /* VRODynamicGeometry.h in Headers */ = {isa = PBXBuildFile; fileRef = E1BD617B2FBBE52A008FDF74 /* VRODynamicGeometry.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		E1BD617E2FBBE52A008FDF74 /* VRODynamicGeometry.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E1BD617C2FBBE52A008FDF74 /* VRODynamicGeometry.cpp */; };
 		E1BD617F2FBBE574008FDF74 /* VRODynamicGeometry.h in Sources */ = {isa = PBXBuildFile; fileRef = E1BD617B2FBBE52A008FDF74 /* VRODynamicGeometry.h */; };
+		E1BD61902FC1A000008FDF74 /* VRODynamicMeshNode.h in Headers */ = {isa = PBXBuildFile; fileRef = E1BD61932FC1A000008FDF74 /* VRODynamicMeshNode.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		E1BD61912FC1A000008FDF74 /* VRODynamicMeshNode.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E1BD61942FC1A000008FDF74 /* VRODynamicMeshNode.cpp */; };
+		E1BD61922FC1A000008FDF74 /* VRODynamicMeshNode.h in Sources */ = {isa = PBXBuildFile; fileRef = E1BD61932FC1A000008FDF74 /* VRODynamicMeshNode.h */; };
 		E1BD61842FBBEA76008FDF74 /* VROVirtualControllerRegistry.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E1BD61832FBBEA76008FDF74 /* VROVirtualControllerRegistry.cpp */; };
 		E1BD61852FBBEA76008FDF74 /* VROInputState.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E1BD61812FBBEA76008FDF74 /* VROInputState.cpp */; };
 		E1BD61862FBBEA76008FDF74 /* VROInputState.h in Headers */ = {isa = PBXBuildFile; fileRef = E1BD61802FBBEA76008FDF74 /* VROInputState.h */; settings = {ATTRIBUTES = (Public, ); }; };
@@ -1947,6 +1950,8 @@
 		E1B267D82EE5263A00F0718C /* VROARWorldMesh.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = VROARWorldMesh.mm; sourceTree = "<group>"; };
 		E1BD617B2FBBE52A008FDF74 /* VRODynamicGeometry.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VRODynamicGeometry.h; sourceTree = "<group>"; };
 		E1BD617C2FBBE52A008FDF74 /* VRODynamicGeometry.cpp */ = {isa = PBXFileReference; explicitFileType = sourcecode.cpp.objcpp; path = VRODynamicGeometry.cpp; sourceTree = "<group>"; };
+		E1BD61932FC1A000008FDF74 /* VRODynamicMeshNode.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VRODynamicMeshNode.h; sourceTree = "<group>"; };
+		E1BD61942FC1A000008FDF74 /* VRODynamicMeshNode.cpp */ = {isa = PBXFileReference; explicitFileType = sourcecode.cpp.objcpp; path = VRODynamicMeshNode.cpp; sourceTree = "<group>"; };
 		E1BD61802FBBEA76008FDF74 /* VROInputState.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VROInputState.h; sourceTree = "<group>"; };
 		E1BD61812FBBEA76008FDF74 /* VROInputState.cpp */ = {isa = PBXFileReference; explicitFileType = sourcecode.cpp.objcpp; path = VROInputState.cpp; sourceTree = "<group>"; };
 		E1BD61822FBBEA76008FDF74 /* VROVirtualControllerRegistry.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VROVirtualControllerRegistry.h; sourceTree = "<group>"; };
@@ -2076,6 +2081,8 @@
 				E1BD61832FBBEA76008FDF74 /* VROVirtualControllerRegistry.cpp */,
 				E1BD617B2FBBE52A008FDF74 /* VRODynamicGeometry.h */,
 				E1BD617C2FBBE52A008FDF74 /* VRODynamicGeometry.cpp */,
+				E1BD61932FC1A000008FDF74 /* VRODynamicMeshNode.h */,
+				E1BD61942FC1A000008FDF74 /* VRODynamicMeshNode.cpp */,
 				A586977F1E30843000191090 /* VROInputControllerBase.h */,
 				A586977E1E30843000191090 /* VROInputControllerBase.cpp */,
 				A5DA442E21AF473600F86923 /* VROIKRig.h */,
@@ -3382,6 +3389,7 @@
 				8FCA009A22C7DA0E00BB1D70 /* VROVertexBuffer.h in Headers */,
 				A586978A1E308B4500191090 /* VROInputControllerBase.h in Headers */,
 				E1BD617D2FBBE52A008FDF74 /* VRODynamicGeometry.h in Headers */,
+				E1BD61902FC1A000008FDF74 /* VRODynamicMeshNode.h in Headers */,
 				E1BD61872FBBEA76008FDF74 /* VROVirtualControllerRegistry.h in Headers */,
 				E1BD61862FBBEA76008FDF74 /* VROInputState.h in Headers */,
 				E15075862F185C5700653622 /* VROARHitTestResultiOS.h in Headers */,
@@ -4316,6 +4324,7 @@
 				E1BD61882FBBEA93008FDF74 /* VROInputState.h in Sources */,
 				E1BD61892FBBEA95008FDF74 /* VROVirtualControllerRegistry.h in Sources */,
 				E1BD617F2FBBE574008FDF74 /* VRODynamicGeometry.h in Sources */,
+				E1BD61922FC1A000008FDF74 /* VRODynamicMeshNode.h in Sources */,
 				E1626A1A2F46B83E005AA731 /* VROCloudAnchorProviderReactVision.h in Sources */,
 				8FE52F3721E82A8400BA63D4 /* VROObjectRecognitionTest.cpp in Sources */,
 				A57CA8DC20ADFDB700DE85A1 /* VROGLTFTest.cpp in Sources */,
@@ -4578,6 +4587,7 @@
 				A5A10754212D51E8008B2DFB /* gifalloc.c in Sources */,
 				8F129F951ECB41EE00341D83 /* VROSkeletalAnimation.cpp in Sources */,
 				E1BD617E2FBBE52A008FDF74 /* VRODynamicGeometry.cpp in Sources */,
+				E1BD61912FC1A000008FDF74 /* VRODynamicMeshNode.cpp in Sources */,
 				8FAE18C31EE79D470021C7BB /* VROARSessioniOS.cpp in Sources */,
 				E113082E2EF0F57D008AB6A1 /* VROMonocularDepthEstimator.mm in Sources */,
 				8FEACEE1201262EE0082D18B /* VROPBRTexturedTest.cpp in Sources */,

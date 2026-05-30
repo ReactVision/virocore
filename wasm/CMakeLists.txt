@@ -110,6 +110,7 @@ SET( VIRO_RENDERER_SRC
      ${VIRO_RENDERER_SRC}/VROGeometryElement.cpp
      ${VIRO_RENDERER_SRC}/VROGeometrySource.cpp
      ${VIRO_RENDERER_SRC}/VRODynamicGeometry.cpp
+     ${VIRO_RENDERER_SRC}/VRODynamicMeshNode.cpp
      ${VIRO_RENDERER_SRC}/VROInputState.cpp
      ${VIRO_RENDERER_SRC}/VROVirtualControllerRegistry.cpp
      ${VIRO_RENDERER_SRC}/VROMaterial.cpp
