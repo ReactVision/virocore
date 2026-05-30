@@ -78,8 +78,7 @@ std::vector<std::shared_ptr<VROShaderModifier>> VROParticleUBO::createInstanceSh
             "highp vec4 dest =_surface.diffuse_color.xyzw;",
             "highp vec4 src = particleColor;",
 
-            // Always take 50% of the particle color for now until VIRO-5125 is completed.
-            "highp float srcAlpha = 0.5;",
+            "highp float srcAlpha = particleColor.w;",
             "if (particleColor.x != -1.0 && _surface.diffuse_color.a != 0.0) {"
             "   highp vec4 final = (src * srcAlpha) + (dest * (1.0 - srcAlpha));",
             "   _surface.diffuse_color.xyz = final.xyz;",

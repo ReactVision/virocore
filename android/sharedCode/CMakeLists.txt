@@ -338,6 +338,7 @@ add_library( # Sets the name of the library.
              ${VIRO_ANDROID_SRC}/jni/VRORenderer_JNI.cpp
              ${VIRO_ANDROID_SRC}/jni/MediaRecorder_JNI.cpp
              ${VIRO_ANDROID_SRC}/jni/VROVirtualController_JNI.cpp
+             ${VIRO_ANDROID_SRC}/jni/VROGameLoop_JNI.cpp
              ${VIRO_ANDROID_SRC}/jni/VRORendererARCore_JNI.cpp
              ${VIRO_ANDROID_SRC}/jni/VROCameraImageListener.cpp
              ${VIRO_ANDROID_SRC}/jni/ARImageDatabaseLoaderDelegate.cpp

@@ -606,6 +606,7 @@
 		8FD1E1AF1C3F20C70005BE4E /* VROVideoSurface.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 8FD1E1AD1C3F20C70005BE4E /* VROVideoSurface.cpp */; };
 		8FD1E1B01C3F20C70005BE4E /* VROVideoSurface.h in Headers */ = {isa = PBXBuildFile; fileRef = 8FD1E1AE1C3F20C70005BE4E /* VROVideoSurface.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		8FD1E1B41C3F27190005BE4E /* VROFrameListener.h in Headers */ = {isa = PBXBuildFile; fileRef = 8FD1E1B21C3F27190005BE4E /* VROFrameListener.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		E1BD61952FC1A001008FDF74 /* VROGameLoopListener.h in Headers */ = {isa = PBXBuildFile; fileRef = E1BD61962FC1A001008FDF74 /* VROGameLoopListener.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		8FD1E1C01C4093790005BE4E /* VROVideoTexture.h in Headers */ = {isa = PBXBuildFile; fileRef = 8FD1E1BE1C4093790005BE4E /* VROVideoTexture.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		8FD2A4FA1F8064AD00E831A6 /* emoji_smile_anim.vrx in Resources */ = {isa = PBXBuildFile; fileRef = 8FD2A4F91F8064AD00E831A6 /* emoji_smile_anim.vrx */; };
 		8FD2A4FE1F809AD800E831A6 /* object_star_specular.png in Resources */ = {isa = PBXBuildFile; fileRef = 8FD2A4FB1F809AD700E831A6 /* object_star_specular.png */; };
@@ -1666,6 +1667,7 @@
 		8FD1E1AD1C3F20C70005BE4E /* VROVideoSurface.cpp */ = {isa = PBXFileReference; explicitFileType = sourcecode.cpp.objcpp; fileEncoding = 4; path = VROVideoSurface.cpp; sourceTree = "<group>"; };
 		8FD1E1AE1C3F20C70005BE4E /* VROVideoSurface.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = VROVideoSurface.h; sourceTree = "<group>"; };
 		8FD1E1B21C3F27190005BE4E /* VROFrameListener.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = VROFrameListener.h; sourceTree = "<group>"; };
+		E1BD61962FC1A001008FDF74 /* VROGameLoopListener.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VROGameLoopListener.h; sourceTree = "<group>"; };
 		8FD1E1BE1C4093790005BE4E /* VROVideoTexture.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = VROVideoTexture.h; sourceTree = "<group>"; };
 		8FD2A4F91F8064AD00E831A6 /* emoji_smile_anim.vrx */ = {isa = PBXFileReference; lastKnownFileType = file; name = emoji_smile_anim.vrx; path = ViroSample/emoji_smile_anim.vrx; sourceTree = "<group>"; };
 		8FD2A4FB1F809AD700E831A6 /* object_star_specular.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = object_star_specular.png; path = ViroSample/object_star_specular.png; sourceTree = "<group>"; };
@@ -2154,6 +2156,7 @@
 				8FA9D0A21CC947DD00B00B93 /* VRODriver.h */,
 				8FB4AE1221A440C20026096E /* VRODriver.cpp */,
 				8FD1E1B21C3F27190005BE4E /* VROFrameListener.h */,
+				E1BD61962FC1A001008FDF74 /* VROGameLoopListener.h */,
 				8F660AB61E955286006D063F /* VROFrameTimer.h */,
 				8F660AB91E9554B8006D063F /* VROFrameScheduler.h */,
 				8F660AB81E9554B8006D063F /* VROFrameScheduler.cpp */,
@@ -3670,6 +3673,7 @@
 				8FD1E1C01C4093790005BE4E /* VROVideoTexture.h in Headers */,
 				8F83DE921C474A800089C31A /* VROProjector.h in Headers */,
 				8FD1E1B41C3F27190005BE4E /* VROFrameListener.h in Headers */,
+				E1BD61952FC1A001008FDF74 /* VROGameLoopListener.h in Headers */,
 				8FC5428D22972E1700D2AFBB /* VROBodyMesher.h in Headers */,
 				8A5C055A1EF6416900F94CB9 /* VROARNode.h in Headers */,
 				8F0FE6751CD2D3FD00A4C297 /* VROViewMetal.h in Headers */,
