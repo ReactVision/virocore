@@ -1586,9 +1586,9 @@ void VROARSessioniOS::updateAnchor(ARAnchor *anchor) {
       }
     }
       */
-  } else {
-    pinfo("Anchor %@ not found!", anchor.identifier);
   }
+  // else: anchor not in _nativeAnchorMap — normal for ARMeshAnchors, CCA anchors
+  // received before ViroReact has processed them. No log needed.
 }
 
 void VROARSessioniOS::removeAnchor(ARAnchor *anchor) {
