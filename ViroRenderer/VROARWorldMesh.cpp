@@ -30,7 +30,10 @@
 #include "VROPhysicsShape.h"
 #include "VROPencil.h"
 #include "VROLog.h"
+#include "VROPlatformUtil.h"
 #include <btBulletDynamicsCommon.h>
+#include <unordered_map>
+#include <algorithm>
 
 void BulletRigidBodyDeleter::operator()(btRigidBody *body) const {
     if (!body) return;
@@ -146,51 +149,74 @@ void VROARWorldMesh::forceUpdate(const std::unique_ptr<VROARFrame>& frame) {
 }
 
 void VROARWorldMesh::applyMeshToPhysics(std::shared_ptr<VROARDepthMesh> mesh) {
-    // Remove old physics body first
+    // Remove old body immediately on the render thread (fast — just unlinking).
     removeFromPhysicsWorld();
-
     _currentMesh = mesh;
 
-    // Create new physics shape from mesh vertices and indices
-    _physicsShape = std::make_shared<VROPhysicsShape>(
-        mesh->getVertices(),
-        mesh->getIndices()
-    );
-
-    if (!_physicsShape->getBulletShape()) {
-        pwarn("VROARWorldMesh: failed to create physics shape from depth mesh");
-        return;
+    // Simplify for physics. Vertex clustering (gap-free) takes priority over stride decimation.
+    std::shared_ptr<VROARDepthMesh> physicsMesh = mesh;
+    if (_config.physicsCellSize > 0.0f) {
+        physicsMesh = clusterMesh(mesh, _config.physicsCellSize);
+    } else if (_config.physicsMaxTriangles > 0 &&
+               mesh->getTriangleCount() > _config.physicsMaxTriangles) {
+        physicsMesh = decimateMesh(mesh, _config.physicsMaxTriangles);
+        pinfo("VROARWorldMesh: decimated physics mesh from %d to %d triangles",
+              mesh->getTriangleCount(), physicsMesh->getTriangleCount());
     }
-
-    // Create motion state at identity transform (mesh is already in world space)
-    btTransform transform;
-    transform.setIdentity();
-    _motionState = std::unique_ptr<btDefaultMotionState>(new btDefaultMotionState(transform));
-
-    // Create rigid body with mass 0 (static body)
-    btRigidBody::btRigidBodyConstructionInfo rbInfo(
-        0.0f,  // mass = 0 for static body
-        _motionState.get(),
-        _physicsShape->getBulletShape(),
-        btVector3(0, 0, 0)  // local inertia (unused for static)
-    );
-
-    _rigidBody = std::unique_ptr<btRigidBody, BulletRigidBodyDeleter>(
-        new btRigidBody(rbInfo), BulletRigidBodyDeleter{_physicsWorld}
-    );
-    _rigidBody->setFriction(_config.friction);
-    _rigidBody->setRestitution(_config.restitution);
-
-    // Set collision flags for static object
-    _rigidBody->setCollisionFlags(
-        _rigidBody->getCollisionFlags() | btCollisionObject::CF_STATIC_OBJECT
-    );
-
-    // Add to physics world
-    addToPhysicsWorld();
 
     pinfo("VROARWorldMesh: updated mesh with %d vertices, %d triangles",
           mesh->getVertexCount(), mesh->getTriangleCount());
+
+    // ── Async BVH construction ────────────────────────────────────────────────
+    // btBvhTriangleMeshShape construction is O(n log n) and can take 200–400 ms
+    // for dense LiDAR meshes, blocking the render thread and causing ARKit to
+    // back up retaining ARFrames. Move it to a background thread; marshal only
+    // the rigid-body creation and physics-world insertion back to render thread.
+    std::weak_ptr<VROARWorldMesh> weakSelf = shared_from_this();
+    auto vertices = physicsMesh->getVertices();
+    auto indices  = physicsMesh->getIndices();
+    float friction    = _config.friction;
+    float restitution = _config.restitution;
+    std::weak_ptr<VROPhysicsWorld> weakPhysicsWorld = _physicsWorld;
+
+    VROPlatformDispatchAsyncBackground([weakSelf, vertices, indices,
+                                        friction, restitution, weakPhysicsWorld]() {
+        // Build the expensive BVH on the background thread.
+        auto shape = std::make_shared<VROPhysicsShape>(vertices, indices);
+        if (!shape->getBulletShape()) {
+            pwarn("VROARWorldMesh: failed to create physics shape (background)");
+            return;
+        }
+
+        // Marshal rigid-body creation + physics-world insertion back to render thread.
+        VROPlatformDispatchAsyncRenderer([weakSelf, shape, friction, restitution,
+                                          weakPhysicsWorld]() {
+            auto self = weakSelf.lock();
+            if (!self) return;
+            // Abort if the world mesh was disabled or a newer update arrived first.
+            if (!self->_enabled) return;
+
+            self->_physicsShape = shape;
+
+            btTransform transform;
+            transform.setIdentity();
+            self->_motionState = std::unique_ptr<btDefaultMotionState>(
+                new btDefaultMotionState(transform));
+
+            btRigidBody::btRigidBodyConstructionInfo rbInfo(
+                0.0f, self->_motionState.get(),
+                shape->getBulletShape(), btVector3(0, 0, 0));
+
+            self->_rigidBody = std::unique_ptr<btRigidBody, BulletRigidBodyDeleter>(
+                new btRigidBody(rbInfo), BulletRigidBodyDeleter{weakPhysicsWorld});
+            self->_rigidBody->setFriction(friction);
+            self->_rigidBody->setRestitution(restitution);
+            self->_rigidBody->setCollisionFlags(
+                self->_rigidBody->getCollisionFlags() | btCollisionObject::CF_STATIC_OBJECT);
+
+            self->addToPhysicsWorld();
+        });
+    });
 }
 
 void VROARWorldMesh::addToPhysicsWorld() {
@@ -198,10 +224,14 @@ void VROARWorldMesh::addToPhysicsWorld() {
         pinfo("VROARWorldMesh::addToPhysicsWorld - no rigid body");
         return;
     }
+    if (_isAddedToPhysicsWorld) {
+        return;  // already in world — removeFromPhysicsWorld() must be called first
+    }
 
     std::shared_ptr<VROPhysicsWorld> physicsWorld = _physicsWorld.lock();
     if (physicsWorld) {
         physicsWorld->addRigidBody(_rigidBody.get());
+        _isAddedToPhysicsWorld = true;
         pinfo("VROARWorldMesh::addToPhysicsWorld - added rigid body to physics world");
     } else {
         pwarn("VROARWorldMesh::addToPhysicsWorld - physics world is null!");
@@ -209,6 +239,7 @@ void VROARWorldMesh::addToPhysicsWorld() {
 }
 
 void VROARWorldMesh::removeFromPhysicsWorld() {
+    _isAddedToPhysicsWorld = false;
     // BulletRigidBodyDeleter removes the body from the world before deleting it.
     _rigidBody.reset();
     _motionState.reset();
@@ -288,6 +319,76 @@ std::shared_ptr<VROARDepthMesh> VROARWorldMesh::decimateMesh(
         mesh->getVertices(),
         std::move(newIndices),
         mesh->getConfidences(),
+        mesh->getSource()
+    );
+}
+
+std::shared_ptr<VROARDepthMesh> VROARWorldMesh::clusterMesh(
+    std::shared_ptr<VROARDepthMesh> mesh, float cellSize)
+{
+    if (cellSize <= 0.0f) return mesh;
+
+    const std::vector<VROVector3f>& verts = mesh->getVertices();
+    const std::vector<int>&         idxs  = mesh->getIndices();
+    if (verts.empty() || idxs.empty()) return mesh;
+
+    // Compute bounding box
+    VROVector3f lo(verts[0]), hi(verts[0]);
+    for (const auto& v : verts) {
+        lo.x = std::min(lo.x, v.x); lo.y = std::min(lo.y, v.y); lo.z = std::min(lo.z, v.z);
+        hi.x = std::max(hi.x, v.x); hi.y = std::max(hi.y, v.y); hi.z = std::max(hi.z, v.z);
+    }
+
+    // Map each vertex to its grid cell; keep one representative per cell.
+    // Encode (ix, iy, iz) into a 64-bit key (max grid 2^20 per axis ≈ 1km at 1mm cells).
+    std::unordered_map<uint64_t, int> cellToRep;
+    cellToRep.reserve(verts.size() / 4);
+
+    std::vector<VROVector3f> newVerts;
+    newVerts.reserve(verts.size() / 4);
+
+    std::vector<int> vertToRep(verts.size(), -1);
+
+    for (int i = 0; i < (int)verts.size(); ++i) {
+        int ix = (int)((verts[i].x - lo.x) / cellSize);
+        int iy = (int)((verts[i].y - lo.y) / cellSize);
+        int iz = (int)((verts[i].z - lo.z) / cellSize);
+        uint64_t key = ((uint64_t)(ix & 0xFFFFF) << 40)
+                     | ((uint64_t)(iy & 0xFFFFF) << 20)
+                     |  (uint64_t)(iz & 0xFFFFF);
+
+        auto it = cellToRep.find(key);
+        if (it == cellToRep.end()) {
+            int repIdx = (int)newVerts.size();
+            cellToRep[key] = repIdx;
+            newVerts.push_back(verts[i]);
+            vertToRep[i] = repIdx;
+        } else {
+            vertToRep[i] = it->second;
+        }
+    }
+
+    // Rebuild index buffer; drop degenerate triangles (2+ verts in same cell).
+    std::vector<int> newIdxs;
+    newIdxs.reserve(idxs.size());
+
+    for (int t = 0; t < (int)idxs.size(); t += 3) {
+        int r0 = vertToRep[idxs[t]];
+        int r1 = vertToRep[idxs[t + 1]];
+        int r2 = vertToRep[idxs[t + 2]];
+        if (r0 == r1 || r1 == r2 || r0 == r2) continue;
+        newIdxs.push_back(r0);
+        newIdxs.push_back(r1);
+        newIdxs.push_back(r2);
+    }
+
+    pinfo("VROARWorldMesh: clustered mesh from %d to %d triangles (cellSize=%.2fm)",
+          (int)(idxs.size() / 3), (int)(newIdxs.size() / 3), cellSize);
+
+    return std::make_shared<VROARDepthMesh>(
+        std::move(newVerts),
+        std::move(newIdxs),
+        std::vector<float>(),
         mesh->getSource()
     );
 }
