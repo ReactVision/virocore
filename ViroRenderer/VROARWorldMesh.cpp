@@ -156,8 +156,15 @@ void VROARWorldMesh::applyMeshToPhysics(std::shared_ptr<VROARDepthMesh> mesh) {
     // Simplify for physics. Vertex clustering (gap-free) takes priority over stride decimation.
     std::shared_ptr<VROARDepthMesh> physicsMesh = mesh;
     if (_config.physicsCellSize > 0.0f) {
-        physicsMesh = clusterMesh(mesh, _config.physicsCellSize);
-    } else if (_config.physicsMaxTriangles > 0 &&
+        auto clustered = clusterMesh(mesh, _config.physicsCellSize);
+        if (clustered && clustered->getTriangleCount() > 0) {
+            physicsMesh = clustered;
+        }
+        // If clustering collapsed all triangles (e.g. dense ARCore depth grid with
+        // vertices closer than cellSize), fall through to the original mesh so
+        // physics still gets a shape. Stride decimation applies below if configured.
+    }
+    if (_config.physicsMaxTriangles > 0 &&
                mesh->getTriangleCount() > _config.physicsMaxTriangles) {
         physicsMesh = decimateMesh(mesh, _config.physicsMaxTriangles);
         pinfo("VROARWorldMesh: decimated physics mesh from %d to %d triangles",
