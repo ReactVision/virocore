@@ -90,7 +90,7 @@ VROMonocularDepthEstimator::VROMonocularDepthEstimator(std::shared_ptr<VRODriver
     _hitTestConfidenceThreshold(0.3f),
     _temporalFilteringEnabled(true),
     _temporalFilterAlpha(0.3f),
-    _targetFPS(15),
+    _targetFPS(5),   // 5fps: sufficient for AR occlusion, halves ANE thermal load vs default 15
     _lastInferenceTime(0),
     _currentFPS(0),
     _averageLatencyMs(0),
@@ -102,9 +102,11 @@ VROMonocularDepthEstimator::VROMonocularDepthEstimator(std::shared_ptr<VRODriver
     // Create serial dispatch queue for depth inference
     _depthQueue = dispatch_queue_create("com.viro.depthQueue", DISPATCH_QUEUE_SERIAL);
 
-    // Set high QoS for responsive depth updates
+    // UTILITY QoS: background ML inference shouldn't compete with rendering.
+    // The OS schedules utility work on efficiency cores when available (A14+),
+    // which dramatically reduces heat compared to USER_INITIATED.
     dispatch_set_target_queue(_depthQueue,
-        dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0));
+        dispatch_get_global_queue(QOS_CLASS_UTILITY, 0));
 
     _depthTextureTransform = VROMatrix4f::identity();
 }
@@ -335,12 +337,28 @@ void VROMonocularDepthEstimator::update(const VROARFrame *frame) {
         return;
     }
 
-    // Rate limiting - skip if we're processing too fast
+    // Thermal-adaptive rate limiting.
+    // NSProcessInfoThermalState: Nominal=0, Fair=1, Serious=2, Critical=3
+    // Throttle down as the device warms up to prevent sustained heat.
     double currentTime = VROTimeCurrentMillis();
-    if (_targetFPS > 0) {
-        double targetInterval = 1000.0 / _targetFPS;
+    {
+        int effectiveFPS = _targetFPS;
+        if (@available(iOS 11.0, *)) {
+            NSProcessInfoThermalState state = [NSProcessInfo processInfo].thermalState;
+            if (state == NSProcessInfoThermalStateCritical) {
+                effectiveFPS = 0;  // stop entirely — device needs to cool
+            } else if (state == NSProcessInfoThermalStateSerious) {
+                effectiveFPS = std::min(effectiveFPS, 2);
+            } else if (state == NSProcessInfoThermalStateFair) {
+                effectiveFPS = std::min(effectiveFPS, 3);
+            }
+            // Nominal: use full _targetFPS
+        }
+        if (effectiveFPS <= 0) {
+            return;
+        }
+        double targetInterval = 1000.0 / effectiveFPS;
         if ((currentTime - _lastInferenceTime) < targetInterval) {
-            // Rate-limited to avoid overloading inference
             return;
         }
     }

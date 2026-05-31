@@ -1138,6 +1138,15 @@ static inline VROMatrix4f viroGLConvTransform(VROMatrix4f t) {
     }
 }
 
+- (void)setMonocularDepthTargetFPS:(int)fps {
+    if (self.trackingType == VROTrackingType::DOF6) {
+        std::shared_ptr<VROARSessioniOS> session = std::dynamic_pointer_cast<VROARSessioniOS>([self getARSession]);
+        if (session) {
+            session->setMonocularDepthTargetFPS(fps);
+        }
+    }
+}
+
 @end
 
 @implementation VROGlassView

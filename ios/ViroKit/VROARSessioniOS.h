@@ -130,6 +130,10 @@ public:
     // 1.0 = no change (default). Use < 1.0 if model overestimates distance.
     void setMonocularDepthScale(float scale);
 
+    // Set the target inference rate (default 5). Thermal state overrides this
+    // downward automatically (Fair→3fps, Serious→2fps, Critical→stop).
+    void setMonocularDepthTargetFPS(int fps);
+
     /*
      Set the base URL from which to download the depth model.
      The full URL will be: baseURL/DepthPro.mlmodelc.zip
@@ -362,6 +366,7 @@ private:
     bool _preferMonocularDepth;  // When true, use monocular even on LiDAR devices
     bool _monocularDepthLoading;
     float _monocularDepthScale;  // Multiplied into depth values (1.0 = no change)
+    int   _monocularDepthTargetFPS;  // 0 = use estimator default
     std::shared_ptr<VRODriver> _driver;
 
     void updateTrackingType(VROTrackingType trackingType);
