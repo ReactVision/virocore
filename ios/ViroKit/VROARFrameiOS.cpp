@@ -608,6 +608,79 @@ VROMatrix4f VROARFrameiOS::getDepthTextureTransform() const {
     return matrix;
 }
 
+VROMatrix4f VROARFrameiOS::getDepthDebugTextureTransform() const {
+    UIInterfaceOrientation orientation = VROConvert::toDeviceOrientation(_orientation);
+    CGSize viewportSize = CGSizeMake(_viewport.getWidth()  / _viewport.getContentScaleFactor(),
+                                     _viewport.getHeight() / _viewport.getContentScaleFactor());
+
+    CGAffineTransform arkitInverse = CGAffineTransformInvert(
+        [_frame displayTransformForOrientation:orientation viewportSize:viewportSize]);
+
+    std::shared_ptr<VROARSessioniOS> session = _session.lock();
+    bool isMonocular = session && session->isPreferMonocularDepth();
+    if (!isMonocular) {
+        if (@available(iOS 14.0, *)) {
+            isMonocular = (_frame.sceneDepth == nil) && session &&
+                          session->getMonocularDepthEstimator() != nullptr;
+        }
+    }
+
+    float ai_a = arkitInverse.a, ai_b = arkitInverse.b;
+    float ai_c = arkitInverse.c, ai_d = arkitInverse.d;
+    float ai_tx = arkitInverse.tx, ai_ty = arkitInverse.ty;
+
+    if (isMonocular) {
+        // Orientation rotation only — no ScaleFill crop correction.
+        // This maps the full screen [0,1]×[0,1] to the full depth texture
+        // [0,1]×[0,1], giving a single full-screen debug overlay without
+        // magenta "no-data" bands at the coverage edges.
+        float a_sx, a_sy, a_c;
+        float b_sx, b_sy, b_c;
+
+        switch (_orientation) {
+            case VROCameraOrientation::Portrait:
+                a_sx = -ai_b;  a_sy = -ai_d;  a_c = 1.0f - ai_ty;
+                b_sx =  ai_a;  b_sy =  ai_c;  b_c = ai_tx;
+                break;
+            case VROCameraOrientation::PortraitUpsideDown:
+                a_sx =  ai_b;  a_sy =  ai_d;  a_c = ai_ty;
+                b_sx = -ai_a;  b_sy = -ai_c;  b_c = 1.0f - ai_tx;
+                break;
+            case VROCameraOrientation::LandscapeRight:
+                a_sx =  ai_a;  a_sy =  ai_c;  a_c = ai_tx;
+                b_sx =  ai_b;  b_sy =  ai_d;  b_c = ai_ty;
+                break;
+            case VROCameraOrientation::LandscapeLeft:
+                a_sx = -ai_a;  a_sy = -ai_c;  a_c = 1.0f - ai_tx;
+                b_sx = -ai_b;  b_sy = -ai_d;  b_c = 1.0f - ai_ty;
+                break;
+            default:
+                a_sx = -ai_b;  a_sy = -ai_d;  a_c = 1.0f - ai_ty;
+                b_sx =  ai_a;  b_sy =  ai_c;  b_c = ai_tx;
+                break;
+        }
+
+        VROMatrix4f matrix;
+        matrix[0]  = a_sx;
+        matrix[1]  = b_sx;
+        matrix[4]  = a_sy;
+        matrix[5]  = b_sy;
+        matrix[12] = a_c;
+        matrix[13] = b_c;
+        return matrix;
+    }
+
+    // Non-monocular (LiDAR): same as the full transform (no crop correction needed).
+    VROMatrix4f matrix;
+    matrix[0] = ai_a;
+    matrix[1] = ai_b;
+    matrix[4] = ai_c;
+    matrix[5] = ai_d;
+    matrix[12] = ai_tx;
+    matrix[13] = ai_ty;
+    return matrix;
+}
+
 float VROARFrameiOS::getSemanticLabelFraction(VROSemanticLabel label) {
     // Scene Semantics on iOS is provided through the ARCore SDK
     // Delegate to the session which has access to the ARCore provider

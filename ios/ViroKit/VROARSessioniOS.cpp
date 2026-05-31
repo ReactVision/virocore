@@ -1196,20 +1196,32 @@ void VROARSessioniOS::setMonocularDepthEnabled(bool enabled) {
         frameworkBundle = [NSBundle mainBundle];
       }
 
-      NSString *bundledPath = [frameworkBundle pathForResource:@"DepthPro" ofType:@"mlmodelc"];
+      // Priority order: DAv2 metric indoor > DepthPro > DAv2 relative (needs calibration)
+      // DAv2-metric-hypersim gives the best indoor AR accuracy at same speed as DepthPro.
+      NSArray<NSString *> *candidates = @[
+          @"DepthAnythingV2_metric_indoor",   // DAv2 metric, Hypersim-trained (best indoor)
+          @"DepthAnythingV2_metric_outdoor",  // DAv2 metric, KITTI-trained
+          @"DepthPro",                         // Apple DepthPro metric
+          @"DepthAnythingV2",                  // DAv2 relative (needs _depthScaleFactor calibration)
+      ];
 
-      // Fallback to main app bundle (for custom deployments)
-      if (!bundledPath) {
-        bundledPath = [[NSBundle mainBundle] pathForResource:@"DepthPro" ofType:@"mlmodelc"];
+      NSString *bundledPath = nil;
+      for (NSString *name in candidates) {
+          bundledPath = [frameworkBundle pathForResource:name ofType:@"mlmodelc"];
+          if (!bundledPath) {
+              bundledPath = [[NSBundle mainBundle] pathForResource:name ofType:@"mlmodelc"];
+          }
+          if (bundledPath) {
+              NSLog(@"[ViroDepth] Using depth model: %@ at %@", name, bundledPath);
+              break;
+          }
       }
 
       if (bundledPath) {
-        NSLog(@"DepthPro model found at: %s", [bundledPath UTF8String]);
-        pinfo("DepthPro model found at: %s", [bundledPath UTF8String]);
         strongSelf->initializeMonocularDepthEstimator(bundledPath);
       } else {
-        NSLog(@"DepthPro.mlmodelc not found in bundle - monocular depth unavailable");
-        pwarn("DepthPro.mlmodelc not found in bundle - monocular depth unavailable");
+        NSLog(@"No depth model found in bundle - tried: %@", [candidates componentsJoinedByString:@", "]);
+        pwarn("No monocular depth model found in bundle");
       }
 
       strongSelf->_monocularDepthLoading = false;

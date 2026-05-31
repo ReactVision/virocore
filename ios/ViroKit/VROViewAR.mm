@@ -100,6 +100,7 @@ static inline VROMatrix4f viroGLConvTransform(VROMatrix4f t) {
     bool _depthDebugEnabled;
     float _depthDebugOpacity;
     VROMatrix4f _depthTextureTransform;
+    VROMatrix4f _depthDebugTextureTransform;
     VROViewport _currentViewport;
 
     // Semantic debug overlay modifier and its state
@@ -837,12 +838,19 @@ static inline VROMatrix4f viroGLConvTransform(VROMatrix4f t) {
 
     // Store for debug modifier uniform binders
     _depthTextureTransform = depthTextureTransform;
+    // Debug transform: no ScaleFill crop → full-screen coverage (monocular-only difference)
+    if (depthTexture) {
+        _depthDebugTextureTransform = frame->getDepthDebugTextureTransform();
+    } else {
+        _depthDebugTextureTransform = VROMatrix4f::identity();
+    }
 
     // CRITICAL: Set occlusion info on the render context BEFORE prepareFrame
     // so that shader capability keys include arOcclusion during scene traversal.
     _renderer->setOcclusionMode(occlusionMode);
     _renderer->setDepthTexture(depthTexture);
     _renderer->setDepthTextureTransform(depthTextureTransform);
+    _renderer->setDepthIsMonocular(depthTexture != nullptr && [self isPreferMonocularDepth]);
 
     // Expose live camera feed to shader modifiers via 'camera_texture' sampler
     _renderer->setCameraBackgroundTexture(_arSession->getCameraBackgroundTexture());
@@ -858,30 +866,21 @@ static inline VROMatrix4f viroGLConvTransform(VROMatrix4f t) {
     _pointOfView->getCamera()->setPosition(position);
     _renderer->prepareFrame(_frame, viewport, fov, rotation, projection, _driver);
 
-    // DEBUG: Occlusion debug logging (every 60 frames)
-    // Uncomment for debugging: occlusionMode, depthTexture, transform, viewport, camera image dimensions
-    /*
+    // Occlusion debug logging (every 90 frames ≈ every 3 sec)
     static int occDebugCounter = 0;
-    if (occDebugCounter++ % 60 == 0) {
-        NSLog(@"DEBUG occlusionMode=%d, depthTexture=%p, hydrated=%d",
+    if (occDebugCounter++ % 90 == 0) {
+        NSLog(@"[ViroOcclusion] mode=%d tex=%p hydrated=%d occEnabled=%d",
               (int)occlusionMode, depthTexture.get(),
-              depthTexture ? depthTexture->isHydrated() : -1);
+              depthTexture ? depthTexture->isHydrated() : -1,
+              depthTexture && occlusionMode == VROOcclusionMode::DepthBased ? 1 : 0);
         if (depthTexture) {
-            NSLog(@"DEBUG depthTexture size=%dx%d", depthTexture->getWidth(), depthTexture->getHeight());
-            NSLog(@"DEBUG transform: [%.3f, %.3f, 0, 0]", depthTextureTransform[0], depthTextureTransform[1]);
-            NSLog(@"DEBUG           [%.3f, %.3f, 0, 0]", depthTextureTransform[4], depthTextureTransform[5]);
-            NSLog(@"DEBUG           tx=%.3f, ty=%.3f", depthTextureTransform[12], depthTextureTransform[13]);
-            NSLog(@"DEBUG viewport=%dx%d", viewport.getWidth(), viewport.getHeight());
-            const VROARFrameiOS *frameiOS = dynamic_cast<const VROARFrameiOS *>(frame.get());
-            if (frameiOS) {
-                CVPixelBufferRef camImg = frameiOS->getImage();
-                if (camImg) {
-                    NSLog(@"DEBUG camImage=%zux%zu", CVPixelBufferGetWidth(camImg), CVPixelBufferGetHeight(camImg));
-                }
-            }
+            NSLog(@"[ViroOcclusion] depthTex=%dx%d  scaleFillTransform=[%.3f %.3f | %.3f %.3f | tx=%.3f ty=%.3f]",
+                  depthTexture->getWidth(), depthTexture->getHeight(),
+                  depthTextureTransform[0], depthTextureTransform[4],
+                  depthTextureTransform[1], depthTextureTransform[5],
+                  depthTextureTransform[12], depthTextureTransform[13]);
         }
     }
-    */
 
     _renderer->renderEye(VROEyeType::Monocular, _renderer->getLookAtMatrix(), projection, viewport, _driver);
     _renderer->renderHUD(VROEyeType::Monocular, VROMatrix4f::identity(), projection, _driver);
@@ -955,7 +954,9 @@ static inline VROMatrix4f viroGLConvTransform(VROMatrix4f t) {
                 [weakSelf](VROUniform *uniform, const VROGeometry *geometry, const VROMaterial *material) {
                     VROViewAR *strongSelf = weakSelf;
                     if (strongSelf) {
-                        uniform->setMat4(strongSelf->_depthTextureTransform);
+                        // Use the no-crop debug transform so depth fills the full
+                        // screen without magenta bands at the ScaleFill coverage edges.
+                        uniform->setMat4(strongSelf->_depthDebugTextureTransform);
                     }
                 });
 

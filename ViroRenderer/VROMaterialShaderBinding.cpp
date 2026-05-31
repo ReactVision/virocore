@@ -95,6 +95,7 @@ void VROMaterialShaderBinding::loadUniforms() {
     _arCameraPositionUniform = program->getUniform("ar_camera_position");
     _arViewportSizeUniform = program->getUniform("ar_viewport_size");
     _arDepthTextureTransformUniform = program->getUniform("ar_depth_texture_transform");
+    _arDepthIsMonocularUniform = program->getUniform("ar_depth_is_monocular");
     _occlusionZNearUniform = program->getUniform("occlusion_z_near");
     _occlusionZFarUniform = program->getUniform("occlusion_z_far");
 
@@ -396,6 +397,9 @@ void VROMaterialShaderBinding::bindOcclusionUniforms(const VRORenderContext &con
     if (_arDepthTextureTransformUniform != nullptr) {
         VROMatrix4f depthTransform = context.getDepthTextureTransform();
         _arDepthTextureTransformUniform->setMat4(depthTransform);
+    }
+    if (_arDepthIsMonocularUniform != nullptr) {
+        _arDepthIsMonocularUniform->setFloat(context.isDepthMonocular() ? 1.0f : 0.0f);
     }
     if (_occlusionZNearUniform != nullptr) {
         _occlusionZNearUniform->setFloat(context.getZNear());
