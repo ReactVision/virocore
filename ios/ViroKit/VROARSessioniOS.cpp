@@ -156,6 +156,7 @@ VROARSessioniOS::VROARSessioniOS(VROTrackingType trackingType,
       _monocularDepthEnabled(false),
       _preferMonocularDepth(false),
       _monocularDepthLoading(false),
+      _monocularDepthScale(1.0f),
       _needsGeospatialModeApply(false),
       _driver(driver) {
 
@@ -1278,6 +1279,15 @@ bool VROARSessioniOS::isPreferMonocularDepth() const {
     return _preferMonocularDepth;
 }
 
+void VROARSessioniOS::setMonocularDepthScale(float scale) {
+    if (_monocularDepthEstimator) {
+        _monocularDepthEstimator->setScaleFactor(scale);
+        NSLog(@"[ViroDepth] Monocular depth scale set to %.3f", scale);
+    }
+    // Store so we can apply when the estimator loads later
+    _monocularDepthScale = scale;
+}
+
 void VROARSessioniOS::initializeMonocularDepthEstimator(NSString *modelPath) {
     NSLog(@"Initializing monocular depth estimator with model: %s", [modelPath UTF8String]);
     pinfo("Initializing monocular depth estimator with model: %s", [modelPath UTF8String]);
@@ -1294,6 +1304,12 @@ void VROARSessioniOS::initializeMonocularDepthEstimator(NSString *modelPath) {
         pwarn("Failed to initialize monocular depth estimator");
         _monocularDepthEstimator.reset();
         return;
+    }
+
+    // Apply scale factor that may have been set before model loaded
+    if (_monocularDepthScale != 1.0f) {
+        _monocularDepthEstimator->setDepthScaleFactor(_monocularDepthScale);
+        NSLog(@"[ViroDepth] Applied pending depth scale factor: %.3f", _monocularDepthScale);
     }
 
     NSLog(@"SUCCESS: Monocular depth estimator initialized and model loaded successfully");
