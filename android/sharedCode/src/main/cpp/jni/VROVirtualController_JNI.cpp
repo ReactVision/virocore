@@ -28,6 +28,9 @@
 #define VRO_METHOD(return_type, method_name) \
   JNIEXPORT return_type JNICALL              \
       Java_com_viromedia_bridge_component_VRTVirtualJoystickView_##method_name
+#define VRO_BTN_METHOD(return_type, method_name) \
+  JNIEXPORT return_type JNICALL                   \
+      Java_com_viromedia_bridge_component_VRTVirtualButtonView_##method_name
 #endif
 
 static inline jlong toRef(std::shared_ptr<VROInputState> state) {
@@ -61,6 +64,25 @@ VRO_METHOD(void, nativeSetStickR)(VRO_ARGS jlong ref, jfloat x, jfloat y) {
 }
 
 VRO_METHOD(void, nativeSetButton)(VRO_ARGS jlong ref, jint buttonIndex, jboolean pressed) {
+    fromRef(ref)->setButton((int)buttonIndex, (bool)pressed);
+}
+
+// ── VRTVirtualButtonView ──────────────────────────────────────────────────────
+// Same acquire/release/setButton logic, different JNI class prefix.
+
+VRO_BTN_METHOD(jlong, nativeAcquire)(VRO_ARGS jstring controllerId) {
+    std::string id = VRO_STRING_STL(controllerId);
+    auto state = VROVirtualControllerRegistry::instance().acquire(id);
+    return toRef(state);
+}
+
+VRO_BTN_METHOD(void, nativeRelease)(VRO_ARGS jstring controllerId, jlong ref) {
+    std::string id = VRO_STRING_STL(controllerId);
+    VROVirtualControllerRegistry::instance().release(id);
+    delete reinterpret_cast<PersistentRef<VROInputState> *>(ref);
+}
+
+VRO_BTN_METHOD(void, nativeSetButton)(VRO_ARGS jlong ref, jint buttonIndex, jboolean pressed) {
     fromRef(ref)->setButton((int)buttonIndex, (bool)pressed);
 }
 
