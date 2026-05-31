@@ -58,7 +58,7 @@ public:
     void setUpdateListener(std::function<void(CMSampleBufferRef, std::vector<float>)> listener) {
         _updateListener = listener;
     }
-    
+
     /*
      Get the CMSampleBufferRef that corresponds to the last image produced by this
      controller.
@@ -66,7 +66,7 @@ public:
     CMSampleBufferRef getSampleBuffer() const {
         return _lastSampleBuffer;
     }
-    
+
     /*
      Get the camera intrinsics that correspond to the last image produced by this
      controller.
@@ -74,16 +74,63 @@ public:
     std::vector<float> getCameraIntrinsics() const {
         return _lastCameraIntrinsics;
     }
-    
+
+    // -----------------------------------------------------------------------
+    // Photo capture
+    // -----------------------------------------------------------------------
+
+    /*
+     Capture a single JPEG still and write it to outputPath.
+     onComplete(success, path, errorMessage) is called on the main queue.
+     */
+    void capturePhoto(NSString *outputPath,
+                      std::function<void(bool, NSString *, NSString *)> onComplete);
+
+    // -----------------------------------------------------------------------
+    // Video recording
+    // -----------------------------------------------------------------------
+
+    /*
+     Start recording to outputPath (MP4). onStarted fires when recording begins.
+     */
+    void startRecording(NSString *outputPath,
+                        std::function<void(bool, NSString *, NSString *)> onStarted);
+
+    /*
+     Stop an in-progress recording. onStopped(success, path, error) fires on main queue.
+     */
+    void stopRecording(std::function<void(bool, NSString *, NSString *)> onStopped);
+
+    bool isRecording() const { return _isRecording; }
+
 private:
     
     /*
-     Capture session and delegate used for live video playback.
+     Capture session and delegates used for live video playback.
      */
     AVCaptureSession *_captureSession;
     VROCameraCaptureDelegate *_delegate;
     VROCameraOrientationListener *_orientationListener;
-    
+
+    /*
+     Photo output — added to the session during initCapture.
+     */
+    AVCapturePhotoOutput *_photoOutput;
+
+    /*
+     Movie file output — added during startRecording, removed after stopRecording.
+     */
+    AVCaptureMovieFileOutput *_movieOutput;
+    NSString *_recordingPath;
+    bool _isRecording;
+
+    /*
+     Pending completion callbacks (held as ObjC blocks via __block to avoid
+     capturing C++ lambdas across ARC boundaries).
+     */
+    std::function<void(bool, NSString *, NSString *)> _photoCompletion;
+    std::function<void(bool, NSString *, NSString *)> _recordingCompletion;
+
     /*
      True if paused.
      */
@@ -122,6 +169,21 @@ private:
 - (id)initWithCaptureController:(std::shared_ptr<VROAVCaptureController>)controller;
 - (void)orientationDidChange:(NSNotification *)notification;
 
+@end
+
+/*
+ Delegate for AVCapturePhotoOutput still captures.
+ */
+@interface VROCameraPhotoDelegate : NSObject <AVCapturePhotoCaptureDelegate>
+- (id)initWithOutputPath:(NSString *)path
+              completion:(std::function<void(bool, NSString *, NSString *)>)completion;
+@end
+
+/*
+ Delegate for AVCaptureMovieFileOutput recording.
+ */
+@interface VROCameraMovieDelegate : NSObject <AVCaptureFileOutputRecordingDelegate>
+- (id)initWithCompletion:(std::function<void(bool, NSString *, NSString *)>)completion;
 @end
 
 #endif /* VROAVCaptureController_h */
