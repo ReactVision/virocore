@@ -427,8 +427,20 @@ bool VROARSessionARCore::updateARCoreConfig() {
     }
   }
 
+  // ARCore Augmented Faces (front camera) requires:
+  //   - PlaneFinding = DISABLED  (plane detection not supported with front camera)
+  //   - LightEstimation = AMBIENT_INTENSITY  (ENVIRONMENTAL_HDR not supported)
+  // Override these when front camera mode is active.
+  arcore::LightingMode effectiveLightingMode = _lightingMode;
+  arcore::PlaneFindingMode effectivePlaneFindingMode = _planeFindingMode;
+  if (_frontCameraEnabled) {
+      effectiveLightingMode    = arcore::LightingMode::AmbientIntensity;
+      effectivePlaneFindingMode = arcore::PlaneFindingMode::Disabled;
+      pinfo("ViroARCore: Augmented Faces — overriding lighting=AmbientIntensity, planes=Disabled");
+  }
+
   arcore::Config *config =
-      _session->createConfig(_lightingMode, _planeFindingMode, _updateMode,
+      _session->createConfig(effectiveLightingMode, effectivePlaneFindingMode, _updateMode,
                              _cloudAnchorMode, _focusMode, effectiveDepthMode, effectiveSemanticMode, effectiveGeospatialMode);
 
   if (getImageTrackingImpl() == VROImageTrackingImpl::ARCore &&
@@ -436,11 +448,37 @@ bool VROARSessionARCore::updateARCoreConfig() {
     config->setAugmentedImageDatabase(_currentARCoreImageDatabase);
   }
 
-  // ARCore requires the session to be paused before calling configure()
+  // Front camera / Augmented Faces mode
+  if (_frontCameraEnabled) {
+    config->setAugmentedFaceMode(true);
+  }
+
+  // ARCore requires the session to be paused before calling configure() or setCameraConfig().
   _session->pause();
+
+  // Reselect camera config for the correct facing direction while paused.
+  // Must be done after pause() and before configure().
+  if (_frontCameraEnabled) {
+      _session->selectCameraConfig(true);
+  }
 
   arcore::ConfigStatus status = _session->configure(config);
   delete (config);
+
+  // If configure fails with face mode enabled, retry without face mode —
+  // the device may support front camera but not AR_AUGMENTED_FACE_MODE_MESH3D.
+  if (status != arcore::ConfigStatus::Success && _frontCameraEnabled) {
+    pwarn("ViroARCore: Augmented Face Mode not supported, retrying with front camera only");
+    arcore::Config *fallbackConfig =
+        _session->createConfig(effectiveLightingMode, effectivePlaneFindingMode, _updateMode,
+                               _cloudAnchorMode, _focusMode, effectiveDepthMode,
+                               effectiveSemanticMode, effectiveGeospatialMode);
+    status = _session->configure(fallbackConfig);
+    delete (fallbackConfig);
+    if (status == arcore::ConfigStatus::Success) {
+      pinfo("ViroARCore: front camera active (no face mesh on this device)");
+    }
+  }
 
   if (status == arcore::ConfigStatus::Success) {
     _session->resume();
@@ -1482,6 +1520,16 @@ arcore::DepthMode VROARSessionARCore::computeNeededDepthMode() const {
   return (_worldMeshDepthNeeded || occlusionNeedsDepth)
       ? arcore::DepthMode::Automatic
       : arcore::DepthMode::Disabled;
+}
+
+void VROARSessionARCore::setFrontCameraEnabled(bool enabled) {
+    _frontCameraEnabled = enabled;
+    if (_session != nullptr) {
+        // selectCameraConfig must be called while paused — handled inside updateARCoreConfig().
+        updateARCoreConfig();
+        pinfo("VROARSessionARCore: front camera (augmented face) %s",
+              enabled ? "enabled" : "disabled");
+    }
 }
 
 void VROARSessionARCore::onWorldMeshEnabled(bool enabled) {

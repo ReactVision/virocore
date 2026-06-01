@@ -63,6 +63,7 @@ add_library( # Sets the name of the library.
              ${VIRO_ANDROID_SRC}/VROAudioPlayerStreamAndroid.cpp
              ${VIRO_ANDROID_SRC}/VROAVPlayer.cpp
              ${VIRO_ANDROID_SRC}/VROVideoTextureAVP.cpp
+             ${VIRO_ANDROID_SRC}/VROCameraTextureAndroid.cpp
              ${VIRO_ANDROID_SRC}/VROTypefaceAndroid.cpp
              ${VIRO_ANDROID_SRC}/VROInputControllerDaydream.cpp
              ${VIRO_ANDROID_SRC}/VROInputControllerCardboard.cpp
@@ -88,6 +89,7 @@ add_library( # Sets the name of the library.
              ${VIRO_CAPI_SRC}/Material_JNI.cpp
              ${VIRO_CAPI_SRC}/Texture_JNI.cpp
              ${VIRO_CAPI_SRC}/VideoTexture_JNI.cpp
+             ${VIRO_CAPI_SRC}/CameraTexture_JNI.cpp
              ${VIRO_CAPI_SRC}/AnimatedTexture_JNI.cpp
              ${VIRO_CAPI_SRC}/VideoDelegate_JNI.cpp
              ${VIRO_CAPI_SRC}/ViroContext_JNI.cpp

@@ -71,6 +71,14 @@ public:
         return _controller;
     }
 
+    // Convenience wrappers so callers don't need to import VROAVCaptureController.h.
+    void setUpdateListener(std::function<void(CMSampleBufferRef, std::vector<float>)> listener);
+    void capturePhoto(NSString *outputPath,
+                      std::function<void(bool, NSString *, NSString *)> onCaptured);
+    void startRecording(NSString *outputPath,
+                        std::function<void(bool, NSString *, NSString *)> onStarted);
+    void stopRecording(std::function<void(bool, NSString *, NSString *)> onStopped);
+
 private:
     
     /*

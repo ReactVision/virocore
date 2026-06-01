@@ -227,6 +227,14 @@ VROMatrix4f VROARFrameARCore::getViewportToCameraImageTransform() const {
     //   [4,5] = BR (screen 1,0),  [6,7] = TR (screen 1,1)
     float tc[8] = {};
     _frame->getBackgroundTexcoords(tc);
+
+    // Front camera texcoords have Y inverted relative to back camera — swap to fix flip.
+    bool isFront = session && session->isFrontCameraEnabled();
+    if (isFront) {
+        std::swap(tc[1], tc[3]);  // BL.y <-> TL.y
+        std::swap(tc[5], tc[7]);  // BR.y <-> TR.y
+    }
+
     float blX = tc[0], blY = tc[1];
     float tlX = tc[2], tlY = tc[3];
     float brX = tc[4], brY = tc[5];

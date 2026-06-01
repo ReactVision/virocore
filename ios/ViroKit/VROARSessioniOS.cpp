@@ -158,6 +158,7 @@ VROARSessioniOS::VROARSessioniOS(VROTrackingType trackingType,
       _monocularDepthLoading(false),
       _monocularDepthScale(1.0f),
       _monocularDepthTargetFPS(0),
+      _frontCameraEnabled(false),
       _needsGeospatialModeApply(false),
       _driver(driver) {
 
@@ -243,8 +244,32 @@ void VROARSessioniOS::setTrackingType(VROTrackingType trackingType) {
   run();
 }
 
+void VROARSessioniOS::setFrontCameraEnabled(bool enabled) {
+    _frontCameraEnabled = enabled;
+    NSLog(@"Front camera (ARFaceTracking): %s", enabled ? "YES" : "NO");
+    // Re-compute the session configuration with the new flag applied.
+    updateTrackingType(_trackingType);
+}
+
 void VROARSessioniOS::updateTrackingType(VROTrackingType trackingType) {
   _trackingType = trackingType;
+
+  // Front camera — use ARFaceTrackingConfiguration (TrueDepth sensor).
+  if (_frontCameraEnabled) {
+#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 110000
+    if (@available(iOS 11.0, *)) {
+      if ([ARFaceTrackingConfiguration isSupported]) {
+        NSLog(@"Front camera configuration (ARFaceTrackingConfiguration)");
+        ARFaceTrackingConfiguration *faceConfig =
+            [[ARFaceTrackingConfiguration alloc] init];
+        faceConfig.lightEstimationEnabled = YES;
+        _sessionConfiguration = faceConfig;
+        return;
+      }
+    }
+#endif
+    NSLog(@"ARFaceTrackingConfiguration not supported on this device — falling through to world tracking");
+  }
 
   if (getTrackingType() == VROTrackingType::DOF3) {
     NSLog(@"DOF3 tracking configuration");

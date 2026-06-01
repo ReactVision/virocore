@@ -243,6 +243,18 @@ void VROARCameraARCore::getImageCropRectangle(VROARDisplayRotation rotation, int
     TR.x = texcoords[6];
     TR.y = texcoords[7];
 
+    // Front camera (ARCore Augmented Faces) returns texcoords with Y-axis inverted
+    // relative to back camera — swap all Y values to correct vertical flip.
+    bool isFrontCamera = false;
+    {
+        std::shared_ptr<VROARSessionARCore> sess = _session.lock();
+        if (sess) isFrontCamera = sess->isFrontCameraEnabled();
+    }
+    if (isFrontCamera) {
+        std::swap(BL.y, TL.y);
+        std::swap(BR.y, TR.y);
+    }
+
     switch (rotation) {
         case VROARDisplayRotation::R0:
             // Image was rotated 90 degrees CC

@@ -156,6 +156,8 @@ public:
     void setOcclusionMode(VROOcclusionMode mode) override;
     bool isOcclusionSupported() const override;
     void onWorldMeshEnabled(bool enabled) override;
+    void setFrontCameraEnabled(bool enabled);
+    bool isFrontCameraEnabled() const { return _frontCameraEnabled; }
 
     /*
      Collect triangulated plane mesh data from all currently tracked ARCore planes.
@@ -335,6 +337,7 @@ private:
     arcore::GeospatialMode _geospatialMode;
     bool _semanticModeEnabled = false;
     bool _worldMeshDepthNeeded = false;  // set by onWorldMeshEnabled
+    bool _frontCameraEnabled = false;    // use front camera via AR_AUGMENTED_FACE_MODE_MESH3D
 
     bool updateARCoreConfig();
     arcore::DepthMode computeNeededDepthMode() const;

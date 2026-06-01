@@ -28,6 +28,7 @@
 
 #include "VROCameraTexture.h"
 #include "VROFrameListener.h"
+#include "VROFrameSynchronizer.h"
 #include "VROOpenGL.h"
 #include <jni.h>
 #include <atomic>
@@ -62,8 +63,14 @@ public:
     virtual ~VROCameraTextureAndroid();
 
     // VROCameraTexture interface
+    // Satisfies VROCameraTexture base — not used on Android (frameSynchronizer overload below).
     bool initCamera(VROCameraPosition position, VROCameraOrientation orientation,
-                    std::shared_ptr<VRODriver> driver) override;
+                    std::shared_ptr<VRODriver> driver) override { return false; }
+
+    // Android-specific init that receives the frame synchronizer from ViroContext.
+    bool initCamera(VROCameraPosition position, VROCameraOrientation orientation,
+                    std::shared_ptr<VRODriver> driver,
+                    std::shared_ptr<VROFrameSynchronizer> frameSynchronizer);
     void play()     override;
     void pause()    override;
     bool isPaused() override;

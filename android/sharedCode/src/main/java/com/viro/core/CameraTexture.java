@@ -134,8 +134,11 @@ public class CameraTexture extends Texture {
     // Constructor
     // -----------------------------------------------------------------------
 
-    public CameraTexture(ViroContext viroContext, Position position) {
+    private Context mAppContext;
+
+    public CameraTexture(ViroContext viroContext, Position position, Context appContext) {
         mFrontFacing = (position == Position.FRONT);
+        mAppContext = appContext.getApplicationContext();
         mNativeRef = nativeCreate(mFrontFacing);
         nativeInit(mNativeRef, viroContext.mNativeRef);
     }
@@ -333,7 +336,7 @@ public class CameraTexture extends Texture {
     }
 
     private void openCamera() {
-        Context ctx = ViroContext.getApplicationContext();
+        Context ctx = mAppContext;
         if (ctx == null) { Log.e(TAG, "openCamera: no application context"); return; }
         if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.CAMERA)
                 != PackageManager.PERMISSION_GRANTED) {
@@ -552,14 +555,14 @@ public class CameraTexture extends Texture {
     // -----------------------------------------------------------------------
 
     private String defaultPhotoPath() {
-        Context ctx = ViroContext.getApplicationContext();
+        Context ctx = mAppContext;
         File dir = (ctx != null) ? ctx.getCacheDir() : new File("/sdcard");
         return new File(dir, "viro_photo_" + System.currentTimeMillis() + ".jpg")
                 .getAbsolutePath();
     }
 
     private String defaultVideoPath() {
-        Context ctx = ViroContext.getApplicationContext();
+        Context ctx = mAppContext;
         File dir = (ctx != null) ? ctx.getCacheDir() : new File("/sdcard");
         return new File(dir, "viro_video_" + System.currentTimeMillis() + ".mp4")
                 .getAbsolutePath();

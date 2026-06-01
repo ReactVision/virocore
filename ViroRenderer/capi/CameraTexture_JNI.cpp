@@ -105,10 +105,11 @@ VRO_METHOD(void, nativeInit)(VRO_ARGS
         std::shared_ptr<ViroContext> context = context_w.lock();
         if (!context) return;
 
+        std::shared_ptr<VROFrameSynchronizer> frameSynchronizer = context->getFrameSynchronizer();
         std::shared_ptr<VRODriver> driver = context->getDriver();
-        if (!driver) return;
+        if (!driver || !frameSynchronizer) return;
 
-        tex->initCamera(position, VROCameraOrientation::Portrait, driver);
+        tex->initCamera(position, VROCameraOrientation::Portrait, driver, frameSynchronizer);
     });
 }
 

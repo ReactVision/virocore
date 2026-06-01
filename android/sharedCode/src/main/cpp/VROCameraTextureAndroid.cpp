@@ -67,7 +67,8 @@ VROCameraTextureAndroid::~VROCameraTextureAndroid() {
 
 bool VROCameraTextureAndroid::initCamera(VROCameraPosition position,
                                          VROCameraOrientation orientation,
-                                         std::shared_ptr<VRODriver> driver) {
+                                         std::shared_ptr<VRODriver> driver,
+                                         std::shared_ptr<VROFrameSynchronizer> frameSynchronizer) { // Android-specific overload
     _driver = std::dynamic_pointer_cast<VRODriverOpenGL>(driver);
 
     // 1. Generate OES texture (must be on the GL thread).
@@ -79,12 +80,16 @@ bool VROCameraTextureAndroid::initCamera(VROCameraPosition position,
     glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
     // 2. Wrap the OES texture in a VROTextureSubstrate so the renderer can sample it.
+    // _driver is a weak_ptr — lock() to get the shared_ptr required by the constructor.
+    std::shared_ptr<VRODriverOpenGL> driverGL = _driver.lock();
+    if (!driverGL) return false;
     std::unique_ptr<VROTextureSubstrate> substrate(
-        new VROTextureSubstrateOpenGL(GL_TEXTURE_EXTERNAL_OES, _glTextureId, driver, true));
+        new VROTextureSubstrateOpenGL(GL_TEXTURE_EXTERNAL_OES, _glTextureId, driverGL, true));
     setSubstrate(0, std::move(substrate));
 
     // 3. Register as a VROFrameListener so onFrameWillRender() runs each GL frame.
-    driver->getFrameSynchronizer()->addFrameListener(
+    // frameSynchronizer comes from ViroContext::getFrameSynchronizer() via the JNI layer.
+    frameSynchronizer->addFrameListener(
         std::dynamic_pointer_cast<VROFrameListener>(shared_from_this()));
 
     _initialized = true;

@@ -1147,6 +1147,28 @@ static inline VROMatrix4f viroGLConvTransform(VROMatrix4f t) {
     }
 }
 
+- (void)setFrontCameraEnabled:(BOOL)enabled {
+    std::shared_ptr<VROARSessioniOS> session = std::dynamic_pointer_cast<VROARSessioniOS>([self getARSession]);
+    if (!session) return;
+
+    session->setFrontCameraEnabled(enabled); // also calls updateTrackingType internally
+
+    // If session already running, hot-swap the config via ARKit directly.
+    // ARKit supports calling runWithConfiguration: on a live session.
+    // Do NOT call session->run() here — that recreates the delegate and
+    // would race with an in-flight render frame.
+    if (!session->isPaused()) {
+        ARConfiguration *newConfig = session->getSessionConfiguration();
+        if (newConfig) {
+            ARSession *arSession = session->getARSession();
+            [arSession runWithConfiguration:newConfig
+                                    options:ARSessionRunOptionResetTracking];
+        }
+    }
+    // If paused/not yet started, the next run() call from normal init flow
+    // will use the already-updated _sessionConfiguration.
+}
+
 @end
 
 @implementation VROGlassView

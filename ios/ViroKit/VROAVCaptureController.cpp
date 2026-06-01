@@ -283,15 +283,17 @@ void VROAVCaptureController::stopRecording(std::function<void(bool, NSString *, 
     _isRecording = false;
 
     // Remove the movie output from the session to free resources.
+    // C++ class method: capture 'this' explicitly — 'self' is Obj-C only.
+    VROAVCaptureController *controller = this;
     dispatch_async(dispatch_get_main_queue(), ^{
-        [self->_captureSession beginConfiguration];
-        [self->_captureSession removeOutput:self->_movieOutput];
-        [self->_captureSession commitConfiguration];
-        self->_movieOutput = nil;
-        self->_recordingPath = nil;
-        if (self->_recordingCompletion) {
-            self->_recordingCompletion(true, path, nil);
-            self->_recordingCompletion = nullptr;
+        [controller->_captureSession beginConfiguration];
+        [controller->_captureSession removeOutput:controller->_movieOutput];
+        [controller->_captureSession commitConfiguration];
+        controller->_movieOutput = nil;
+        controller->_recordingPath = nil;
+        if (controller->_recordingCompletion) {
+            controller->_recordingCompletion(true, path, nil);
+            controller->_recordingCompletion = nullptr;
         }
     });
 }
