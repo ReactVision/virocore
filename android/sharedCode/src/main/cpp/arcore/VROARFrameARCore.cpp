@@ -228,13 +228,6 @@ VROMatrix4f VROARFrameARCore::getViewportToCameraImageTransform() const {
     float tc[8] = {};
     _frame->getBackgroundTexcoords(tc);
 
-    // Front camera texcoords have Y inverted relative to back camera — swap to fix flip.
-    bool isFront = session && session->isFrontCameraEnabled();
-    if (isFront) {
-        std::swap(tc[1], tc[3]);  // BL.y <-> TL.y
-        std::swap(tc[5], tc[7]);  // BR.y <-> TR.y
-    }
-
     float blX = tc[0], blY = tc[1];
     float tlX = tc[2], tlY = tc[3];
     float brX = tc[4], brY = tc[5];
@@ -253,6 +246,28 @@ VROMatrix4f VROARFrameARCore::getViewportToCameraImageTransform() const {
     matrix[5]  = tlY - blY;     // col1 row1 — cam-v per screen-y
     matrix[12] = blX;            // col3 row0 — cam-u at screen origin
     matrix[13] = blY;            // col3 row1 — cam-v at screen origin
+
+    // Front camera (Augmented Faces): the camera V-axis is inverted relative to
+    // the back camera. Apply v' = 1 - v by negating the V components of the matrix
+    // and offsetting the translation: M'_v_row = -M_v_row, tx13 = 1 - tx13.
+    // This is mathematically equivalent to composing M with a V-flip, without
+    // swapping raw texcoords (which distorts aspect ratio).
+    {
+        std::shared_ptr<VROARSessionARCore> sess = _session.lock();
+        if (sess && sess->isFrontCameraEnabled()) {
+            matrix[1]  = -matrix[1];        // negate cam-v per screen-x
+            matrix[5]  = -matrix[5];        // negate cam-v per screen-y
+            matrix[13] = 1.0f - matrix[13]; // flip V translation
+            static bool logged = false;
+            if (!logged) {
+                logged = true;
+                __android_log_print(ANDROID_LOG_INFO, "ViroARCore",
+                    "Front camera V-flip applied: m1=%.3f m5=%.3f m13=%.3f",
+                    matrix[1], matrix[5], matrix[13]);
+            }
+        }
+    }
+
     return matrix;
 }
 
@@ -280,6 +295,7 @@ void VROARFrameARCore::getBackgroundTexcoords(VROVector3f *BL, VROVector3f *BR, 
     BR->y = texcoords[5];
     TR->x = texcoords[6];
     TR->y = texcoords[7];
+
 }
 
 const std::vector<std::shared_ptr<VROARAnchor>> &VROARFrameARCore::getAnchors() const {

@@ -337,7 +337,8 @@ private:
     arcore::GeospatialMode _geospatialMode;
     bool _semanticModeEnabled = false;
     bool _worldMeshDepthNeeded = false;  // set by onWorldMeshEnabled
-    bool _frontCameraEnabled = false;    // use front camera via AR_AUGMENTED_FACE_MODE_MESH3D
+    bool _frontCameraEnabled = false;            // use front camera via AR_AUGMENTED_FACE_MODE_MESH3D
+    bool _cloudAnchorsDisabledForFaceMode = false; // once disabled for face mode, keep disabled
 
     bool updateARCoreConfig();
     arcore::DepthMode computeNeededDepthMode() const;

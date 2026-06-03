@@ -701,9 +701,12 @@ namespace arcore {
     }
 
     void FrameNative::getBackgroundTexcoords(float *outTexcoords) {
-        // BL, TL, BR, TR
-        const float source[8] = {0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0.0};
-        ArFrame_transformCoordinates2d(_session, _frame, AR_COORDINATES_2D_VIEW_NORMALIZED, 4, source, AR_COORDINATES_2D_TEXTURE_NORMALIZED, outTexcoords);
+        // BL, TL, BR, TR in VIEW_NORMALIZED ((0,0)=top-left, (1,1)=bottom-right)
+        const float source[8] = {0.0f, 1.0f,  0.0f, 0.0f,  1.0f, 1.0f,  1.0f, 0.0f};
+        ArFrame_transformCoordinates2d(_session, _frame, AR_COORDINATES_2D_VIEW_NORMALIZED,
+                                       4, source, AR_COORDINATES_2D_TEXTURE_NORMALIZED, outTexcoords);
+        // NaN output (common on first frame after camera switch, and always for front camera
+        // Augmented Faces mode) is handled by the caller in updateARBackground().
     }
 
     PointCloud *FrameNative::acquirePointCloud() {
@@ -1041,9 +1044,20 @@ namespace arcore {
         ArCameraConfig *tmpConfig = nullptr;
         ArCameraConfig_create(_session, &tmpConfig);
 
-        // Pick first available config for the requested facing direction
+        // Front camera: pick first (usually only one config at 640x480).
+        // Back camera: pick highest resolution (same logic as initial session setup).
+        int bestIdx = 0;
+        if (!frontFacing) {
+            int32_t bestArea = 0;
+            for (int i = 0; i < numConfigs; ++i) {
+                ArCameraConfigList_getItem(_session, configList, i, tmpConfig);
+                int32_t w = 0, h = 0;
+                ArCameraConfig_getImageDimensions(_session, tmpConfig, &w, &h);
+                if (w * h > bestArea) { bestArea = w * h; bestIdx = i; }
+            }
+        }
         if (numConfigs > 0) {
-            ArCameraConfigList_getItem(_session, configList, 0, tmpConfig);
+            ArCameraConfigList_getItem(_session, configList, bestIdx, tmpConfig);
             int32_t w = 0, h = 0;
             ArCameraConfig_getImageDimensions(_session, tmpConfig, &w, &h);
             ArStatus status = ArSession_setCameraConfig(_session, tmpConfig);
