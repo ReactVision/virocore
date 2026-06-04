@@ -76,15 +76,17 @@ CVPixelBufferRef VROARFrameiOS::getImage() const {
 }
 
 CGImagePropertyOrientation VROARFrameiOS::getImageOrientation() const {
-    // Image orientation is determined by ARKit and is based on the camera orientation.
-    // When in portrait mode, for example, ARKit returns its image rotated to the right.
-    if (_orientation == VROCameraOrientation::Portrait) {
-        return kCGImagePropertyOrientationRight;
+    switch (_orientation) {
+        case VROCameraOrientation::Portrait:
+            return kCGImagePropertyOrientationRight;
+        case VROCameraOrientation::PortraitUpsideDown:
+            return kCGImagePropertyOrientationLeft;
+        case VROCameraOrientation::LandscapeRight:
+            return kCGImagePropertyOrientationUp;
+        case VROCameraOrientation::LandscapeLeft:
+            return kCGImagePropertyOrientationDown;
     }
-    else {
-        // TODO Fill in proper image orientation types
-        return kCGImagePropertyOrientationRight;
-    }
+    return kCGImagePropertyOrientationRight;
 }
 
 double VROARFrameiOS::getTimestamp() const {
@@ -197,36 +199,39 @@ std::vector<std::shared_ptr<VROARHitTestResult>> VROARFrameiOS::hitTest(int x, i
             // Sample depth texture at UV
             float depthValue = sampleDepthTextureAtUV(depthTexture, depthUV.x, depthUV.y);
 
-            // Sample confidence if available
+            // Sample confidence
             float confidence = -1.0f;
-            if (confidenceTexture && depthSource == "lidar") {
-                confidence = sampleDepthTextureAtUV(confidenceTexture, depthUV.x, depthUV.y);
+            if (depthSource == "lidar") {
+                if (confidenceTexture) {
+                    confidence = sampleDepthTextureAtUV(confidenceTexture, depthUV.x, depthUV.y);
+                }
+            } else if (depthSource == "monocular") {
+                auto est = session ? session->getMonocularDepthEstimator() : nullptr;
+                if (est) {
+                    confidence = est->sampleConfidenceAtDepthUV(depthUV.x, depthUV.y);
+                }
             }
 
-            // Set depth data on result if valid
+            // Set depth data and conditionally upgrade result type
             if (depthValue > 0.0f) {
                 vResult->setDepthData(depthValue, confidence, depthSource);
 
-                // Upgrade result type to DepthPoint when depth data is available
-                // For LiDAR: Use confidence threshold of > 0.3 (lowered for better detection)
-                // For Monocular: Always upgrade when depth available
                 bool shouldUpgradeToDepthPoint = false;
                 if (depthSource == "lidar") {
-                    // LiDAR: Upgrade if confidence is unavailable or > 0.3
                     shouldUpgradeToDepthPoint = (confidence < 0.0f || confidence > 0.3f);
-                    pinfo("LiDAR depth: %.2fm, confidence: %.2f, upgrading: %s",
-                          depthValue, confidence, shouldUpgradeToDepthPoint ? "YES" : "NO");
                 } else if (depthSource == "monocular") {
-                    // Monocular: Always use depth data when available
-                    shouldUpgradeToDepthPoint = true;
-                    pinfo("Monocular depth: %.2fm, upgrading to DepthPoint", depthValue);
+                    auto est = session ? session->getMonocularDepthEstimator() : nullptr;
+                    if (est) {
+                        // Gate on synthesized temporal-stability confidence
+                        float threshold = est->getHitTestConfidenceThreshold();
+                        shouldUpgradeToDepthPoint = (confidence < 0.0f || confidence > threshold);
+                    } else {
+                        shouldUpgradeToDepthPoint = true; // no estimator → trust depth
+                    }
                 }
 
                 if (shouldUpgradeToDepthPoint) {
-                    pinfo("Upgrading hit result to DepthPoint type");
                     vResult->setType(VROARHitTestResultType::DepthPoint);
-                } else {
-                    pinfo("Keeping original type, depth confidence too low");
                 }
             }
         }
@@ -501,34 +506,19 @@ VROMatrix4f VROARFrameiOS::getDepthTextureTransform() const {
         /*
          Monocular depth texture transform: screenUV → depth texture UV.
 
-         The monocular depth buffer is in PORTRAIT orientation because Vision applies
-         kCGImagePropertyOrientationRight (90° CW rotation) before feeding the model.
-         LiDAR depth is in landscape camera space.
+         Chain: screenUV → arkitInverse → landscape camera UV
+                         → Step 2 rotation (orientation-dependent) → model input UV
+                         → Step 3 ScaleFill crop → depth texture UV
 
-         Chain: screenUV → arkitInverse → landscape camera UV → portrait UV → ScaleFill crop → depth texture UV
-
-         Step 1: arkitInverse gives landscape camera UV (same as LiDAR)
-         Step 2: Landscape → Portrait (90° CW rotation): portrait_u = 1 - landscape_v, portrait_v = landscape_u
-         Step 3: ScaleFill center-crop correction on portrait_v (model crops tall portrait to square)
+         Step 1: arkitInverse gives landscape camera UV (pixel buffer is always landscape in ARKit).
+         Step 2: Rotate to match the orientation tag passed to Vision (getImageOrientation()).
+                 The depth output is in the same space as the model input.
+         Step 3: ScaleFill center-crop: model crops modelW×modelH to depthW×depthH.
          */
 
-        // Get arkitInverse components
         float ai_a = arkitInverse.a, ai_b = arkitInverse.b;
         float ai_c = arkitInverse.c, ai_d = arkitInverse.d;
         float ai_tx = arkitInverse.tx, ai_ty = arkitInverse.ty;
-        // landscape_u = ai_a * sx + ai_c * sy + ai_tx
-        // landscape_v = ai_b * sx + ai_d * sy + ai_ty
-
-        // Step 2: portrait_u = 1 - landscape_v, portrait_v = landscape_u
-        // portrait_u = -ai_b * sx - ai_d * sy + (1 - ai_ty)
-        // portrait_v = ai_a * sx + ai_c * sy + ai_tx
-
-        // Step 3: ScaleFill crop correction
-        // Portrait image: camLandscapeH x camLandscapeW (e.g. 2160 x 3840)
-        // Model input: depthW x depthH (e.g. 518 x 518)
-        CGSize imageRes = _frame.camera.imageResolution;
-        float portraitW = imageRes.height;  // 2160
-        float portraitH = imageRes.width;   // 3840
 
         int depthW = 518, depthH = 518;
         if (session) {
@@ -540,31 +530,71 @@ VROMatrix4f VROARFrameiOS::getDepthTextureTransform() const {
             }
         }
 
-        float scale = std::max((float)depthW / portraitW, (float)depthH / portraitH);
-        float scaledW = portraitW * scale;
-        float scaledH = portraitH * scale;
-        float cropU = (scaledW - depthW) / (2.0f * scaledW);  // crop in portrait u (should be ~0)
-        float cropV = (scaledH - depthH) / (2.0f * scaledH);  // crop in portrait v (~0.219)
+        CGSize imageRes = _frame.camera.imageResolution;
+        float imgW = imageRes.width;   // landscape pixel-buffer width  (e.g. 3840)
+        float imgH = imageRes.height;  // landscape pixel-buffer height (e.g. 2160)
+
+        // Pre-crop UV coefficients:  pre_u = a_sx*sx + a_sy*sy + a_c
+        //                            pre_v = b_sx*sx + b_sy*sy + b_c
+        float a_sx, a_sy, a_c;
+        float b_sx, b_sy, b_c;
+        float modelW, modelH;
+
+        switch (_orientation) {
+            case VROCameraOrientation::Portrait:
+                // Vision tag: Right (90°CW) → pre_u = 1-lv, pre_v = lu
+                a_sx = -ai_b;  a_sy = -ai_d;  a_c = 1.0f - ai_ty;
+                b_sx =  ai_a;  b_sy =  ai_c;  b_c = ai_tx;
+                modelW = imgH; modelH = imgW;
+                break;
+            case VROCameraOrientation::PortraitUpsideDown:
+                // Vision tag: Left (90°CCW) → pre_u = lv, pre_v = 1-lu
+                a_sx =  ai_b;  a_sy =  ai_d;  a_c = ai_ty;
+                b_sx = -ai_a;  b_sy = -ai_c;  b_c = 1.0f - ai_tx;
+                modelW = imgH; modelH = imgW;
+                break;
+            case VROCameraOrientation::LandscapeRight:
+                // Vision tag: Up (identity) → pre_u = lu, pre_v = lv
+                a_sx =  ai_a;  a_sy =  ai_c;  a_c = ai_tx;
+                b_sx =  ai_b;  b_sy =  ai_d;  b_c = ai_ty;
+                modelW = imgW; modelH = imgH;
+                break;
+            case VROCameraOrientation::LandscapeLeft:
+                // Vision tag: Down (180°) → pre_u = 1-lu, pre_v = 1-lv
+                a_sx = -ai_a;  a_sy = -ai_c;  a_c = 1.0f - ai_tx;
+                b_sx = -ai_b;  b_sy = -ai_d;  b_c = 1.0f - ai_ty;
+                modelW = imgW; modelH = imgH;
+                break;
+            default:
+                a_sx = -ai_b;  a_sy = -ai_d;  a_c = 1.0f - ai_ty;
+                b_sx =  ai_a;  b_sy =  ai_c;  b_c = ai_tx;
+                modelW = imgH; modelH = imgW;
+                break;
+        }
+
+        // ScaleFill: model center-crops modelW×modelH image to depthW×depthH square
+        float scale = std::max((float)depthW / modelW, (float)depthH / modelH);
+        float scaledW = modelW * scale;
+        float scaledH = modelH * scale;
+        float cropU = (scaledW - depthW) / (2.0f * scaledW);
+        float cropV = (scaledH - depthH) / (2.0f * scaledH);
         float visU = 1.0f - 2.0f * cropU;
         float visV = 1.0f - 2.0f * cropV;
 
-        // depth_u = (portrait_u - cropU) / visU
-        // depth_v = (portrait_v - cropV) / visV
-        float du_sx = -ai_b / visU;
-        float du_sy = -ai_d / visU;
-        float du_c  = (1.0f - ai_ty - cropU) / visU;
-
-        float dv_sx = ai_a / visV;
-        float dv_sy = ai_c / visV;
-        float dv_c  = (ai_tx - cropV) / visV;
+        float du_sx = a_sx / visU;
+        float du_sy = a_sy / visU;
+        float du_c  = (a_c - cropU) / visU;
+        float dv_sx = b_sx / visV;
+        float dv_sy = b_sy / visV;
+        float dv_c  = (b_c - cropV) / visV;
 
         VROMatrix4f matrix;
-        matrix[0]  = du_sx;    // col 0, row 0
-        matrix[1]  = dv_sx;    // col 0, row 1
-        matrix[4]  = du_sy;    // col 1, row 0
-        matrix[5]  = dv_sy;    // col 1, row 1
-        matrix[12] = du_c;     // tx
-        matrix[13] = dv_c;     // ty
+        matrix[0]  = du_sx;
+        matrix[1]  = dv_sx;
+        matrix[4]  = du_sy;
+        matrix[5]  = dv_sy;
+        matrix[12] = du_c;
+        matrix[13] = dv_c;
         return matrix;
     }
 
@@ -575,6 +605,79 @@ VROMatrix4f VROARFrameiOS::getDepthTextureTransform() const {
     matrix[5] = finalTransform.d;
     matrix[12] = finalTransform.tx;
     matrix[13] = finalTransform.ty;
+    return matrix;
+}
+
+VROMatrix4f VROARFrameiOS::getDepthDebugTextureTransform() const {
+    UIInterfaceOrientation orientation = VROConvert::toDeviceOrientation(_orientation);
+    CGSize viewportSize = CGSizeMake(_viewport.getWidth()  / _viewport.getContentScaleFactor(),
+                                     _viewport.getHeight() / _viewport.getContentScaleFactor());
+
+    CGAffineTransform arkitInverse = CGAffineTransformInvert(
+        [_frame displayTransformForOrientation:orientation viewportSize:viewportSize]);
+
+    std::shared_ptr<VROARSessioniOS> session = _session.lock();
+    bool isMonocular = session && session->isPreferMonocularDepth();
+    if (!isMonocular) {
+        if (@available(iOS 14.0, *)) {
+            isMonocular = (_frame.sceneDepth == nil) && session &&
+                          session->getMonocularDepthEstimator() != nullptr;
+        }
+    }
+
+    float ai_a = arkitInverse.a, ai_b = arkitInverse.b;
+    float ai_c = arkitInverse.c, ai_d = arkitInverse.d;
+    float ai_tx = arkitInverse.tx, ai_ty = arkitInverse.ty;
+
+    if (isMonocular) {
+        // Orientation rotation only — no ScaleFill crop correction.
+        // This maps the full screen [0,1]×[0,1] to the full depth texture
+        // [0,1]×[0,1], giving a single full-screen debug overlay without
+        // magenta "no-data" bands at the coverage edges.
+        float a_sx, a_sy, a_c;
+        float b_sx, b_sy, b_c;
+
+        switch (_orientation) {
+            case VROCameraOrientation::Portrait:
+                a_sx = -ai_b;  a_sy = -ai_d;  a_c = 1.0f - ai_ty;
+                b_sx =  ai_a;  b_sy =  ai_c;  b_c = ai_tx;
+                break;
+            case VROCameraOrientation::PortraitUpsideDown:
+                a_sx =  ai_b;  a_sy =  ai_d;  a_c = ai_ty;
+                b_sx = -ai_a;  b_sy = -ai_c;  b_c = 1.0f - ai_tx;
+                break;
+            case VROCameraOrientation::LandscapeRight:
+                a_sx =  ai_a;  a_sy =  ai_c;  a_c = ai_tx;
+                b_sx =  ai_b;  b_sy =  ai_d;  b_c = ai_ty;
+                break;
+            case VROCameraOrientation::LandscapeLeft:
+                a_sx = -ai_a;  a_sy = -ai_c;  a_c = 1.0f - ai_tx;
+                b_sx = -ai_b;  b_sy = -ai_d;  b_c = 1.0f - ai_ty;
+                break;
+            default:
+                a_sx = -ai_b;  a_sy = -ai_d;  a_c = 1.0f - ai_ty;
+                b_sx =  ai_a;  b_sy =  ai_c;  b_c = ai_tx;
+                break;
+        }
+
+        VROMatrix4f matrix;
+        matrix[0]  = a_sx;
+        matrix[1]  = b_sx;
+        matrix[4]  = a_sy;
+        matrix[5]  = b_sy;
+        matrix[12] = a_c;
+        matrix[13] = b_c;
+        return matrix;
+    }
+
+    // Non-monocular (LiDAR): same as the full transform (no crop correction needed).
+    VROMatrix4f matrix;
+    matrix[0] = ai_a;
+    matrix[1] = ai_b;
+    matrix[4] = ai_c;
+    matrix[5] = ai_d;
+    matrix[12] = ai_tx;
+    matrix[13] = ai_ty;
     return matrix;
 }
 
@@ -602,8 +705,114 @@ std::shared_ptr<VROARDepthMesh> VROARFrameiOS::generateDepthMesh(
             depthData = _frame.sceneDepth;
         }
         if (!depthData) {
-            pinfo("VROARFrameiOS: No depth data available");
-            return nullptr;
+            // W5: Fallback to monocular depth on non-LiDAR devices
+            std::shared_ptr<VROARSessioniOS> monoSession = _session.lock();
+            auto est = monoSession ? monoSession->getMonocularDepthEstimator() : nullptr;
+            if (!est || !est->isAvailable()) {
+                return nullptr;
+            }
+
+            std::vector<float> monoDepth, monoConf;
+            int depthW = 0, depthH = 0;
+            if (!est->snapshotDepthBuffers(monoDepth, monoConf, depthW, depthH)) return nullptr;
+
+            matrix_float3x3 intrinsics = _frame.camera.intrinsics;
+            float fx = intrinsics.columns[0][0];
+            float fy = intrinsics.columns[1][1];
+            float cx = intrinsics.columns[2][0];
+            float cy = intrinsics.columns[2][1];
+            CGSize imageRes = _frame.camera.imageResolution;
+            float imgW = imageRes.width;
+            float imgH = imageRes.height;
+
+            // ScaleFill crop parameters (mirrors getDepthTextureTransform logic)
+            float modelW = (_orientation == VROCameraOrientation::Portrait ||
+                            _orientation == VROCameraOrientation::PortraitUpsideDown)
+                           ? imgH : imgW;
+            float modelH = (modelW == imgH) ? imgW : imgH;
+            float scl = std::max((float)depthW / modelW, (float)depthH / modelH);
+            float cropU = (modelW * scl - depthW) / (2.0f * modelW * scl);
+            float cropV = (modelH * scl - depthH) / (2.0f * modelH * scl);
+            float visU = 1.0f - 2.0f * cropU;
+            float visV = 1.0f - 2.0f * cropV;
+
+            VROMatrix4f cameraToWorld = VROConvert::toMatrix4f(_frame.camera.transform);
+            int gridW = (depthW + stride - 1) / stride;
+            int gridH = (depthH + stride - 1) / stride;
+
+            std::vector<VROVector3f> vertices;
+            std::vector<float>      confidences;
+            std::vector<int>        indices;
+            std::vector<float>      depths;
+            std::vector<int>        vmap(gridW * gridH, -1);
+            vertices.reserve(gridW * gridH);
+            confidences.reserve(gridW * gridH);
+            depths.reserve(gridW * gridH);
+            indices.reserve(gridW * gridH * 6);
+
+            int vi = 0;
+            for (int gy = 0; gy < gridH; gy++) {
+                for (int gx = 0; gx < gridW; gx++) {
+                    int px = gx * stride, py = gy * stride;
+                    if (px >= depthW || py >= depthH) continue;
+
+                    float d = monoDepth[py * depthW + px];
+                    if (d <= 0 || d > maxDepth || std::isnan(d) || std::isinf(d)) continue;
+
+                    float conf = monoConf.empty() ? 0.5f : monoConf[py * depthW + px];
+                    if (conf < minConfidence) continue;
+
+                    // Inverse map: depth pixel → camera image pixel
+                    float du = (float)px / std::max(depthW - 1, 1);
+                    float dv = (float)py / std::max(depthH - 1, 1);
+                    float pre_u = du * visU + cropU;
+                    float pre_v = dv * visV + cropV;
+
+                    float lu, lv;
+                    switch (_orientation) {
+                        case VROCameraOrientation::Portrait:
+                            lu = pre_v; lv = 1.0f - pre_u; break;
+                        case VROCameraOrientation::PortraitUpsideDown:
+                            lu = 1.0f - pre_v; lv = pre_u; break;
+                        case VROCameraOrientation::LandscapeLeft:
+                            lu = 1.0f - pre_u; lv = 1.0f - pre_v; break;
+                        default: // LandscapeRight: identity
+                            lu = pre_u; lv = pre_v; break;
+                    }
+
+                    float img_x = lu * imgW;
+                    float img_y = lv * imgH;
+                    float camX = (img_x - cx) * d / fx;
+                    float camY = (img_y - cy) * d / fy;
+                    VROVector4f worldPos = cameraToWorld.multiply(VROVector4f(camX, -camY, -d, 1.0f));
+
+                    vmap[gy * gridW + gx] = vi++;
+                    vertices.push_back(VROVector3f(worldPos.x, worldPos.y, worldPos.z));
+                    confidences.push_back(conf);
+                    depths.push_back(d);
+                }
+            }
+
+            const float maxDiff = 0.3f;
+            for (int gy = 0; gy < gridH - 1; gy++) {
+                for (int gx = 0; gx < gridW - 1; gx++) {
+                    int i00 = vmap[gy * gridW + gx],       i10 = vmap[gy * gridW + (gx+1)];
+                    int i01 = vmap[(gy+1) * gridW + gx],   i11 = vmap[(gy+1) * gridW + (gx+1)];
+                    if (i00 < 0 || i10 < 0 || i01 < 0 || i11 < 0) continue;
+                    float dmax = std::max({std::abs(depths[i00]-depths[i10]),
+                                           std::abs(depths[i00]-depths[i01]),
+                                           std::abs(depths[i10]-depths[i11]),
+                                           std::abs(depths[i01]-depths[i11])});
+                    if (dmax < maxDiff) {
+                        indices.push_back(i00); indices.push_back(i10); indices.push_back(i01);
+                        indices.push_back(i10); indices.push_back(i11); indices.push_back(i01);
+                    }
+                }
+            }
+
+            if (vertices.empty() || indices.empty()) return nullptr;
+            return std::make_shared<VROARDepthMesh>(
+                std::move(vertices), std::move(indices), std::move(confidences), "monocular");
         }
 
         CVPixelBufferRef depthMap = depthData.depthMap;
@@ -824,11 +1033,126 @@ std::shared_ptr<VROARDepthMesh> VROARFrameiOS::generateDepthMesh(
         return std::make_shared<VROARDepthMesh>(
             std::move(vertices),
             std::move(indices),
-            std::move(confidences)
+            std::move(confidences),
+            "lidar"
         );
     }
 
     return nullptr;
+}
+
+std::shared_ptr<VROARDepthMesh> VROARFrameiOS::generateMeshAnchorMesh() {
+#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 130400
+    if (@available(iOS 13.4, *)) {
+        std::vector<VROVector3f> allVertices;
+        std::vector<int> allIndices;
+
+        for (ARAnchor *anchor in _frame.anchors) {
+            if (![anchor isKindOfClass:[ARMeshAnchor class]]) {
+                continue;
+            }
+            ARMeshAnchor *meshAnchor = (ARMeshAnchor *)anchor;
+            ARMeshGeometry *geometry = meshAnchor.geometry;
+            if (!geometry) continue;
+
+            VROMatrix4f transform = VROConvert::toMatrix4f(meshAnchor.transform);
+            int baseIndex = (int)allVertices.size();
+
+            // Vertices are stored in a MTLBuffer in the anchor's local coordinate space
+            ARGeometrySource *vs = geometry.vertices;
+            const uint8_t *vbuf = (const uint8_t *)[vs.buffer contents] + vs.offset;
+            for (NSUInteger i = 0; i < vs.count; i++) {
+                const float *p = (const float *)(vbuf + i * vs.stride);
+                VROVector3f worldPos = transform.multiply(VROVector3f(p[0], p[1], p[2]));
+                allVertices.push_back(worldPos);
+            }
+
+            // Face indices from MTLBuffer (uint32 per ARKit docs)
+            ARGeometryElement *fe = geometry.faces;
+            const uint8_t *fbuf = (const uint8_t *)[fe.buffer contents];
+            NSUInteger triCount = fe.count;
+            NSUInteger bpi = fe.bytesPerIndex;
+            for (NSUInteger t = 0; t < triCount; t++) {
+                for (int v = 0; v < 3; v++) {
+                    NSUInteger off = (t * 3 + v) * bpi;
+                    int idx = (bpi == 4) ? (int)(*(const uint32_t *)(fbuf + off))
+                                        : (int)(*(const uint16_t *)(fbuf + off));
+                    allIndices.push_back(baseIndex + idx);
+                }
+            }
+        }
+
+        if (allVertices.empty() || allIndices.empty()) {
+            return nullptr;
+        }
+
+        return std::make_shared<VROARDepthMesh>(
+            std::move(allVertices),
+            std::move(allIndices),
+            std::vector<float>(),
+            "lidar"
+        );
+    }
+#endif
+    return nullptr;
+}
+
+std::shared_ptr<VROARDepthMesh> VROARFrameiOS::generatePlaneMesh() {
+    std::vector<VROVector3f> allVertices;
+    std::vector<int> allIndices;
+
+    for (ARAnchor *anchor in _frame.anchors) {
+        if (![anchor isKindOfClass:[ARPlaneAnchor class]]) {
+            continue;
+        }
+        ARPlaneAnchor *planeAnchor = (ARPlaneAnchor *)anchor;
+        VROMatrix4f transform = VROConvert::toMatrix4f(planeAnchor.transform);
+        int baseIndex = (int)allVertices.size();
+
+#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 110300
+        if (@available(iOS 11.3, *)) {
+            ARPlaneGeometry *geometry = planeAnchor.geometry;
+            if (geometry && geometry.vertexCount > 0 && geometry.triangleCount > 0) {
+                for (NSUInteger i = 0; i < geometry.vertexCount; i++) {
+                    vector_float3 v = geometry.vertices[i];
+                    allVertices.push_back(transform.multiply(VROVector3f(v.x, v.y, v.z)));
+                }
+                const int16_t *tri = geometry.triangleIndices;
+                for (NSUInteger t = 0; t < geometry.triangleCount; t++) {
+                    allIndices.push_back(baseIndex + (int)tri[t * 3 + 0]);
+                    allIndices.push_back(baseIndex + (int)tri[t * 3 + 1]);
+                    allIndices.push_back(baseIndex + (int)tri[t * 3 + 2]);
+                }
+                continue;
+            }
+        }
+#endif
+        // Fallback: fan-triangulate the boundary polygon
+        if (planeAnchor.geometry && planeAnchor.geometry.boundaryVertexCount >= 3) {
+            ARPlaneGeometry *geometry = planeAnchor.geometry;
+            NSUInteger bCount = geometry.boundaryVertexCount;
+            for (NSUInteger i = 0; i < bCount; i++) {
+                vector_float3 v = geometry.boundaryVertices[i];
+                allVertices.push_back(transform.multiply(VROVector3f(v.x, v.y, v.z)));
+            }
+            for (NSUInteger i = 1; i + 1 < bCount; i++) {
+                allIndices.push_back(baseIndex);
+                allIndices.push_back(baseIndex + (int)i);
+                allIndices.push_back(baseIndex + (int)i + 1);
+            }
+        }
+    }
+
+    if (allVertices.empty() || allIndices.empty()) {
+        return nullptr;
+    }
+
+    return std::make_shared<VROARDepthMesh>(
+        std::move(allVertices),
+        std::move(allIndices),
+        std::vector<float>(),
+        "plane"
+    );
 }
 
 float VROARFrameiOS::sampleDepthTextureAtUV(std::shared_ptr<VROTexture> texture, float u, float v) const {

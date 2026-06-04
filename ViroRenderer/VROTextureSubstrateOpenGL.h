@@ -93,6 +93,12 @@ public:
      */
     void updateWrapMode(VROWrapMode wrapModeS, VROWrapMode wrapModeT);
 
+    /*
+     In-place update for R32F single-channel float textures. Must be called on the GL thread
+     with the same width/height as the original allocation.
+     */
+    void updateR32FData(const float *data, int width, int height) override;
+
 private:
     
     GLenum _target;

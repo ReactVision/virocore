@@ -36,18 +36,31 @@ class VRODriverOpenGL;
 
 class VROVertexBufferOpenGL : public VROVertexBuffer {
 public:
-    
-    VROVertexBufferOpenGL(std::shared_ptr<VROData> data, std::shared_ptr<VRODriverOpenGL> driver);
+
+    VROVertexBufferOpenGL(std::shared_ptr<VROData> data,
+                          std::shared_ptr<VRODriverOpenGL> driver);
+    VROVertexBufferOpenGL(std::shared_ptr<VROData> data,
+                          VROVertexBufferUsage usage,
+                          std::shared_ptr<VRODriverOpenGL> driver);
     virtual ~VROVertexBufferOpenGL();
-    
+
     virtual void hydrate();
+    /*
+     Replace the CPU data and re-upload to the existing VBO via glBufferSubData.
+     For Dynamic / Stream usage, the buffer is orphaned first (glBufferData with
+     null data) to avoid GPU stalls on driver implementations that wait for the
+     previous draw to finish. Static buffers warn and ignore the update.
+     */
+    virtual void updateData(std::shared_ptr<VROData> newData);
+
     GLuint getVBO() const { return _buffer; }
-    
+
 private:
-    
+
     GLuint _buffer;
+    GLsizeiptr _bufferCapacity;     // bytes allocated on the GPU at hydrate() time
     std::weak_ptr<VRODriverOpenGL> _driver;
-    
+
 };
 
 #endif /* VROVertexBufferOpenGL_h */

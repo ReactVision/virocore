@@ -95,3 +95,21 @@ std::vector<float> VROCameraTextureiOS::getCameraIntrinsics() const {
     return _controller->getCameraIntrinsics();
 }
 
+void VROCameraTextureiOS::setUpdateListener(std::function<void(CMSampleBufferRef, std::vector<float>)> listener) {
+    _controller->setUpdateListener(listener);
+}
+
+void VROCameraTextureiOS::capturePhoto(NSString *outputPath,
+                                       std::function<void(bool, NSString *, NSString *)> onCaptured) {
+    _controller->capturePhoto(outputPath, onCaptured);
+}
+
+void VROCameraTextureiOS::startRecording(NSString *outputPath,
+                                         std::function<void(bool, NSString *, NSString *)> onStarted) {
+    _controller->startRecording(outputPath, onStarted);
+}
+
+void VROCameraTextureiOS::stopRecording(std::function<void(bool, NSString *, NSString *)> onStopped) {
+    _controller->stopRecording(onStopped);
+}
+

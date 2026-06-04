@@ -94,6 +94,12 @@ public:
         float maxDepth = 5.0f) override;
 
     /*
+     * Generate a mesh by triangulating all currently tracked ARCore planes.
+     * Used as fallback when depth data is unavailable.
+     */
+    std::shared_ptr<VROARDepthMesh> generatePlaneMesh() override;
+
+    /*
      * Set the driver needed for texture creation.
      */
     void setDriver(std::shared_ptr<VRODriver> driver) {

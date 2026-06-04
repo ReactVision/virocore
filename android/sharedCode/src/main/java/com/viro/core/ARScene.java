@@ -813,6 +813,10 @@ public class ARScene extends Scene {
         nativeSetOcclusionMode(mNativeRef, mode.getId());
     }
 
+    public void setFrontCameraEnabled(boolean enabled) {
+        nativeSetFrontCameraEnabled(mNativeRef, enabled);
+    }
+
     /**
      * Check if occlusion is supported on the current device. Occlusion requires device support
      * for depth sensing (e.g., ARCore Depth API support).
@@ -1656,6 +1660,7 @@ public class ARScene extends Scene {
                                                  float qx, float qy, float qz, float qw);
     private native float[] nativeGetAmbientLightColor(long sceneControllerRef);
     private native void nativeSetOcclusionMode(long sceneControllerRef, int mode);
+    private native void nativeSetFrontCameraEnabled(long sceneControllerRef, boolean enabled);
     private native boolean nativeIsOcclusionSupported(long sceneControllerRef);
     private native boolean nativeIsOcclusionModeSupported(long sceneControllerRef, int mode);
 
