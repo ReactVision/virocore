@@ -60,8 +60,10 @@ add_library( # Sets the name of the library.
              ${VIRO_ANDROID_SRC}/VROSample.cpp
              ${VIRO_ANDROID_SRC}/VROImageAndroid.cpp
              ${VIRO_ANDROID_SRC}/VROAudioPlayerAndroid.cpp
+             ${VIRO_ANDROID_SRC}/VROAudioPlayerStreamAndroid.cpp
              ${VIRO_ANDROID_SRC}/VROAVPlayer.cpp
              ${VIRO_ANDROID_SRC}/VROVideoTextureAVP.cpp
+             ${VIRO_ANDROID_SRC}/VROCameraTextureAndroid.cpp
              ${VIRO_ANDROID_SRC}/VROTypefaceAndroid.cpp
              ${VIRO_ANDROID_SRC}/VROInputControllerDaydream.cpp
              ${VIRO_ANDROID_SRC}/VROInputControllerCardboard.cpp
@@ -87,6 +89,7 @@ add_library( # Sets the name of the library.
              ${VIRO_CAPI_SRC}/Material_JNI.cpp
              ${VIRO_CAPI_SRC}/Texture_JNI.cpp
              ${VIRO_CAPI_SRC}/VideoTexture_JNI.cpp
+             ${VIRO_CAPI_SRC}/CameraTexture_JNI.cpp
              ${VIRO_CAPI_SRC}/AnimatedTexture_JNI.cpp
              ${VIRO_CAPI_SRC}/VideoDelegate_JNI.cpp
              ${VIRO_CAPI_SRC}/ViroContext_JNI.cpp
@@ -177,6 +180,10 @@ add_library( # Sets the name of the library.
              ${VIRO_RENDERER_SRC}/VROGeometry.cpp
              ${VIRO_RENDERER_SRC}/VROGeometryElement.cpp
              ${VIRO_RENDERER_SRC}/VROGeometrySource.cpp
+             ${VIRO_RENDERER_SRC}/VRODynamicGeometry.cpp
+             ${VIRO_RENDERER_SRC}/VRODynamicMeshNode.cpp
+             ${VIRO_RENDERER_SRC}/VROInputState.cpp
+             ${VIRO_RENDERER_SRC}/VROVirtualControllerRegistry.cpp
              ${VIRO_RENDERER_SRC}/VROMaterial.cpp
              ${VIRO_RENDERER_SRC}/VROMaterialVisual.cpp
              ${VIRO_RENDERER_SRC}/VROTexture.cpp
@@ -332,6 +339,8 @@ add_library( # Sets the name of the library.
              # Android JNI
              ${VIRO_ANDROID_SRC}/jni/VRORenderer_JNI.cpp
              ${VIRO_ANDROID_SRC}/jni/MediaRecorder_JNI.cpp
+             ${VIRO_ANDROID_SRC}/jni/VROVirtualController_JNI.cpp
+             ${VIRO_ANDROID_SRC}/jni/VROGameLoop_JNI.cpp
              ${VIRO_ANDROID_SRC}/jni/VRORendererARCore_JNI.cpp
              ${VIRO_ANDROID_SRC}/jni/VROCameraImageListener.cpp
              ${VIRO_ANDROID_SRC}/jni/ARImageDatabaseLoaderDelegate.cpp

@@ -214,6 +214,8 @@ namespace arcore {
     public:
         virtual ~Config() {}
         virtual void setAugmentedImageDatabase(AugmentedImageDatabase *database) = 0;
+        // Enable face tracking (uses front camera automatically).
+        virtual void setAugmentedFaceMode(bool enabled) = 0;
     };
 
     class AugmentedImageDatabase {
@@ -447,6 +449,9 @@ namespace arcore {
         virtual Anchor *hostAndAcquireNewCloudAnchorWithTtl(const Anchor *anchor, int ttlDays, AnchorAcquireStatus *status) = 0;
         virtual Anchor *resolveAndAcquireNewCloudAnchor(const char *anchorId, AnchorAcquireStatus *status) = 0;
         virtual ArSession *getRawSession() = 0;
+        // Select best camera config for given facing direction. Must be called
+        // before configure() when switching between front and back camera.
+        virtual void selectCameraConfig(bool frontFacing) = 0;
     };
 }
 

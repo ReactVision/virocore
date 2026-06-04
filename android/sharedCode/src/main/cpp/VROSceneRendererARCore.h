@@ -180,6 +180,11 @@ private:
     VROMatrix4f _semanticTextureTransform;
     VROViewport _lastViewport;
     VROOcclusionMode _lastOcclusionMode = VROOcclusionMode::Disabled;
+    bool _lastFrontCameraEnabled = false;
+    // Last valid back camera texcoords, used as fallback for front camera (Augmented Faces
+    // returns NaN from ArFrame_transformCoordinates2d, so we derive front texcoords from back).
+    VROVector3f _lastBackBL, _lastBackBR, _lastBackTL, _lastBackTR;
+    bool _hasBackTexcoords = false;
     gvr::Sizei _surfaceSize;
     bool _arcoreInstalled;
     bool _destroyed;

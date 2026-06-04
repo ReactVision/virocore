@@ -129,6 +129,7 @@ private:
     VROUniform *_arCameraPositionUniform;
     VROUniform *_arViewportSizeUniform;
     VROUniform *_arDepthTextureTransformUniform;
+    VROUniform *_arDepthIsMonocularUniform;
     VROUniform *_occlusionZNearUniform;
     VROUniform *_occlusionZFarUniform;
 

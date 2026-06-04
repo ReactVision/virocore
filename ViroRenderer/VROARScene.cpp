@@ -303,6 +303,12 @@ void VROARScene::setWorldMeshEnabled(bool enabled) {
         _worldMesh->setEnabled(enabled);
     }
 
+    // Notify the platform session so it can activate depth sensing if needed
+    std::shared_ptr<VROARSession> arSession = _arSession.lock();
+    if (arSession) {
+        arSession->onWorldMeshEnabled(enabled);
+    }
+
     pinfo("VROARScene: World mesh %s", enabled ? "enabled" : "disabled");
 }
 

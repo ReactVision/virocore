@@ -1289,9 +1289,12 @@ std::shared_ptr<VROShaderModifier> VROShaderFactory::createOcclusionMaskModifier
         // Calculate virtual object's distance from camera (Planar Depth)
         "highp float virtualDepth = -(view_matrix * vec4(_surface.position, 1.0)).z;",
 
-        // Apply occlusion: discard fragment if virtual object is behind real-world surface
-        "highp float occlusionBias = realWorldDepth * 0.08;",
-        "if (realWorldDepth > 0.0 && virtualDepth > (realWorldDepth + occlusionBias)) {",
+        // Per-source bias: LiDAR needs 8% to tolerate sensor/camera offset; monocular
+        // uses 0% because DepthPro tends to slightly overestimate distances — a positive
+        // bias would prevent otherwise-valid occlusion from triggering.
+        "uniform highp float ar_depth_is_monocular;",
+        "highp float occlusionBias = mix(realWorldDepth * 0.08, 0.0, ar_depth_is_monocular);",
+        "if (realWorldDepth > 0.001 && virtualDepth > (realWorldDepth + occlusionBias)) {",
         "    discard;",
         "}",
         "}"
@@ -1348,19 +1351,19 @@ std::shared_ptr<VROShaderModifier> VROShaderFactory::createDepthDebugModifier() 
         "highp vec2 screenUV = gl_FragCoord.xy / ar_viewport_size.xy;",
         "screenUV.y = 1.0 - screenUV.y;",
 
-        // Apply depth texture transform for correct orientation
+        // Apply depth texture transform for correct orientation.
+        // ar_depth_texture_transform is the no-ScaleFill "debug" variant (set by VROViewAR)
+        // so the full depth texture maps to the full screen — no magenta coverage bands.
         "highp vec2 depthUV = (ar_depth_texture_transform * vec4(screenUV, 0.0, 1.0)).xy;",
-
-        // Check if UV is out of bounds (no depth data for this region)
-        "bool depthOutOfBounds = depthUV.x < 0.0 || depthUV.x > 1.0 || depthUV.y < 0.0 || depthUV.y > 1.0;",
         "depthUV = clamp(depthUV, 0.0, 1.0);",
 
-        // Sample depth in meters using the correct depth UVs
-        "highp float depth = depthOutOfBounds ? 0.0 : texture(ar_occlusion_depth_texture, depthUV).r;",
+        // Sample depth in meters. Out-of-bounds UV is clamped to the texture edge,
+        // so edge regions show the nearest valid depth rather than magenta.
+        "highp float depth = texture(ar_occlusion_depth_texture, depthUV).r;",
 
         // Normalize depth to 0-1 using inverse (close=1, far=0) for Turbo-like colormap
         "highp float maxDepth = 10.0;",
-        "highp float t = (depthOutOfBounds || depth <= 0.001) ? -1.0 : 1.0 - clamp(depth / maxDepth, 0.0, 1.0);",
+        "highp float t = (depth <= 0.001) ? -1.0 : 1.0 - clamp(depth / maxDepth, 0.0, 1.0);",
 
         // Turbo colormap approximation (Google Research)
         "highp vec3 depthColor;",

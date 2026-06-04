@@ -35,6 +35,9 @@ class VROTextureSubstrate {
 public:
     virtual ~VROTextureSubstrate() {}
     virtual void updateWrapMode(VROWrapMode wrapModeS, VROWrapMode wrapModeT) = 0;
+
+    // In-place update for R32F textures (same width/height). Must be called on GL thread.
+    virtual void updateR32FData(const float *data, int width, int height) {}
 };
 
 #endif /* VROTextureSubstrate_h */
