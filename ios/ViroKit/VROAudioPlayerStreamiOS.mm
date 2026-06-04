@@ -37,11 +37,12 @@ void VROAudioPlayerStreamiOS::beginStreaming(int sampleRate, int channels) {
     _ring->setSampleRate(sampleRate);
     _ring->setChannels(channels);
 
+    // AVAudioSourceNode requires non-interleaved PCM — interleaved:YES causes -10868.
     AVAudioFormat *fmt = [[AVAudioFormat alloc]
                           initWithCommonFormat:AVAudioPCMFormatFloat32
                                    sampleRate:(double)sampleRate
                                      channels:(AVAudioChannelCount)channels
-                                  interleaved:YES];
+                                  interleaved:NO];
     _format = fmt;
 
     // Capture a raw pointer to the ring buffer for the real-time block.
@@ -57,21 +58,46 @@ void VROAudioPlayerStreamiOS::beginStreaming(int sampleRate, int channels) {
                                  const AudioTimeStamp *timestamp,
                                  AVAudioFrameCount     frameCount,
                                  AudioBufferList      *outputData) {
-            AudioBuffer &buf = outputData->mBuffers[0];
-            float *out = (float *)buf.mData;
-            size_t totalSamples = (size_t)frameCount * ring->channels();
+            UInt32 numBuffers = outputData->mNumberBuffers;
 
             if (!*playing || *muted) {
-                memset(out, 0, totalSamples * sizeof(float));
+                for (UInt32 b = 0; b < numBuffers; ++b)
+                    memset(outputData->mBuffers[b].mData, 0,
+                           outputData->mBuffers[b].mDataByteSize);
                 *isSilence = YES;
                 return noErr;
             }
 
-            ring->read(out, totalSamples);
+            int ch = (int)ring->channels();
+            if (ch == 1 || numBuffers == 1) {
+                // Mono — ring buffer and non-interleaved buffer are identical.
+                float *out = (float *)outputData->mBuffers[0].mData;
+                ring->read(out, frameCount);
+            } else {
+                // Stereo — ring stores interleaved LRLR...; deinterleave into
+                // separate L and R buffers. Stack buffer avoids heap allocation
+                // on the real-time audio thread (8192 floats = 32 KB, safe).
+                float tmp[8192];
+                size_t total = (size_t)frameCount * 2;
+                if (total > 8192) total = 8192;
+                ring->read(tmp, total);
+
+                float *outL = (float *)outputData->mBuffers[0].mData;
+                float *outR = (float *)outputData->mBuffers[1].mData;
+                AVAudioFrameCount frames = (AVAudioFrameCount)(total / 2);
+                for (AVAudioFrameCount i = 0; i < frames; ++i) {
+                    outL[i] = tmp[i * 2];
+                    outR[i] = tmp[i * 2 + 1];
+                }
+            }
 
             float vol = volume->load(std::memory_order_relaxed);
             if (vol != 1.0f) {
-                for (size_t i = 0; i < totalSamples; ++i) out[i] *= vol;
+                for (UInt32 b = 0; b < numBuffers; ++b) {
+                    float *buf = (float *)outputData->mBuffers[b].mData;
+                    UInt32 frames = outputData->mBuffers[b].mDataByteSize / sizeof(float);
+                    for (UInt32 i = 0; i < frames; ++i) buf[i] *= vol;
+                }
             }
 
             *isSilence = NO;

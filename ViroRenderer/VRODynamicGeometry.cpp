@@ -195,14 +195,22 @@ void VRODynamicGeometry::setBuffers(const float    *positions,
         pwarn("VRODynamicGeometry::setBuffers: positions is null (required)");
         return;
     }
-    updateBuffer(_positionBuffer, positions, (size_t)vertexCount * 3 * sizeof(float));
+    // Always send the full _maxVertices-sized buffer so VROGeometrySource's declared
+    // vertexCount stays consistent with the VROData capacity (VROByteBuffer reads
+    // _maxVertices entries during bounding-box computation). Active verts are in
+    // [0, vertexCount); the rest are zeroed and excluded by setPrimitiveCount.
+    updateBufferPadded(_positionBuffer, positions,
+                       (size_t)vertexCount * 3 * sizeof(float),
+                       (size_t)_maxVertices  * 3 * sizeof(float));
 
     if (_normalBuffer) {
         if (!normals) {
             pwarn("VRODynamicGeometry::setBuffers: Normals feature declared but "
                   "normals pointer is null");
         } else {
-            updateBuffer(_normalBuffer, normals, (size_t)vertexCount * 3 * sizeof(float));
+            updateBufferPadded(_normalBuffer, normals,
+                               (size_t)vertexCount * 3 * sizeof(float),
+                               (size_t)_maxVertices  * 3 * sizeof(float));
         }
     } else if (normals) {
         pwarn("VRODynamicGeometry::setBuffers: normals supplied but Normals feature "
@@ -214,7 +222,9 @@ void VRODynamicGeometry::setBuffers(const float    *positions,
             pwarn("VRODynamicGeometry::setBuffers: UVs feature declared but uvs "
                   "pointer is null");
         } else {
-            updateBuffer(_uvBuffer, uvs, (size_t)vertexCount * 2 * sizeof(float));
+            updateBufferPadded(_uvBuffer, uvs,
+                               (size_t)vertexCount * 2 * sizeof(float),
+                               (size_t)_maxVertices  * 2 * sizeof(float));
         }
     } else if (uvs) {
         pwarn("VRODynamicGeometry::setBuffers: uvs supplied but UVs feature was "
@@ -226,8 +236,9 @@ void VRODynamicGeometry::setBuffers(const float    *positions,
             pwarn("VRODynamicGeometry::setBuffers: Colors feature declared but "
                   "colors pointer is null");
         } else {
-            updateBuffer(_colorBuffer, colors,
-                         (size_t)vertexCount * 4 * sizeof(uint8_t));
+            updateBufferPadded(_colorBuffer, colors,
+                               (size_t)vertexCount * 4 * sizeof(uint8_t),
+                               (size_t)_maxVertices  * 4 * sizeof(uint8_t));
         }
     } else if (colors) {
         pwarn("VRODynamicGeometry::setBuffers: colors supplied but Colors feature "
@@ -241,6 +252,20 @@ void VRODynamicGeometry::setBuffers(const float    *positions,
 
     // Bounding box is stale after a buffer swap; force recompute on next query.
     updateBoundingBox();
+}
+
+void VRODynamicGeometry::updateBufferPadded(const std::shared_ptr<VROVertexBuffer> &buffer,
+                                             const void *activeData, size_t activeBytes,
+                                             size_t totalBytes) {
+    if (!buffer || !activeData || activeBytes == 0) return;
+    if (activeBytes >= totalBytes) {
+        updateBuffer(buffer, activeData, activeBytes);
+        return;
+    }
+    std::vector<uint8_t> padded(totalBytes, 0);
+    memcpy(padded.data(), activeData, activeBytes);
+    auto newData = std::make_shared<VROData>(padded.data(), (int)totalBytes);
+    buffer->updateData(newData);
 }
 
 void VRODynamicGeometry::updateBuffer(const std::shared_ptr<VROVertexBuffer> &buffer,
