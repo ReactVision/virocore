@@ -30,10 +30,12 @@ VROARDepthMesh::VROARDepthMesh() {}
 
 VROARDepthMesh::VROARDepthMesh(std::vector<VROVector3f> vertices,
                                std::vector<int> indices,
-                               std::vector<float> confidences)
+                               std::vector<float> confidences,
+                               std::string source)
     : _vertices(std::move(vertices)),
       _indices(std::move(indices)),
-      _confidences(std::move(confidences)) {
+      _confidences(std::move(confidences)),
+      _source(std::move(source)) {
 }
 
 VROARDepthMesh::~VROARDepthMesh() {}

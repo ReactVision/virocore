@@ -214,10 +214,13 @@ btCollisionShape* VROPhysicsShape::generateTriangleMeshShape(
         const VROVector3f& v1 = vertices[i1];
         const VROVector3f& v2 = vertices[i2];
 
-        // Skip degenerate triangles
+        // Skip degenerate triangles.
+        // Threshold: 1e-6 m² (1mm²) — low enough to pass ARCore depth-API
+        // triangles (~0.5mm² at 2m with 160×90 depth image) while still
+        // rejecting truly collapsed/zero-area triangles.
         VROVector3f edge1 = v1 - v0;
         VROVector3f edge2 = v2 - v0;
-        if (edge1.cross(edge2).magnitude() < 0.0001f) {
+        if (edge1.cross(edge2).magnitude() < 1e-6f) {
             continue;
         }
 

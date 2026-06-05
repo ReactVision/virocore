@@ -16,10 +16,12 @@
 namespace arcore {
     class ConfigNative : public Config {
     public:
-        ConfigNative(ArConfig *config) : _config(config) {}
+        ConfigNative(ArConfig *config, ArSession *session) : _config(config), _session(session) {}
         virtual ~ConfigNative();
         virtual void setAugmentedImageDatabase(AugmentedImageDatabase *database);
+        virtual void setAugmentedFaceMode(bool enabled);
         ArConfig *_config;
+        ArSession *_session;
     };
 
     class AugmentedImageDatabaseNative : public AugmentedImageDatabase {
@@ -270,6 +272,7 @@ namespace arcore {
         virtual Anchor *hostAndAcquireNewCloudAnchorWithTtl(const Anchor *anchor, int ttlDays, AnchorAcquireStatus *status);
         virtual Anchor *resolveAndAcquireNewCloudAnchor(const char *anchorId, AnchorAcquireStatus *status);
         virtual ArSession *getRawSession() { return _session; }
+        virtual void selectCameraConfig(bool frontFacing);
 
     private:
         ArSession *_session;

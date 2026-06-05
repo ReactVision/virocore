@@ -243,6 +243,20 @@ void VROARCameraARCore::getImageCropRectangle(VROARDisplayRotation rotation, int
     TR.x = texcoords[6];
     TR.y = texcoords[7];
 
+    // Front camera (Augmented Faces): ARCore returns texcoords with Y inverted
+    // relative to back camera. Swap BL.y↔TL.y and BR.y↔TR.y so the crop
+    // top/bottom values are correct and the background renders right-side up.
+    {
+        std::shared_ptr<VROARSessionARCore> sess = _session.lock();
+        if (sess && sess->isFrontCameraEnabled()) {
+            std::swap(BL.y, TL.y);
+            std::swap(BR.y, TR.y);
+            __android_log_print(ANDROID_LOG_INFO, "ViroARCore",
+                "getCropForDisplay: front camera Y-swap applied BL.y=%.3f TL.y=%.3f",
+                BL.y, TL.y);
+        }
+    }
+
     switch (rotation) {
         case VROARDisplayRotation::R0:
             // Image was rotated 90 degrees CC
