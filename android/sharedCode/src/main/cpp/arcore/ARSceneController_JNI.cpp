@@ -1551,6 +1551,24 @@ VRO_METHOD(void, nativeSetGeospatialAnchorProvider)(VRO_ARGS
     });
 }
 
+
+VRO_METHOD(void, nativeSetFrontCameraEnabled)(VRO_ARGS
+                                              VRO_REF(VROARSceneController) sceneController_j,
+                                              VRO_BOOL enabled) {
+    std::weak_ptr<VROARScene> scene_w = std::dynamic_pointer_cast<VROARScene>(
+            VRO_REF_GET(VROARSceneController, sceneController_j)->getScene());
+
+    VROPlatformDispatchAsyncRenderer([scene_w, enabled] {
+        std::shared_ptr<VROARScene> scene = scene_w.lock();
+        if (!scene) return;
+        std::shared_ptr<VROARSession> session = scene->getARSession();
+        if (!session) return;
+        auto arcoreSession = std::dynamic_pointer_cast<VROARSessionARCore>(session);
+        if (arcoreSession) {
+            arcoreSession->setFrontCameraEnabled((bool)enabled);
+        }
+    });
+}
 VRO_METHOD(void, nativeSetOcclusionMode)(VRO_ARGS
                                           VRO_REF(VROARSceneController) sceneController_j,
                                           VRO_INT mode) {

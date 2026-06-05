@@ -71,6 +71,9 @@ public class ViroContext {
         }
     }
 
+    /** @hide Returns the native PersistentRef&lt;ViroContextAndroid&gt; handle. */
+    public long getNativeRef() { return mNativeRef; }
+
     private native long nativeCreateViroContext(long mNativeRenderer);
     private native void nativeDeleteViroContext(long mNativeContextRef);
     private native void nativeGetCameraOrientation(long mNativeContextRef, CameraCallback callback);

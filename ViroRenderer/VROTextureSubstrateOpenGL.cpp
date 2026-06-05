@@ -67,6 +67,13 @@ void VROTextureSubstrateOpenGL::updateWrapMode(VROWrapMode wrapModeS, VROWrapMod
     GL( glBindTexture(_target, 0) );
 }
 
+void VROTextureSubstrateOpenGL::updateR32FData(const float *data, int width, int height) {
+    GL( glActiveTexture(GL_TEXTURE0) );
+    GL( glBindTexture(_target, _texture) );
+    GL( glTexSubImage2D(_target, 0, 0, 0, width, height, GL_RED, GL_FLOAT, data) );
+    GL( glBindTexture(_target, 0) );
+}
+
 void VROTextureSubstrateOpenGL::loadTexture(VROTextureType type,
                                             VROTextureFormat format,
                                             VROTextureInternalFormat internalFormat, bool sRGB,

@@ -30,6 +30,7 @@
 #include "VRODriverOpenGL.h"
 #include "VROSoundGVR.h"
 #include "VROAudioPlayeriOS.h"
+#include "VROAudioPlayerStreamiOS.h"
 #include "VROVideoTextureCacheOpenGL.h"
 #include "VROTypefaceiOS.h"
 #include "VROTypefaceCollection.h"
@@ -133,6 +134,10 @@ public:
 
     std::shared_ptr<VROAudioPlayer> newAudioPlayer(std::shared_ptr<VROSoundData> data) {
         return std::make_shared<VROAudioPlayeriOS>(data);
+    }
+
+    std::shared_ptr<VROAudioPlayer> newStreamingAudioPlayer() override {
+        return std::make_shared<VROAudioPlayerStreamiOS>();
     }
     
     FT_Library getFreetype() {

@@ -251,6 +251,9 @@ public class Scene {
         }
     }
 
+    /** @hide */
+    public long getNativeRef() { return mNativeRef; }
+
     /**
      * Retrieve the root {@link Node} of the scene graph.
      *
