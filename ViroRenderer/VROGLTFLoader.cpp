@@ -54,6 +54,7 @@
 #include "VROMorpher.h"
 #include "VRONodeCamera.h"
 #include "VROLight.h"
+#include <algorithm>
 
 static std::string kVROGLTFInputSamplerKey = "timeInput";
 std::map<std::string, std::shared_ptr<VROVertexBuffer>> VROGLTFLoader::_dataCache;
@@ -1200,8 +1201,8 @@ bool VROGLTFLoader::processSkeletalAnimation(const tinygltf::Model &model,
         return true;
     }
 
-    // Build a per-skin flatten map (the original single-skin type) and flatten each skin's
-    // channels independently, then process each (animation, skin) pair.
+    // Build a per-skin map (the original single-skin type) and resample each skin's channels
+    // onto a common time-grid independently, then process each (animation, skin) pair.
     for (auto &animEntry : skeletalAnimToSkinToNodeMap) {
         int skeletalAnimationIndex = animEntry.first;
 
@@ -1210,10 +1211,11 @@ bool VROGLTFLoader::processSkeletalAnimation(const tinygltf::Model &model,
             int skinIndex = skinPair.first;
             std::vector<int> &intersectingJoints = skinPair.second;
 
-            // Build a single-skin flatten map for this (animation, skin) pair and flatten it.
+            // Build a single-skin map for this (animation, skin) pair and resample its channels
+            // onto a shared grid so every joint's track is index-aligned.
             std::map<int, std::pair<int, std::vector<int>>> singleSkinMap;
             singleSkinMap[skeletalAnimationIndex] = std::make_pair(skinIndex, intersectingJoints);
-            flattenSkeletalKeyframeAnimations(singleSkinMap, skinIndex);
+            resampleSkeletalChannelsToCommonGrid(singleSkinMap, skinIndex);
 
             int rootJointIndexForSkin = _skinIndexToSkeletonRootJoint[skinIndex];
             int animatedNodeIndexFirst = _skinIndexToJointNodeIndex[skinIndex][rootJointIndexForSkin];
@@ -1294,128 +1296,184 @@ bool VROGLTFLoader::processSkeletalAnimation(const tinygltf::Model &model,
 }
 
 /*
+ Resample every animation channel of a skin onto a single common time-grid, then merge each
+ joint's per-property (translation/rotation/scale/morph) channels into one VROKeyframeAnimation.
 
- TODO VIRO-5741: Remove this once we have updated GLTF support for layered skeletal animations.
+ glTF lets the channels within one animation use samplers with different keyframe counts and time
+ grids — a very common Blender/Mixamo export pattern: bones that don't move are exported as a
+ 2-keyframe STEP channel while moving bones get a dense LINEAR channel. The downstream skeletal
+ pipeline (processSkeletalTransformsForFrame) samples every joint by a shared integer frame index,
+ so it requires every joint's track to have the same frame count and aligned indices.
 
- In GLTF, a single joint can have multiple VROKeyframeAnimations with different durations
- and input times, for the same animation. This is can still be supported with layered
- skeletal animations played in parallel, but we don't yet support that with GLTF models
- because of the usage of legacy binding transforms.
-
- As a *temporary* mitigation, we simply group VROKeyframeAnimations with the same input time data
- (same duration and keyframe intervals), and flatten them into a single VROKeyframeAnimation
- to be used for skeletal animations (thus no skeletal layering is needed). This has two caveats:
-
- - Outlying VROKeyframeAnimations that do not match the same input time data are ignored,
-   as there is no way to merge animations with different time data.
-
- - If we encounter multiple Keyframe animations with identical animated attributes (say if two
-   keyframe animations were modifying rotational properties at the same time), only the latest
-   one is used.
-
+ The previous implementation (VIRO-5741) satisfied that by *dropping* every channel whose grid did
+ not match the first joint's — which silently discarded the motion of every moving bone whenever
+ the first joint happened to be a constant 2-keyframe channel (e.g. a static "Root"), leaving the
+ model frozen. Instead we now build the union of all channel key times and resample each channel
+ onto it (slerp for rotation, lerp for translation/scale/morph, hold-left for STEP samplers,
+ clamped at each channel's ends). This is lossless for piecewise-linear and step data, and leaves
+ single-grid models unchanged. Note: this fixes single-clip playback; true multi-clip layering
+ (blending separate named clips with per-bone weights) is a separate effort that additionally
+ requires localBoneTransforms on the GLB path.
  */
-void VROGLTFLoader::flattenSkeletalKeyframeAnimations(std::map<int, std::pair<int, std::vector<int>>> &skeletalAnimToNodeSkinPair,
-                                                     int skinIndex) {
-    // Iterate through each skeletal animation and flatten them if possible.
+void VROGLTFLoader::resampleSkeletalChannelsToCommonGrid(std::map<int, std::pair<int, std::vector<int>>> &skeletalAnimToNodeSkinPair,
+                                                         int skinIndex) {
+    const float kTimeEpsilon = 1e-5f;
+    const size_t kMaxGridFrames = 2000;
+
     for (auto &animToSkinToNodePair : skeletalAnimToNodeSkinPair) {
         int skeletalAnimationIndex = animToSkinToNodePair.first;
+        std::vector<int> &nodeIndices = animToSkinToNodePair.second.second;
 
-        // Reset chosen input time data used for flattening animations.
-        float chosenDuration = -1;
-        int chosenNumberOfFrames = -1;
-
-        // Iterate through all the skinner nodes in the skeletal animation
-        // and for each node examine its keyframe animations.
-        for (auto &nodeIndex : animToSkinToNodePair.second.second) {
-
-            // Skip if there's no animation for this node in the skeleton.
-            if (_nodeKeyFrameAnims[nodeIndex][skeletalAnimationIndex].size() == 0) {
+        // 1. Determine the clip duration and the union of absolute key times across every channel
+        //    of every joint in this skin.
+        float clipDuration = 0;
+        size_t maxChannelFrames = 0;
+        std::vector<float> unionTimes;
+        for (int nodeIndex : nodeIndices) {
+            auto nodeIt = _nodeKeyFrameAnims.find(nodeIndex);
+            if (nodeIt == _nodeKeyFrameAnims.end()) {
                 continue;
             }
-
-            // Set the duration and keyframes for this skeletal animation if we haven't yet done so.
-            std::vector<std::shared_ptr<VROKeyframeAnimation>> &keyframeAnimations = _nodeKeyFrameAnims[nodeIndex][skeletalAnimationIndex];
-            if (chosenDuration == -1) {
-                chosenDuration = keyframeAnimations.front()->getDuration();
-            }
-
-            if (chosenNumberOfFrames == -1) {
-                chosenNumberOfFrames = (int) keyframeAnimations.front()->getFrames().size();
-            }
-
-            // Remove keyframe animations with different time input data (different duration or
-            // frame count). Layered skeletal animations with mismatched time grids are not yet
-            // supported, so we keep only the majority time grid (chosenDuration/chosenNumberOfFrames).
-            keyframeAnimations.erase(std::remove_if(
-                            keyframeAnimations.begin(),
-                            keyframeAnimations.end(),
-                            [chosenDuration, chosenNumberOfFrames](const std::shared_ptr<VROKeyframeAnimation> &o) {
-                                bool mismatch = (o->getDuration() != chosenDuration ||
-                                                 o->getFrames().size() != (size_t)chosenNumberOfFrames);
-                                if (mismatch) {
-                                    pwarn("Viro: Dropping mis-matched channel (dur=%.3f frames=%zu expected dur=%.3f frames=%d) "
-                                          "— layered skeletal animations with different time grids not yet supported.",
-                                          o->getDuration(), o->getFrames().size(), chosenDuration, chosenNumberOfFrames);
-                                }
-                                return mismatch;
-                            }),
-                            keyframeAnimations.end());
-
-            // If there's only one keyframeAnimation for this joint, there's no need to
-            // attempt flattening - simply continue.
-            if (keyframeAnimations.size() <= 1) {
+            auto animIt = nodeIt->second.find(skeletalAnimationIndex);
+            if (animIt == nodeIt->second.end()) {
                 continue;
             }
+            for (const std::shared_ptr<VROKeyframeAnimation> &chan : animIt->second) {
+                float chanDur = chan->getDuration();
+                clipDuration = std::max(clipDuration, chanDur);
+                const auto &frames = chan->getFrames();
+                maxChannelFrames = std::max(maxChannelFrames, frames.size());
+                for (const auto &f : frames) {
+                    // Channel frame times are normalized to [0, 1] by the channel's own duration
+                    // (see convertChannelToKeyFrameAnimation); recover absolute seconds so grids
+                    // from channels of differing duration are comparable.
+                    unionTimes.push_back(f->time * chanDur);
+                }
+            }
+        }
+        if (clipDuration <= 0 || unionTimes.empty()) {
+            continue;
+        }
 
-            // Else, at this point all keyframeAnimations for this node should have the same
-            // time input data (same duration and keyframe count). Now we attempt to
-            // flatten the keyframeAnimations into a single one with combined transforms.
-            std::vector<std::unique_ptr<VROKeyframeAnimationFrame>> flattenedKeyFrames;
-            const std::vector<std::unique_ptr<VROKeyframeAnimationFrame>> &currFrames = keyframeAnimations.front()->getFrames();
+        // Sort + epsilon-dedup the union, guaranteeing the [0, clipDuration] endpoints.
+        unionTimes.push_back(0.0f);
+        unionTimes.push_back(clipDuration);
+        std::sort(unionTimes.begin(), unionTimes.end());
+        std::vector<float> gridTimes;
+        gridTimes.reserve(unionTimes.size());
+        for (float t : unionTimes) {
+            t = std::min(std::max(t, 0.0f), clipDuration);
+            if (gridTimes.empty() || (t - gridTimes.back()) > kTimeEpsilon) {
+                gridTimes.push_back(t);
+            }
+        }
 
-            // First, initialize flattenedKeyFrames with the input time data.
-            for (int f = 0; f < currFrames.size(); f ++) {
-                std::unique_ptr<VROKeyframeAnimationFrame> animatedFrame
-                    = std::unique_ptr<VROKeyframeAnimationFrame>(new VROKeyframeAnimationFrame());
-                animatedFrame->time = currFrames[f]->time;
-                flattenedKeyFrames.push_back(std::move(animatedFrame));
+        // Density cap: bound per-frame skinning cost for pathological assets. Never silent.
+        if (gridTimes.size() > kMaxGridFrames) {
+            size_t n = std::min(kMaxGridFrames, std::max((size_t)2, maxChannelFrames));
+            pinfo("Viro: GLTF skeletal anim %d skin %d has %zu union keyframes; resampling to a uniform %zu-frame grid (density cap).",
+                  skeletalAnimationIndex, skinIndex, gridTimes.size(), n);
+            gridTimes.clear();
+            for (size_t i = 0; i < n; i++) {
+                gridTimes.push_back(clipDuration * (float)i / (float)(n - 1));
+            }
+        }
+
+        // 2. Resample + merge each joint's channels onto the shared grid. The merged frames are
+        //    normalized by the shared clip duration so every joint's resulting track is index-aligned.
+        for (int nodeIndex : nodeIndices) {
+            auto nodeIt = _nodeKeyFrameAnims.find(nodeIndex);
+            if (nodeIt == _nodeKeyFrameAnims.end()) {
+                continue;
+            }
+            auto animIt = nodeIt->second.find(skeletalAnimationIndex);
+            if (animIt == nodeIt->second.end() || animIt->second.empty()) {
+                continue;
+            }
+            std::vector<std::shared_ptr<VROKeyframeAnimation>> &channels = animIt->second;
+
+            std::vector<std::unique_ptr<VROKeyframeAnimationFrame>> mergedFrames;
+            mergedFrames.reserve(gridTimes.size());
+            for (float t : gridTimes) {
+                auto mf = std::unique_ptr<VROKeyframeAnimationFrame>(new VROKeyframeAnimationFrame());
+                mf->time = t / clipDuration;
+                mergedFrames.push_back(std::move(mf));
             }
 
-            // Then iterate through all the animated properties, and for each keyframe within them
-            // combine the properties into the final flattenedKeyFrames.
-            bool hasTrans = false, hasScale = false, hasRotation = false, hasMorph = false;
-            for (int channelIndex = 0; channelIndex < keyframeAnimations.size(); channelIndex++) {
-                for (int keyFrameTime = 0; keyFrameTime < flattenedKeyFrames.size(); keyFrameTime++) {
-                    const std::vector<std::unique_ptr<VROKeyframeAnimationFrame>> &currFrames = keyframeAnimations[channelIndex]->getFrames();
+            bool hasTrans = false, hasRotation = false, hasScale = false, hasMorph = false;
+            std::string animName;
+            for (const std::shared_ptr<VROKeyframeAnimation> &chan : channels) {
+                const auto &frames = chan->getFrames();
+                if (frames.empty()) {
+                    continue;
+                }
+                if (chan->getName().length() > 0) {
+                    animName = chan->getName();
+                }
+                float chanDur = chan->getDuration();
+                bool step = (chan->getTimingFunctionType() == VROTimingFunctionType::Step);
 
-                    if (keyframeAnimations[channelIndex]->_hasTranslation) {
+                // Absolute key times for this channel, for bracket search against the grid.
+                std::vector<float> keyAbs(frames.size());
+                for (size_t k = 0; k < frames.size(); k++) {
+                    keyAbs[k] = frames[k]->time * chanDur;
+                }
+
+                for (size_t gi = 0; gi < gridTimes.size(); gi++) {
+                    float tAbs = gridTimes[gi];
+                    size_t kA, kB;
+                    float alpha;
+                    if (tAbs <= keyAbs.front()) {
+                        kA = kB = 0;                  alpha = 0.0f;   // clamp to first key
+                    } else if (tAbs >= keyAbs.back()) {
+                        kA = kB = frames.size() - 1;  alpha = 0.0f;   // clamp to last key
+                    } else {
+                        size_t hi = (size_t)(std::upper_bound(keyAbs.begin(), keyAbs.end(), tAbs) - keyAbs.begin());
+                        kB = hi;
+                        kA = hi - 1;
+                        float span = keyAbs[kB] - keyAbs[kA];
+                        alpha = (span > kTimeEpsilon) ? (tAbs - keyAbs[kA]) / span : 0.0f;
+                    }
+                    const VROKeyframeAnimationFrame *fA = frames[kA].get();
+                    const VROKeyframeAnimationFrame *fB = frames[kB].get();
+
+                    // STEP samplers hold the left key; LINEAR (and pre-baked CUBICSPLINE) interpolate.
+                    if (chan->_hasTranslation) {
                         hasTrans = true;
-                        flattenedKeyFrames[keyFrameTime]->translation = currFrames[keyFrameTime]->translation;
-                    } else if (keyframeAnimations[channelIndex]->_hasScale) {
+                        mergedFrames[gi]->translation = step ? fA->translation
+                                                             : fA->translation.interpolate(fB->translation, alpha);
+                    } else if (chan->_hasScale) {
                         hasScale = true;
-                        flattenedKeyFrames[keyFrameTime]->scale = currFrames[keyFrameTime]->scale;
-                    } else if (keyframeAnimations[channelIndex]->_hasRotation) {
+                        mergedFrames[gi]->scale = step ? fA->scale
+                                                       : fA->scale.interpolate(fB->scale, alpha);
+                    } else if (chan->_hasRotation) {
                         hasRotation = true;
-                        flattenedKeyFrames[keyFrameTime]->rotation = currFrames[keyFrameTime]->rotation;
-                    } else if (keyframeAnimations[channelIndex]->_hasMorphWeights) {
+                        mergedFrames[gi]->rotation = step ? fA->rotation
+                                                          : VROQuaternion::slerp(fA->rotation, fB->rotation, alpha);
+                    } else if (chan->_hasMorphWeights) {
                         hasMorph = true;
-                        flattenedKeyFrames[keyFrameTime]->morphWeights = currFrames[keyFrameTime]->morphWeights;
+                        std::map<std::string, float> weights;
+                        for (const auto &kv : fA->morphWeights) {
+                            float a = kv.second;
+                            auto bIt = fB->morphWeights.find(kv.first);
+                            float b = (bIt != fB->morphWeights.end()) ? bIt->second : a;
+                            weights[kv.first] = step ? a : (a + (b - a) * alpha);
+                        }
+                        mergedFrames[gi]->morphWeights = weights;
                     }
                 }
             }
 
-            // Finally construct the flattened keyframe animation.
-            float duration = keyframeAnimations.front()->getDuration();
-            std::shared_ptr<VROKeyframeAnimation> flattenedKeyframeAnimation
-                = std::make_shared<VROKeyframeAnimation>(flattenedKeyFrames,
-                        duration,
-                        hasTrans,
-                        hasRotation,
-                        hasScale,
-                        hasMorph);
-            flattenedKeyframeAnimation->setName(keyframeAnimations.front()->getName());
-            keyframeAnimations.clear();
-            keyframeAnimations.push_back(flattenedKeyframeAnimation);
+            std::shared_ptr<VROKeyframeAnimation> merged
+                = std::make_shared<VROKeyframeAnimation>(mergedFrames,
+                                                         clipDuration,
+                                                         hasTrans,
+                                                         hasRotation,
+                                                         hasScale,
+                                                         hasMorph);
+            merged->setName(animName);
+            channels.clear();
+            channels.push_back(merged);
         }
     }
 }
