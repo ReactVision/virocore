@@ -32,6 +32,7 @@
 #include "VROLog.h"
 #include "VROGVRUtil.h"
 #include "VROAudioPlayerAndroid.h"
+#include "VROAudioPlayerStreamAndroid.h"
 #include "VROTypefaceAndroid.h"
 #include "vr/gvr/capi/include/gvr_audio.h"
 #include "VROPlatformUtil.h"
@@ -102,6 +103,10 @@ public:
 
     std::shared_ptr<VROAudioPlayer> newAudioPlayer(std::string fileName, bool isLocal) {
         return std::make_shared<VROAudioPlayerAndroid>(fileName);
+    }
+
+    std::shared_ptr<VROAudioPlayer> newStreamingAudioPlayer() override {
+        return std::make_shared<VROAudioPlayerStreamAndroid>();
     }
 
     FT_Library getFreetype() {

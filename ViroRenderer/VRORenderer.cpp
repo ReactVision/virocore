@@ -330,6 +330,12 @@ void VRORenderer::setDepthTextureTransform(VROMatrix4f transform) {
     }
 }
 
+void VRORenderer::setDepthIsMonocular(bool monocular) {
+    if (_context) {
+        _context->setDepthIsMonocular(monocular);
+    }
+}
+
 void VRORenderer::setSemanticTextureTransform(VROMatrix4f transform) {
     if (_context) {
         _context->setSemanticTextureTransform(transform);

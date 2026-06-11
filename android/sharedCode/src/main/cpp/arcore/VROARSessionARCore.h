@@ -155,6 +155,17 @@ public:
      */
     void setOcclusionMode(VROOcclusionMode mode) override;
     bool isOcclusionSupported() const override;
+    void onWorldMeshEnabled(bool enabled) override;
+    void setFrontCameraEnabled(bool enabled);
+    bool isFrontCameraEnabled() const { return _frontCameraEnabled; }
+
+    /*
+     Collect triangulated plane mesh data from all currently tracked ARCore planes.
+     Appends world-space vertices and indices into the provided vectors.
+     Called from VROARFrameARCore::generatePlaneMesh() on the render thread.
+     */
+    void collectPlaneMeshData(std::vector<VROVector3f>& vertices,
+                              std::vector<int>& indices) const;
     bool isOcclusionModeSupported(VROOcclusionMode mode) const override;
 
     /*
@@ -325,8 +336,12 @@ private:
     arcore::SemanticMode _semanticMode;
     arcore::GeospatialMode _geospatialMode;
     bool _semanticModeEnabled = false;
+    bool _worldMeshDepthNeeded = false;  // set by onWorldMeshEnabled
+    bool _frontCameraEnabled = false;            // use front camera via AR_AUGMENTED_FACE_MODE_MESH3D
+    bool _cloudAnchorsDisabledForFaceMode = false; // once disabled for face mode, keep disabled
 
     bool updateARCoreConfig();
+    arcore::DepthMode computeNeededDepthMode() const;
 
 #pragma mark - [Private] ARCore Image Tracking
 

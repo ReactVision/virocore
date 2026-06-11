@@ -1,5 +1,31 @@
 # CHANGELOG
 
+## v2.56.0 — 04 June 2026
+
+### Added
+
+- **Dynamic mesh node** — `VRODynamicMeshNode` and its backing `VRODynamicGeometry` allow vertex buffers (positions, normals, UVs, vertex colors) to be replaced every frame without recreating the node or its GPU resources. `VROVertexBuffer` gains a usage hint (`Static` / `Dynamic` / `Stream`) and an in-place `updateData()` path, implemented in `VROVertexBufferOpenGL` via buffer orphaning and `glBufferSubData`.
+
+- **Virtual controller registry** — `VROInputState` and `VROVirtualControllerRegistry` provide a process-wide, thread-safe input state layer for game-style applications. Adapters write stick, trigger, and button state; C++ game-loop consumers read an atomic snapshot at frame rate with no JS bridge involvement.
+
+- **PCM audio streaming** — a lock-free SPSC ring buffer (`VROPCMRingBuffer`) feeds an `AVAudioSourceNode` render block on iOS and an `AudioTrack MODE_STREAM` path on Android, enabling runtime PCM push without loading a complete audio file. `VROAudioPlayer` gains `beginStreaming` / `pushSamples` / `isStreaming` virtuals; `VRODriver` gains a `newStreamingAudioPlayer()` factory.
+
+- **AR World Mesh — public subscriber API** — `VROARWorldMesh` becomes a general-purpose multi-consumer mesh provider. `subscribe(callback, options)` / `unsubscribe(id)` deliver full `VROARDepthMesh` geometry, a source enum (`LiDAR` / `Monocular` / `Plane`), and stats to each registered consumer. Additional work in this release: persistent mesh sourcing from `ARMeshAnchor` (iOS LiDAR), plane-based fallback for non-LiDAR/non-Depth-API devices, per-consumer triangle decimation (`VROWorldMeshSubscriberOptions::maxTriangles`), asynchronous Bullet BVH construction to prevent render-thread stalls, vertex clustering (`clusterMesh`) for gap-free collision meshes, depth-tested debug wireframe, smart-pointer lifecycle for Bullet rigid bodies, and full Android end-to-end repair for ARCore depth activation and plane mesh generation.
+
+- **Game loop** — `VROGameLoopListener` wraps `VROFrameListener` and exposes variable-dt, late-update, and deterministic fixed-step callbacks. `setFixedHz(hz)` installs a dt accumulator that fires at an exact interval regardless of render frame rate.
+
+- **Particle alpha fix** — the particle shader now reads `particleColor.w` for source alpha instead of a hardcoded `0.5`, unblocking correct transparency for all particle effects.
+
+### Improved
+
+- **Monocular depth pipeline** (iOS) — the depth estimation model has been upgraded to Depth Anything V2 (metric, indoor), which outputs depth in meters and significantly improves occlusion accuracy on non-LiDAR devices. Additional improvements: in-place GPU texture updates via `glTexSubImage2D` (eliminates per-frame `VROTexture` allocation), temporal confidence synthesis gating hit-test depth upgrades, calibration modes (`None` / `Manual` / `LiDARReference` stub), full orientation support in `getImageOrientation()` and `getDepthTextureTransform()`, monocular depth wired into the world mesh generator as a fallback source, thermal throttling via UTILITY QoS queue and adaptive FPS cap, and per-source occlusion bias (LiDAR 8%, monocular 0%).
+
+### Fixed
+
+- **SIGABRT on Android 14+ (API 34)** — `ARUtilsCreateJavaARAnchorFromAnchor` called `NewStringUTF` with a non-Modified-UTF-8 ARCore anchor ID, causing a hard crash on Android 14 and above.
+
+---
+
 ## v2.55.0 — 27 April 2026
 
 > **Install path.** Bare React Native is not tested for this release. It

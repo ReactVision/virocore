@@ -459,6 +459,12 @@ public:
         std::shared_ptr<VRODriverOpenGL> driver = shared_from_this();
         return std::make_shared<VROVertexBufferOpenGL>(data, driver);
     }
+
+    std::shared_ptr<VROVertexBuffer> newVertexBuffer(std::shared_ptr<VROData> data,
+                                                     VROVertexBufferUsage usage) override {
+        std::shared_ptr<VRODriverOpenGL> driver = shared_from_this();
+        return std::make_shared<VROVertexBufferOpenGL>(data, usage, driver);
+    }
     
     std::shared_ptr<VROImagePostProcess> newImagePostProcess(std::shared_ptr<VROShaderProgram> shader) {
         return std::make_shared<VROImagePostProcessOpenGL>(shader);

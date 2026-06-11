@@ -126,6 +126,16 @@ namespace arcore {
                                            ((AugmentedImageDatabaseNative *) database)->_database);
     }
 
+    void ConfigNative::setAugmentedFaceMode(bool enabled) {
+        ArAugmentedFaceMode mode = enabled
+            ? AR_AUGMENTED_FACE_MODE_MESH3D
+            : AR_AUGMENTED_FACE_MODE_DISABLED;
+        __android_log_print(ANDROID_LOG_INFO, "ViroARCore",
+                            "Setting ARCore augmented face mode: %s",
+                            enabled ? "MESH3D (front camera)" : "DISABLED");
+        ArConfig_setAugmentedFaceMode(_session, _config, mode);
+    }
+
 #pragma mark - AugmentedImageDatabase
 
     AugmentedImageDatabaseNative::~AugmentedImageDatabaseNative() {
@@ -691,9 +701,12 @@ namespace arcore {
     }
 
     void FrameNative::getBackgroundTexcoords(float *outTexcoords) {
-        // BL, TL, BR, TR
-        const float source[8] = {0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0.0};
-        ArFrame_transformCoordinates2d(_session, _frame, AR_COORDINATES_2D_VIEW_NORMALIZED, 4, source, AR_COORDINATES_2D_TEXTURE_NORMALIZED, outTexcoords);
+        // BL, TL, BR, TR in VIEW_NORMALIZED ((0,0)=top-left, (1,1)=bottom-right)
+        const float source[8] = {0.0f, 1.0f,  0.0f, 0.0f,  1.0f, 1.0f,  1.0f, 0.0f};
+        ArFrame_transformCoordinates2d(_session, _frame, AR_COORDINATES_2D_VIEW_NORMALIZED,
+                                       4, source, AR_COORDINATES_2D_TEXTURE_NORMALIZED, outTexcoords);
+        // NaN output (common on first frame after camera switch, and always for front camera
+        // Augmented Faces mode) is handled by the caller in updateARBackground().
     }
 
     PointCloud *FrameNative::acquirePointCloud() {
@@ -1012,6 +1025,56 @@ namespace arcore {
         ArCameraConfigFilter_destroy(filter);
     }
 
+    void SessionNative::selectCameraConfig(bool frontFacing) {
+        ArCameraConfigFilter *filter = nullptr;
+        ArCameraConfigFilter_create(_session, &filter);
+
+        ArCameraConfigFacingDirection dir = frontFacing
+            ? AR_CAMERA_CONFIG_FACING_DIRECTION_FRONT
+            : AR_CAMERA_CONFIG_FACING_DIRECTION_BACK;
+        ArCameraConfigFilter_setFacingDirection(_session, filter, dir);
+
+        ArCameraConfigList *configList = nullptr;
+        ArCameraConfigList_create(_session, &configList);
+        ArSession_getSupportedCameraConfigsWithFilter(_session, filter, configList);
+
+        int32_t numConfigs = 0;
+        ArCameraConfigList_getSize(_session, configList, &numConfigs);
+
+        ArCameraConfig *tmpConfig = nullptr;
+        ArCameraConfig_create(_session, &tmpConfig);
+
+        // Front camera: pick first (usually only one config at 640x480).
+        // Back camera: pick highest resolution (same logic as initial session setup).
+        int bestIdx = 0;
+        if (!frontFacing) {
+            int32_t bestArea = 0;
+            for (int i = 0; i < numConfigs; ++i) {
+                ArCameraConfigList_getItem(_session, configList, i, tmpConfig);
+                int32_t w = 0, h = 0;
+                ArCameraConfig_getImageDimensions(_session, tmpConfig, &w, &h);
+                if (w * h > bestArea) { bestArea = w * h; bestIdx = i; }
+            }
+        }
+        if (numConfigs > 0) {
+            ArCameraConfigList_getItem(_session, configList, bestIdx, tmpConfig);
+            int32_t w = 0, h = 0;
+            ArCameraConfig_getImageDimensions(_session, tmpConfig, &w, &h);
+            ArStatus status = ArSession_setCameraConfig(_session, tmpConfig);
+            __android_log_print(ANDROID_LOG_INFO, "ViroARCore",
+                "selectCameraConfig: %s camera %dx%d (status=%d)",
+                frontFacing ? "FRONT" : "BACK", w, h, (int)status);
+        } else {
+            __android_log_print(ANDROID_LOG_WARN, "ViroARCore",
+                "selectCameraConfig: no %s camera configs available",
+                frontFacing ? "front" : "back");
+        }
+
+        ArCameraConfig_destroy(tmpConfig);
+        ArCameraConfigList_destroy(configList);
+        ArCameraConfigFilter_destroy(filter);
+    }
+
     SessionNative::~SessionNative() {
         ArSession_destroy(_session);
     }
@@ -1184,7 +1247,7 @@ namespace arcore {
         }
         ArConfig_setGeospatialMode(_session, config, arGeospatialMode);
 
-        return new ConfigNative(config);
+        return new ConfigNative(config, _session);
     }
 
     bool SessionNative::isDepthModeSupported(DepthMode depthMode) {
