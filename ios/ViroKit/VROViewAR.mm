@@ -798,6 +798,14 @@ static inline VROMatrix4f viroGLConvTransform(VROMatrix4f t) {
      */
     std::shared_ptr<VROARScene> scene = std::dynamic_pointer_cast<VROARScene>(_arSession->getScene());
     scene->updateAmbientLight(frame->getAmbientLightIntensity(), frame->getAmbientLightColor());
+
+    /*
+     Notify the scene once depth (LiDAR or monocular) first becomes available, so the
+     app knows hit tests can now return DepthPoints. notifyDepthReady() is one-shot.
+     */
+    if (frame->hasDepthData()) {
+        scene->notifyDepthReady();
+    }
 }
 
 - (void)renderWithTracking:(const std::shared_ptr<VROARCamera>) camera
