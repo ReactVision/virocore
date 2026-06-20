@@ -529,6 +529,64 @@ void VROMonocularDepthEstimator::runInference(CVPixelBufferRef image,
     }
 }
 
+void VROMonocularDepthEstimator::warmup() {
+    if (!isAvailable()) {
+        return;
+    }
+
+    std::weak_ptr<VROMonocularDepthEstimator> weak_self = shared_from_this();
+    dispatch_async(_depthQueue, ^{
+        std::shared_ptr<VROMonocularDepthEstimator> strong_self = weak_self.lock();
+        if (!strong_self || !strong_self->isAvailable()) {
+            return;
+        }
+
+        // Allocate a small black pixel buffer; Vision rescales it to the model input.
+        const size_t w = 256, h = 256;
+        CVPixelBufferRef buffer = NULL;
+        NSDictionary *attrs = @{ (id)kCVPixelBufferIOSurfacePropertiesKey : @{} };
+        CVReturn cvret = CVPixelBufferCreate(kCFAllocatorDefault, w, h,
+                                             kCVPixelFormatType_32BGRA,
+                                             (__bridge CFDictionaryRef)attrs, &buffer);
+        if (cvret != kCVReturnSuccess || !buffer) {
+            pwarn("VROMonocularDepthEstimator: warmup pixel buffer allocation failed");
+            return;
+        }
+        CVPixelBufferLockBaseAddress(buffer, 0);
+        void *base = CVPixelBufferGetBaseAddress(buffer);
+        if (base) {
+            memset(base, 0, CVPixelBufferGetBytesPerRow(buffer) * CVPixelBufferGetHeight(buffer));
+        }
+        CVPixelBufferUnlockBaseAddress(buffer, 0);
+
+        // Use a private throwaway request (with an empty handler) so warmup does NOT
+        // run processDepthOutput / overwrite the live depth buffers. ANE specialization
+        // happens at the VNCoreMLModel level, so this still primes the real request.
+        VNCoreMLRequest *warmRequest =
+            [[VNCoreMLRequest alloc] initWithModel:strong_self->_coreMLModel
+                                 completionHandler:^(VNRequest *req, NSError *err) { /* discard */ }];
+        warmRequest.imageCropAndScaleOption = VNImageCropAndScaleOptionScaleFill;
+
+        double startTime = VROTimeCurrentMillis();
+        CIImage *ciImage = [[CIImage alloc] initWithCVPixelBuffer:buffer];
+        VNImageRequestHandler *handler =
+            [[VNImageRequestHandler alloc] initWithCIImage:ciImage
+                                               orientation:kCGImagePropertyOrientationUp
+                                                   options:@{}];
+        NSError *error = nil;
+        [handler performRequests:@[warmRequest] error:&error];
+        CVBufferRelease(buffer);
+
+        if (error) {
+            pwarn("VROMonocularDepthEstimator: warmup inference error: %s",
+                  [[error localizedDescription] UTF8String]);
+        } else {
+            pinfo("VROMonocularDepthEstimator: warmup inference complete in %.0fms",
+                  VROTimeCurrentMillis() - startTime);
+        }
+    });
+}
+
 #pragma mark - Depth Output Processing
 
 void VROMonocularDepthEstimator::processDepthOutput(VNCoreMLFeatureValueObservation *result,

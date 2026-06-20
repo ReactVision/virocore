@@ -1349,6 +1349,10 @@ void VROARSessioniOS::initializeMonocularDepthEstimator(NSString *modelPath) {
         NSLog(@"[ViroDepth] Applied pending target FPS: %d", _monocularDepthTargetFPS);
     }
 
+    // Force ANE model specialization now so the first real inference (and thus the
+    // first usable depth frame) isn't delayed by many seconds of cold-start compile.
+    _monocularDepthEstimator->warmup();
+
     NSLog(@"SUCCESS: Monocular depth estimator initialized and model loaded successfully");
     pinfo("Monocular depth estimator initialized and model loaded successfully");
 }

@@ -357,6 +357,14 @@ void VROSceneRendererARCore::renderWithTracking(const std::shared_ptr<VROARCamer
      */
     std::shared_ptr<VROARScene> scene = std::dynamic_pointer_cast<VROARScene>(_session->getScene());
     scene->updateAmbientLight(frame->getAmbientLightIntensity(), frame->getAmbientLightColor());
+
+    /*
+     Notify the scene once ARCore depth first becomes available, so the app knows hit
+     tests can now return DepthPoints. notifyDepthReady() is one-shot.
+     */
+    if (frame->hasDepthData()) {
+        scene->notifyDepthReady();
+    }
 }
 
 void VROSceneRendererARCore::setSemanticDebugEnabled(bool enabled) {
