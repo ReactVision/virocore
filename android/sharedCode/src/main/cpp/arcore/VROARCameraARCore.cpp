@@ -364,6 +364,22 @@ void VROARCameraARCore::cropImage(const uint8_t *image, int imageStride, uint8_t
     }
 }
 
+void VROARCameraARCore::getViewportCropRectangle(int *outLeft, int *outTop,
+                                                 int *outWidth, int *outHeight) {
+    std::shared_ptr<VROARSessionARCore> session = _session.lock();
+    if (!session) {
+        *outLeft = 0; *outTop = 0; *outWidth = 0; *outHeight = 0;
+        return;
+    }
+    int left, right, bottom, top;
+    getImageCropRectangle(session->getDisplayRotation(), session->getWidth(), session->getHeight(),
+                          &left, &right, &bottom, &top);
+    *outLeft   = left;
+    *outTop    = top;
+    *outWidth  = right - left;
+    *outHeight = bottom - top;
+}
+
 VROVector3f VROARCameraARCore::getCroppedImageSize() {
     if (!loadImageData()) {
         return { 0, 0, 0 };
