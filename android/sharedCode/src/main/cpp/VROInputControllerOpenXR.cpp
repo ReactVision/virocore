@@ -128,10 +128,11 @@ bool VROInputControllerOpenXR::createActionSet(XrInstance instance, XrSession se
     }
 
     // ── 3. Suggest interaction profile bindings ───────────────────────────────
-    // Covers Touch controllers (Quest 2) and Touch Plus (Quest 3 default).
-    XrPath touchProfile;
-    xrStringToPath(instance, "/interaction_profiles/oculus/touch_controller", &touchProfile);
-
+    // The binding component paths below are standard OpenXR and are accepted
+    // verbatim by Oculus Touch AND the ByteDance PICO profiles, so we suggest the
+    // identical set under every profile we support. The runtime keeps only the
+    // suggestion(s) for the profile(s) it implements; non-matching profiles
+    // return XR_ERROR_PATH_UNSUPPORTED for that call alone (non-fatal).
     auto makePath = [&](const char *str) -> XrPath {
         XrPath p;
         xrStringToPath(instance, str, &p);
@@ -155,19 +156,47 @@ bool VROInputControllerOpenXR::createActionSet(XrInstance instance, XrSession se
         { _leftVibrateAction,     makePath("/user/hand/left/output/haptic")        },
         { _rightVibrateAction,    makePath("/user/hand/right/output/haptic")       },
     };
+    const uint32_t bindingCount =
+        (uint32_t)(sizeof(bindings) / sizeof(bindings[0]));
 
-    XrInteractionProfileSuggestedBinding suggestion = {
-        XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING
+    // Oculus first preserves exact prior behaviour on Meta runtimes. PICO 4 Ultra
+    // reports `pico4s_controller` (NOT pico4) and falls through to the simple
+    // controller without it. `khr/simple_controller` is the universal fallback.
+    static const char *const kInteractionProfiles[] = {
+        "/interaction_profiles/oculus/touch_controller",        // Quest 2 / Touch Plus (Quest 3)
+        "/interaction_profiles/bytedance/pico_neo3_controller", // PICO Neo3
+        "/interaction_profiles/bytedance/pico4_controller",     // PICO 4 / 4 Pro
+        "/interaction_profiles/bytedance/pico4s_controller",    // PICO 4 Ultra
+        "/interaction_profiles/bytedance/pico_g3_controller",   // PICO G3
+        "/interaction_profiles/khr/simple_controller",          // universal fallback
     };
-    suggestion.interactionProfile     = touchProfile;
-    suggestion.suggestedBindings      = bindings;
-    suggestion.countSuggestedBindings = (uint32_t)(sizeof(bindings) / sizeof(bindings[0]));
 
-    result = xrSuggestInteractionProfileBindings(instance, &suggestion);
-    if (!XR_SUCCEEDED(result)) {
-        ALOGE("xrSuggestInteractionProfileBindings failed: %d", result);
+    bool anyProfileAccepted = false;
+    for (auto *profileStr : kInteractionProfiles) {
+        XrInteractionProfileSuggestedBinding suggestion = {
+            XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING
+        };
+        suggestion.interactionProfile     = makePath(profileStr);
+        suggestion.suggestedBindings      = bindings;
+        suggestion.countSuggestedBindings = bindingCount;
+
+        XrResult sresult = xrSuggestInteractionProfileBindings(instance, &suggestion);
+        if (XR_SUCCEEDED(sresult)) {
+            anyProfileAccepted = true;
+            ALOGV("Suggested interaction profile: %s", profileStr);
+        } else {
+            // XR_ERROR_PATH_UNSUPPORTED here just means this runtime doesn't
+            // implement this profile — expected for every non-matching vendor.
+            ALOGW("Interaction profile not accepted (%d): %s", sresult, profileStr);
+        }
+    }
+
+    if (!anyProfileAccepted) {
+        ALOGE("No interaction profile accepted by the OpenXR runtime — "
+              "controller input will be unavailable");
         return false;
     }
+    result = XR_SUCCESS;
 
     // ── 4. Attach action set to session ───────────────────────────────────────
     XrSessionActionSetsAttachInfo attachInfo = { XR_TYPE_SESSION_ACTION_SETS_ATTACH_INFO };
