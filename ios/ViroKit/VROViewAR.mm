@@ -874,22 +874,6 @@ static inline VROMatrix4f viroGLConvTransform(VROMatrix4f t) {
     _pointOfView->getCamera()->setPosition(position);
     _renderer->prepareFrame(_frame, viewport, fov, rotation, projection, _driver);
 
-    // Occlusion debug logging (every 90 frames ≈ every 3 sec)
-    static int occDebugCounter = 0;
-    if (occDebugCounter++ % 90 == 0) {
-        NSLog(@"[ViroOcclusion] mode=%d tex=%p hydrated=%d occEnabled=%d",
-              (int)occlusionMode, depthTexture.get(),
-              depthTexture ? depthTexture->isHydrated() : -1,
-              depthTexture && occlusionMode == VROOcclusionMode::DepthBased ? 1 : 0);
-        if (depthTexture) {
-            NSLog(@"[ViroOcclusion] depthTex=%dx%d  scaleFillTransform=[%.3f %.3f | %.3f %.3f | tx=%.3f ty=%.3f]",
-                  depthTexture->getWidth(), depthTexture->getHeight(),
-                  depthTextureTransform[0], depthTextureTransform[4],
-                  depthTextureTransform[1], depthTextureTransform[5],
-                  depthTextureTransform[12], depthTextureTransform[13]);
-        }
-    }
-
     _renderer->renderEye(VROEyeType::Monocular, _renderer->getLookAtMatrix(), projection, viewport, _driver);
     _renderer->renderHUD(VROEyeType::Monocular, VROMatrix4f::identity(), projection, _driver);
     _renderer->endFrame(_driver);

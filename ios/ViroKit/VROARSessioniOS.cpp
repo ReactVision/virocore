@@ -2721,7 +2721,6 @@ std::shared_ptr<VROTexture> VROARSessioniOS::getSemanticTexture() {
   bool log = (++diagCounter % 60 == 0); // log once per ~second
 
   if (!_semanticModeEnabled) {
-    if (log) pinfo("[Semantics] getSemanticTexture: _semanticModeEnabled=false");
     return nullptr;
   }
   if (_cloudAnchorProviderARCore == nil) {
