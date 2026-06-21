@@ -9,6 +9,8 @@
 #include <android/log.h>
 #include <sys/prctl.h>
 #include <unistd.h>
+#include <algorithm>
+#include <string>
 
 #include "VRORendererConfiguration.h"
 #include "VRODriverOpenGLAndroidOpenXR.h"
@@ -29,19 +31,47 @@
 // Required extensions
 // ──────────────────────────────────────────────────────────────────────────────
 
-static const char *const kRequiredExtensions[] = {
+// Hard requirements: every conformant OpenXR runtime exposes these. If one is
+// missing we genuinely cannot run, on any device.
+static const char *const kHardRequiredExtensions[] = {
     XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME,   // GLES context binding (mandatory)
+};
+static constexpr uint32_t kHardRequiredExtensionCount =
+    sizeof(kHardRequiredExtensions) / sizeof(kHardRequiredExtensions[0]);
+
+// Soft requirements: required on Meta's runtime, but enabled iff the active
+// runtime actually enumerates them. PICO OS 6 advertises android_create_instance
+// but is stricter than Meta about the chained XrInstanceCreateInfoAndroidKHR;
+// we only chain that struct when the extension is genuinely enabled.
+static const char *const kSoftRequiredExtensions[] = {
     XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME,
 };
-static constexpr uint32_t kRequiredExtensionCount =
-    sizeof(kRequiredExtensions) / sizeof(kRequiredExtensions[0]);
+static constexpr uint32_t kSoftRequiredExtensionCount =
+    sizeof(kSoftRequiredExtensions) / sizeof(kSoftRequiredExtensions[0]);
 
 static const char *const kOptionalExtensions[] = {
     XR_FB_PASSTHROUGH_EXTENSION_NAME,           // mixed reality (Quest 2 BW, Quest 3 color)
     XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME,  // 90 / 120 Hz mode
     XR_EXT_HAND_TRACKING_EXTENSION_NAME,        // M3: skeletal hand tracking (26 joints)
     XR_FB_HAND_TRACKING_AIM_EXTENSION_NAME,     // M3: aim pose + pinch strength from runtime
+    XR_FB_FOVEATION_EXTENSION_NAME,                   // foveated rendering (fill-rate win on high-PPD)
+    XR_FB_FOVEATION_CONFIGURATION_EXTENSION_NAME,     // foveation level / area / dynamic config
+    XR_FB_SWAPCHAIN_UPDATE_STATE_EXTENSION_NAME,      // apply foveation profile to live swapchain
+    "XR_META_foveation_eye_tracked",                  // gaze-driven foveation (perm-gated; flagged only)
+    XR_FB_SPACE_WARP_EXTENSION_NAME,                  // ASW motion-vector reprojection (flagged; loop TODO)
 };
+
+// PICO (ByteDance) controller-interaction extensions. These gate the
+// /interaction_profiles/bytedance/* binding paths used in VROInputControllerOpenXR;
+// absent on Meta runtimes (skipped), present on PICO (enabled so the input
+// layer's PICO profile suggestions resolve). String literals avoid a header
+// dependency that may predate these vendor extensions.
+static const char *const kPicoControllerExtensions[] = {
+    "XR_BD_controller_interaction",        // Neo3 / 4 / 4 Pro / G3 profiles
+    "XR_BD_ultra_controller_interaction",  // PICO 4 Ultra (pico4s) profile
+};
+static constexpr uint32_t kPicoControllerExtensionCount =
+    sizeof(kPicoControllerExtensions) / sizeof(kPicoControllerExtensions[0]);
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Utility macros
@@ -222,24 +252,38 @@ bool VROSceneRendererOpenXR::initOpenXR() {
     xrEnumerateInstanceExtensionProperties(nullptr, extCount, &extCount,
                                             availableExts.data());
 
-    // Verify required extensions are present
-    for (uint32_t i = 0; i < kRequiredExtensionCount; ++i) {
+    // Verify HARD-required extensions are present. Missing => unrunnable.
+    for (uint32_t i = 0; i < kHardRequiredExtensionCount; ++i) {
         bool found = false;
         for (auto &ext : availableExts) {
-            if (strcmp(ext.extensionName, kRequiredExtensions[i]) == 0) {
+            if (strcmp(ext.extensionName, kHardRequiredExtensions[i]) == 0) {
                 found = true; break;
             }
         }
         if (!found) {
             ALOGE("Required OpenXR extension not available: %s",
-                  kRequiredExtensions[i]);
+                  kHardRequiredExtensions[i]);
             return false;
         }
     }
 
-    // Build the extension list: required + available optionals
-    std::vector<const char *> enabledExts(kRequiredExtensions,
-                                           kRequiredExtensions + kRequiredExtensionCount);
+    // Build the extension list: hard-required + soft-required-if-present + optionals-if-present.
+    std::vector<const char *> enabledExts(kHardRequiredExtensions,
+                                           kHardRequiredExtensions + kHardRequiredExtensionCount);
+    bool androidCreateInstanceEnabled = false;
+    for (uint32_t i = 0; i < kSoftRequiredExtensionCount; ++i) {
+        for (auto &ext : availableExts) {
+            if (strcmp(ext.extensionName, kSoftRequiredExtensions[i]) == 0) {
+                enabledExts.push_back(kSoftRequiredExtensions[i]);
+                if (strcmp(kSoftRequiredExtensions[i],
+                           XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME) == 0) {
+                    androidCreateInstanceEnabled = true;
+                }
+                ALOGV("Soft-required extension enabled: %s", kSoftRequiredExtensions[i]);
+                break;
+            }
+        }
+    }
     for (auto *optExt : kOptionalExtensions) {
         for (auto &ext : availableExts) {
             if (strcmp(ext.extensionName, optExt) == 0) {
@@ -249,6 +293,26 @@ bool VROSceneRendererOpenXR::initOpenXR() {
                     _handTrackingAvailable = true;
                 if (strcmp(optExt, XR_FB_HAND_TRACKING_AIM_EXTENSION_NAME) == 0)
                     _handAimExtAvailable = true;
+                if (strcmp(optExt, XR_FB_PASSTHROUGH_EXTENSION_NAME) == 0)
+                    _runtimeInfo.passthroughAvailable = true;
+                if (strcmp(optExt, XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME) == 0)
+                    _runtimeInfo.displayRefreshRateAvailable = true;
+                if (strcmp(optExt, XR_FB_FOVEATION_EXTENSION_NAME) == 0)
+                    _foveationAvailable = true;
+                if (strcmp(optExt, "XR_META_foveation_eye_tracked") == 0)
+                    _eyeTrackedFoveationAvailable = true;
+                if (strcmp(optExt, XR_FB_SWAPCHAIN_UPDATE_STATE_EXTENSION_NAME) == 0)
+                    _swapchainUpdateStateAvailable = true;
+                break;
+            }
+        }
+    }
+    // PICO controller-interaction extensions (enable-if-enumerated).
+    for (uint32_t i = 0; i < kPicoControllerExtensionCount; ++i) {
+        for (auto &ext : availableExts) {
+            if (strcmp(ext.extensionName, kPicoControllerExtensions[i]) == 0) {
+                enabledExts.push_back(kPicoControllerExtensions[i]);
+                ALOGV("PICO controller extension enabled: %s", kPicoControllerExtensions[i]);
                 break;
             }
         }
@@ -269,18 +333,73 @@ bool VROSceneRendererOpenXR::initOpenXR() {
     appInfo.apiVersion         = XR_CURRENT_API_VERSION;
 
     XrInstanceCreateInfo createInfo = { XR_TYPE_INSTANCE_CREATE_INFO };
-    createInfo.next                    = &androidInfo;
+    // Only chain XrInstanceCreateInfoAndroidKHR when the extension is enabled.
+    // A runtime that did not enumerate it (or rejects the chain, as strict PICO
+    // firmware can) must not see a struct referencing it.
+    createInfo.next                    = androidCreateInstanceEnabled
+                                             ? (const void *)&androidInfo
+                                             : nullptr;
     createInfo.applicationInfo         = appInfo;
     createInfo.enabledExtensionCount   = (uint32_t)enabledExts.size();
     createInfo.enabledExtensionNames   = enabledExts.data();
 
-    XR_RETURN_FALSE(xrCreateInstance(&createInfo, &_instance));
+    XrResult createResult = xrCreateInstance(&createInfo, &_instance);
+    if (XR_FAILED(createResult)) {
+        // xrResultToString needs a valid instance, which we don't have here.
+        // The numeric code cross-references against openxr.h's XrResult enum.
+        ALOGE("xrCreateInstance failed: XrResult=%d "
+              "(androidCreateInstanceEnabled=%d, enabledExtensionCount=%u)",
+              (int)createResult, (int)androidCreateInstanceEnabled,
+              createInfo.enabledExtensionCount);
+        return false;
+    }
     ALOGV("xrCreateInstance OK");
+
+    // ── Identify the runtime we bound to ──────────────────────────────────────
+    _runtimeInfo.androidCreateInstanceEnabled = androidCreateInstanceEnabled;
+    _runtimeInfo.handTrackingAvailable        = _handTrackingAvailable;
+    _runtimeInfo.handAimExtAvailable          = _handAimExtAvailable;
+    {
+        XrInstanceProperties instanceProps = { XR_TYPE_INSTANCE_PROPERTIES };
+        if (XR_SUCCEEDED(xrGetInstanceProperties(_instance, &instanceProps))) {
+            strncpy(_runtimeInfo.runtimeName, instanceProps.runtimeName,
+                    XR_MAX_RUNTIME_NAME_SIZE - 1);
+            _runtimeInfo.apiMajor = XR_VERSION_MAJOR(instanceProps.runtimeVersion);
+            _runtimeInfo.apiMinor = XR_VERSION_MINOR(instanceProps.runtimeVersion);
+            _runtimeInfo.apiPatch = XR_VERSION_PATCH(instanceProps.runtimeVersion);
+            std::string lower(_runtimeInfo.runtimeName);
+            std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+            if (lower.find("pico") != std::string::npos ||
+                lower.find("apxr") != std::string::npos) {
+                _runtimeInfo.vendor = VROOpenXRVendor::PICO;
+            } else if (lower.find("oculus") != std::string::npos ||
+                       lower.find("meta")   != std::string::npos) {
+                _runtimeInfo.vendor = VROOpenXRVendor::META;
+            } else {
+                _runtimeInfo.vendor = VROOpenXRVendor::KHRONOS_OTHER;
+            }
+            ALOGI("OpenXR runtime: \"%s\" v%u.%u.%u vendor=%d "
+                  "(passthrough=%d refreshRate=%d handTracking=%d foveation=%d)",
+                  _runtimeInfo.runtimeName,
+                  _runtimeInfo.apiMajor, _runtimeInfo.apiMinor, _runtimeInfo.apiPatch,
+                  (int)_runtimeInfo.vendor,
+                  (int)_runtimeInfo.passthroughAvailable,
+                  (int)_runtimeInfo.displayRefreshRateAvailable,
+                  (int)_runtimeInfo.handTrackingAvailable,
+                  (int)_foveationAvailable);
+        }
+        _runtimeInfo.valid = true;
+    }
 
     // ── Get system (HMD) ──────────────────────────────────────────────────────
     XrSystemGetInfo sysInfo = { XR_TYPE_SYSTEM_GET_INFO };
     sysInfo.formFactor = XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY;
-    XR_RETURN_FALSE(xrGetSystem(_instance, &sysInfo, &_systemId));
+    XrResult sysResult = xrGetSystem(_instance, &sysInfo, &_systemId);
+    if (XR_FAILED(sysResult)) {
+        ALOGE("xrGetSystem failed: XrResult=%d (runtime=\"%s\")",
+              (int)sysResult, _runtimeInfo.runtimeName);
+        return false;
+    }
     ALOGV("xrGetSystem OK  systemId=%llu", (unsigned long long)_systemId);
 
     return true;
@@ -500,10 +619,80 @@ bool VROSceneRendererOpenXR::createSwapchains() {
 
         ALOGV("Eye %u: swapchain %ux%u  %u images", eye, sc.width, sc.height, imgCount);
     }
+
+    // Initialise fixed foveation once swapchains exist. Non-fatal on failure:
+    // a runtime without FB_foveation simply renders unfoveated.
+    if (_foveationAvailable && _swapchainUpdateStateAvailable) {
+        if (initFoveation()) {
+            // Default to a sensible level for high-PPD HMDs; app can override.
+            setFoveationLevel(VROFoveationLevel::MEDIUM, /*dynamic=*/true);
+        }
+    }
     return true;
 }
 
-bool VROSceneRendererOpenXR::initPassthrough() {
+// ── Foveation (XR_FB_foveation) ───────────────────────────────────────────────
+bool VROSceneRendererOpenXR::initFoveation() {
+    auto loadFn = [&](const char *name, void **fn) -> bool {
+        XrResult r = xrGetInstanceProcAddr(_instance, name, (PFN_xrVoidFunction *)fn);
+        if (XR_FAILED(r)) { ALOGW("xrGetInstanceProcAddr('%s') failed: %d", name, (int)r); return false; }
+        return (*fn != nullptr);
+    };
+    bool ok = true;
+    ok &= loadFn("xrCreateFoveationProfileFB",  (void **)&_pfnCreateFoveationProfile);
+    ok &= loadFn("xrDestroyFoveationProfileFB", (void **)&_pfnDestroyFoveationProfile);
+    ok &= loadFn("xrUpdateSwapchainFB",         (void **)&_pfnUpdateSwapchain);
+    if (!ok) {
+        ALOGW("XR_FB_foveation functions unavailable — foveation disabled");
+        _foveationAvailable = false;
+        return false;
+    }
+    ALOGI("Foveation available (eyeTracked=%d)", (int)_eyeTrackedFoveationAvailable);
+    return true;
+}
+
+bool VROSceneRendererOpenXR::setFoveationLevel(VROFoveationLevel level, bool dynamic) {
+    if (!_foveationAvailable || _pfnCreateFoveationProfile == nullptr) return false;
+
+    XrFoveationLevelFB xrLevel;
+    switch (level) {
+        case VROFoveationLevel::OFF:    xrLevel = XR_FOVEATION_LEVEL_NONE_FB;   break;
+        case VROFoveationLevel::LOW:    xrLevel = XR_FOVEATION_LEVEL_LOW_FB;    break;
+        case VROFoveationLevel::MEDIUM: xrLevel = XR_FOVEATION_LEVEL_MEDIUM_FB; break;
+        case VROFoveationLevel::HIGH:   xrLevel = XR_FOVEATION_LEVEL_HIGH_FB;   break;
+        default:                        xrLevel = XR_FOVEATION_LEVEL_MEDIUM_FB; break;
+    }
+
+    XrFoveationLevelProfileCreateInfoFB levelInfo = {
+        XR_TYPE_FOVEATION_LEVEL_PROFILE_CREATE_INFO_FB
+    };
+    levelInfo.level          = xrLevel;
+    levelInfo.verticalOffset = 0.0f;
+    levelInfo.dynamic        = dynamic ? XR_FOVEATION_DYNAMIC_LEVEL_ENABLED_FB
+                                       : XR_FOVEATION_DYNAMIC_DISABLED_FB;
+
+    XrFoveationProfileCreateInfoFB profileInfo = {
+        XR_TYPE_FOVEATION_PROFILE_CREATE_INFO_FB
+    };
+    profileInfo.next = &levelInfo;
+
+    bool allApplied = true;
+    for (uint32_t eye = 0; eye < 2; ++eye) {
+        XrFoveationProfileFB profile = XR_NULL_HANDLE;
+        XrResult r = _pfnCreateFoveationProfile(_session, &profileInfo, &profile);
+        if (XR_FAILED(r)) { ALOGW("xrCreateFoveationProfileFB failed (eye %u): %d", eye, (int)r); allApplied = false; continue; }
+
+        XrSwapchainStateFoveationFB state = { XR_TYPE_SWAPCHAIN_STATE_FOVEATION_FB };
+        state.profile = profile;
+        r = _pfnUpdateSwapchain(_swapchains[eye].handle,
+                                reinterpret_cast<XrSwapchainStateBaseHeaderFB *>(&state));
+        if (XR_FAILED(r)) { ALOGW("xrUpdateSwapchainFB failed (eye %u): %d", eye, (int)r); allApplied = false; }
+
+        _pfnDestroyFoveationProfile(profile);
+    }
+    ALOGI("Foveation set: level=%d dynamic=%d applied=%d", (int)level, (int)dynamic, (int)allApplied);
+    return allApplied;
+}
     // Extension functions are NOT direct API calls — they must be loaded via
     // xrGetInstanceProcAddr. The extension guard (XR_FB_passthrough) was already
     // checked during instance creation; if we reach here it was enabled.

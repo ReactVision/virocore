@@ -90,6 +90,47 @@ public:
 
 private:
 
+    // ── Runtime classification ────────────────────────────────────────────────
+    // Populated once, immediately after xrCreateInstance succeeds, from
+    // xrGetInstanceProperties + the negotiated extension set. Read-only after init.
+    enum class VROOpenXRVendor { UNKNOWN, META, PICO, KHRONOS_OTHER };
+    struct VROOpenXRRuntimeInfo {
+        bool            valid              = false;
+        VROOpenXRVendor vendor             = VROOpenXRVendor::UNKNOWN;
+        char            runtimeName[XR_MAX_RUNTIME_NAME_SIZE] = {0};
+        uint16_t        apiMajor           = 0;
+        uint16_t        apiMinor           = 0;
+        uint32_t        apiPatch           = 0;
+        bool            androidCreateInstanceEnabled = false;
+        bool            passthroughAvailable         = false;  // XR_FB_passthrough
+        bool            displayRefreshRateAvailable  = false;  // XR_FB_display_refresh_rate
+        bool            handTrackingAvailable        = false;  // XR_EXT_hand_tracking
+        bool            handAimExtAvailable          = false;  // XR_FB_hand_tracking_aim
+    };
+    VROOpenXRRuntimeInfo _runtimeInfo;
+
+public:
+    const VROOpenXRRuntimeInfo &getRuntimeInfo() const { return _runtimeInfo; }
+
+    // ── Foveation (XR_FB_foveation) ────────────────────────────────────────────
+    enum class VROFoveationLevel { OFF = 0, LOW = 1, MEDIUM = 2, HIGH = 3 };
+    // Apply a fixed-foveation level to both eye swapchains. dynamic=true lets the
+    // runtime scale the level with GPU load. No-op (returns false) when
+    // FB_foveation was not negotiated. Safe to call after session start.
+    bool setFoveationLevel(VROFoveationLevel level, bool dynamic);
+    bool isFoveationAvailable()           const { return _foveationAvailable; }
+    bool isEyeTrackedFoveationAvailable() const { return _eyeTrackedFoveationAvailable; }
+
+private:
+    bool initFoveation();   // called once after swapchain creation
+
+    bool _foveationAvailable            = false;  // XR_FB_foveation present + fns loaded
+    bool _eyeTrackedFoveationAvailable  = false;  // XR_META_foveation_eye_tracked present
+    bool _swapchainUpdateStateAvailable = false;  // XR_FB_swapchain_update_state present
+    PFN_xrCreateFoveationProfileFB  _pfnCreateFoveationProfile  = nullptr;
+    PFN_xrDestroyFoveationProfileFB _pfnDestroyFoveationProfile = nullptr;
+    PFN_xrUpdateSwapchainFB         _pfnUpdateSwapchain         = nullptr;
+
     // ── OpenXR core handles ───────────────────────────────────────────────────
     XrInstance      _instance   = XR_NULL_HANDLE;
     XrSystemId      _systemId   = XR_NULL_SYSTEM_ID;

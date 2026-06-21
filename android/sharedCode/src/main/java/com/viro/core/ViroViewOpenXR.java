@@ -407,6 +407,28 @@ public class ViroViewOpenXR extends ViroView {
         }
     }
 
+    /**
+     * Apply a fixed-foveation level (XR_FB_foveation): 0=OFF, 1=LOW, 2=MEDIUM,
+     * 3=HIGH. dynamic lets the runtime scale the level with GPU load. No-op when
+     * the runtime lacks foveation. High-value on high-PPD panels (PICO 4 Ultra /
+     * Swan). (expo-pico fork.)
+     */
+    public void setFoveationLevel(int level, boolean dynamic) {
+        if (mNativeRenderer != null) {
+            mNativeRenderer.setFoveationLevel(level, dynamic);
+        }
+    }
+
+    /**
+     * Negotiated OpenXR runtime facts (runtime name, API version, vendor,
+     * extension flags) as a String[10], or null when no immersive instance has
+     * been created. Read reflectively by expo-pico-core's runtime probe to report
+     * true on-device facts. (expo-pico fork.)
+     */
+    public String[] getRuntimeInfo() {
+        return mNativeRenderer != null ? mNativeRenderer.getRuntimeInfo() : null;
+    }
+
     @Override
     public ViroMediaRecorder getRecorder() {
         return null; // Not supported on Quest.

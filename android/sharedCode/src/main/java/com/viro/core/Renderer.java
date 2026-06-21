@@ -126,6 +126,22 @@ public class Renderer {
         nativeSetHandTrackingEnabled(mNativeRef, enabled);
     }
 
+    /**
+     * Apply a fixed-foveation level (0=OFF,1=LOW,2=MEDIUM,3=HIGH). No-op on
+     * runtimes without XR_FB_foveation. (expo-pico fork.)
+     */
+    public void setFoveationLevel(int level, boolean dynamic) {
+        nativeSetFoveationLevel(mNativeRef, level, dynamic);
+    }
+
+    /**
+     * Negotiated OpenXR runtime facts as a String[10], or null if no immersive
+     * instance exists. Read reflectively by expo-pico-core. (expo-pico fork.)
+     */
+    public String[] getRuntimeInfo() {
+        return nativeGetRuntimeInfo(mNativeRef);
+    }
+
     /* ----------     Common lifecycle methods    ---------- */
 
     public void destroy() {
@@ -346,6 +362,8 @@ public class Renderer {
     private native void nativeRecenterTracking(long nativeRenderer);
     private native void nativeSetPassthroughEnabled(long nativeRenderer, boolean enabled);
     private native void nativeSetHandTrackingEnabled(long nativeRenderer, boolean enabled);
+    private native void nativeSetFoveationLevel(long nativeRenderer, int level, boolean dynamic);
+    private native String[] nativeGetRuntimeInfo(long nativeRenderer);
     private native void nativeSetClearColor(long sceneRef, int color);
     private native void nativeSetShadowsEnabled(long nativeRef, boolean enabled);
     private native void nativeSetHDREnabled(long nativeRef, boolean enabled);

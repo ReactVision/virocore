@@ -168,6 +168,59 @@ VRO_METHOD(void, nativeSetHandTrackingEnabled)(VRO_ARGS
     }
 }
 
+// PICO support (expo-pico fork): apply a fixed-foveation level. level maps to
+// VROFoveationLevel (0=OFF,1=LOW,2=MEDIUM,3=HIGH). No-op on non-foveation runtimes.
+VRO_METHOD(void, nativeSetFoveationLevel)(VRO_ARGS
+                                          jlong rendererRef,
+                                          jint level,
+                                          jboolean dynamic) {
+    auto base = Renderer::native(rendererRef);
+    auto xrRenderer = std::dynamic_pointer_cast<VROSceneRendererOpenXR>(base);
+    if (xrRenderer) {
+        xrRenderer->setFoveationLevel(
+            (VROSceneRendererOpenXR::VROFoveationLevel)(int)level, (bool)dynamic);
+    }
+}
+
+// PICO support (expo-pico fork): negotiated OpenXR runtime facts as a String[10],
+// or null when no immersive instance exists. Indices:
+//   [0]=runtimeName [1..3]=major/minor/patch [4]=vendorOrdinal
+//   [5]=androidCI [6]=passthrough [7]=refreshRate [8]=handTracking [9]=handAim
+// Booleans encoded "0"/"1". Read reflectively by expo-pico-core's runtime probe.
+VRO_METHOD(jobjectArray, nativeGetRuntimeInfo)(VRO_ARGS
+                                               jlong rendererRef) {
+    auto base = Renderer::native(rendererRef);
+    auto xrRenderer = std::dynamic_pointer_cast<VROSceneRendererOpenXR>(base);
+    if (!xrRenderer) return nullptr;
+    const auto &info = xrRenderer->getRuntimeInfo();
+    if (!info.valid) return nullptr;
+
+    auto boolStr = [](bool b) { return b ? "1" : "0"; };
+    char major[8], minor[8], patch[16], vendor[4];
+    snprintf(major,  sizeof(major),  "%u", info.apiMajor);
+    snprintf(minor,  sizeof(minor),  "%u", info.apiMinor);
+    snprintf(patch,  sizeof(patch),  "%u", info.apiPatch);
+    snprintf(vendor, sizeof(vendor), "%d", (int)info.vendor);
+
+    const char *vals[10] = {
+        info.runtimeName, major, minor, patch, vendor,
+        boolStr(info.androidCreateInstanceEnabled),
+        boolStr(info.passthroughAvailable),
+        boolStr(info.displayRefreshRateAvailable),
+        boolStr(info.handTrackingAvailable),
+        boolStr(info.handAimExtAvailable),
+    };
+    JNIEnv *jniEnv = VROPlatformGetJNIEnv();
+    jclass strClass = jniEnv->FindClass("java/lang/String");
+    jobjectArray arr = jniEnv->NewObjectArray(10, strClass, nullptr);
+    for (int i = 0; i < 10; ++i) {
+        jstring s = jniEnv->NewStringUTF(vals[i]);
+        jniEnv->SetObjectArrayElement(arr, i, s);
+        jniEnv->DeleteLocalRef(s);
+    }
+    return arr;
+}
+
 VRO_METHOD(jlong, nativeCreateRendererSceneView)(VRO_ARGS
                                                  jobject class_loader,
                                                  jobject android_context,
