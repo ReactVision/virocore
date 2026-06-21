@@ -1,6 +1,38 @@
 # CHANGELOG
 
+## v2.56.0-pico.1 — mikevocalz/virocore fork (pico-support)
+
+Fork of ReactVision/virocore v2.56.0 adding PICO OS 5.9+ / OS 6 / Swan support
+to the OpenXR backend. All changes are vendor-neutral OpenXR — Quest behaviour
+is unchanged. See docs/PICO-SUPPORT.md.
+
+### Added
+- **PICO controller input** — `VROInputControllerOpenXR` suggests all ByteDance
+  interaction profiles (Neo3 / 4 / 4 Pro / 4 Ultra `pico4s` / G3) plus
+  `khr/simple_controller` fallback, alongside Oculus Touch. Fixes dead
+  controllers on PICO.
+- **Runtime introspection** — `xrGetInstanceProperties` classifies the bound
+  runtime (name / version / vendor); exposed via `ViroViewOpenXR.getRuntimeInfo()`.
+- **Fixed foveation** (`XR_FB_foveation`) — `ViroViewOpenXR.setFoveationLevel()`,
+  defaulting MEDIUM/dynamic. Major fill-rate win on PICO's high-PPD panels.
+- PICO controller + foveation + spacewarp extensions enabled if enumerated.
+
+### Changed
+- Required extensions split into hard-required (`XR_KHR_opengl_es_enable`) and
+  soft-required (`XR_KHR_android_create_instance`, enabled + chained iff
+  enumerated) so strict PICO firmware degrades cleanly instead of SIGSEGV.
+- `xrCreateInstance` / `xrGetSystem` failures now log the real `XrResult`.
+
+### Not yet wired (flagged, follow-up)
+- Eye-tracked foveation (`XR_META_foveation_eye_tracked`) — detected only;
+  permission-gated.
+- Spacewarp (`XR_FB_space_warp`) — enabled + flagged; per-frame motion-vector
+  submission is a follow-up.
+
+---
+
 ## v2.56.0 — 04 June 2026
+
 
 ### Added
 

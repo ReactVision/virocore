@@ -1,0 +1,45 @@
+name: Build PICO renderer AAR
+
+# Builds the patched virocore renderer AAR on every push to pico-support and on
+# tags, and uploads it as an artifact. The JS package fork (mikevocalz/viro)
+# pulls this artifact when cutting a release, so the AAR is always built from a
+# known commit rather than a developer's machine.
+
+on:
+  push:
+    branches: [pico-support]
+    tags: ['v*-pico*']
+  workflow_dispatch:
+
+jobs:
+  build-aar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK + NDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install NDK (match virocore ndkVersion)
+        run: |
+          # Pin to the ndkVersion declared in android/build.gradle.
+          NDK_VER=$(grep -oE "ndkVersion[\" ]+[0-9.]+" android/build.gradle | grep -oE "[0-9.]+" | head -1 || echo "26.1.10909125")
+          echo "Installing NDK $NDK_VER"
+          yes | sdkmanager "ndk;$NDK_VER" || true
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$NDK_VER" >> "$GITHUB_ENV"
+
+      - name: Build AAR
+        run: ./scripts/build-pico-aar.sh --out "$RUNNER_TEMP/aar"
+
+      - name: Upload AAR artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: viro_renderer-release-aar
+          path: ${{ runner.temp }}/aar/viro_renderer-release.aar
+          if-no-files-found: error
