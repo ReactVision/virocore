@@ -24,27 +24,33 @@ import struct
 import argparse
 
 
-def max_pt_load_align(elf_bytes: bytes) -> int:
-    """Return the maximum PT_LOAD p_align in a 64-bit little-endian ELF."""
+def min_pt_load_align(elf_bytes: bytes) -> int:
+    """Return the MINIMUM PT_LOAD p_align in a 64-bit little-endian ELF.
+
+    Every PT_LOAD segment must meet the 16KB bar — a mixed-alignment ELF
+    (e.g. one 0x4000 and one 0x1000 segment) still fails to load on 16KB-page
+    devices. Returning the min lets the caller gate on the worst offender.
+    Returns -1 for 32-bit ELFs (not subject to the requirement).
+    """
     if elf_bytes[:4] != b"\x7fELF":
         raise ValueError("not an ELF file")
     ei_class = elf_bytes[4]  # 1=32-bit, 2=64-bit
     if ei_class != 2:
-        # 32-bit (armeabi-v7a) is not subject to the 16KB requirement; skip.
         return -1
-    # 64-bit header offsets
     e_phoff = struct.unpack_from("<Q", elf_bytes, 0x20)[0]
     e_phentsize = struct.unpack_from("<H", elf_bytes, 0x36)[0]
     e_phnum = struct.unpack_from("<H", elf_bytes, 0x38)[0]
     PT_LOAD = 1
-    max_align = 0
+    min_align = None
     for i in range(e_phnum):
         off = e_phoff + i * e_phentsize
         p_type = struct.unpack_from("<I", elf_bytes, off)[0]
         if p_type == PT_LOAD:
             p_align = struct.unpack_from("<Q", elf_bytes, off + 0x30)[0]
-            max_align = max(max_align, p_align)
-    return max_align
+            min_align = p_align if min_align is None else min(min_align, p_align)
+    if min_align is None:
+        raise ValueError("no PT_LOAD segments")
+    return min_align
 
 
 def main() -> int:
@@ -78,7 +84,7 @@ def main() -> int:
     for name in sorted(so_entries):
         data = zf.read(name)
         try:
-            align = max_pt_load_align(data)
+            align = min_pt_load_align(data)
         except ValueError as e:
             print(f"  skip (not ELF): {name} ({e})")
             continue

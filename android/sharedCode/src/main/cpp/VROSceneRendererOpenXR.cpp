@@ -693,6 +693,9 @@ bool VROSceneRendererOpenXR::setFoveationLevel(VROFoveationLevel level, bool dyn
     ALOGI("Foveation set: level=%d dynamic=%d applied=%d", (int)level, (int)dynamic, (int)allApplied);
     return allApplied;
 }
+
+// ── Passthrough (XR_FB_passthrough) ───────────────────────────────────────────
+bool VROSceneRendererOpenXR::initPassthrough() {
     // Extension functions are NOT direct API calls — they must be loaded via
     // xrGetInstanceProcAddr. The extension guard (XR_FB_passthrough) was already
     // checked during instance creation; if we reach here it was enabled.

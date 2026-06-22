@@ -38,10 +38,13 @@ grep -q "VROOpenXRRuntimeInfo" \
   || { echo "ERROR: runtime-info struct missing — wrong branch?"; exit 1; }
 
 cd android
-echo "==> ./gradlew :sharedCode:assembleRelease"
-./gradlew :sharedCode:assembleRelease
+# :viroreact is the module with externalNativeBuild wiring for viro_renderer.
+# :sharedCode is IDE-only (see android/sharedCode/build.gradle:5) and produces
+# an AAR without the native libs we need.
+echo "==> ./gradlew :viroreact:assembleRelease"
+./gradlew :viroreact:assembleRelease
 
-AAR_PATH="sharedCode/build/outputs/aar/sharedCode-release.aar"
+AAR_PATH="viroreact/build/outputs/aar/viroreact-release.aar"
 [[ -f "$AAR_PATH" ]] || { echo "ERROR: AAR not produced at $AAR_PATH"; exit 1; }
 
 # ── 16KB page-alignment gate (ReactVision/viro#485) ───────────────────────────
