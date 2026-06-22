@@ -414,6 +414,14 @@ static inline VROMatrix4f viroGLConvTransform(VROMatrix4f t) {
 }
 
 - (void)deleteGL {
+    // Stop receiving UIApplication lifecycle notifications as soon as teardown begins.
+    // Otherwise a background/foreground transition after the AR scene is navigated away
+    // (but before this view is fully deallocated) delivers applicationWillResignActive: to
+    // a torn-down view — touching a freed display link / AR session, or crashing with
+    // "unrecognized selector sent to deallocated instance" (GitHub #399). dealloc also
+    // removes observers; removeObserver:self is idempotent so the double-remove is safe.
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+
     // Clean up view recorder first
     [self.viewRecorder deleteGL];
 

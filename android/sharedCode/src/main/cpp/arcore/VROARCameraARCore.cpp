@@ -36,6 +36,9 @@
 #include "VROARSessionARCore.h"
 #include "VROYuvImageConverter.h"
 
+// Off-by-default flag gating per-frame diagnostic logs (fire on the per-camera-frame path).
+static const bool kDebugCameraFrameLogs = false;
+
 VROARCameraARCore::VROARCameraARCore(arcore::Frame *frame,
                                      std::shared_ptr<VROARSessionARCore> session) :
     _frame(frame),
@@ -251,9 +254,11 @@ void VROARCameraARCore::getImageCropRectangle(VROARDisplayRotation rotation, int
         if (sess && sess->isFrontCameraEnabled()) {
             std::swap(BL.y, TL.y);
             std::swap(BR.y, TR.y);
-            __android_log_print(ANDROID_LOG_INFO, "ViroARCore",
-                "getCropForDisplay: front camera Y-swap applied BL.y=%.3f TL.y=%.3f",
-                BL.y, TL.y);
+            if (kDebugCameraFrameLogs) {
+                __android_log_print(ANDROID_LOG_INFO, "ViroARCore",
+                    "getCropForDisplay: front camera Y-swap applied BL.y=%.3f TL.y=%.3f",
+                    BL.y, TL.y);
+            }
         }
     }
 
@@ -336,7 +341,7 @@ bool VROARCameraARCore::loadImageData() {
     if (_image == nullptr) {
         arcore::ImageRetrievalStatus status = _frame->acquireCameraImage(&_image);
         if (status != arcore::ImageRetrievalStatus::Success) {
-            pinfo("Failed to aquire image data: error [%d]", status);
+            if (kDebugCameraFrameLogs) pinfo("Failed to aquire image data: error [%d]", status);
             return false;
         }
     }

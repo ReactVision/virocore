@@ -61,6 +61,9 @@
 
 static bool kDebugTracking = false;
 
+// When false (default), per-frame depth-texture update diagnostic logs are suppressed.
+static const bool kDebugDepthTextureLogs = false;
+
 // Generate a random UUID v4 string (xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx).
 static std::string generateUUID() {
     uint8_t b[16];
@@ -2773,7 +2776,7 @@ void VROARSessionARCore::updateDepthTexture() {
     int height = depthImage->getHeight();
 
     if (width <= 0 || height <= 0) {
-        pwarn("VROARSessionARCore: Invalid depth image dimensions: %d x %d", width, height);
+        if (kDebugDepthTextureLogs) pwarn("VROARSessionARCore: Invalid depth image dimensions: %d x %d", width, height);
         delete depthImage;
         return;
     }
@@ -2786,7 +2789,7 @@ void VROARSessionARCore::updateDepthTexture() {
     int rowStride = depthImage->getPlaneRowStride(0);
 
     if (depthData == nullptr || depthDataLength <= 0) {
-        pwarn("VROARSessionARCore: Invalid depth data. Length: %d", depthDataLength);
+        if (kDebugDepthTextureLogs) pwarn("VROARSessionARCore: Invalid depth data. Length: %d", depthDataLength);
         delete depthImage;
         return;
     }
@@ -2853,10 +2856,10 @@ void VROARSessionARCore::updateDepthTexture() {
                 glTexSubImage2D(target, 0, 0, 0, width, height, GL_RED, GL_FLOAT, floatData);
                 glBindTexture(target, 0);
             } else {
-                pwarn("VROARSessionARCore: Failed to get substrate for depth texture update");
+                if (kDebugDepthTextureLogs) pwarn("VROARSessionARCore: Failed to get substrate for depth texture update");
             }
         } else {
-            pwarn("VROARSessionARCore: Driver expired, cannot update depth texture");
+            if (kDebugDepthTextureLogs) pwarn("VROARSessionARCore: Driver expired, cannot update depth texture");
         }
     }
 

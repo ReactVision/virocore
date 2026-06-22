@@ -39,6 +39,8 @@
 #include "VROFieldOfView.h"
 #include "VROARDepthMesh.h"
 
+static const bool kDebugFrameLogs = false;
+
 VROARFrameARCore::VROARFrameARCore(arcore::Frame *frame,
                                    VROViewport viewport,
                                    std::shared_ptr<VROARSessionARCore> session) :
@@ -547,7 +549,7 @@ float VROARFrameARCore::getSemanticLabelFraction(VROSemanticLabel label) {
 
     // Debug: Log non-zero results and periodic status for label 0
     if (result > 0.0f) {
-        pinfo("Semantic label %d fraction: %.4f", static_cast<int>(label), result);
+        if (kDebugFrameLogs) pinfo("Semantic label %d fraction: %.4f", static_cast<int>(label), result);
     }
     return result;
 }
@@ -736,7 +738,7 @@ std::shared_ptr<VROARDepthMesh> VROARFrameARCore::generateDepthMesh(
         return nullptr;
     }
 
-    pinfo("VROARFrameARCore: Generated depth mesh with %zu vertices, %zu triangles",
+    if (kDebugFrameLogs) pinfo("VROARFrameARCore: Generated depth mesh with %zu vertices, %zu triangles",
           vertices.size(), indices.size() / 3);
 
     return std::make_shared<VROARDepthMesh>(
@@ -763,7 +765,7 @@ std::shared_ptr<VROARDepthMesh> VROARFrameARCore::generatePlaneMesh() {
 
     std::vector<float> confidences(vertices.size(), 1.0f);
 
-    pinfo("VROARFrameARCore: Generated plane mesh with %zu vertices, %zu triangles",
+    if (kDebugFrameLogs) pinfo("VROARFrameARCore: Generated plane mesh with %zu vertices, %zu triangles",
           vertices.size(), indices.size() / 3);
 
     return std::make_shared<VROARDepthMesh>(
