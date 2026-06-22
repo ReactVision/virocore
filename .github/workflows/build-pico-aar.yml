@@ -37,6 +37,9 @@ jobs:
       - name: Build AAR
         run: ./scripts/build-pico-aar.sh --out "$RUNNER_TEMP/aar"
 
+      - name: Verify 16KB page alignment (viro#485 gate)
+        run: python3 scripts/verify-16kb-alignment.py "$RUNNER_TEMP/aar/viro_renderer-release.aar"
+
       - name: Upload AAR artifact
         uses: actions/upload-artifact@v4
         with:

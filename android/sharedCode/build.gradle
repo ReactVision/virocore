@@ -18,7 +18,12 @@ android {
     defaultConfig {
         minSdkVersion 24
         targetSdkVersion 33
-        ndkVersion = "25.2.9519653"
+        // NDK r27+ ships a 16KB-page-aligned libc++_shared.so. r25 (previous pin)
+        // produces a 4KB-aligned STL that fails Android 15 / SDK 35 alignment
+        // checks regardless of linker flags (cf. ReactVision/viro#485). r27 is the
+        // first NDK with 16KB STL binaries; libviro_renderer.so itself is already
+        // 16KB-aligned via -Wl,-z,max-page-size=16384 in CMakeLists.txt.
+        ndkVersion = "27.2.12479018"
 
         ndk {
             // Specifies the ABI configurations of your native

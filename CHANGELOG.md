@@ -22,6 +22,11 @@ is unchanged. See docs/PICO-SUPPORT.md.
   soft-required (`XR_KHR_android_create_instance`, enabled + chained iff
   enumerated) so strict PICO firmware degrades cleanly instead of SIGSEGV.
 - `xrCreateInstance` / `xrGetSystem` failures now log the real `XrResult`.
+- **16KB page alignment (Android 15 / SDK 35, fixes ReactVision/viro#485)** —
+  OpenXR loader bumped 1.1.38 → 1.1.60 (first 16KB-aligned Khronos Android
+  loader); rebuilt AAR is 16KB-aligned via NDK r27.2 + `-Wl,-z,max-page-size=16384`.
+  `scripts/verify-16kb-alignment.py` gates the build/CI so a misaligned AAR can
+  never be published.
 
 ### Not yet wired (flagged, follow-up)
 - Eye-tracked foveation (`XR_META_foveation_eye_tracked`) — detected only;

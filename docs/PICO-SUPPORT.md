@@ -62,7 +62,55 @@ scene mesh / body+eye tracking / MRC as separate follow-up PRs per
 `PICO-FEATURE-ROADMAP.md`. Once merged upstream, retire this fork and point
 `expo-pico` back at `@reactvision/react-viro`.
 
-## What this fork does NOT contain
+## 16KB page alignment — Android 15 / SDK 35 (ReactVision/viro#485)
+
+Android 15 requires every 64-bit (`arm64-v8a`) `.so` to be 16KB page-aligned
+(ELF `PT_LOAD` `p_align >= 0x4000`). Upstream `@reactvision/react-viro@2.56.0`
+shipped a prebuilt AAR whose `libopenxr_loader.so` and `libc++_shared.so` were
+still 4KB-aligned (`0x1000`), causing Play Console `.aab` rejection. You can't
+work around it by stripping the loader — `libviro_renderer.so` hard-links OpenXR
+symbols, so removing it crashes at launch with `UnsatisfiedLinkError`.
+
+**Why the fork fixes it automatically.** virocore's *source* build config at
+v2.56.0 is already correct — it's only the upstream *published binary* that was
+stale. Specifically:
+- NDK pinned to **r27.2** — first NDK whose `libc++_shared.so` is 16KB-aligned.
+- `-Wl,-z,max-page-size=16384` linker flag (CMakeLists) — makes
+  `libviro_renderer.so` and every lib we compile 16KB-aligned.
+- OpenXR loader bumped to **1.1.60** — Khronos switched the Android loader to
+  16KB pages in 1.1.57; 1.1.38 (what the stale AAR bundled) was 4KB. 1.1.60 also
+  carries newer ByteDance/PICO controller XML fixes (e.g. `pico_g3_controller`).
+
+Because the fork **rebuilds** the AAR from this source, the output is
+16KB-aligned. We don't inherit the stale binary.
+
+**The gate that guarantees it.** `scripts/verify-16kb-alignment.py` parses every
+arm64-v8a `.so` in the built AAR and fails the build if any `PT_LOAD` segment is
+< `0x4000`. It runs inside `build-pico-aar.sh` and again as a CI step, so we
+provably never publish a misaligned AAR the way upstream did. Verified to flag
+the exact two libs from #485 on the upstream artifact.
+
+**Populate the loader before building.** The local Maven mirror under
+`android/openxr_sdk/maven/` only carries 1.1.38. The build resolves 1.1.60 from
+`mavenCentral()` (already in the repo list), but to keep the build hermetic you
+can mirror it locally:
+
+```bash
+VER=1.1.60
+DIR=android/openxr_sdk/maven/org/khronos/openxr/openxr_loader_for_android/$VER
+mkdir -p "$DIR"
+curl -L -o "$DIR/openxr_loader_for_android-$VER.aar" \
+  "https://repo1.maven.org/maven2/org/khronos/openxr/openxr_loader_for_android/$VER/openxr_loader_for_android-$VER.aar"
+curl -L -o "$DIR/openxr_loader_for_android-$VER.pom" \
+  "https://repo1.maven.org/maven2/org/khronos/openxr/openxr_loader_for_android/$VER/openxr_loader_for_android-$VER.pom"
+```
+
+**Consumer side.** In the app, set `android.packagingOptions.jniLibs.useLegacyPackaging = false`
+(the default on AGP 8+ / `compileSdk 35`) so libs are page-aligned and loaded
+uncompressed from the APK. The fork's AAR provides aligned binaries; legacy
+packaging would re-introduce misalignment.
+
+
 
 The feature-work items (spatial anchors, room/scene mesh, body/eye/motion
 tracking, human occlusion, MRC) are NOT here — they need new scene-graph

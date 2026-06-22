@@ -44,6 +44,21 @@ echo "==> ./gradlew :sharedCode:assembleRelease"
 AAR_PATH="sharedCode/build/outputs/aar/sharedCode-release.aar"
 [[ -f "$AAR_PATH" ]] || { echo "ERROR: AAR not produced at $AAR_PATH"; exit 1; }
 
+# ── 16KB page-alignment gate (ReactVision/viro#485) ───────────────────────────
+# Android 15 / SDK 35 requires every arm64-v8a .so to be 16KB-aligned (PT_LOAD
+# p_align >= 0x4000). Upstream 2.56.0 shipped an AAR whose bundled
+# libopenxr_loader.so and libc++_shared.so were still 4KB (0x1000), causing Play
+# Console .aab rejection. We REFUSE to publish a misaligned AAR.
+echo "==> Verifying 16KB page alignment of arm64-v8a libraries"
+cd ..  # back to repo root for the verifier
+if ! python3 scripts/verify-16kb-alignment.py "android/$AAR_PATH"; then
+    echo "ERROR: AAR contains 4KB-aligned arm64-v8a libraries — refusing to stage."
+    echo "       Check NDK version (need r27+), the -Wl,-z,max-page-size=16384"
+    echo "       linker flag, and the openxr_loader_for_android version (need >=1.1.57)."
+    exit 1
+fi
+cd android
+
 mkdir -p "$OUT_DIR"
 # The JS package expects the file named viro_renderer-release.aar.
 cp "$AAR_PATH" "$OUT_DIR/viro_renderer-release.aar"
