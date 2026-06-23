@@ -92,6 +92,13 @@ public class ARScene extends Scene {
         void onAmbientLightUpdate(float intensity, Vector color);
 
         /**
+         * Invoked once when depth data first becomes available for the session (via the
+         * ARCore Depth API). After this fires, hit tests can return DepthPoints. Optional;
+         * defaults to a no-op so existing listeners are unaffected.
+         */
+        default void onDepthReady() {}
+
+        /**
          * Invoked when a real-world {@link ARAnchor} is detected. You can associate virtual
          * content with this new anchor by adding said content to the associated {@link ARNode}.
          * Note that the {@link ARNode} is automatically added to the Scene, and will be
@@ -1808,6 +1815,14 @@ public class ARScene extends Scene {
         Listener delegate;
         if (mListener != null) {
             mListener.onAmbientLightUpdate(intensity, new Vector(r, g, b));
+        }
+    }
+    /**
+     * @hide
+     */
+    void onDepthReady() {
+        if (mListener != null) {
+            mListener.onDepthReady();
         }
     }
     /**

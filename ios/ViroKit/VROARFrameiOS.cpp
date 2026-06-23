@@ -169,14 +169,22 @@ std::vector<std::shared_ptr<VROARHitTestResult>> VROARFrameiOS::hitTest(int x, i
         vResults.push_back(vResult);
     }
 
-    // Enhance all hit test results with depth data if available
+    // Synthesize an authoritative DepthPoint from the depth map, when available.
+    //
+    // Previously this code sampled ONE depth value at the tapped screen point and
+    // stamped it onto every ARKit result (feature points + estimated planes), then
+    // relabeled them all as DepthPoint. Those results keep ARKit's own positions, so a
+    // single tap produced multiple "DepthPoint"s at unrelated distances that all shared
+    // one depth sample — the depth map never actually positioned anything.
+    //
+    // Instead, unproject the tapped ray to the sampled metric depth and return a single
+    // DepthPoint whose position is genuinely derived from the depth map. ARKit's native
+    // results are left with their true types (FeaturePoint / plane).
     std::shared_ptr<VROTexture> depthTexture = getDepthTexture();
     if (depthTexture && hasDepthData()) {
-        pinfo("Depth texture available, enhancing %zu hit results with depth data", vResults.size());
-        // Determine depth source
-        std::string depthSource = "none";
+        // Determine depth source.
+        std::string depthSource;
         bool preferMonocular = session && session->isPreferMonocularDepth();
-
         if (preferMonocular) {
             depthSource = "monocular";
         } else if (hasLiDARDepth()) {
@@ -185,54 +193,56 @@ std::vector<std::shared_ptr<VROARHitTestResult>> VROARFrameiOS::hitTest(int x, i
             depthSource = "monocular";
         }
 
-        // Get depth transform and confidence texture
+        // Sample depth + confidence ONCE at the tapped screen point. The depth UV
+        // depends only on the tap location, not on any individual ARKit result.
         VROMatrix4f depthTransform = getDepthTextureTransform();
         std::shared_ptr<VROTexture> confidenceTexture = getDepthConfidenceTexture();
+        VROVector3f screenPoint(pointViewport.x, pointViewport.y, 0.0f);
+        VROVector3f depthUV = depthTransform.multiply(screenPoint);
+        float depthValue = sampleDepthTextureAtUV(depthTexture, depthUV.x, depthUV.y);
 
-        // Sample depth at hit point for each result
-        for (auto& vResult : vResults) {
-            // Transform screen point to depth texture UV
-            // pointViewport is already in normalized screen space (0-1)
-            VROVector3f screenPoint(pointViewport.x, pointViewport.y, 0.0f);
-            VROVector3f depthUV = depthTransform.multiply(screenPoint);
+        float confidence = -1.0f;
+        if (depthSource == "lidar") {
+            if (confidenceTexture) {
+                confidence = sampleDepthTextureAtUV(confidenceTexture, depthUV.x, depthUV.y);
+            }
+        } else { // monocular
+            auto est = session ? session->getMonocularDepthEstimator() : nullptr;
+            if (est) {
+                confidence = est->sampleConfidenceAtDepthUV(depthUV.x, depthUV.y);
+            }
+        }
 
-            // Sample depth texture at UV
-            float depthValue = sampleDepthTextureAtUV(depthTexture, depthUV.x, depthUV.y);
-
-            // Sample confidence
-            float confidence = -1.0f;
+        if (depthValue > 0.0f) {
+            // Gate on confidence (confidence < 0 means "unknown" → trust the depth).
+            bool depthTrusted;
             if (depthSource == "lidar") {
-                if (confidenceTexture) {
-                    confidence = sampleDepthTextureAtUV(confidenceTexture, depthUV.x, depthUV.y);
-                }
-            } else if (depthSource == "monocular") {
+                depthTrusted = (confidence < 0.0f || confidence > 0.3f);
+            } else { // monocular
                 auto est = session ? session->getMonocularDepthEstimator() : nullptr;
-                if (est) {
-                    confidence = est->sampleConfidenceAtDepthUV(depthUV.x, depthUV.y);
-                }
+                float threshold = est ? est->getHitTestConfidenceThreshold() : 0.0f;
+                depthTrusted = (confidence < 0.0f || confidence > threshold);
             }
 
-            // Set depth data and conditionally upgrade result type
-            if (depthValue > 0.0f) {
-                vResult->setDepthData(depthValue, confidence, depthSource);
+            VROVector3f worldPos;
+            if (depthTrusted && unprojectToWorld(pointCameraImage, depthValue, worldPos)) {
+                VROMatrix4f worldTransform;
+                worldTransform.toIdentity();
+                worldTransform.translate(worldPos);
 
-                bool shouldUpgradeToDepthPoint = false;
-                if (depthSource == "lidar") {
-                    shouldUpgradeToDepthPoint = (confidence < 0.0f || confidence > 0.3f);
-                } else if (depthSource == "monocular") {
-                    auto est = session ? session->getMonocularDepthEstimator() : nullptr;
-                    if (est) {
-                        // Gate on synthesized temporal-stability confidence
-                        float threshold = est->getHitTestConfidenceThreshold();
-                        shouldUpgradeToDepthPoint = (confidence < 0.0f || confidence > threshold);
-                    } else {
-                        shouldUpgradeToDepthPoint = true; // no estimator → trust depth
-                    }
-                }
+                VROVector3f cameraPos(_frame.camera.transform.columns[3][0],
+                                      _frame.camera.transform.columns[3][1],
+                                      _frame.camera.transform.columns[3][2]);
+                float distance = worldPos.distance(cameraPos);
 
-                if (shouldUpgradeToDepthPoint) {
-                    vResult->setType(VROARHitTestResultType::DepthPoint);
-                }
+                std::shared_ptr<VROARHitTestResult> depthResult =
+                    std::make_shared<VROARHitTestResultiOS>(
+                        VROARHitTestResultType::DepthPoint, nullptr, distance,
+                        worldTransform, worldTransform, nil, session);
+                depthResult->setDepthData(depthValue, confidence, depthSource);
+
+                // The depth-derived result is authoritative: return it first.
+                vResults.insert(vResults.begin(), depthResult);
             }
         }
     } else {
@@ -244,6 +254,49 @@ std::vector<std::shared_ptr<VROARHitTestResult>> VROARFrameiOS::hitTest(int x, i
     }
 
     return vResults;
+}
+
+bool VROARFrameiOS::unprojectToWorld(VROVector3f cameraImagePoint, float depthMeters,
+                                     VROVector3f &outWorld) const {
+    if (depthMeters <= 0.0f || !_frame) {
+        return false;
+    }
+
+    // ARKit intrinsics are defined in camera-image pixel space:
+    //   fx  0  cx
+    //    0 fy  cy
+    //    0  0   1
+    matrix_float3x3 intrinsics = _frame.camera.intrinsics;
+    float fx = intrinsics.columns[0][0];
+    float fy = intrinsics.columns[1][1];
+    float cx = intrinsics.columns[2][0];
+    float cy = intrinsics.columns[2][1];
+
+    CGSize imageRes = _frame.camera.imageResolution;
+    float imgW = (float)imageRes.width;
+    float imgH = (float)imageRes.height;
+    if (imgW <= 0.0f || imgH <= 0.0f || fx == 0.0f || fy == 0.0f) {
+        return false;
+    }
+
+    // Camera-image pixel of the tapped point. cameraImagePoint is normalized [0,1] in
+    // ARKit's landscape image space — the same space passed to [ARFrame hitTest:].
+    float px = cameraImagePoint.x * imgW;
+    float py = cameraImagePoint.y * imgH;
+
+    // Pinhole unprojection. depthMeters is the perpendicular (optical-axis) depth, so
+    // the ray direction is scaled by depth directly. (Mirrors generateDepthMesh().)
+    float camX = (px - cx) * depthMeters / fx;
+    float camY = (py - cy) * depthMeters / fy;
+    float camZ = depthMeters;
+
+    // Depth-image convention (X-right, Y-down, Z-forward) → ARKit camera space
+    // (X-right, Y-up, Z-backward): negate Y and Z.
+    VROVector4f camPos(camX, -camY, -camZ, 1.0f);
+    VROMatrix4f cameraToWorld = VROConvert::toMatrix4f(_frame.camera.transform);
+    VROVector4f world = cameraToWorld.multiply(camPos);
+    outWorld = VROVector3f(world.x, world.y, world.z);
+    return true;
 }
 
 VROMatrix4f VROARFrameiOS::getViewportToCameraImageTransform() const {

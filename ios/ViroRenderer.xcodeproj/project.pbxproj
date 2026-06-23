@@ -946,6 +946,7 @@
 		E1BD61872FBBEA76008FDF74 /* VROVirtualControllerRegistry.h in Headers */ = {isa = PBXBuildFile; fileRef = E1BD61822FBBEA76008FDF74 /* VROVirtualControllerRegistry.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		E1BD61882FBBEA93008FDF74 /* VROInputState.h in Sources */ = {isa = PBXBuildFile; fileRef = E1BD61802FBBEA76008FDF74 /* VROInputState.h */; };
 		E1BD61892FBBEA95008FDF74 /* VROVirtualControllerRegistry.h in Sources */ = {isa = PBXBuildFile; fileRef = E1BD61822FBBEA76008FDF74 /* VROVirtualControllerRegistry.h */; };
+		E0B8128946FC47E087280E34 /* VROObjectDetector.h in Headers */ = {isa = PBXBuildFile; fileRef = 4FFB633FAF4149CBBC3B1046 /* VROObjectDetector.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		E1E71AAD2EE4B64E00CA1D20 /* VROSemantics.h in Headers */ = {isa = PBXBuildFile; fileRef = E1E71AAC2EE4B64E00CA1D20 /* VROSemantics.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		EAD7E32D2DFA518AEAAB48C2 /* (null) in Frameworks */ = {isa = PBXBuildFile; };
 /* End PBXBuildFile section */
@@ -1957,6 +1958,7 @@
 		E1BD61802FBBEA76008FDF74 /* VROInputState.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VROInputState.h; sourceTree = "<group>"; };
 		E1BD61812FBBEA76008FDF74 /* VROInputState.cpp */ = {isa = PBXFileReference; explicitFileType = sourcecode.cpp.objcpp; path = VROInputState.cpp; sourceTree = "<group>"; };
 		E1BD61822FBBEA76008FDF74 /* VROVirtualControllerRegistry.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VROVirtualControllerRegistry.h; sourceTree = "<group>"; };
+		4FFB633FAF4149CBBC3B1046 /* VROObjectDetector.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VROObjectDetector.h; sourceTree = "<group>"; };
 		E1BD61832FBBEA76008FDF74 /* VROVirtualControllerRegistry.cpp */ = {isa = PBXFileReference; explicitFileType = sourcecode.cpp.objcpp; path = VROVirtualControllerRegistry.cpp; sourceTree = "<group>"; };
 		E1E71AAC2EE4B64E00CA1D20 /* VROSemantics.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VROSemantics.h; sourceTree = "<group>"; };
 		EFE739A6468B94B79ECAD5E5 /* Pods-ViroSample.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-ViroSample.debug.xcconfig"; path = "Target Support Files/Pods-ViroSample/Pods-ViroSample.debug.xcconfig"; sourceTree = "<group>"; };
@@ -2080,6 +2082,7 @@
 				E1BD61802FBBEA76008FDF74 /* VROInputState.h */,
 				E1BD61812FBBEA76008FDF74 /* VROInputState.cpp */,
 				E1BD61822FBBEA76008FDF74 /* VROVirtualControllerRegistry.h */,
+				4FFB633FAF4149CBBC3B1046 /* VROObjectDetector.h */,
 				E1BD61832FBBEA76008FDF74 /* VROVirtualControllerRegistry.cpp */,
 				E1BD617B2FBBE52A008FDF74 /* VRODynamicGeometry.h */,
 				E1BD617C2FBBE52A008FDF74 /* VRODynamicGeometry.cpp */,
@@ -3394,6 +3397,7 @@
 				E1BD617D2FBBE52A008FDF74 /* VRODynamicGeometry.h in Headers */,
 				E1BD61902FC1A000008FDF74 /* VRODynamicMeshNode.h in Headers */,
 				E1BD61872FBBEA76008FDF74 /* VROVirtualControllerRegistry.h in Headers */,
+				E0B8128946FC47E087280E34 /* VROObjectDetector.h in Headers */,
 				E1BD61862FBBEA76008FDF74 /* VROInputState.h in Headers */,
 				E15075862F185C5700653622 /* VROARHitTestResultiOS.h in Headers */,
 				E11308292EF0F574008AB6A1 /* VROModelDownloader.h in Headers */,

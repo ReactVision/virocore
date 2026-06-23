@@ -1774,6 +1774,23 @@ void ARDeclarativeSceneDelegate::onAmbientLightUpdate(float intensity, VROVector
     });
 }
 
+void ARDeclarativeSceneDelegate::onDepthReady() {
+    VRO_ENV env = VROPlatformGetJNIEnv();
+    VRO_WEAK jObjWeak = VRO_NEW_WEAK_GLOBAL_REF(_javaObject);
+    VROPlatformDispatchAsyncApplication([jObjWeak] {
+        VRO_ENV env = VROPlatformGetJNIEnv();
+        VRO_OBJECT localObj = VRO_NEW_LOCAL_REF(jObjWeak);
+        if (VRO_IS_OBJECT_NULL(localObj)) {
+            VRO_DELETE_WEAK_GLOBAL_REF(jObjWeak);
+            return;
+        }
+
+        VROPlatformCallHostFunction(localObj, "onDepthReady", "()V");
+        VRO_DELETE_LOCAL_REF(localObj);
+        VRO_DELETE_WEAK_GLOBAL_REF(jObjWeak);
+    });
+}
+
 void ARDeclarativeSceneDelegate::anchorWasDetected(std::shared_ptr<VROARAnchor> anchor) {
     VRO_ENV env = VROPlatformGetJNIEnv();
     VRO_WEAK jObjWeak = VRO_NEW_WEAK_GLOBAL_REF(_javaObject);
@@ -1890,6 +1907,23 @@ void ARImperativeSceneDelegate::onAmbientLightUpdate(float intensity,
 
         VROPlatformCallHostFunction(localObj, "onAmbientLightUpdate", "(FFFF)V",
                                     intensity, color.x, color.y, color.z);
+        VRO_DELETE_LOCAL_REF(localObj);
+        VRO_DELETE_WEAK_GLOBAL_REF(jObjWeak);
+    });
+}
+
+void ARImperativeSceneDelegate::onDepthReady() {
+    VRO_ENV env = VROPlatformGetJNIEnv();
+    VRO_WEAK jObjWeak = VRO_NEW_WEAK_GLOBAL_REF(_javaObject);
+    VROPlatformDispatchAsyncApplication([jObjWeak] {
+        VRO_ENV env = VROPlatformGetJNIEnv();
+        VRO_OBJECT localObj = VRO_NEW_LOCAL_REF(jObjWeak);
+        if (VRO_IS_OBJECT_NULL(localObj)) {
+            VRO_DELETE_WEAK_GLOBAL_REF(jObjWeak);
+            return;
+        }
+
+        VROPlatformCallHostFunction(localObj, "onDepthReady", "()V");
         VRO_DELETE_LOCAL_REF(localObj);
         VRO_DELETE_WEAK_GLOBAL_REF(jObjWeak);
     });
