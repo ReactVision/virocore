@@ -86,16 +86,22 @@ public:
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
 
+    // For mixed-reality (passthrough) the swapchain must be cleared TRANSPARENT
+    // (alpha 0) so empty regions reveal the passthrough layer beneath. For fully
+    // virtual VR it must be OPAQUE (alpha 1) so the background is solid black.
+    // The renderer sets this when passthrough is toggled.
+    void setClearAlpha(float alpha) { _clearAlpha = alpha; }
+
     void bind() {
         glBindFramebuffer(GL_FRAMEBUFFER, _fbo);
         glViewport(_viewport.getX(), _viewport.getY(),
                    _viewport.getWidth(), _viewport.getHeight());
         glScissor(_viewport.getX(), _viewport.getY(),
                   _viewport.getWidth(), _viewport.getHeight());
-        // Explicit opaque-black clear — GL default clear color is (0,0,0,0) which
-        // gives alpha=0 pixels in the GL_SRGB8_ALPHA8 swapchain.  Quest's compositor
-        // may blend alpha=0 pixels with the passthrough feed even in OPAQUE blend mode.
-        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+        // Force the colour write mask fully on (incl. alpha) — Viro's cached state
+        // can leave the alpha channel masked off, which would skip the alpha clear.
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+        glClearColor(0.0f, 0.0f, 0.0f, _clearAlpha);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
     }
 
@@ -104,6 +110,7 @@ private:
     GLuint _fbo;
     GLuint _depthRbo;
     GLuint _colorTex;
+    float  _clearAlpha = 1.0f;  // 0 for MR/passthrough, 1 for opaque VR
 
     void destroyFramebuffer() {
         if (_fbo) {

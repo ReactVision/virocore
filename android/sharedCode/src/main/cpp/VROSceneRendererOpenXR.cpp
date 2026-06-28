@@ -14,6 +14,9 @@
 #include "VRODriverOpenGLAndroidOpenXR.h"
 #include "VRODisplayOpenGLOpenXR.h"
 #include "VROInputControllerOpenXR.h"
+#include "VROARSessionOpenXR.h"
+#include "VROARScene.h"
+#include "VROSceneController.h"
 #include "VROLog.h"
 #include "VROAllocationTracker.h"
 #include "VROTime.h"
@@ -41,6 +44,10 @@ static const char *const kOptionalExtensions[] = {
     XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME,  // 90 / 120 Hz mode
     XR_EXT_HAND_TRACKING_EXTENSION_NAME,        // M3: skeletal hand tracking (26 joints)
     XR_FB_HAND_TRACKING_AIM_EXTENSION_NAME,     // M3: aim pose + pinch strength from runtime
+    XR_EXT_PLANE_DETECTION_EXTENSION_NAME,      // M5: real-time plane detection (cross-vendor)
+    XR_FB_SCENE_EXTENSION_NAME,                 // M5: Meta room model (Space Setup) — bbox/boundary/labels
+    XR_FB_SPATIAL_ENTITY_EXTENSION_NAME,        // M5: spatial entity components
+    XR_FB_SPATIAL_ENTITY_QUERY_EXTENSION_NAME,  // M5: query stored room entities
 };
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -249,6 +256,14 @@ bool VROSceneRendererOpenXR::initOpenXR() {
                     _handTrackingAvailable = true;
                 if (strcmp(optExt, XR_FB_HAND_TRACKING_AIM_EXTENSION_NAME) == 0)
                     _handAimExtAvailable = true;
+                if (strcmp(optExt, XR_EXT_PLANE_DETECTION_EXTENSION_NAME) == 0)
+                    _planeDetectionAvailable = true;
+                if (strcmp(optExt, XR_FB_SCENE_EXTENSION_NAME) == 0)
+                    _fbSceneAvailable = true;
+                if (strcmp(optExt, XR_FB_SPATIAL_ENTITY_EXTENSION_NAME) == 0)
+                    _fbSpatialEntityAvailable = true;
+                if (strcmp(optExt, XR_FB_SPATIAL_ENTITY_QUERY_EXTENSION_NAME) == 0)
+                    _fbSpatialQueryAvailable = true;
                 break;
             }
         }
@@ -411,6 +426,27 @@ bool VROSceneRendererOpenXR::createSession() {
     // Try to enable passthrough (optional — graceful degradation if unavailable)
     initPassthrough();
 
+    // Create the Quest MR (AR) session if a plane source is available. Two
+    // sources are tried; planes are reported in _stageSpace so anchors land in
+    // the same world frame as rendered content:
+    //   • XR_EXT_plane_detection — cross-vendor real-time (absent on Meta runtime)
+    //   • XR_FB_scene + spatial_entity(_query) — Meta room model (Space Setup)
+    bool fbSceneUsable = _fbSceneAvailable && _fbSpatialEntityAvailable &&
+                         _fbSpatialQueryAvailable;
+    if (_planeDetectionAvailable || fbSceneUsable) {
+        _arSession = std::make_shared<VROARSessionOpenXR>();
+        bool ext = _planeDetectionAvailable &&
+                   _arSession->initPlaneDetection(_instance, _session, _stageSpace);
+        bool fb  = fbSceneUsable &&
+                   _arSession->initSceneDetection(_instance, _session, _stageSpace);
+        if (!ext && !fb) {
+            ALOGW("No usable plane source initialised — AR-on-Quest planes disabled");
+            _arSession.reset();
+        } else {
+            ALOGV("AR plane source: EXT=%d FB_scene=%d", (int)ext, (int)fb);
+        }
+    }
+
     return true;
 }
 
@@ -526,6 +562,8 @@ bool VROSceneRendererOpenXR::initPassthrough() {
     ok &= loadFn("xrDestroyPassthroughLayerFB", (void **)&_pfnDestroyPassthroughLayer);
     ok &= loadFn("xrPassthroughLayerResumeFB",  (void **)&_pfnPassthroughLayerResume);
     ok &= loadFn("xrPassthroughLayerPauseFB",   (void **)&_pfnPassthroughLayerPause);
+    // Style is optional — don't fail init if it's missing (older runtimes).
+    loadFn("xrPassthroughLayerSetStyleFB",      (void **)&_pfnPassthroughLayerSetStyle);
 
     if (!ok) {
         ALOGW("XR_FB_passthrough functions not fully available — passthrough disabled");
@@ -583,12 +621,102 @@ void VROSceneRendererOpenXR::setPassthroughEnabled(bool enabled) {
     }
 
     _passthroughEnabled = enabled;
+
+    // The OpenXR display clears the swapchain opaque (alpha 1) for VR; for
+    // passthrough it must clear TRANSPARENT (alpha 0) so empty regions reveal the
+    // passthrough layer beneath. This is the authoritative per-frame clear (the
+    // base render pass binds the display every frame), so flip it here.
+    if (_openxrDriver) {
+        auto display = _openxrDriver->getOpenXRDisplay();
+        if (display) display->setClearAlpha(enabled ? 0.0f : 1.0f);
+    }
+
     ALOGV("setPassthroughEnabled: %s", enabled ? "true" : "false");
+}
+
+void VROSceneRendererOpenXR::setPassthroughStyle(float opacity, float edgeR, float edgeG,
+                                                 float edgeB, float edgeA) {
+    if (_passthroughLayer == XR_NULL_HANDLE || _pfnPassthroughLayerSetStyle == nullptr) {
+        ALOGW("setPassthroughStyle: passthrough layer styling not available");
+        return;
+    }
+
+    XrPassthroughStyleFB style = { XR_TYPE_PASSTHROUGH_STYLE_FB };
+    style.textureOpacityFactor = opacity;          // [0,1]
+    style.edgeColor            = { edgeR, edgeG, edgeB, edgeA };  // alpha 0 = no edge
+
+    XrResult r = _pfnPassthroughLayerSetStyle(_passthroughLayer, &style);
+    if (XR_FAILED(r)) {
+        ALOGW("xrPassthroughLayerSetStyleFB failed: %d", (int)r);
+        return;
+    }
+    ALOGV("setPassthroughStyle: opacity=%.2f edge=(%.2f,%.2f,%.2f,%.2f)",
+          opacity, edgeR, edgeG, edgeB, edgeA);
 }
 
 void VROSceneRendererOpenXR::setHandTrackingEnabled(bool enabled) {
     if (_inputController) {
         _inputController->setHandTrackingEnabled(enabled);
+    }
+}
+
+void VROSceneRendererOpenXR::setSceneController(
+        std::shared_ptr<VROSceneController> sceneController) {
+    VROSceneRenderer::setSceneController(sceneController);
+    attachARSceneIfNeeded(sceneController);
+}
+
+void VROSceneRendererOpenXR::setSceneController(
+        std::shared_ptr<VROSceneController> sceneController, float seconds,
+        VROTimingFunctionType timingFunction) {
+    // ViroViewOpenXR drives scene changes through this timed variant.
+    VROSceneRenderer::setSceneController(sceneController, seconds, timingFunction);
+    attachARSceneIfNeeded(sceneController);
+}
+
+void VROSceneRendererOpenXR::attachARSceneIfNeeded(
+        std::shared_ptr<VROSceneController> sceneController) {
+    // A plain VR scene (VROScene) needs no AR-specific wiring.
+    if (!sceneController) {
+        ALOGV("attachAR: null sceneController");
+        return;
+    }
+    std::shared_ptr<VROScene> scene = sceneController->getScene();
+    std::shared_ptr<VROARScene> arScene = std::dynamic_pointer_cast<VROARScene>(scene);
+    ALOGV("attachAR: sceneController set, scene=%p isARScene=%d arSession=%d",
+          (void *)scene.get(), (int)(arScene != nullptr), (int)(_arSession != nullptr));
+    if (!arScene) {
+        return;  // plain VR scene
+    }
+
+    // An AR scene on Quest is mixed reality — turn on passthrough so the room is
+    // visible behind virtual content. This is independent of plane detection:
+    // even when XR_EXT_plane_detection is unavailable, the AR scene still renders
+    // over passthrough. (The passthroughEnabled prop can also drive this.)
+    setPassthroughEnabled(true);
+
+    // CRITICAL for passthrough to show through: the projection layer is composited
+    // over passthrough with ALPHA_BLEND, so empty areas must have alpha 0. The
+    // default clear colour is opaque black {0,0,0,1}, which would hide passthrough
+    // entirely. Clear transparent so only rendered geometry occludes the room.
+    if (_renderer) {
+        _renderer->setClearColor({ 0, 0, 0, 0 }, _driver);
+    }
+
+    arScene->setDriver(_driver);
+
+    // Wire the OpenXR AR session to the scene's anchor delegate so onAnchorFound /
+    // anchorUpdated / anchorRemoved (and ViroARPlane) fire — mirrors
+    // VROSceneRendererARCore. Only possible when plane detection is available.
+    if (_arSession) {
+        arScene->setARSession(_arSession);
+        _arSession->setScene(arScene);
+        _arSession->setDelegate(arScene->getSessionDelegate());
+        _arSession->run();
+        ALOGV("AR scene attached to OpenXR — passthrough + plane detection active");
+    } else {
+        ALOGV("AR scene attached to OpenXR — passthrough active "
+              "(XR_EXT_plane_detection unavailable; no plane anchors)");
     }
 }
 
@@ -607,6 +735,12 @@ void VROSceneRendererOpenXR::destroySwapchains() {
 }
 
 void VROSceneRendererOpenXR::destroySession() {
+    // AR session teardown — destroy the plane detector before the XrSession.
+    if (_arSession) {
+        _arSession->destroyPlaneDetector();
+        _arSession.reset();
+    }
+
     // Passthrough teardown — must use loaded function pointers, not direct calls.
     if (_passthroughLayer != XR_NULL_HANDLE && _pfnDestroyPassthroughLayer) {
         _pfnDestroyPassthroughLayer(_passthroughLayer);
@@ -863,6 +997,14 @@ void VROSceneRendererOpenXR::pollEvents() {
                 ALOGE("Instance loss pending — shutting down");
                 _running = false;
                 break;
+            case XR_TYPE_EVENT_DATA_SPACE_QUERY_RESULTS_AVAILABLE_FB:
+            case XR_TYPE_EVENT_DATA_SPACE_QUERY_COMPLETE_FB:
+            case XR_TYPE_EVENT_DATA_SPACE_SET_STATUS_COMPLETE_FB:
+                // XR_FB_scene room-entity query + component-enable events.
+                if (_arSession) {
+                    _arSession->onSpatialEvent(event);
+                }
+                break;
             default:
                 break;
         }
@@ -929,6 +1071,14 @@ void VROSceneRendererOpenXR::renderFrame() {
     uint32_t    viewCount = 2;
     XrView      views[2]  = { { XR_TYPE_VIEW }, { XR_TYPE_VIEW } };
     XR_CHECK(xrLocateViews(_session, &locateInfo, &viewState, 2, &viewCount, views));
+
+    // Drive the Quest MR (AR) session: query XR_EXT_plane_detection and fan
+    // detected planes through the VROARScene anchor pipeline. Runs before
+    // prepareFrame() so anchor node transforms are current for this frame.
+    if (_arSession) {
+        _arSession->setDisplayTime(frameState.predictedDisplayTime);
+        _arSession->updateFrame();
+    }
 
     // Render each eye if views are valid
     std::vector<XrCompositionLayerProjectionView> projViews(2);
@@ -1018,14 +1168,24 @@ void VROSceneRendererOpenXR::renderFrame() {
         projLayer.space      = _stageSpace;
         projLayer.viewCount  = 2;
         projLayer.views      = projViews.data();
+        // When passthrough is on, the scene is rendered with a transparent clear
+        // (alpha 0). Tell the compositor to honor the layer's alpha channel so
+        // passthrough shows through empty regions; otherwise the layer is treated
+        // as opaque and hides the room.
+        if (_passthroughEnabled) {
+            projLayer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT |
+                                   XR_COMPOSITION_LAYER_UNPREMULTIPLIED_ALPHA_BIT;
+        }
         layers.push_back(reinterpret_cast<const XrCompositionLayerBaseHeader *>(&projLayer));
     }
 
     XrFrameEndInfo endInfo = { XR_TYPE_FRAME_END_INFO };
     endInfo.displayTime          = frameState.predictedDisplayTime;
-    endInfo.environmentBlendMode = _passthroughEnabled
-                                       ? XR_ENVIRONMENT_BLEND_MODE_ALPHA_BLEND
-                                       : XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+    // Passthrough is supplied as a composition layer (underlay) beneath the
+    // projection layer, so the environment blend mode stays OPAQUE. The projection
+    // layer's SOURCE_ALPHA bit + the display's transparent clear (alpha 0 in empty
+    // regions) let the passthrough layer show through where there's no geometry.
+    endInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
     endInfo.layerCount  = (uint32_t)layers.size();
     // OpenXR spec: layers must be NULL when layerCount==0
     endInfo.layers      = layers.empty() ? nullptr : layers.data();
@@ -1067,6 +1227,16 @@ void VROSceneRendererOpenXR::renderEye(int eyeIndex,
     VROViewport viewport(0, 0, swapchain.width, swapchain.height);
     display->setViewport(viewport);
     display->bind();
+
+    // For passthrough (MR), explicitly clear the swapchain to TRANSPARENT. Viro's
+    // base render pass (VROPortalTreeRenderPass) never clears the colour buffer —
+    // it assumes an opaque background fills the view (a skybox, or the camera quad
+    // on ARCore). An AR scene on Quest has neither, so without this the swapchain
+    // keeps stale opaque content and the projection layer hides passthrough. We
+    // clear here, after bind, so the subsequent scene geometry draws on top and
+    // empty regions stay alpha 0 — letting the passthrough layer beneath show.
+    // (The transparent clear for passthrough is done inside display->bind() above,
+    // via setClearAlpha(0) — that's the authoritative per-frame clear.)
 
     // ── Compute view + projection matrices ───────────────────────────────────
     // viewMatrix = inverted pose (world→eye transform for rendering)

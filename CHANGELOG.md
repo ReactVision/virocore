@@ -1,5 +1,25 @@
 # CHANGELOG
 
+## v2.57.1 — 27 June 2026
+
+### Added
+
+- **Mixed Reality on Meta Quest — `VROARSessionOpenXR`.** A new `VROARSession` subclass brings the AR component API (`VROARScene` / `VROARPlaneAnchor` / the anchor delegate) to the OpenXR backend, mirroring `VROARSessionARCore` so the entire anchor → delegate → JNI → `ARScene.Listener` → JS chain is reused unchanged. Plane detection is sourced from the Quest **room model** via `XR_FB_scene` / `XR_FB_spatial_entity` / `XR_FB_spatial_entity_query`: an async `xrQuerySpacesFB` finds room spaces, `xrSetSpaceComponentStatusFB` enables the `LOCATABLE` component, and each `BOUNDED_2D` space is turned into a `VROARPlaneAnchor` via `xrGetSpaceBoundingBox2DFB` + `xrGetSpaceSemanticLabelsFB` + `xrGetSpaceBoundary2DFB` + `xrLocateSpace`. `VROSceneRendererOpenXR` owns the session, drives it each frame after `xrLocateViews`, and wires it to the scene's AR delegate when a `VROARScene` is set (auto-enabling passthrough). Requires the `horizonos.permission.USE_ANCHOR_API` Spatial Data permission and a completed Space Setup; `XR_EXT_plane_detection` is also wired as a graceful fallback for runtimes that expose it. Semantic labels map to Viro classifications (`FLOOR`→Floor, `WALL_FACE`→Wall, `CEILING`→Ceiling, `DESK`/`TABLE`→Table, …).
+
+- **Passthrough layer styling.** `VROSceneRendererOpenXR::setPassthroughStyle(opacity, edgeRGBA)` loads `xrPassthroughLayerSetStyleFB` and applies an `XrPassthroughStyleFB` (texture opacity factor + edge colour) to the passthrough layer. Surfaced through `Renderer.nativeSetPassthroughStyle` and `ViroViewOpenXR.setPassthroughStyle`.
+
+### Fixed
+
+- **Passthrough black background on Quest.** A mixed-reality `VROARScene` has neither a skybox nor an ARCore camera quad to fill the view, so the swapchain kept stale opaque content and the projection layer hid the passthrough layer beneath it. `VRODisplayOpenGLOpenXR::bind()` now clears with a configurable `_clearAlpha` (0 for passthrough, 1 for opaque VR), set from `setPassthroughEnabled`; the projection composition layer is submitted with `XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT` (+ unpremultiplied) over an OPAQUE environment blend mode with the passthrough layer as an underlay. Empty regions now reveal the room.
+
+- **Passthrough / hand-tracking state lost before renderer init (`ViroViewOpenXR`).** The native `Renderer` is created lazily (deferred to the host Activity's first resume), so `setPassthroughEnabled` / `setHandTrackingEnabled` / `setPassthroughStyle` calls that arrived during view mount were silently dropped. The desired values are now cached and re-applied inside `initRenderer()`, mirroring how the pending scene is deferred.
+
+### Improved
+
+- **OpenXR renderer diagnostics cleanup.** Removed the bring-up-era diagnostics from `VROSceneRendererOpenXR` (per-frame alpha read-back probe, environment-blend-mode enumeration log, passthrough-only debug flag, redundant per-frame clear-colour re-assert) now that the passthrough composite path is validated.
+
+---
+
 ## v2.57.0 — 19 June 2026
 
 ### Added

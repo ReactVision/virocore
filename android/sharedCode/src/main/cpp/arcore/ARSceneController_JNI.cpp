@@ -1287,6 +1287,13 @@ VRO_METHOD(VRO_REF(VROARNode), nativeCreateAnchoredNode)(VRO_ARGS
     // Acquire the anchor from the session. If tracking is limited then this can
     // fail, in which case we return null.
     std::shared_ptr<VROARSessionARCore> session = std::dynamic_pointer_cast<VROARSessionARCore>(scene->getARSession());
+    // Manual world anchors are an ARCore-only feature. On other backends (e.g.
+    // OpenXR / Quest) there is no arcore::Session — return null so the Java
+    // AnchorAttempt simply places the node at its world position (inside-out
+    // 6DoF tracking keeps it stable) instead of dereferencing a null session.
+    if (!session || !session->getSessionInternal()) {
+        return 0;
+    }
     arcore::Pose *pose = session->getSessionInternal()->createPose(posX, posY, posZ,
                                                                    quatX, quatY, quatZ, quatW);
     std::shared_ptr<arcore::Anchor> anchor_arc = std::shared_ptr<arcore::Anchor>(

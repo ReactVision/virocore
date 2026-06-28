@@ -158,6 +158,19 @@ VRO_METHOD(void, nativeSetPassthroughEnabled)(VRO_ARGS
     }
 }
 
+VRO_METHOD(void, nativeSetPassthroughStyle)(VRO_ARGS
+                                            jlong rendererRef,
+                                            jfloat opacity,
+                                            jfloat edgeR, jfloat edgeG,
+                                            jfloat edgeB, jfloat edgeA) {
+    auto base = Renderer::native(rendererRef);
+    auto xrRenderer = std::dynamic_pointer_cast<VROSceneRendererOpenXR>(base);
+    if (xrRenderer) {
+        xrRenderer->setPassthroughStyle((float)opacity, (float)edgeR, (float)edgeG,
+                                        (float)edgeB, (float)edgeA);
+    }
+}
+
 VRO_METHOD(void, nativeSetHandTrackingEnabled)(VRO_ARGS
                                                jlong rendererRef,
                                                jboolean enabled) {

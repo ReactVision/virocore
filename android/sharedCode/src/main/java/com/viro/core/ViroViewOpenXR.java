@@ -119,6 +119,16 @@ public class ViroViewOpenXR extends ViroView {
     private Application mApplication; // for unregistering ActivityLifecycleCallbacks
     private boolean mResumed = false;  // tracks renderer.onResume / onPause balance
 
+    // Passthrough / hand-tracking props can be set (via VRT*SceneNavigator) before
+    // the native Renderer exists, since renderer creation is deferred to the host
+    // Activity's first onActivityResumed. Cache the desired value and re-apply it in
+    // initRenderer(), mirroring how mCurrentScene / mRendererConfig are deferred.
+    // Boolean (nullable) so "never set" is distinguishable from "set to false".
+    private Boolean mPendingPassthroughEnabled = null;
+    private Boolean mPendingHandTrackingEnabled = null;
+    // {opacity, edgeR, edgeG, edgeB, edgeA} or null if never set.
+    private float[] mPendingPassthroughStyle = null;
+
     // ── Constructors ─────────────────────────────────────────────────────────────
 
     /**
@@ -229,6 +239,19 @@ public class ViroViewOpenXR extends ViroView {
         // If a Scene was set before the renderer was ready, apply it now.
         if (mCurrentScene != null) {
             mNativeRenderer.setSceneController(mCurrentScene.mNativeRef, 0.5f);
+        }
+
+        // Re-apply passthrough / hand-tracking props that were set before the
+        // renderer existed (e.g. an initial passthroughEnabled prop during mount).
+        if (mPendingPassthroughEnabled != null) {
+            mNativeRenderer.setPassthroughEnabled(mPendingPassthroughEnabled);
+        }
+        if (mPendingHandTrackingEnabled != null) {
+            mNativeRenderer.setHandTrackingEnabled(mPendingHandTrackingEnabled);
+        }
+        if (mPendingPassthroughStyle != null) {
+            float[] s = mPendingPassthroughStyle;
+            mNativeRenderer.setPassthroughStyle(s[0], s[1], s[2], s[3], s[4]);
         }
 
         // Notify caller that the renderer is ready. Posted async to keep the
@@ -389,8 +412,25 @@ public class ViroViewOpenXR extends ViroView {
      * @param enabled {@code true} to show passthrough; {@code false} for fully virtual.
      */
     public void setPassthroughEnabled(boolean enabled) {
+        // Always cache so the value survives if the renderer isn't ready yet
+        // (initRenderer() re-applies it). Otherwise an initial passthroughEnabled
+        // prop set during mount — before the host Activity resumes — is dropped.
+        mPendingPassthroughEnabled = enabled;
         if (mNativeRenderer != null) {
             mNativeRenderer.setPassthroughEnabled(enabled);
+        }
+    }
+
+    /**
+     * Style the passthrough layer. {@code opacity} is the texture opacity factor
+     * [0,1]; {@code edge*} is the edge-highlight colour (alpha 0 disables the edge).
+     * Cached and re-applied if the renderer isn't ready yet.
+     */
+    public void setPassthroughStyle(float opacity, float edgeR, float edgeG,
+                                    float edgeB, float edgeA) {
+        mPendingPassthroughStyle = new float[]{ opacity, edgeR, edgeG, edgeB, edgeA };
+        if (mNativeRenderer != null) {
+            mNativeRenderer.setPassthroughStyle(opacity, edgeR, edgeG, edgeB, edgeA);
         }
     }
 
@@ -402,6 +442,7 @@ public class ViroViewOpenXR extends ViroView {
      * @param enabled {@code true} to process hand gestures; {@code false} to suppress them.
      */
     public void setHandTrackingEnabled(boolean enabled) {
+        mPendingHandTrackingEnabled = enabled;
         if (mNativeRenderer != null) {
             mNativeRenderer.setHandTrackingEnabled(enabled);
         }

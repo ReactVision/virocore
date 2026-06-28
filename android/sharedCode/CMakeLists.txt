@@ -56,6 +56,7 @@ add_library( # Sets the name of the library.
              ${VIRO_ANDROID_SRC}/VROSceneRendererGVR.cpp
              ${VIRO_ANDROID_SRC}/VROSceneRendererOVR.cpp
              ${VIRO_ANDROID_SRC}/VROSceneRendererOpenXR.cpp
+             ${VIRO_ANDROID_SRC}/VROARSessionOpenXR.cpp
              ${VIRO_ANDROID_SRC}/VROSceneRendererSceneView.cpp
              ${VIRO_ANDROID_SRC}/VROSample.cpp
              ${VIRO_ANDROID_SRC}/VROImageAndroid.cpp

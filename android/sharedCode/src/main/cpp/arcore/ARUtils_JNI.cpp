@@ -174,6 +174,28 @@ VRO_OBJECT ARUtilsCreateJavaARAnchorFromAnchor(std::shared_ptr<VROARAnchor> anch
         }
     }
 
+    // Non-ARCore plane anchor (e.g. OpenXR / Quest XR_FB_scene): the anchor is a
+    // direct VROARPlaneAnchor, not wrapped in a VROARAnchorARCore, so the block
+    // above is skipped. Serialize its plane fields here so onAnchorFound /
+    // ViroARPlane receive type="plane" + alignment / extent / center / vertices.
+    if (!result) {
+        std::shared_ptr<VROARPlaneAnchor> plane = std::dynamic_pointer_cast<VROARPlaneAnchor>(anchor);
+        if (plane) {
+            VRO_STRING alignment      = ARUtilsCreateStringFromAlignment(plane->getAlignment());
+            VRO_STRING classification = ARUtilsCreateStringFromClassification(plane->getClassification());
+            VRO_FLOAT_ARRAY extentArray   = ARUtilsCreateFloatArrayFromVector3f(plane->getExtent());
+            VRO_FLOAT_ARRAY centerArray   = ARUtilsCreateFloatArrayFromVector3f(plane->getCenter());
+            VRO_FLOAT_ARRAY polygonPoints = ARUtilsCreatePointsArray(plane->getBoundaryVertices());
+            VRO_STRING type = VRO_NEW_STRING("plane");
+            result = VROPlatformConstructHostObject(
+                "com/viro/core/ARPlaneAnchor",
+                "(Ljava/lang/String;Ljava/lang/String;[F[F[FLjava/lang/String;[F[F[FLjava/lang/String;)V",
+                anchorId, type, positionArray, rotationArray,
+                scaleArray, alignment, extentArray, centerArray,
+                polygonPoints, classification);
+        }
+    }
+
     // Fallback: create a normal ARAnchor.
     if (!result) {
         const char *typeArr = "anchor";

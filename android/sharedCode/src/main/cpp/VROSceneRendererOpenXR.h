@@ -44,6 +44,8 @@ class VRORendererConfiguration;
 class VRODriverOpenGLAndroidOpenXR;
 class VROInputControllerOpenXR;
 class VRODisplayOpenGLOpenXR;
+class VROARSessionOpenXR;
+class VROSceneController;
 
 namespace gvr { class AudioApi; }
 
@@ -71,6 +73,14 @@ public:
     void setVRModeEnabled(bool enabled) {}
     void recenterTracking();
 
+    // Wire up the Quest MR (AR) session when the scene is a VROARScene. For a
+    // plain VR (VROScene) this behaves exactly like the base implementation.
+    // Both overloads must be overridden: ViroViewOpenXR drives scene changes
+    // through the timed (float seconds) variant.
+    void setSceneController(std::shared_ptr<VROSceneController> sceneController) override;
+    void setSceneController(std::shared_ptr<VROSceneController> sceneController, float seconds,
+                            VROTimingFunctionType timingFunction) override;
+
     // ── OpenXR extensions (callable from Java via JNI) ────────────────────────
     /**
      * Enable or disable XR_FB_passthrough mixed-reality mode.
@@ -78,6 +88,12 @@ public:
      * Safe to call from any thread — changes take effect on the next frame.
      */
     void setPassthroughEnabled(bool enabled);
+    /**
+     * Style the passthrough layer (XR_FB_passthrough). opacity is the texture
+     * opacity factor [0,1]; edge[RGBA] is the edge-highlight colour (alpha 0
+     * disables the edge effect). No-op if passthrough is unavailable.
+     */
+    void setPassthroughStyle(float opacity, float edgeR, float edgeG, float edgeB, float edgeA);
     void setHandTrackingEnabled(bool enabled);
     void onStart();
     void onResume();
@@ -102,6 +118,10 @@ private:
     bool            _passthroughEnabled    = false;
     bool            _handTrackingAvailable = false;  // XR_EXT_hand_tracking present
     bool            _handAimExtAvailable   = false;  // XR_FB_hand_tracking_aim present
+    bool            _planeDetectionAvailable = false;  // XR_EXT_plane_detection present
+    bool            _fbSceneAvailable         = false;  // XR_FB_scene present
+    bool            _fbSpatialEntityAvailable = false;  // XR_FB_spatial_entity present
+    bool            _fbSpatialQueryAvailable  = false;  // XR_FB_spatial_entity_query present
 
     // Per-eye swapchains (index 0 = left, 1 = right)
     VROOpenXRSwapchain _swapchains[2];
@@ -120,6 +140,7 @@ private:
     PFN_xrDestroyPassthroughLayerFB _pfnDestroyPassthroughLayer = nullptr;
     PFN_xrPassthroughLayerResumeFB  _pfnPassthroughLayerResume  = nullptr;
     PFN_xrPassthroughLayerPauseFB   _pfnPassthroughLayerPause   = nullptr;
+    PFN_xrPassthroughLayerSetStyleFB _pfnPassthroughLayerSetStyle = nullptr;
 
     // ── EGL ──────────────────────────────────────────────────────────────────
     EGLDisplay  _eglDisplay  = EGL_NO_DISPLAY;
@@ -141,6 +162,11 @@ private:
     std::shared_ptr<gvr::AudioApi>                _gvrAudio;
     jobject                                        _activity = nullptr;
 
+    // Quest MR (AR) session — owns XR_EXT_plane_detection and feeds detected
+    // planes into the standard VROARScene anchor pipeline. Null when plane
+    // detection is unavailable on the device. Driven once per renderFrame().
+    std::shared_ptr<VROARSessionOpenXR>           _arSession;
+
     // ── Java callback (onDrawFrame) ───────────────────────────────────────────
     JavaVM  *_jvm      = nullptr;
     jobject  _jview    = nullptr;  // global ref to ViroViewOpenXR instance
@@ -159,6 +185,11 @@ private:
     void destroyOpenXR();
 
     // ── Render thread ─────────────────────────────────────────────────────────
+    // Enable passthrough + wire the AR session when sceneController holds a
+    // VROARScene. No-op for plain VR scenes. Called from both setSceneController
+    // overloads after the base attaches the scene.
+    void attachARSceneIfNeeded(std::shared_ptr<VROSceneController> sceneController);
+
     void renderLoop();
     void pollEvents();
     void handleSessionStateChange(XrEventDataSessionStateChanged *event);
