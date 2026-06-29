@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## v2.57.2 — 29 June 2026
+
+### Fixed
+
+- **16 KB page-size alignment completed for all bundled native libraries (Android).** v2.57.0 aligned `libopenxr_loader.so`, but `libc++_shared.so` was still 4 KB-aligned (`2**12`) and continued to fail the 16 KB memory-page requirement for Android 15+ / Google Play. Unlike the libraries Viro compiles — which already honour `-Wl,-z,max-page-size=16384` — `libc++_shared.so` is a prebuilt copied verbatim from the NDK sysroot, so the linker flag can't re-align it, and NDK r21–r26 ship it at 4 KB. The Android NDK was bumped from r25 (`25.2.9519653`) to r27 (`27.1.12297006`), whose `libc++_shared.so` is 16 KB-aligned, across all native modules (`sharedCode`, `viroreact`, `viroar`, `virocore`, and `reactvisioncca`). Every 64-bit (`arm64-v8a`) library now reports ≥ 16 KB segment alignment — `libc++_shared.so` plus the Viro / Bullet / freetype / ARCore / OpenXR libraries at 16 KB (`2**14`), and `libvrapi.so` / `libgvr*.so` at 64 KB (`2**16`) — verified with Google's `check_elf_alignment.sh` (0 unaligned). Apps bundling ViroCore can now pass Google Play's 16 KB device requirement.
+
+---
+
 ## v2.57.1 — 27 June 2026
 
 ### Added
