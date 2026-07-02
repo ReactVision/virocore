@@ -1,5 +1,17 @@
 # CHANGELOG
 
+## v2.57.3 — 2 July 2026
+
+### Fixed
+
+- **Android 15+ 16 KB launch crash — removed the non-compliant `libvrapi.so` (viro#491).** v2.57.2 aligned every `PT_LOAD` segment to ≥ 16 KB, but the prebuilt `libvrapi.so` (Meta VrApi / Oculus Mobile SDK) still had a `PT_GNU_RELRO` segment ending at `0x19000` — a 4 KB boundary, not a 16 KB one — leaving ~680 bytes of non-RELRO data sharing the tail page. Android 15+ rejects this (`program alignment (4096) cannot be smaller than system page size (16384)`; APK Analyzer: "RELRO is not a suffix and its end is not 16 KB aligned"). A field-level `p_align` patch on a stripped prebuilt cannot re-pad RELRO — only a real relink can — and `libviro_renderer.so` listed `libvrapi.so` as `NEEDED`, so it was force-loaded on **every** launch, crashing all apps (AR / GVR / Quest) on 16 KB-page devices.
+
+### Removed
+
+- **Deprecated and removed the Oculus Mobile SDK (VrApi) renderer path.** `VROSceneRendererOVR` / `VROInputControllerOVR` are no longer compiled, `lib-ovr` is unlinked, and `libvrapi.so` is dropped from `jniLibs` (both ABIs), so `libviro_renderer.so` no longer depends on it. VrApi targets EOL hardware (GearVR / Oculus Go); all current Meta headsets use the OpenXR path (`VROSceneRendererOpenXR`, added in 2.55.0–2.57.1). `nativeCreateRendererOVR` now returns 0 and `ViroViewOVR` is `@Deprecated`.
+
+---
+
 ## v2.57.2 — 29 June 2026
 
 ### Fixed

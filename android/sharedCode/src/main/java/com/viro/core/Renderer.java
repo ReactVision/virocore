@@ -96,7 +96,8 @@ public class Renderer {
     }
     public void setVRModeEnabled(boolean enabled) { nativeSetVRModeEnabled(mNativeRef, enabled); }
 
-    /* ----------     OVR only methods    ---------- */
+    /* ----------     OVR only methods (deprecated 2.57.3 — VrApi removed, see viro#491)    ---------- */
+    @Deprecated
     public Renderer(ClassLoader appClassLoader, Context context,
                     ViroViewOVR view, Activity activity, AssetManager assets, PlatformUtil platformUtil,
                     RendererConfiguration config) {
