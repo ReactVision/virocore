@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- **iOS LiDAR `depthConfidence` now reports real confidence instead of the depth value.** In AR hit-test results the LiDAR confidence was sampled with `sampleDepthTextureAtUV()`, which always reads `ARFrame.sceneDepth.depthMap` regardless of the texture passed — so `depthConfidence` returned the depth (in metres) rather than a confidence. A dedicated `sampleConfidenceAtUV()` now reads ARKit's `sceneDepth.confidenceMap` (`ARConfidenceLevel`) and normalises it to `[0,1]` (low=0.0, medium=0.5, high=1.0; `-1.0` when unavailable). The existing LiDAR confidence gate (`> 0.3`) now works as intended, discarding low-confidence depth hits. The monocular path was unaffected.
 - **Android 15+ 16 KB launch crash — removed the non-compliant `libvrapi.so` (viro#491).** v2.57.2 aligned every `PT_LOAD` segment to ≥ 16 KB, but the prebuilt `libvrapi.so` (Meta VrApi / Oculus Mobile SDK) still had a `PT_GNU_RELRO` segment ending at `0x19000` — a 4 KB boundary, not a 16 KB one — leaving ~680 bytes of non-RELRO data sharing the tail page. Android 15+ rejects this (`program alignment (4096) cannot be smaller than system page size (16384)`; APK Analyzer: "RELRO is not a suffix and its end is not 16 KB aligned"). A field-level `p_align` patch on a stripped prebuilt cannot re-pad RELRO — only a real relink can — and `libviro_renderer.so` listed `libvrapi.so` as `NEEDED`, so it was force-loaded on **every** launch, crashing all apps (AR / GVR / Quest) on 16 KB-page devices.
 
 ### Removed
