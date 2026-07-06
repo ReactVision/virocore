@@ -2,6 +2,10 @@
 
 ## v2.57.3 — 2 July 2026
 
+### Changed
+
+- **Front-camera AR no longer references the ARKit face-tracking / TrueDepth API in core (iOS).** `VROARSessioniOS` previously instantiated `ARFaceTrackingConfiguration` directly whenever `frontCameraEnabled` was set — so the TrueDepth symbol was compiled into every ViroKit binary and Apple's static App Store scan (Guideline 2.5.1) flagged *all* apps, even rear-camera-only ones that never touch the front camera. The front-camera path now consults a process-wide configuration provider (`VROARSessioniOS::setFrontCameraConfigProvider`) and runs whatever `ARConfiguration` it returns via `-runWithConfiguration:` (config was already stored/run as the base class, so nothing downstream changed); when no provider is registered it falls through to world tracking. A new Objective-C registration host, `VROFrontCameraProvider`, forwards to that setter and is discovered at runtime via `NSClassFromString` by the optional [`@reactvision/react-viro-face-tracking`](https://www.npmjs.com/package/@reactvision/react-viro-face-tracking) package, which is now the *only* place that references `ARFaceTrackingConfiguration`. Result: the core ViroKit binary is free of the TrueDepth API, and only apps that opt into front-camera face tracking carry (and declare) it.
+
 ### Fixed
 
 - **iOS LiDAR `depthConfidence` now reports real confidence instead of the depth value.** In AR hit-test results the LiDAR confidence was sampled with `sampleDepthTextureAtUV()`, which always reads `ARFrame.sceneDepth.depthMap` regardless of the texture passed — so `depthConfidence` returned the depth (in metres) rather than a confidence. A dedicated `sampleConfidenceAtUV()` now reads ARKit's `sceneDepth.confidenceMap` (`ARConfidenceLevel`) and normalises it to `[0,1]` (low=0.0, medium=0.5, high=1.0; `-1.0` when unavailable). The existing LiDAR confidence gate (`> 0.3`) now works as intended, discarding low-confidence depth hits. The monocular path was unaffected.
