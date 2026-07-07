@@ -59,10 +59,8 @@ std::shared_ptr<VROARNode> VROARHitTestResultiOS::createAnchoredNodeAtHitLocatio
         return nullptr;
     }
 
-    if (!_nativeResult) {
-        pwarn("Cannot create anchor: native hit test result is null");
-        return nullptr;
-    }
+    // Note: _nativeResult may be nil for synthetic hits (e.g. a depth-derived
+    // DepthPoint). We can still anchor those using this result's world transform.
 
     // Create VROARNode immediately with current transform
     // This allows the node to be used on the application thread
@@ -82,14 +80,19 @@ std::shared_ptr<VROARNode> VROARHitTestResultiOS::createAnchoredNodeAtHitLocatio
     // Use hit result's world transform, or if the hit already has an anchor, use that
     ARAnchor *nativeAnchor = nil;
 
-    if (_nativeResult.anchor) {
+    if (_nativeResult && _nativeResult.anchor) {
         // Hit result already has an anchor (e.g., from a detected plane)
         nativeAnchor = _nativeResult.anchor;
         pinfo("Using existing anchor from hit result: %s",
               [[nativeAnchor.identifier UUIDString] UTF8String]);
     } else {
-        // Create new anchor at hit location
-        nativeAnchor = [[ARAnchor alloc] initWithTransform:_nativeResult.worldTransform];
+        // Create a new anchor at the hit's world transform. Synthetic results
+        // (e.g. a depth-derived DepthPoint) carry no native ARHitTestResult, so
+        // fall back to this result's own world transform.
+        matrix_float4x4 anchorTransform = _nativeResult
+            ? _nativeResult.worldTransform
+            : VROConvert::toMatrixFloat4x4(getWorldTransform());
+        nativeAnchor = [[ARAnchor alloc] initWithTransform:anchorTransform];
         pinfo("Created new anchor at hit location: %s",
               [[nativeAnchor.identifier UUIDString] UTF8String]);
     }
@@ -110,7 +113,7 @@ std::shared_ptr<VROARNode> VROARHitTestResultiOS::createAnchoredNodeAtHitLocatio
     // Add anchor to ARKit session on main thread
     std::weak_ptr<VROARSessioniOS> session_w = session;
     std::weak_ptr<VROARAnchor> anchor_w = viroAnchor;
-    bool shouldAddToARSession = (_nativeResult.anchor == nil);  // Only add if we created it
+    bool shouldAddToARSession = (_nativeResult == nil || _nativeResult.anchor == nil);  // Only add if we created it
 
     dispatch_async(dispatch_get_main_queue(), ^{
         std::shared_ptr<VROARSessioniOS> session_s = session_w.lock();
