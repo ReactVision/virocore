@@ -244,15 +244,10 @@ void VROARSessioniOS::setTrackingType(VROTrackingType trackingType) {
   run();
 }
 
-// ============================================================================
-//  Front-camera AR configuration provider
-//
-//  ViroKit does not reference the ARKit face-tracking / TrueDepth API. The
-//  front-camera configuration is supplied at runtime by an optional external
-//  module (@reactvision/react-viro-face-tracking) that registers a provider
-//  via setFrontCameraConfigProvider. When no provider is registered,
-//  front-camera AR is unavailable and requests fall through to world tracking.
-// ============================================================================
+// Front-camera AR config provider, supplied at runtime by the optional
+// @reactvision/react-viro-face-tracking module. ViroKit never references the
+// ARKit face-tracking / TrueDepth API itself. The ObjC registration host lives
+// in VROFrontCameraProvider.{h,mm}.
 static VROARSessioniOS::VROARFrontCameraConfigProvider sFrontCameraConfigProvider = nil;
 
 void VROARSessioniOS::setFrontCameraConfigProvider(VROARSessioniOS::VROARFrontCameraConfigProvider provider) {
