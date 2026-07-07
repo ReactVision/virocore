@@ -105,8 +105,11 @@ VRO_METHOD(void, nativeAttachDelegate)(VRO_ARGS
 
 VRO_METHOD(void, nativeDeleteVideoTexture)(VRO_ARGS
                                            VRO_REF(VROVideoTexture) textureRef) {
-    std::shared_ptr<VROVideoTexture> videoTexture = VRO_REF_GET(VROVideoTexture, textureRef);
-    videoTexture->pause();
+    // Do NOT pause() here. This can run on the GL/render thread during scene teardown,
+    // and pause() bounces to the main thread (ExoPlayer must be touched there) — which is
+    // simultaneously blocked in GLSurfaceView.surfaceDestroyed() waiting for this GL thread,
+    // deadlocking (ANR on exit). Deleting the texture already tears the player down:
+    // ~VROVideoTextureAVP -> delete _player -> ~VROAVPlayer -> AVPlayer.destroy() (stop+release).
     VRO_REF_DELETE(VROVideoTexture, textureRef);
 }
 
