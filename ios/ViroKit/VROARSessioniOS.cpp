@@ -244,9 +244,19 @@ void VROARSessioniOS::setTrackingType(VROTrackingType trackingType) {
   run();
 }
 
+// Front-camera AR config provider, supplied at runtime by the optional
+// @reactvision/react-viro-face-tracking module. ViroKit never references the
+// ARKit face-tracking / TrueDepth API itself. The ObjC registration host lives
+// in VROFrontCameraProvider.{h,mm}.
+static VROARSessioniOS::VROARFrontCameraConfigProvider sFrontCameraConfigProvider = nil;
+
+void VROARSessioniOS::setFrontCameraConfigProvider(VROARSessioniOS::VROARFrontCameraConfigProvider provider) {
+    sFrontCameraConfigProvider = provider;
+}
+
 void VROARSessioniOS::setFrontCameraEnabled(bool enabled) {
     _frontCameraEnabled = enabled;
-    NSLog(@"Front camera (ARFaceTracking): %s", enabled ? "YES" : "NO");
+    NSLog(@"Front-camera AR: %s", enabled ? "YES" : "NO");
     // Re-compute the session configuration with the new flag applied.
     updateTrackingType(_trackingType);
 }
@@ -254,21 +264,21 @@ void VROARSessioniOS::setFrontCameraEnabled(bool enabled) {
 void VROARSessioniOS::updateTrackingType(VROTrackingType trackingType) {
   _trackingType = trackingType;
 
-  // Front camera — use ARFaceTrackingConfiguration (TrueDepth sensor).
+  // Front-camera AR — supplied by an optional external provider. ViroKit itself
+  // does not reference the ARKit face-tracking / TrueDepth API; the provider (if
+  // registered) returns a ready-to-run front-camera ARConfiguration.
   if (_frontCameraEnabled) {
-#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 110000
-    if (@available(iOS 11.0, *)) {
-      if ([ARFaceTrackingConfiguration isSupported]) {
-        NSLog(@"Front camera configuration (ARFaceTrackingConfiguration)");
-        ARFaceTrackingConfiguration *faceConfig =
-            [[ARFaceTrackingConfiguration alloc] init];
-        faceConfig.lightEstimationEnabled = YES;
-        _sessionConfiguration = faceConfig;
+    if (sFrontCameraConfigProvider != nil) {
+      ARConfiguration *frontConfig = sFrontCameraConfigProvider();
+      if (frontConfig != nil) {
+        NSLog(@"Front-camera AR configuration provided by external module");
+        _sessionConfiguration = frontConfig;
         return;
       }
+      NSLog(@"Front-camera config provider returned nil (unsupported device) — falling through to world tracking");
+    } else {
+      NSLog(@"Front-camera AR requested but no provider registered — install @reactvision/react-viro-face-tracking. Falling through to world tracking.");
     }
-#endif
-    NSLog(@"ARFaceTrackingConfiguration not supported on this device — falling through to world tracking");
   }
 
   if (getTrackingType() == VROTrackingType::DOF3) {

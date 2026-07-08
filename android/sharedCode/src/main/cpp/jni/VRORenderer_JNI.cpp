@@ -33,7 +33,7 @@
 #include "vr/gvr/capi/include/gvr_audio.h"
 #include "VROProjector.h"
 #include "VROSceneRendererGVR.h"
-#include "VROSceneRendererOVR.h"
+// VROSceneRendererOVR.h (VrApi) removed in 2.57.3 — see nativeCreateRendererOVR below.
 #include "VROSceneRendererOpenXR.h"
 #include "VROSceneRendererSceneView.h"
 #include "VROPlatformUtil.h"
@@ -102,21 +102,13 @@ VRO_METHOD(jlong, nativeCreateRendererOVR)(VRO_ARGS
                                            jboolean enableHDR,
                                            jboolean enablePBR,
                                            jboolean enableBloom) {
-    VROPlatformSetType(VROPlatformType::AndroidOVR);
-
-    std::shared_ptr<gvr::AudioApi> gvrAudio = std::make_shared<gvr::AudioApi>();
-    gvrAudio->Init(env, android_context, class_loader, GVR_AUDIO_RENDERING_BINAURAL_HIGH_QUALITY);
-    VROPlatformSetEnv(env, android_context, asset_mgr, platform_util);
-
-    VRORendererConfiguration config;
-    config.enableShadows = enableShadows;
-    config.enableHDR = enableHDR;
-    config.enablePBR = enablePBR;
-    config.enableBloom = enableBloom;
-
-    std::shared_ptr<VROSceneRenderer> renderer
-            = std::make_shared<VROSceneRendererOVR>(config, gvrAudio, view, activity, env);
-    return Renderer::jptr(renderer);
+    // Deprecated in 2.57.3. The VrApi (Oculus Mobile SDK / GearVR / Oculus Go)
+    // renderer was removed together with libvrapi.so, which was not 16 KB
+    // page-size compliant and crashed Android 15+ 16 KB devices (viro#491).
+    // All supported Meta headsets use the OpenXR path (nativeCreateRendererOpenXR).
+    // Returns 0 so the Java layer degrades gracefully instead of loading VrApi.
+    pinfo("ViroViewOVR / OVR_MOBILE is deprecated (removed in 2.57.3) — use the QUEST (OpenXR) platform instead");
+    return 0;
 }
 
 VRO_METHOD(jlong, nativeCreateRendererOpenXR)(VRO_ARGS
@@ -453,12 +445,14 @@ VRO_METHOD(void, nativeSetDebugHUDEnabled)(VRO_ARGS
     renderer->getRenderer()->setDebugHUDEnabled(enabled);
 }
 
-// This function is OVR only!
+// VR-only (OpenXR / Quest). The legacy OVR (VrApi) path was removed in 2.57.3.
 VRO_METHOD(void, nativeRecenterTracking)(VRO_ARGS
                                          jlong native_renderer) {
     std::shared_ptr<VROSceneRenderer> renderer = Renderer::native(native_renderer);
-    std::shared_ptr<VROSceneRendererOVR> ovrRenderer = std::dynamic_pointer_cast<VROSceneRendererOVR>(renderer);
-    ovrRenderer->recenterTracking();
+    std::shared_ptr<VROSceneRendererOpenXR> xrRenderer = std::dynamic_pointer_cast<VROSceneRendererOpenXR>(renderer);
+    if (xrRenderer) {
+        xrRenderer->recenterTracking();
+    }
 }
 
 VRO_METHOD(VRO_FLOAT_ARRAY, nativeProjectPoint)(VRO_ARGS

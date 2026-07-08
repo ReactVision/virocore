@@ -196,16 +196,16 @@ std::vector<std::shared_ptr<VROARHitTestResult>> VROARFrameiOS::hitTest(int x, i
         // Sample depth + confidence ONCE at the tapped screen point. The depth UV
         // depends only on the tap location, not on any individual ARKit result.
         VROMatrix4f depthTransform = getDepthTextureTransform();
-        std::shared_ptr<VROTexture> confidenceTexture = getDepthConfidenceTexture();
         VROVector3f screenPoint(pointViewport.x, pointViewport.y, 0.0f);
         VROVector3f depthUV = depthTransform.multiply(screenPoint);
         float depthValue = sampleDepthTextureAtUV(depthTexture, depthUV.x, depthUV.y);
 
         float confidence = -1.0f;
         if (depthSource == "lidar") {
-            if (confidenceTexture) {
-                confidence = sampleDepthTextureAtUV(confidenceTexture, depthUV.x, depthUV.y);
-            }
+            // Sample ARKit's confidenceMap (ARConfidenceLevel), NOT the depth map.
+            // sampleDepthTextureAtUV() always reads sceneDepth.depthMap regardless of the
+            // texture passed, so using it for confidence returned the depth value (#depthConfidence).
+            confidence = sampleConfidenceAtUV(depthUV.x, depthUV.y);
         } else { // monocular
             auto est = session ? session->getMonocularDepthEstimator() : nullptr;
             if (est) {
@@ -1276,6 +1276,44 @@ float VROARFrameiOS::sampleDepthTextureAtUV(std::shared_ptr<VROTexture> texture,
     }
 
     return 0.0f;
+}
+
+float VROARFrameiOS::sampleConfidenceAtUV(float u, float v) const {
+    // Clamp UV coordinates to valid range
+    u = std::max(0.0f, std::min(1.0f, u));
+    v = std::max(0.0f, std::min(1.0f, v));
+
+    if (@available(iOS 14.0, *)) {
+        ARDepthData *sceneDepth = _frame.sceneDepth;
+        if (sceneDepth != nil && sceneDepth.confidenceMap != nil) {
+            CVPixelBufferRef confidenceMap = sceneDepth.confidenceMap;
+            CVPixelBufferLockBaseAddress(confidenceMap, kCVPixelBufferLock_ReadOnly);
+
+            size_t width  = CVPixelBufferGetWidth(confidenceMap);
+            size_t height = CVPixelBufferGetHeight(confidenceMap);
+            size_t stride = CVPixelBufferGetBytesPerRow(confidenceMap);   // may be padded
+            const uint8_t *data = (const uint8_t *)CVPixelBufferGetBaseAddress(confidenceMap);
+
+            if (data && width > 0 && height > 0) {
+                int x = std::max(0, std::min(static_cast<int>(width  - 1),
+                                             static_cast<int>(u * (width  - 1))));
+                int y = std::max(0, std::min(static_cast<int>(height - 1),
+                                             static_cast<int>(v * (height - 1))));
+
+                // ARConfidenceLevel: Low=0, Medium=1, High=2
+                uint8_t level = data[y * stride + x];
+                CVPixelBufferUnlockBaseAddress(confidenceMap, kCVPixelBufferLock_ReadOnly);
+
+                // Normalize to [0,1]: low=0.0, medium=0.5, high=1.0
+                return static_cast<float>(level) / static_cast<float>(ARConfidenceLevelHigh);
+            }
+
+            CVPixelBufferUnlockBaseAddress(confidenceMap, kCVPixelBufferLock_ReadOnly);
+        }
+    }
+
+    // Confidence unavailable (no LiDAR / no confidence map) → "unknown".
+    return -1.0f;
 }
 
 #endif

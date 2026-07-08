@@ -54,7 +54,9 @@ add_library( # Sets the name of the library.
              ${VIRO_ANDROID_SRC}/VROLooper.cpp
              ${VIRO_ANDROID_SRC}/VROSceneRenderer.cpp
              ${VIRO_ANDROID_SRC}/VROSceneRendererGVR.cpp
-             ${VIRO_ANDROID_SRC}/VROSceneRendererOVR.cpp
+             # VROSceneRendererOVR.cpp (VrApi / GearVR-Oculus Go) deprecated in 2.57.3 —
+             # superseded by the OpenXR (Quest) path. Excluding it drops the libvrapi.so
+             # dependency, which was not 16 KB-page compliant (see viro#491).
              ${VIRO_ANDROID_SRC}/VROSceneRendererOpenXR.cpp
              ${VIRO_ANDROID_SRC}/VROARSessionOpenXR.cpp
              ${VIRO_ANDROID_SRC}/VROSceneRendererSceneView.cpp
@@ -68,7 +70,7 @@ add_library( # Sets the name of the library.
              ${VIRO_ANDROID_SRC}/VROTypefaceAndroid.cpp
              ${VIRO_ANDROID_SRC}/VROInputControllerDaydream.cpp
              ${VIRO_ANDROID_SRC}/VROInputControllerCardboard.cpp
-             ${VIRO_ANDROID_SRC}/VROInputControllerOVR.cpp
+             # VROInputControllerOVR.cpp deprecated in 2.57.3 (VrApi path removed).
              ${VIRO_ANDROID_SRC}/VROInputControllerOpenXR.cpp
              ${VIRO_ANDROID_SRC}/VROAVRecorderAndroid.cpp
              ${VIRO_ANDROID_SRC}/VROTextureReader.cpp
@@ -399,12 +401,11 @@ set_target_properties( lib-gvr-audio
                        PROPERTIES IMPORTED_LOCATION
                        ${VIRO_ANDROID_LIBS}/${ANDROID_ABI}/libgvr_audio.so )
 
-add_library( lib-ovr
-             SHARED
-             IMPORTED )
-set_target_properties( lib-ovr
-                       PROPERTIES IMPORTED_LOCATION
-                       ${VIRO_ANDROID_LIBS}/${ANDROID_ABI}/libvrapi.so )
+# lib-ovr (libvrapi.so — Meta VrApi / Oculus Mobile SDK) removed in 2.57.3.
+# VrApi targets EOL hardware (GearVR / Oculus Go); all current Meta headsets use
+# the OpenXR path (libopenxr_loader.so). The prebuilt libvrapi.so was not 16 KB
+# page-size compliant (PT_GNU_RELRO not 16 KB-aligned) and crashed Android 15+
+# 16 KB devices on launch because libviro_renderer.so listed it as NEEDED (viro#491).
 
 add_library( lib-freetype
              SHARED
@@ -509,7 +510,6 @@ target_link_libraries( # Specifies the target library.
                        atomic
                        lib-gvr
                        lib-gvr-audio
-                       lib-ovr
                        lib-freetype
                        lib-protobuf
                        lib-BulletCollision

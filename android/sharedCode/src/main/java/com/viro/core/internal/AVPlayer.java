@@ -86,6 +86,32 @@ public class AVPlayer {
     private boolean mMute;
     private int mPrevExoPlayerState = -1;
     private boolean mWasBuffering = false;
+    // Guards native callbacks after the C++ VROAVPlayer has been destroyed.
+    // Set to true in destroy() before releasing the ExoPlayer so that any
+    // in-flight or post-release listener callbacks do not reach dangling native memory.
+    private volatile boolean mDestroyed = false;
+
+    // Playback position/duration are read every frame from the GL render thread via
+    // getCurrentTimeInSeconds()/getVideoDurationInSeconds(). ExoPlayer must be accessed on
+    // the main thread, so a blocking cross-thread round-trip from the GL thread (a) janks
+    // every frame and (b) DEADLOCKS against GLSurfaceView teardown: on screen exit the main
+    // thread blocks in GLSurfaceView.surfaceDestroyed() waiting for the GL thread, while the
+    // GL thread's drawFrame blocks waiting for the main thread to answer the ExoPlayer query.
+    // Instead we cache both values and refresh them on the main thread.
+    private volatile long mCachedPositionMs = 0;
+    private volatile long mCachedDurationMs = 0;
+    private final Runnable mPositionPoll = new Runnable() {
+        @Override
+        public void run() {
+            if (mDestroyed) return;
+            try {
+                mCachedPositionMs = mExoPlayer.getCurrentPosition();
+                long d = mExoPlayer.getDuration();
+                if (d != C.TIME_UNSET) mCachedDurationMs = d;
+            } catch (Exception ignored) {}
+            mainThreadHandler.postDelayed(this, 100);
+        }
+    };
 
     public AVPlayer(long nativeReference, Context context) {
         mVolume = 1.0f;
@@ -98,6 +124,9 @@ public class AVPlayer {
         DefaultTrackSelector trackSelector = new DefaultTrackSelector(context); 
         // trackSelectionFactory);
         mExoPlayer = new ExoPlayer.Builder(context).setTrackSelector(trackSelector).setLoadControl(new DefaultLoadControl()).build();
+
+        // Refresh the cached position/duration on the main thread (see fields above).
+        mainThreadHandler.post(mPositionPoll);
 
         mExoPlayer.addListener(new Player.Listener() {
 
@@ -112,13 +141,13 @@ public class AVPlayer {
                 switch (playbackState) {
                     case Player.STATE_BUFFERING:
                         if (!mWasBuffering) {
-                            nativeWillBuffer(mNativeReference);
+                            if (!mDestroyed) nativeWillBuffer(mNativeReference);
                             mWasBuffering = true;
                         }
                         break;
                     case Player.STATE_READY:
                         if (mWasBuffering) {
-                            nativeDidBuffer(mNativeReference);
+                            if (!mDestroyed) nativeDidBuffer(mNativeReference);
                             mWasBuffering = false;
                         }
                         break;
@@ -126,7 +155,7 @@ public class AVPlayer {
                         if (mLoop) {
                             mExoPlayer.seekToDefaultPosition();
                         }
-                        nativeOnFinished(mNativeReference);
+                        if (!mDestroyed) nativeOnFinished(mNativeReference);
                         break;
                 }
             }
@@ -134,7 +163,7 @@ public class AVPlayer {
             @Override
             public void onPlayerError(@NonNull PlaybackException error) {
                 Log.w(TAG, "AVPlayer encountered error [" + error + "]", error);
-                nativeOnError(mNativeReference, error.getLocalizedMessage());
+                if (!mDestroyed) nativeOnError(mNativeReference, error.getLocalizedMessage());
             }
         });
     }
@@ -200,7 +229,7 @@ public class AVPlayer {
                 player.seekToDefaultPosition();
                 mState = State.PREPARED;
                 Log.i(TAG, "AVPlayer prepared for playback");
-                nativeOnPrepared(mNativeReference);
+                if (!mDestroyed) nativeOnPrepared(mNativeReference);
                 return true;
             });
         } catch (Exception e) {
@@ -271,30 +300,38 @@ public class AVPlayer {
     }
 
     public void destroy() {
-        try {
-            runSynchronouslyOnMainThread(player -> {
-                    player.stop();
-                    player.seekToDefaultPosition();
-                    player.release();
-                    mState = State.IDLE;
-                    return null;
-                },
-                false // don't wait for the result to prevent ANR issue
-            );
-            Log.i(TAG, "AVPlayer destroyed");
-        } catch (Exception e) {
-            Log.e(TAG, "AVPlayer destroy failed", e);
-        }
+        // Mark as destroyed BEFORE releasing so that any in-flight or post-release
+        // ExoPlayer listener callbacks do not call back into the (now-deleted) C++ VROAVPlayer.
+        mDestroyed = true;
+        mainThreadHandler.removeCallbacks(mPositionPoll);
+        // ExoPlayer.release() must run on its application (main) looper, but running it
+        // INLINE blocks the caller until the playback thread joins. Teardown reaches here
+        // on the main thread (view unmount), so an inline release freezes the UI thread and
+        // ANRs when leaving a ViroVideo screen. runSynchronouslyOnMainThread runs inline
+        // whenever it is already on the main looper (defeating its waitForResult=false),
+        // so post the release explicitly to defer it off the teardown call.
+        mainThreadHandler.post(() -> {
+            try {
+                mExoPlayer.stop();
+                mExoPlayer.seekToDefaultPosition();
+                mExoPlayer.release();
+                mState = State.IDLE;
+                Log.i(TAG, "AVPlayer destroyed");
+            } catch (Exception e) {
+                Log.e(TAG, "AVPlayer destroy failed", e);
+            }
+        });
     }
 
     public void play() {
         if (mState == State.PREPARED || mState == State.PAUSED) {
             try {
+                // Fire-and-forget (see pause()): may run on the render thread; must not block.
                 runSynchronouslyOnMainThread(player -> {
                     player.setPlayWhenReady(true);
                     mState = State.STARTED;
                     return null;
-                });
+                }, false);
             } catch (Exception e) {
                 Log.e(TAG, "AVPlayer failed to play video", e);
             }
@@ -306,11 +343,14 @@ public class AVPlayer {
     public void pause() {
         if (mState == State.STARTED) {
             try {
+                // Fire-and-forget: this can be dispatched to the render (GL) thread (via
+                // nativePause), and blocking there on the main thread deadlocks against
+                // GLSurfaceView.surfaceDestroyed() during teardown. A pause needs no result.
                 runSynchronouslyOnMainThread(player -> {
                     player.setPlayWhenReady(false);
                     mState = State.PAUSED;
                     return null;
-                });
+                }, false);
             } catch (Exception e) {
                 Log.e(TAG, "AVPlayer failed to pause video", e);
             }
@@ -385,37 +425,19 @@ public class AVPlayer {
 
     public float getCurrentTimeInSeconds() {
         if (mState == State.IDLE) {
-            Log.w(TAG, "AVPlayer could not get current time in IDLE state");
             return 0;
         }
-
-        long currentPosition = 0;
-        try {
-            currentPosition = runSynchronouslyOnMainThread(player -> player.getCurrentPosition());
-        } catch (Exception e) {
-            Log.e(TAG, "AVPlayer could not get video current position", e);
-        }
-
-        return currentPosition / 1000.0f;
+        // Cached, refreshed on the main thread. Do NOT call ExoPlayer here: this runs on the
+        // GL render thread every frame and a blocking hop to main deadlocks with teardown.
+        return mCachedPositionMs / 1000.0f;
     }
 
     public float getVideoDurationInSeconds() {
         if (mState == State.IDLE) {
-            Log.w(TAG, "AVPlayer could not get video duration in IDLE state");
             return 0;
         }
-
-        long duration = 0;
-        try {
-            duration = runSynchronouslyOnMainThread(player -> player.getDuration());
-        } catch (Exception e) {
-            Log.e(TAG, "AVPlayer could not get video duration", e);
-        }
-        if (duration == C.TIME_UNSET) {
-            return 0;
-        }
-
-        return duration / 1000.0f;
+        // Cached, refreshed on the main thread (see getCurrentTimeInSeconds).
+        return mCachedDurationMs / 1000.0f;
     }
 
     /**

@@ -1,5 +1,24 @@
 # CHANGELOG
 
+## v2.57.3 — 2 July 2026
+
+### Changed
+
+- **Front-camera AR no longer references the ARKit face-tracking / TrueDepth API in core (iOS).** `VROARSessioniOS` previously instantiated `ARFaceTrackingConfiguration` directly whenever `frontCameraEnabled` was set — so the TrueDepth symbol was compiled into every ViroKit binary and Apple's static App Store scan (Guideline 2.5.1) flagged *all* apps, even rear-camera-only ones that never touch the front camera. The front-camera path now consults a process-wide configuration provider (`VROARSessioniOS::setFrontCameraConfigProvider`) and runs whatever `ARConfiguration` it returns via `-runWithConfiguration:` (config was already stored/run as the base class, so nothing downstream changed); when no provider is registered it falls through to world tracking. A new Objective-C registration host, `VROFrontCameraProvider`, forwards to that setter and is discovered at runtime via `NSClassFromString` by the optional [`@reactvision/react-viro-face-tracking`](https://www.npmjs.com/package/@reactvision/react-viro-face-tracking) package, which is now the *only* place that references `ARFaceTrackingConfiguration`. Result: the core ViroKit binary is free of the TrueDepth API, and only apps that opt into front-camera face tracking carry (and declare) it.
+
+### Fixed
+
+- **ViroVideo Android lifecycle crash & ANR fixed (viro#478).** (1) `AVPlayer` guards its ExoPlayer listener callbacks with a `mDestroyed` flag set before release, so callbacks arriving after the native `VROAVPlayer` is deleted no longer reach freed memory (the background/foreground crash). (2) The GL render thread no longer blocks on the main thread calling ExoPlayer: `getCurrentTimeInSeconds()`/`getVideoDurationInSeconds()` read a main-thread-refreshed `volatile` cache, and `play()`/`pause()` are fire-and-forget — removing a deadlock against `GLSurfaceView.surfaceDestroyed()` that froze/ANR'd the app when leaving a ViroVideo screen (also per-frame playback jank). `nativeDeleteVideoTexture` no longer pauses on the GL thread before delete, and `destroy()` posts `ExoPlayer.release()` off the teardown call.
+- **AR hit-test results derived from depth data can now be anchored (iOS).** `createAnchoredNodeAtHitLocation()` returned null when a hit result had no underlying `ARHitTestResult` — e.g. a depth-synthesized `DepthPoint` — so `createAnchoredNode` failed with "hit result type does not support anchors". It now builds the `ARAnchor` from the result's own world transform in that case.
+- **iOS LiDAR `depthConfidence` now reports real confidence instead of the depth value.** In AR hit-test results the LiDAR confidence was sampled with `sampleDepthTextureAtUV()`, which always reads `ARFrame.sceneDepth.depthMap` regardless of the texture passed — so `depthConfidence` returned the depth (in metres) rather than a confidence. A dedicated `sampleConfidenceAtUV()` now reads ARKit's `sceneDepth.confidenceMap` (`ARConfidenceLevel`) and normalises it to `[0,1]` (low=0.0, medium=0.5, high=1.0; `-1.0` when unavailable). The existing LiDAR confidence gate (`> 0.3`) now works as intended, discarding low-confidence depth hits. The monocular path was unaffected.
+- **Android 15+ 16 KB launch crash — removed the non-compliant `libvrapi.so` (viro#491).** v2.57.2 aligned every `PT_LOAD` segment to ≥ 16 KB, but the prebuilt `libvrapi.so` (Meta VrApi / Oculus Mobile SDK) still had a `PT_GNU_RELRO` segment ending at `0x19000` — a 4 KB boundary, not a 16 KB one — leaving ~680 bytes of non-RELRO data sharing the tail page. Android 15+ rejects this (`program alignment (4096) cannot be smaller than system page size (16384)`; APK Analyzer: "RELRO is not a suffix and its end is not 16 KB aligned"). A field-level `p_align` patch on a stripped prebuilt cannot re-pad RELRO — only a real relink can — and `libviro_renderer.so` listed `libvrapi.so` as `NEEDED`, so it was force-loaded on **every** launch, crashing all apps (AR / GVR / Quest) on 16 KB-page devices.
+
+### Removed
+
+- **Deprecated and removed the Oculus Mobile SDK (VrApi) renderer path.** `VROSceneRendererOVR` / `VROInputControllerOVR` are no longer compiled, `lib-ovr` is unlinked, and `libvrapi.so` is dropped from `jniLibs` (both ABIs), so `libviro_renderer.so` no longer depends on it. VrApi targets EOL hardware (GearVR / Oculus Go); all current Meta headsets use the OpenXR path (`VROSceneRendererOpenXR`, added in 2.55.0–2.57.1). `nativeCreateRendererOVR` now returns 0 and `ViroViewOVR` is `@Deprecated`.
+
+---
+
 ## v2.57.2 — 29 June 2026
 
 ### Fixed
