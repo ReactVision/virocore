@@ -31,8 +31,39 @@
 #include "VROBox.h"
 #include "VROMaterial.h"
 #include "VROTransaction.h"
+#include "VROEventDelegate.h"
 
 static VROSceneWeb *sInstance = nullptr;
+
+// Minimal click handler for the demo cube: toggles the diffuse color on each
+// click so touch → hit-test → click wiring is visible without any component API.
+class CubeClickDelegate : public VROEventDelegate {
+public:
+    CubeClickDelegate(std::shared_ptr<VROMaterial> material) : _material(material), _toggled(false) {}
+    virtual ~CubeClickDelegate() {}
+
+    virtual void onClick(int source, std::shared_ptr<VRONode> node,
+                         ClickState clickState, std::vector<float> position) {
+        if (clickState != ClickState::ClickUp) {
+            return;
+        }
+        std::shared_ptr<VROMaterial> material = _material.lock();
+        if (!material) {
+            return;
+        }
+        _toggled = !_toggled;
+        if (_toggled) {
+            material->getDiffuse().setColor({1.0, 0.4, 0.2, 1.0});
+        } else {
+            material->getDiffuse().setColor({0.2, 0.6, 1.0, 1.0});
+        }
+        pinfo("VROSceneWeb: cube clicked, toggled color");
+    }
+
+private:
+    std::weak_ptr<VROMaterial> _material;
+    bool _toggled;
+};
 
 // emscripten_set_main_loop requires a plain C-style callback.
 static void VROSceneWebMainLoop() {
@@ -122,6 +153,11 @@ void VROSceneWeb::buildCubeScene() {
     _boxNode->setPosition({0, 0, -5});
     rootNode->addChildNode(_boxNode);
 
+    // Make the cube tappable: toggle its color on click (demo feedback).
+    _cubeDelegate = std::make_shared<CubeClickDelegate>(material);
+    _cubeDelegate->setEnabledEvent(VROEventDelegate::EventAction::OnClick, true);
+    _boxNode->setEventDelegate(_cubeDelegate);
+
     std::shared_ptr<VRONodeCamera> camera = std::make_shared<VRONodeCamera>();
     std::shared_ptr<VRONode> cameraNode = std::make_shared<VRONode>();
     cameraNode->setCamera(camera);
@@ -148,6 +184,10 @@ void VROSceneWeb::drawFrame() {
     VROFieldOfView fov = _renderer->computeUserFieldOfView(viewport.getWidth(), viewport.getHeight());
     VROMatrix4f projection = fov.toPerspectiveProjection(kZNear, _renderer->getFarClippingPlane());
 
+    // Give the input controller the same view/projection/viewport used to render
+    // this frame, so screen touches unproject into matching world rays.
+    _inputController->setRenderState(_renderer->getLookAtMatrix(), projection, _width, _height);
+
     _renderer->setClearColor({0.1, 0.1, 0.12, 1.0}, _driver);
 
     _renderer->prepareFrame(_frame, viewport, fov, VROMatrix4f::identity(), projection, _driver);
@@ -162,6 +202,12 @@ void VROSceneWeb::drawFrame() {
 void VROSceneWeb::setSize(int width, int height) {
     _width = width;
     _height = height;
+}
+
+void VROSceneWeb::onTouch(int action, float x, float y) {
+    if (_inputController) {
+        _inputController->onScreenTouch(action, x, y);
+    }
 }
 
 #pragma mark - JS bindings
@@ -180,9 +226,16 @@ static void setViroSceneSize(int width, int height) {
     }
 }
 
+static void viroOnTouch(int action, float x, float y) {
+    if (sScene) {
+        sScene->onTouch(action, x, y);
+    }
+}
+
 EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("initViroScene", &initViroScene);
     emscripten::function("setViroSceneSize", &setViroSceneSize);
+    emscripten::function("viroOnTouch", &viroOnTouch);
 }
 
 // The module has no work to do at startup — JS calls initViroScene() once the

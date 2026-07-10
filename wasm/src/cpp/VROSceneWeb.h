@@ -23,6 +23,7 @@ class VRORenderer;
 class VROInputControllerWasm;
 class VRODriverOpenGLWasm;
 class VRONode;
+class VROEventDelegate;
 
 class VROSceneWeb {
 public:
@@ -32,6 +33,10 @@ public:
 
     void drawFrame();
     void setSize(int width, int height);
+
+    // Forward a DOM pointer/touch event into the input controller.
+    // action: 0 = down, 1 = move, 2 = up. x/y in device pixels, top-left origin.
+    void onTouch(int action, float x, float y);
 
 private:
     void buildCubeScene();
@@ -48,6 +53,9 @@ private:
 
     // The node we spin every frame.
     std::shared_ptr<VRONode> _boxNode;
+
+    // Retained because VRONode holds the event delegate only weakly.
+    std::shared_ptr<VROEventDelegate> _cubeDelegate;
 
     EMSCRIPTEN_WEBGL_CONTEXT_HANDLE _context;
 };
