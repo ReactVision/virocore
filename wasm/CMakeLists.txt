@@ -1,15 +1,30 @@
-cmake_minimum_required(VERSION 3.4.1)
+cmake_minimum_required(VERSION 3.13)
 
 MESSAGE(STATUS "CMAKE_SOURCE_DIR:         " ${CMAKE_SOURCE_DIR})
 
 SET(VIRO_RENDERER_SRC ../ViroRenderer)
 SET(VIRO_CAPI_SRC     ../ViroRenderer/capi)
 SET(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/build)
-SET(CMAKE_CXX_STANDARD 14)
+# C++17 is required: modern emscripten's embind (emscripten/val.h, bind.h, wire.h)
+# hard-errors on anything older. The renderer was C++14; 17 is a superset here.
+SET(CMAKE_CXX_STANDARD 17)
 SET(CMAKE_CXX_STANDARD_REQUIRED ON)
-SET(CMAKE_EXECUTABLE_SUFFIX ".html")
-SET(GCC_COVERAGE_COMPILE_FLAGS "-DWASM_PLATFORM")
+# -DEMSCRIPTEN restores the bare `EMSCRIPTEN` macro that emsdk <1.38 defined and
+# modern emsdk dropped (in favor of `__EMSCRIPTEN__`). The vendored protobuf and
+# other legacy code still gate on the bare macro (e.g. protobuf stubs/common.cc
+# threading detection). Applied globally so it propagates into ADD_SUBDIRECTORY libs.
+SET(GCC_COVERAGE_COMPILE_FLAGS "-DWASM_PLATFORM -DEMSCRIPTEN")
 ADD_DEFINITIONS(${GCC_COVERAGE_COMPILE_FLAGS})
+
+# SDL must be enabled at COMPILE time (not just link) or emscripten's
+# fakesdl/SDL_image.h hard-errors instead of exposing the real port headers.
+# VROImageWasm.cpp / VROJpegReader.cpp include SDL_image.h directly.
+SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -sUSE_SDL=2 -sUSE_SDL_IMAGE=2")
+
+# By default emscripten produces an .html+.js+.wasm bundle for executables.
+# The library/module target (viro_web) overrides its own SUFFIX to ".js" so it
+# emits a MODULARIZE'd ES module (.js glue + .wasm) with no SDL shell / emrun.
+# The legacy SDL test executables keep the ".html" suffix below.
 
 INCLUDE_DIRECTORIES(${VIRO_RENDERER_SRC}
                     src/cpp
@@ -19,10 +34,14 @@ INCLUDE_DIRECTORIES(${VIRO_RENDERER_SRC}
                     libs/zlib/include
                     libs/jpeg/include)
 
-SET( VIRO_RENDERER_SRC
+# Core renderer sources shared by the web module and the legacy SDL test exes.
+# The test harness sources (VRO*Test.cpp, TestAPI.cpp) are appended separately
+# below into VIRO_RENDERER_SRC so the web module can exclude them.
+SET( VIRO_CORE_SRC
 
      # Web Platform
-     src/cpp/VROViewScene.cpp
+     # NOTE: src/cpp/VROViewScene.cpp is intentionally NOT here — it depends on
+     # VRORendererTestHarness, so it lives with the legacy exe sources below.
      src/cpp/VROInputControllerWasm.cpp
      src/cpp/VROImageWasm.cpp
      src/cpp/VROTypefaceWasm.cpp
@@ -199,6 +218,9 @@ SET( VIRO_RENDERER_SRC
      ${VIRO_RENDERER_SRC}/VROSkinner.cpp
      ${VIRO_RENDERER_SRC}/VROSkeleton.cpp
      ${VIRO_RENDERER_SRC}/VROBone.cpp
+     ${VIRO_RENDERER_SRC}/VROBoneConstraint.cpp
+     ${VIRO_RENDERER_SRC}/VROIKRig.cpp
+     ${VIRO_RENDERER_SRC}/VROMorpher.cpp
      ${VIRO_RENDERER_SRC}/VROBoneUBO.cpp
      ${VIRO_RENDERER_SRC}/VROSkeletalAnimation.cpp
 	 ${VIRO_RENDERER_SRC}/VROLayeredSkeletalAnimation.cpp
@@ -217,6 +239,9 @@ SET( VIRO_RENDERER_SRC
      ${VIRO_RENDERER_SRC}/VROPencil.cpp
 
      # OpenGL
+     ${VIRO_RENDERER_SRC}/VRODriver.cpp
+     ${VIRO_RENDERER_SRC}/VRODriverOpenGL.cpp
+     ${VIRO_RENDERER_SRC}/VROVertexBufferOpenGL.cpp
      ${VIRO_RENDERER_SRC}/VROGeometrySubstrateOpenGL.cpp
      ${VIRO_RENDERER_SRC}/VROMaterialSubstrateOpenGL.cpp
      ${VIRO_RENDERER_SRC}/VROTextureSubstrateOpenGL.cpp
@@ -239,7 +264,13 @@ SET( VIRO_RENDERER_SRC
      ${VIRO_RENDERER_SRC}/VROProjector.cpp
      ${VIRO_RENDERER_SRC}/VRODualQuaternion.cpp
      ${VIRO_RENDERER_SRC}/VROVector3f.cpp
-     ${VIRO_RENDERER_SRC}/VROVector4f.cpp
+     ${VIRO_RENDERER_SRC}/VROVector4f.cpp)
+
+# Test-harness sources: only the legacy SDL test executables need these.
+SET( VIRO_TEST_SRC
+
+     # Legacy SDL host (depends on the test harness)
+     src/cpp/VROViewScene.cpp
 
      # Renderer Test
      ${VIRO_RENDERER_SRC}/VRORendererTestHarness.cpp
@@ -274,6 +305,9 @@ SET( VIRO_RENDERER_SRC
      ${VIRO_RENDERER_SRC}/VROPolygonTest.cpp
 	 ../ViroRenderer/capi/TestAPI.cpp)
 
+# Full source list for the legacy SDL test executables.
+SET(VIRO_RENDERER_SRC ${VIRO_CORE_SRC} ${VIRO_TEST_SRC})
+
 ADD_SUBDIRECTORY(libs/bullet/src/LinearMath)
 ADD_SUBDIRECTORY(libs/bullet/src/BulletSoftBody)
 ADD_SUBDIRECTORY(libs/bullet/src/BulletDynamics)
@@ -288,13 +322,17 @@ LIST(APPEND VIRO_LINK_LIBS bullet_softbody)
 LIST(APPEND VIRO_LINK_LIBS bullet_dynamics)
 LIST(APPEND VIRO_LINK_LIBS bullet_collision)
 
+# Legacy SDL test-executable link flags. Modernized to the emsdk 3.x/4.x
+# "-sNAME=VALUE" attached form (the space-separated "-s NAME=VALUE" form is
+# deprecated). Still emits an .html shell + emrun harness.
 SET(VIRO_LINK_FLAGS "-Oz \
-					 -s WASM=1 \
-                     -s USE_ZLIB=1 \
-                     -s USE_FREETYPE=1 \
-                     -s USE_SDL=2 -s USE_SDL_IMAGE=2 -s SDL2_IMAGE_FORMATS='[\"png\"]' \
-                     -s USE_WEBGL2=1 \
-                     -s ALLOW_MEMORY_GROWTH=1 \
+					 -sWASM=1 \
+                     -sUSE_ZLIB=1 \
+                     -sUSE_FREETYPE=1 \
+                     -sUSE_SDL=2 -sUSE_SDL_IMAGE=2 -sSDL2_IMAGE_FORMATS=[png] \
+                     -sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2 \
+                     -sFULL_ES3=1 \
+                     -sALLOW_MEMORY_GROWTH=1 \
                      --bind \
                      --preload-file ${CMAKE_SOURCE_DIR}/products/preload@/ \
                      --shell-file ${CMAKE_SOURCE_DIR}/test/viro_shell.html \
@@ -316,3 +354,40 @@ ADD_CUSTOM_COMMAND(TARGET viro_fbx_test
 ADD_EXECUTABLE       (viro_pbr_test ${VIRO_RENDERER_SRC} test/pbr/bootstrap.cpp)
 SET_TARGET_PROPERTIES(viro_pbr_test PROPERTIES LINK_FLAGS ${VIRO_LINK_FLAGS})
 TARGET_LINK_LIBRARIES(viro_pbr_test ${VIRO_LINK_LIBS})
+
+# ---------------------------------------------------------------------------
+# Phase 0 — web library/module target
+#
+# Produces a MODULARIZE'd ES module (viro-web.js glue + viro-web.wasm +
+# viro-web.data) with the C API exposed via EMSCRIPTEN_BINDINGS. No emrun,
+# no --shell-file (the app provides its own HTML). SDL2 is retained for now
+# because the renderer's blank-texture/image path still uses SDL_image;
+# dropping it to browser-native decode is a Phase 1 cleanup.
+#
+# Only the base renderer assets are preloaded (shaders + blank.png + font),
+# not the per-test assets.
+# ---------------------------------------------------------------------------
+SET(VIRO_WEB_LINK_FLAGS "-Oz \
+                     -sSTACK_SIZE=5MB \
+                     -sWASM=1 \
+                     -sMODULARIZE=1 \
+                     -sEXPORT_ES6=1 \
+                     -sEXPORT_NAME=ViroWeb \
+                     -sENVIRONMENT=web,worker \
+                     -sUSE_ZLIB=1 \
+                     -sUSE_FREETYPE=1 \
+                     -sUSE_SDL=2 -sUSE_SDL_IMAGE=2 -sSDL2_IMAGE_FORMATS=[png] \
+                     -sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2 \
+                     -sFULL_ES3=1 \
+                     -sINITIAL_MEMORY=256MB \
+                     -sTEXTDECODER=1 \
+                     -sEXPORTED_RUNTIME_METHODS=[ccall,cwrap] \
+                     --bind \
+                     --preload-file ${CMAKE_SOURCE_DIR}/preload@/")
+
+ADD_EXECUTABLE       (viro_web ${VIRO_CORE_SRC} src/cpp/VROSceneWeb.cpp)
+SET_TARGET_PROPERTIES(viro_web PROPERTIES
+                      LINK_FLAGS ${VIRO_WEB_LINK_FLAGS}
+                      OUTPUT_NAME "viro-web"
+                      SUFFIX ".js")
+TARGET_LINK_LIBRARIES(viro_web ${VIRO_LINK_LIBS})
