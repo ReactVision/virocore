@@ -2,13 +2,15 @@
 //  VROSceneWeb.h
 //  ViroRenderer — Web (WASM) library entry point
 //
-//  Phase 0 de-risking spike: a minimal, self-contained scene host that does
-//  NOT depend on the VRORendererTestHarness (which pulls in every VRO*Test.cpp,
-//  the FBX/HDR loaders, and per-test preload assets). It builds a single
-//  spinning cube so we can prove the WASM+WebGL2 pipeline end-to-end.
+//  Hosts the renderer, driver, input controller, and the active scene. The
+//  scene starts empty and is built up imperatively from JS via the web C API
+//  (see VROSceneWebAPI.cpp), which the TS bridge drives to translate the Viro
+//  component tree into VRONode/VROGeometry/VROMaterial objects.
 //
-//  The public surface is exposed to JS via EMSCRIPTEN_BINDINGS in
-//  VROSceneWeb.cpp — there is no SDL `main()` driving this.
+//  A demo cube can still be built via viroBuildDemoCube() for smoke testing.
+//
+//  The public surface is exposed to JS via EMSCRIPTEN_BINDINGS — there is no
+//  SDL `main()` driving this.
 //
 
 #ifndef VROSceneWeb_h
@@ -23,6 +25,9 @@ class VRORenderer;
 class VROInputControllerWasm;
 class VRODriverOpenGLWasm;
 class VRONode;
+class VROPortal;
+class VROScene;
+class VROSceneController;
 class VROEventDelegate;
 
 class VROSceneWeb {
@@ -38,8 +43,16 @@ public:
     // action: 0 = down, 1 = move, 2 = up. x/y in device pixels, top-left origin.
     void onTouch(int action, float x, float y);
 
-private:
+    // Root node of the active scene — the C API attaches bridge-created nodes here.
+    std::shared_ptr<VROPortal> getRootNode();
+
+    // Build a hardcoded spinning cube demo (smoke test; not used by the bridge).
     void buildCubeScene();
+
+private:
+    // Creates an empty scene (root node + camera + default lights) ready to be
+    // populated by the web C API.
+    void buildEmptyScene();
 
     int _frame;
     int _width, _height;
@@ -51,9 +64,11 @@ private:
     std::shared_ptr<VROInputControllerWasm> _inputController;
     std::shared_ptr<VRODriverOpenGLWasm> _driver;
 
-    // The node we spin every frame.
-    std::shared_ptr<VRONode> _boxNode;
+    std::shared_ptr<VROSceneController> _sceneController;
+    std::shared_ptr<VROScene> _scene;
 
+    // Demo-only: the cube node spun each frame by buildCubeScene().
+    std::shared_ptr<VRONode> _boxNode;
     // Retained because VRONode holds the event delegate only weakly.
     std::shared_ptr<VROEventDelegate> _cubeDelegate;
 
