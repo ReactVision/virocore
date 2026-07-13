@@ -34,6 +34,8 @@
 #include <btBulletDynamicsCommon.h>
 #include <unordered_map>
 #include <algorithm>
+#include <cstring>
+#include <cstdint>
 
 void BulletRigidBodyDeleter::operator()(btRigidBody *body) const {
     if (!body) return;
@@ -471,4 +473,141 @@ void VROARWorldMesh::debugDraw(std::shared_ptr<VROPencil> pencil) {
             trianglesDrawn++;
         }
     }
+}
+
+// ─── WS-C: mesh snapshot serialization ────────────────────────────────────────
+
+namespace {
+    constexpr uint8_t kMeshSnapshotMagic[4] = {'R', 'V', 'W', 'M'};
+    constexpr uint8_t kMeshSnapshotVersion = 1;
+
+    void appendU32(std::vector<uint8_t>& out, uint32_t v) {
+        out.push_back((uint8_t)(v & 0xFF));
+        out.push_back((uint8_t)((v >> 8) & 0xFF));
+        out.push_back((uint8_t)((v >> 16) & 0xFF));
+        out.push_back((uint8_t)((v >> 24) & 0xFF));
+    }
+
+    void appendFloat(std::vector<uint8_t>& out, float v) {
+        uint32_t bits;
+        memcpy(&bits, &v, sizeof(bits));
+        appendU32(out, bits);
+    }
+
+    void appendI32(std::vector<uint8_t>& out, int32_t v) {
+        uint32_t bits;
+        memcpy(&bits, &v, sizeof(bits));
+        appendU32(out, bits);
+    }
+
+    bool readU32(const std::vector<uint8_t>& in, size_t offset, uint32_t& out) {
+        if (offset + 4 > in.size()) return false;
+        out = (uint32_t)in[offset] | ((uint32_t)in[offset + 1] << 8) |
+              ((uint32_t)in[offset + 2] << 16) | ((uint32_t)in[offset + 3] << 24);
+        return true;
+    }
+
+    bool readFloat(const std::vector<uint8_t>& in, size_t offset, float& out) {
+        uint32_t bits;
+        if (!readU32(in, offset, bits)) return false;
+        memcpy(&out, &bits, sizeof(out));
+        return true;
+    }
+
+    bool readI32(const std::vector<uint8_t>& in, size_t offset, int32_t& out) {
+        uint32_t bits;
+        if (!readU32(in, offset, bits)) return false;
+        memcpy(&out, &bits, sizeof(out));
+        return true;
+    }
+}
+
+std::vector<uint8_t> VROARWorldMesh::serializeCurrentMesh() const {
+    if (!_currentMesh || !_currentMesh->isValid()) {
+        return {};
+    }
+
+    const std::vector<VROVector3f>& vertices    = _currentMesh->getVertices();
+    const std::vector<float>&       confidences  = _currentMesh->getConfidences();
+    const std::vector<int>&         indices      = _currentMesh->getIndices();
+
+    const uint32_t vertexCount   = (uint32_t)vertices.size();
+    const uint32_t triangleCount = (uint32_t)(indices.size() / 3);
+
+    std::vector<uint8_t> out;
+    out.reserve(13 + vertexCount * (3 * 4 + 4) + triangleCount * 3 * 4);
+
+    out.insert(out.end(), kMeshSnapshotMagic, kMeshSnapshotMagic + 4);
+    out.push_back(kMeshSnapshotVersion);
+    appendU32(out, vertexCount);
+    appendU32(out, triangleCount);
+
+    for (const VROVector3f& v : vertices) {
+        appendFloat(out, v.x);
+        appendFloat(out, v.y);
+        appendFloat(out, v.z);
+    }
+    // confidences.size() should equal vertices.size(), but guard against any
+    // mismatch rather than reading out of bounds.
+    for (uint32_t i = 0; i < vertexCount; ++i) {
+        appendFloat(out, i < confidences.size() ? confidences[i] : 1.0f);
+    }
+    for (uint32_t i = 0; i < triangleCount * 3; ++i) {
+        appendI32(out, (int32_t)indices[i]);
+    }
+
+    return out;
+}
+
+std::shared_ptr<VROARDepthMesh> VROARWorldMesh::loadMeshSnapshot(const std::vector<uint8_t>& data) {
+    if (data.size() < 13 ||
+        data[0] != kMeshSnapshotMagic[0] || data[1] != kMeshSnapshotMagic[1] ||
+        data[2] != kMeshSnapshotMagic[2] || data[3] != kMeshSnapshotMagic[3] ||
+        data[4] != kMeshSnapshotVersion) {
+        pwarn("VROARWorldMesh::loadMeshSnapshot: bad magic/version");
+        return nullptr;
+    }
+
+    uint32_t vertexCount = 0, triangleCount = 0;
+    if (!readU32(data, 5, vertexCount) || !readU32(data, 9, triangleCount)) {
+        return nullptr;
+    }
+
+    size_t offset = 13;
+    const size_t verticesBytes    = (size_t)vertexCount * 3 * 4;
+    const size_t confidencesBytes = (size_t)vertexCount * 4;
+    const size_t indicesBytes     = (size_t)triangleCount * 3 * 4;
+    if (data.size() < offset + verticesBytes + confidencesBytes + indicesBytes) {
+        pwarn("VROARWorldMesh::loadMeshSnapshot: truncated data");
+        return nullptr;
+    }
+
+    std::vector<VROVector3f> vertices;
+    vertices.reserve(vertexCount);
+    for (uint32_t i = 0; i < vertexCount; ++i) {
+        float x, y, z;
+        readFloat(data, offset, x);      offset += 4;
+        readFloat(data, offset, y);      offset += 4;
+        readFloat(data, offset, z);      offset += 4;
+        vertices.emplace_back(x, y, z);
+    }
+
+    std::vector<float> confidences;
+    confidences.reserve(vertexCount);
+    for (uint32_t i = 0; i < vertexCount; ++i) {
+        float c;
+        readFloat(data, offset, c);      offset += 4;
+        confidences.push_back(c);
+    }
+
+    std::vector<int> indices;
+    indices.reserve((size_t)triangleCount * 3);
+    for (uint32_t i = 0; i < triangleCount * 3; ++i) {
+        int32_t idx;
+        readI32(data, offset, idx);      offset += 4;
+        indices.push_back(idx);
+    }
+
+    return std::make_shared<VROARDepthMesh>(std::move(vertices), std::move(indices),
+                                             std::move(confidences), "snapshot");
 }

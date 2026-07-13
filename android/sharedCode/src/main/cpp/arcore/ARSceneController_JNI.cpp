@@ -1718,6 +1718,33 @@ VRO_METHOD(void, nativeSetWorldMeshConfig)(VRO_ARGS
     });
 }
 
+// WS-C: synchronous — returns the serialized current mesh, or null if there
+// is no mesh yet. Java writes the bytes to a cache file (see
+// ARScene.rvSnapshotWorldMeshToFile()).
+VRO_METHOD(jbyteArray, nativeRvSnapshotWorldMesh)(VRO_ARGS
+                                                  VRO_REF(VROARSceneController) sceneController_j) {
+    std::shared_ptr<VROARScene> scene = std::dynamic_pointer_cast<VROARScene>(
+            VRO_REF_GET(VROARSceneController, sceneController_j)->getScene());
+    if (!scene) {
+        return nullptr;
+    }
+
+    std::shared_ptr<VROARWorldMesh> worldMesh = scene->getWorldMesh();
+    if (!worldMesh) {
+        return nullptr;
+    }
+
+    std::vector<uint8_t> bytes = worldMesh->serializeCurrentMesh();
+    if (bytes.empty()) {
+        return nullptr;
+    }
+
+    jbyteArray result = env->NewByteArray((jsize)bytes.size());
+    env->SetByteArrayRegion(result, 0, (jsize)bytes.size(),
+                             reinterpret_cast<const jbyte*>(bytes.data()));
+    return result;
+}
+
 // +---------------------------------------------------------------------------+
 // | Scene Semantics API
 // +---------------------------------------------------------------------------+

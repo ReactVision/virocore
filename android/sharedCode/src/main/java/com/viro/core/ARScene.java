@@ -1627,6 +1627,17 @@ public class ARScene extends Scene {
     }
 
     /**
+     * WS-C: serialize the current world mesh (vertices, confidences, triangle
+     * indices) into a compact binary format for persisting as a cloud anchor
+     * asset. Returns null if there is no current mesh.
+     *
+     * @return the serialized bytes, or null.
+     */
+    public byte[] rvSnapshotWorldMesh() {
+        return nativeRvSnapshotWorldMesh(mNativeRef);
+    }
+
+    /**
      * Configure the world mesh generation and physics properties.
      *
      * @param stride Sample every Nth pixel from depth image (lower = more detail)
@@ -1777,6 +1788,7 @@ public class ARScene extends Scene {
 
     // World Mesh API native methods
     private native void nativeSetWorldMeshEnabled(long sceneControllerRef, boolean enabled);
+    private native byte[] nativeRvSnapshotWorldMesh(long sceneControllerRef);
     private native void nativeSetWorldMeshConfig(long sceneControllerRef,
                                                   int stride,
                                                   float minConfidence,

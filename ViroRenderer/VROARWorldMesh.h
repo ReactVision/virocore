@@ -230,6 +230,38 @@ public:
      */
     void debugDraw(std::shared_ptr<VROPencil> pencil);
 
+    /**
+     * WS-C: serialize the current mesh (vertices, per-vertex confidences,
+     * triangle indices) into a compact custom binary format for persisting
+     * as a cloud anchor asset (see finishScan() and rvUploadAsset()).
+     *
+     * Not glTF: this format is only ever read back by loadMeshSnapshot() in
+     * this same class, not by third-party tools, so a minimal custom layout
+     * avoids the risk of an unvalidated hand-written glTF writer producing
+     * spec-invalid files (this repo has no way to open the result in a
+     * glTF viewer to confirm correctness).
+     *
+     * Layout (little-endian, matches all current target architectures):
+     *   [0:4)   magic "RVWM"
+     *   [4:5)   format version (1)
+     *   [5:9)   vertexCount   (uint32)
+     *   [9:13)  triangleCount (uint32)
+     *   vertices:    vertexCount   * 3 * float32 (x,y,z, world space)
+     *   confidences: vertexCount   * float32
+     *   indices:     triangleCount * 3 * int32
+     *
+     * @return Empty vector if there is no current mesh.
+     */
+    std::vector<uint8_t> serializeCurrentMesh() const;
+
+    /**
+     * WS-C: reconstruct a VROARDepthMesh from bytes produced by
+     * serializeCurrentMesh() (e.g. downloaded from a resolved cloud anchor).
+     *
+     * @return nullptr if data is malformed (bad magic/version, truncated).
+     */
+    static std::shared_ptr<VROARDepthMesh> loadMeshSnapshot(const std::vector<uint8_t>& data);
+
 private:
     std::weak_ptr<VROPhysicsWorld> _physicsWorld;
 
