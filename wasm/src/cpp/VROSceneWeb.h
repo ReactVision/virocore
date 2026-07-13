@@ -46,6 +46,9 @@ public:
     // Root node of the active scene — the C API attaches bridge-created nodes here.
     std::shared_ptr<VROPortal> getRootNode();
 
+    // Make the given node's camera the renderer's point of view.
+    void setActiveCameraNode(std::shared_ptr<VRONode> node);
+
     // Build a hardcoded spinning cube demo (smoke test; not used by the bridge).
     void buildCubeScene();
 

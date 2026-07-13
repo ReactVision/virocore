@@ -147,27 +147,21 @@ std::shared_ptr<VROPortal> VROSceneWeb::getRootNode() {
     return _scene->getRootNode();
 }
 
+void VROSceneWeb::setActiveCameraNode(std::shared_ptr<VRONode> node) {
+    if (_renderer && node) {
+        _renderer->setPointOfView(node);
+    }
+}
+
 void VROSceneWeb::buildEmptyScene() {
     _sceneController = std::make_shared<VROSceneController>();
     _scene = _sceneController->getScene();
     std::shared_ptr<VROPortal> rootNode = _scene->getRootNode();
     rootNode->setPosition({0, 0, 0});
 
-    // Default lighting so bridge-created geometry is visible before the bridge
-    // manages lights itself (Phase 2 lights task).
-    std::shared_ptr<VROLight> ambient = std::make_shared<VROLight>(VROLightType::Ambient);
-    ambient->setColor({0.6, 0.6, 0.6});
-    rootNode->addLight(ambient);
-
-    std::shared_ptr<VROLight> directional = std::make_shared<VROLight>(VROLightType::Directional);
-    directional->setColor({1.0, 1.0, 1.0});
-    directional->setDirection({0.0, -1.0, -0.6});
-    directional->setCastsShadow(true);
-    directional->setShadowOrthographicSize(20);
-    directional->setShadowNearZ(1);
-    directional->setShadowFarZ(30);
-    rootNode->addLight(directional);
-
+    // No default lights: the bridge provides lights explicitly (parity with the
+    // native SDK, where scenes need lights unless using Constant lighting). A
+    // default camera is kept so scenes render before defining a ViroCamera.
     std::shared_ptr<VRONodeCamera> camera = std::make_shared<VRONodeCamera>();
     std::shared_ptr<VRONode> cameraNode = std::make_shared<VRONode>();
     cameraNode->setCamera(camera);
@@ -491,6 +485,80 @@ static void viroDestroyMaterial(int material) {
     sMaterials.erase(material);
 }
 
+// --- Lights ---
+
+static std::unordered_map<int, std::shared_ptr<VROLight>> sLights;
+static std::shared_ptr<VROLight> getLight(int h) {
+    auto it = sLights.find(h);
+    return it == sLights.end() ? nullptr : it->second;
+}
+
+// type: 0=Ambient, 1=Directional, 2=Omni, 3=Spot
+static int viroCreateLight(int type) {
+    VROLightType lt = VROLightType::Ambient;
+    switch (type) {
+        case 1: lt = VROLightType::Directional; break;
+        case 2: lt = VROLightType::Omni; break;
+        case 3: lt = VROLightType::Spot; break;
+        default: lt = VROLightType::Ambient; break;
+    }
+    int h = sNextHandle++;
+    sLights[h] = std::make_shared<VROLight>(lt);
+    return h;
+}
+static void viroSetLightColor(int light, float r, float g, float b) {
+    if (auto l = getLight(light)) l->setColor({r, g, b});
+}
+static void viroSetLightIntensity(int light, float intensity) {
+    if (auto l = getLight(light)) l->setIntensity(intensity);
+}
+static void viroSetLightTemperature(int light, float temperature) {
+    if (auto l = getLight(light)) l->setTemperature(temperature);
+}
+static void viroSetLightDirection(int light, float x, float y, float z) {
+    if (auto l = getLight(light)) l->setDirection({x, y, z});
+}
+static void viroSetLightPosition(int light, float x, float y, float z) {
+    if (auto l = getLight(light)) l->setPosition({x, y, z});
+}
+static void viroSetLightAttenuation(int light, float start, float end) {
+    if (auto l = getLight(light)) {
+        l->setAttenuationStartDistance(start);
+        l->setAttenuationEndDistance(end);
+    }
+}
+static void viroSetLightSpotAngles(int light, float inner, float outer) {
+    if (auto l = getLight(light)) {
+        l->setSpotInnerAngle(inner);
+        l->setSpotOuterAngle(outer);
+    }
+}
+static void viroSetLightCastsShadow(int light, bool castsShadow) {
+    if (auto l = getLight(light)) l->setCastsShadow(castsShadow);
+}
+static void viroAddLightToNode(int node, int light) {
+    auto n = getNode(node);
+    auto l = getLight(light);
+    if (n && l) n->addLight(l);
+}
+static void viroRemoveLightFromNode(int node, int light) {
+    auto n = getNode(node);
+    auto l = getLight(light);
+    if (n && l) n->removeLight(l);
+}
+static void viroDestroyLight(int light) {
+    sLights.erase(light);
+}
+
+// --- Camera ---
+
+static void viroSetNodeCamera(int node) {
+    if (auto n = getNode(node)) n->setCamera(std::make_shared<VRONodeCamera>());
+}
+static void viroSetActiveCameraNode(int node) {
+    if (sScene) sScene->setActiveCameraNode(getNode(node));
+}
+
 EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("initViroScene", &initViroScene);
     emscripten::function("setViroSceneSize", &setViroSceneSize);
@@ -523,6 +591,22 @@ EMSCRIPTEN_BINDINGS(viro_web) {
 
     emscripten::function("viroSetEventCallback", &viroSetEventCallback);
     emscripten::function("viroSetNodeEventEnabled", &viroSetNodeEventEnabled);
+
+    emscripten::function("viroCreateLight", &viroCreateLight);
+    emscripten::function("viroSetLightColor", &viroSetLightColor);
+    emscripten::function("viroSetLightIntensity", &viroSetLightIntensity);
+    emscripten::function("viroSetLightTemperature", &viroSetLightTemperature);
+    emscripten::function("viroSetLightDirection", &viroSetLightDirection);
+    emscripten::function("viroSetLightPosition", &viroSetLightPosition);
+    emscripten::function("viroSetLightAttenuation", &viroSetLightAttenuation);
+    emscripten::function("viroSetLightSpotAngles", &viroSetLightSpotAngles);
+    emscripten::function("viroSetLightCastsShadow", &viroSetLightCastsShadow);
+    emscripten::function("viroAddLightToNode", &viroAddLightToNode);
+    emscripten::function("viroRemoveLightFromNode", &viroRemoveLightFromNode);
+    emscripten::function("viroDestroyLight", &viroDestroyLight);
+
+    emscripten::function("viroSetNodeCamera", &viroSetNodeCamera);
+    emscripten::function("viroSetActiveCameraNode", &viroSetActiveCameraNode);
 }
 
 // The module has no work to do at startup — JS calls initViroScene() once the
