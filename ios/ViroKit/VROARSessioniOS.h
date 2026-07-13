@@ -203,7 +203,7 @@ public:
     // Cloud anchor management
     void rvStartScan() override;
     void rvFinishScan(int ttlDays,
-        std::function<void(bool, std::string, std::string)> callback) override;
+        std::function<void(bool, std::string, std::string, std::string)> callback) override;
     void rvGetCloudAnchor(const std::string& anchorId,
         std::function<void(bool, std::string, std::string)> callback) override;
     void rvListCloudAnchors(int limit, int offset,

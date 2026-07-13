@@ -2432,6 +2432,20 @@ static std::string rvCloudAssetToJson(const ReactVisionCCA::CloudAnchorAsset& a)
     return j;
 }
 
+// WS-C: serializes a VROMatrix4f as 16 comma-separated floats (column-major,
+// matching getArray()) so it can cross the RN bridge as an opaque string —
+// see VROARSession::rvFinishScan().
+static std::string rvMatrixToCsv(const VROMatrix4f& m) {
+    const float* a = m.getArray();
+    std::string csv;
+    char buf[32];
+    for (int i = 0; i < 16; ++i) {
+        snprintf(buf, sizeof(buf), i == 0 ? "%g" : ",%g", a[i]);
+        csv += buf;
+    }
+    return csv;
+}
+
 static std::string rvCloudAnchorToJson(const ReactVisionCCA::CloudAnchorRecord& r) {
     char buf[128];
     std::string j = "{";
@@ -2489,21 +2503,21 @@ void VROARSessioniOS::rvStartScan() {
 
 void VROARSessioniOS::rvFinishScan(
     int ttlDays,
-    std::function<void(bool, std::string, std::string)> callback) {
+    std::function<void(bool, std::string, std::string, std::string)> callback) {
 #if RVCCA_AVAILABLE
   auto p = [_cloudAnchorProviderRV cppProvider];
   if (p) {
     p->finishScan(ttlDays,
-        [callback](const std::string& cloudAnchorId) {
-          if (callback) callback(true, cloudAnchorId, "");
+        [callback](const std::string& cloudAnchorId, const VROMatrix4f& locationTransform) {
+          if (callback) callback(true, cloudAnchorId, rvMatrixToCsv(locationTransform), "");
         },
         [callback](const std::string& error, ReactVisionCCA::RVCCACloudAnchorProvider::ErrorCode) {
-          if (callback) callback(false, "", error);
+          if (callback) callback(false, "", "", error);
         });
     return;
   }
 #endif
-  if (callback) callback(false, "", "ReactVision cloud anchor provider not available");
+  if (callback) callback(false, "", "", "ReactVision cloud anchor provider not available");
 }
 
 void VROARSessioniOS::rvGetCloudAnchor(
