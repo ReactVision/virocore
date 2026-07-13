@@ -681,6 +681,40 @@ static void rvFireCloudResult(VRO_WEAK weakObj, std::string keyStr,
     });
 }
 
+VRO_METHOD(void, nativeRvStartScan)(VRO_ARGS
+                                    VRO_REF(VROARSceneController) arSceneControllerPtr) {
+    std::weak_ptr<VROARScene> arScene_w = std::dynamic_pointer_cast<VROARScene>(
+        VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
+    VROPlatformDispatchAsyncRenderer([arScene_w] {
+        std::shared_ptr<VROARScene> arScene = arScene_w.lock();
+        std::shared_ptr<VROARSession> arSession = arScene ? arScene->getARSession() : nullptr;
+        if (arSession) {
+            arSession->rvStartScan();
+        }
+    });
+}
+
+VRO_METHOD(void, nativeRvFinishScan)(VRO_ARGS
+                                     VRO_REF(VROARSceneController) arSceneControllerPtr,
+                                     jstring key_j, jint ttlDays) {
+    std::string keyStr = VRO_STRING_STL(key_j);
+    std::weak_ptr<VROARScene> arScene_w = std::dynamic_pointer_cast<VROARScene>(
+        VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
+    VRO_WEAK weakObj = VRO_NEW_WEAK_GLOBAL_REF(obj);
+    VROPlatformDispatchAsyncRenderer([arScene_w, weakObj, keyStr, ttlDays] {
+        std::shared_ptr<VROARScene> arScene = arScene_w.lock();
+        std::shared_ptr<VROARSession> arSession = arScene ? arScene->getARSession() : nullptr;
+        if (!arSession) {
+            rvFireCloudResult(weakObj, keyStr, false, "", "AR session not available");
+            return;
+        }
+        arSession->rvFinishScan((int)ttlDays,
+            [weakObj, keyStr](bool success, std::string cloudAnchorId, std::string error) {
+                rvFireCloudResult(weakObj, keyStr, success, cloudAnchorId, error);
+            });
+    });
+}
+
 VRO_METHOD(void, nativeRvGetCloudAnchor)(VRO_ARGS
                                          VRO_REF(VROARSceneController) arSceneControllerPtr,
                                          jstring key_j, jstring anchorId_j) {

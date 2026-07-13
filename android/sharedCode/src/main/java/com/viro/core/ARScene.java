@@ -215,7 +215,13 @@ public class ARScene extends Scene {
         /**
          * Geospatial tracking is stopped or not initialized.
          */
-        STOPPED
+        STOPPED,
+        /**
+         * WS-D: GPS fix acquired but not yet within the accuracy threshold —
+         * appended last to keep the native ordinal mapping in
+         * {@link #getEarthTrackingState()} stable for ENABLED/PAUSED/STOPPED.
+         */
+        LOCALIZING
     }
 
     /**
@@ -1114,6 +1120,9 @@ public class ARScene extends Scene {
             case 1:
                 return EarthTrackingState.PAUSED;
             case 2:
+                return EarthTrackingState.STOPPED;
+            case 3:
+                return EarthTrackingState.LOCALIZING;
             default:
                 return EarthTrackingState.STOPPED;
         }
@@ -1349,6 +1358,26 @@ public class ARScene extends Scene {
     void onRvCloudAnchorResult(String key, boolean success, String jsonData, String error) {
         RvCloudAnchorCallback cb = mRvCloudCallbacks.remove(key);
         if (cb != null) cb.onResult(success, jsonData, error);
+    }
+
+    /**
+     * WS-A: begin a room/building-scale scan with its own self-defined location
+     * frame, independent of any placed anchor. Resets the native background
+     * keyframe buffer. Call {@link #rvFinishScan} when done scanning.
+     */
+    public void rvStartScan() {
+        nativeRvStartScan(mNativeRef);
+    }
+
+    /**
+     * WS-A: finish a scan started with {@link #rvStartScan} and host it to the
+     * cloud. Same pipeline as a placed-anchor host, but positions content in
+     * the scan's own location frame instead of relative to an anchor.
+     */
+    public void rvFinishScan(int ttlDays, RvCloudAnchorCallback callback) {
+        String key = "rvFinishScan_" + System.nanoTime();
+        mRvCloudCallbacks.put(key, callback);
+        nativeRvFinishScan(mNativeRef, key, ttlDays);
     }
 
     public void rvGetCloudAnchor(String anchorId, RvCloudAnchorCallback callback) {
@@ -1714,6 +1743,8 @@ public class ARScene extends Scene {
                                                        int limit, int offset);
 
     // Cloud anchor management native methods
+    private native void nativeRvStartScan(long sceneControllerRef);
+    private native void nativeRvFinishScan(long sceneControllerRef, String key, int ttlDays);
     private native void nativeRvGetCloudAnchor(long sceneControllerRef, String key, String anchorId);
     private native void nativeRvListCloudAnchors(long sceneControllerRef, String key,
                                                   int limit, int offset);
