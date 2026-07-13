@@ -302,6 +302,45 @@ static std::unordered_map<int, std::shared_ptr<VROMaterial>> sMaterials;
 static int sNextHandle = 1;
 static int sRootHandle = 0;
 
+#pragma mark - Event marshaling (WASM -> JS)
+
+// Single JS callback the bridge registers to receive node events. Signature:
+//   cb(nodeHandle, eventAction, source, intArg, x, y, z)
+// eventAction matches VROEventDelegate::EventAction (1=Hover, 2=Click). intArg
+// carries ClickState for clicks (1=down,2=up,3=clicked) or isHovering (0/1).
+static emscripten::val sEventCallback = emscripten::val::undefined();
+
+// Per-node event delegate that forwards to sEventCallback tagged with the node's
+// handle, so JS can route the event back to the right React component.
+class VROWebEventDelegate : public VROEventDelegate {
+public:
+    VROWebEventDelegate(int handle) : _handle(handle) {}
+    virtual ~VROWebEventDelegate() {}
+
+    virtual void onClick(int source, std::shared_ptr<VRONode> node,
+                         ClickState clickState, std::vector<float> position) {
+        emit(EventAction::OnClick, source, (int) clickState, position);
+    }
+    virtual void onHover(int source, std::shared_ptr<VRONode> node,
+                         bool isHovering, std::vector<float> position) {
+        emit(EventAction::OnHover, source, isHovering ? 1 : 0, position);
+    }
+
+private:
+    void emit(int action, int source, int intArg, const std::vector<float> &pos) {
+        if (sEventCallback.isUndefined() || sEventCallback.isNull()) {
+            return;
+        }
+        float x = pos.size() > 0 ? pos[0] : 0.0f;
+        float y = pos.size() > 1 ? pos[1] : 0.0f;
+        float z = pos.size() > 2 ? pos[2] : 0.0f;
+        sEventCallback(_handle, action, source, intArg, x, y, z);
+    }
+    int _handle;
+};
+
+static std::unordered_map<int, std::shared_ptr<VROWebEventDelegate>> sNodeDelegates;
+
 static std::shared_ptr<VRONode> getNode(int h) {
     auto it = sNodes.find(h);
     return it == sNodes.end() ? nullptr : it->second;
@@ -370,6 +409,30 @@ static void viroRemoveNodeFromParent(int node) {
 }
 static void viroDestroyNode(int node) {
     sNodes.erase(node);
+    sNodeDelegates.erase(node);
+}
+
+// --- Events ---
+
+static void viroSetEventCallback(emscripten::val callback) {
+    sEventCallback = callback;
+}
+
+// eventAction: VROEventDelegate::EventAction (1=Hover, 2=Click, ...).
+static void viroSetNodeEventEnabled(int node, int eventAction, bool enabled) {
+    auto n = getNode(node);
+    if (!n) return;
+
+    auto it = sNodeDelegates.find(node);
+    std::shared_ptr<VROWebEventDelegate> delegate;
+    if (it == sNodeDelegates.end()) {
+        delegate = std::make_shared<VROWebEventDelegate>(node);
+        sNodeDelegates[node] = delegate;
+        n->setEventDelegate(delegate);
+    } else {
+        delegate = it->second;
+    }
+    delegate->setEnabledEvent(static_cast<VROEventDelegate::EventAction>(eventAction), enabled);
 }
 
 // --- Geometries ---
@@ -457,6 +520,9 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroSetMaterialDiffuseColor", &viroSetMaterialDiffuseColor);
     emscripten::function("viroSetMaterialLightingModel", &viroSetMaterialLightingModel);
     emscripten::function("viroDestroyMaterial", &viroDestroyMaterial);
+
+    emscripten::function("viroSetEventCallback", &viroSetEventCallback);
+    emscripten::function("viroSetNodeEventEnabled", &viroSetNodeEventEnabled);
 }
 
 // The module has no work to do at startup — JS calls initViroScene() once the
