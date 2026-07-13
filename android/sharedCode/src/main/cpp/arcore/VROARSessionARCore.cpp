@@ -1659,8 +1659,16 @@ void VROARSessionARCore::setGeospatialAnchorProvider(VROGeospatialAnchorProvider
 VROEarthTrackingState VROARSessionARCore::getEarthTrackingState() const {
 #if RVCCA_AVAILABLE
     if (getGeospatialAnchorProvider() == VROGeospatialAnchorProvider::ReactVision) {
-        return _geospatialProviderRV ? VROEarthTrackingState::Tracking
-                                     : VROEarthTrackingState::Stopped;
+        if (!_geospatialProviderRV) {
+            return VROEarthTrackingState::Stopped;
+        }
+        // WS-D: mirrors the iOS fix — Tracking requires a GPS fix within the
+        // accuracy threshold, not just the provider existing.
+        bool accurate = _lastKnownGPSPose.isValid() &&
+                        _lastKnownGPSPose.horizontalAccuracy > 0 &&
+                        _lastKnownGPSPose.horizontalAccuracy < kVROGeospatialAccuracyThresholdMeters;
+        return accurate ? VROEarthTrackingState::Tracking
+                        : VROEarthTrackingState::Localizing;
     }
 #endif
     if (!_session) return VROEarthTrackingState::Stopped;
@@ -2448,6 +2456,38 @@ static std::string rvCloudAnchorToJsonARC(const ReactVisionCCA::CloudAnchorRecor
     return j;
 }
 #endif // RVCCA_AVAILABLE
+
+void VROARSessionARCore::rvStartScan() {
+#if RVCCA_AVAILABLE
+    if (_cloudAnchorProviderRV) {
+        auto p = _cloudAnchorProviderRV->getProvider();
+        if (p) {
+            p->startScan();
+        }
+    }
+#endif
+}
+
+void VROARSessionARCore::rvFinishScan(
+    int ttlDays,
+    std::function<void(bool, std::string, std::string)> callback) {
+#if RVCCA_AVAILABLE
+    if (_cloudAnchorProviderRV) {
+        auto p = _cloudAnchorProviderRV->getProvider();
+        if (p) {
+            p->finishScan(ttlDays,
+                [callback](const std::string& cloudAnchorId) {
+                    if (callback) callback(true, cloudAnchorId, "");
+                },
+                [callback](const std::string& error, ReactVisionCCA::RVCCACloudAnchorProvider::ErrorCode) {
+                    if (callback) callback(false, "", error);
+                });
+            return;
+        }
+    }
+#endif
+    if (callback) callback(false, "", "ReactVision cloud anchor provider not available");
+}
 
 void VROARSessionARCore::rvGetCloudAnchor(
     const std::string& anchorId,
