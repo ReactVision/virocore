@@ -612,10 +612,15 @@ public:
     virtual void rvStartScan() {
         // Default implementation does nothing
     }
+    // WS-C: locationTransform is the 16 values of the VROMatrix4f used to host
+    // this scan, comma-separated, column-major (VROMatrix4f::getArray() order).
+    // Pass it straight through to rvSnapshotWorldMeshToFile() if attaching a
+    // mesh — finishScan() has no placed anchor to read a transform from.
     virtual void rvFinishScan(
         int ttlDays,
-        std::function<void(bool success, std::string cloudAnchorId, std::string error)> callback) {
-        if (callback) callback(false, "", "Not supported");
+        std::function<void(bool success, std::string cloudAnchorId,
+                            std::string locationTransformCsv, std::string error)> callback) {
+        if (callback) callback(false, "", "", "Not supported");
     }
 
     // ========================================================================
