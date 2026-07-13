@@ -34,6 +34,7 @@
 #include <mutex>
 #include <cstdint>
 #include "VROVector3f.h"
+#include "VROMatrix4f.h"
 
 class VROARDepthMesh;
 class VROARFrame;
@@ -241,26 +242,41 @@ public:
      * spec-invalid files (this repo has no way to open the result in a
      * glTF viewer to confirm correctness).
      *
+     * @param locationTransform The same anchor/location-frame transform used
+     *        to host this scan (RVCCACloudAnchorProvider's anchorTransform or
+     *        computeLocationTransform() result). Vertices are stored relative
+     *        to this frame (world = locationTransform * local), NOT in this
+     *        session's raw world space — a resolve on a different device has
+     *        a different, unrelated world origin, so raw world-space vertices
+     *        would be meaningless there. This mirrors how SIFT features are
+     *        already stored anchor/location-local (FeatureExtractor::toLocal).
+     *
      * Layout (little-endian, matches all current target architectures):
      *   [0:4)   magic "RVWM"
      *   [4:5)   format version (1)
      *   [5:9)   vertexCount   (uint32)
      *   [9:13)  triangleCount (uint32)
-     *   vertices:    vertexCount   * 3 * float32 (x,y,z, world space)
+     *   vertices:    vertexCount   * 3 * float32 (x,y,z, relative to locationTransform)
      *   confidences: vertexCount   * float32
      *   indices:     triangleCount * 3 * int32
      *
      * @return Empty vector if there is no current mesh.
      */
-    std::vector<uint8_t> serializeCurrentMesh() const;
+    std::vector<uint8_t> serializeCurrentMesh(const VROMatrix4f& locationTransform) const;
 
     /**
      * WS-C: reconstruct a VROARDepthMesh from bytes produced by
-     * serializeCurrentMesh() (e.g. downloaded from a resolved cloud anchor).
+     * serializeCurrentMesh(), transforming vertices from the stored
+     * location-frame-relative space into this session's world space.
      *
+     * @param resolvedTransform The transform resolveCloudAnchor() computed
+     *        for this session (the resolved anchor's world transform) —
+     *        the same role locationTransform played at host time, now
+     *        mapping local -> this session's world instead of the reverse.
      * @return nullptr if data is malformed (bad magic/version, truncated).
      */
-    static std::shared_ptr<VROARDepthMesh> loadMeshSnapshot(const std::vector<uint8_t>& data);
+    static std::shared_ptr<VROARDepthMesh> loadMeshSnapshot(const std::vector<uint8_t>& data,
+                                                             const VROMatrix4f& resolvedTransform);
 
 private:
     std::weak_ptr<VROPhysicsWorld> _physicsWorld;

@@ -522,7 +522,7 @@ namespace {
     }
 }
 
-std::vector<uint8_t> VROARWorldMesh::serializeCurrentMesh() const {
+std::vector<uint8_t> VROARWorldMesh::serializeCurrentMesh(const VROMatrix4f& locationTransform) const {
     if (!_currentMesh || !_currentMesh->isValid()) {
         return {};
     }
@@ -542,10 +542,14 @@ std::vector<uint8_t> VROARWorldMesh::serializeCurrentMesh() const {
     appendU32(out, vertexCount);
     appendU32(out, triangleCount);
 
+    // Store relative to locationTransform, not raw world space — see header
+    // doc comment: a resolve on another device has an unrelated world origin.
+    const VROMatrix4f worldToLocal = locationTransform.invert();
     for (const VROVector3f& v : vertices) {
-        appendFloat(out, v.x);
-        appendFloat(out, v.y);
-        appendFloat(out, v.z);
+        VROVector3f local = worldToLocal.multiply(v);
+        appendFloat(out, local.x);
+        appendFloat(out, local.y);
+        appendFloat(out, local.z);
     }
     // confidences.size() should equal vertices.size(), but guard against any
     // mismatch rather than reading out of bounds.
@@ -559,7 +563,8 @@ std::vector<uint8_t> VROARWorldMesh::serializeCurrentMesh() const {
     return out;
 }
 
-std::shared_ptr<VROARDepthMesh> VROARWorldMesh::loadMeshSnapshot(const std::vector<uint8_t>& data) {
+std::shared_ptr<VROARDepthMesh> VROARWorldMesh::loadMeshSnapshot(const std::vector<uint8_t>& data,
+                                                                  const VROMatrix4f& resolvedTransform) {
     if (data.size() < 13 ||
         data[0] != kMeshSnapshotMagic[0] || data[1] != kMeshSnapshotMagic[1] ||
         data[2] != kMeshSnapshotMagic[2] || data[3] != kMeshSnapshotMagic[3] ||
@@ -589,7 +594,9 @@ std::shared_ptr<VROARDepthMesh> VROARWorldMesh::loadMeshSnapshot(const std::vect
         readFloat(data, offset, x);      offset += 4;
         readFloat(data, offset, y);      offset += 4;
         readFloat(data, offset, z);      offset += 4;
-        vertices.emplace_back(x, y, z);
+        // Stored relative to the original host's locationTransform; bring it
+        // into this session's world space via the resolved transform.
+        vertices.push_back(resolvedTransform.multiply(VROVector3f(x, y, z)));
     }
 
     std::vector<float> confidences;
