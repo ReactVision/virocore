@@ -2414,6 +2414,20 @@ static std::string rvCloudAssetToJsonARC(const ReactVisionCCA::CloudAnchorAsset&
     return j;
 }
 
+// WS-C: mirrors rvMatrixToCsv() in VROARSessioniOS.cpp — 16 comma-separated
+// floats (column-major, matching getArray()) so the transform can cross the
+// RN bridge as an opaque string. See VROARSession::rvFinishScan().
+static std::string rvMatrixToCsvARC(const VROMatrix4f& m) {
+    const float* a = m.getArray();
+    std::string csv;
+    char buf[32];
+    for (int i = 0; i < 16; ++i) {
+        snprintf(buf, sizeof(buf), i == 0 ? "%g" : ",%g", a[i]);
+        csv += buf;
+    }
+    return csv;
+}
+
 static std::string rvCloudAnchorToJsonARC(const ReactVisionCCA::CloudAnchorRecord& r) {
     char buf[128];
     std::string j = "{";
@@ -2470,23 +2484,23 @@ void VROARSessionARCore::rvStartScan() {
 
 void VROARSessionARCore::rvFinishScan(
     int ttlDays,
-    std::function<void(bool, std::string, std::string)> callback) {
+    std::function<void(bool, std::string, std::string, std::string)> callback) {
 #if RVCCA_AVAILABLE
     if (_cloudAnchorProviderRV) {
         auto p = _cloudAnchorProviderRV->getProvider();
         if (p) {
             p->finishScan(ttlDays,
-                [callback](const std::string& cloudAnchorId) {
-                    if (callback) callback(true, cloudAnchorId, "");
+                [callback](const std::string& cloudAnchorId, const VROMatrix4f& locationTransform) {
+                    if (callback) callback(true, cloudAnchorId, rvMatrixToCsvARC(locationTransform), "");
                 },
                 [callback](const std::string& error, ReactVisionCCA::RVCCACloudAnchorProvider::ErrorCode) {
-                    if (callback) callback(false, "", error);
+                    if (callback) callback(false, "", "", error);
                 });
             return;
         }
     }
 #endif
-    if (callback) callback(false, "", "ReactVision cloud anchor provider not available");
+    if (callback) callback(false, "", "", "ReactVision cloud anchor provider not available");
 }
 
 void VROARSessionARCore::rvGetCloudAnchor(

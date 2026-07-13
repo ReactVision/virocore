@@ -24,6 +24,7 @@
 //  SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #include <jni/ARImageDatabaseLoaderDelegate.h>
+#include <cstdlib>
 #include "ARSceneController_JNI.h"
 #include "ARDeclarativePlane_JNI.h"
 #include "ARDeclarativeNode_JNI.h"
@@ -681,6 +682,31 @@ static void rvFireCloudResult(VRO_WEAK weakObj, std::string keyStr,
     });
 }
 
+// WS-C: separate from rvFireCloudResult() because finishScan() also carries
+// the location transform (ARScene.RvFinishScanCallback, 4 args vs 3).
+static void rvFireFinishScanResult(VRO_WEAK weakObj, std::string keyStr,
+                                    bool success, std::string cloudAnchorId,
+                                    std::string locationTransformCsv, std::string error) {
+    VROPlatformDispatchAsyncApplication([weakObj, keyStr, success, cloudAnchorId, locationTransformCsv, error] {
+        VRO_ENV env = VROPlatformGetJNIEnv();
+        VRO_OBJECT localObj = VRO_NEW_LOCAL_REF(weakObj);
+        if (VRO_IS_OBJECT_NULL(localObj)) {
+            VRO_DELETE_LOCAL_REF(localObj);
+            VRO_DELETE_WEAK_GLOBAL_REF(weakObj);
+            return;
+        }
+        VRO_STRING jKey  = VRO_NEW_STRING(keyStr.c_str());
+        VRO_STRING jId   = VRO_NEW_STRING(cloudAnchorId.c_str());
+        VRO_STRING jCsv  = VRO_NEW_STRING(locationTransformCsv.c_str());
+        VRO_STRING jErr  = VRO_NEW_STRING(error.c_str());
+        VROPlatformCallHostFunction(localObj, "onRvFinishScanResult",
+            "(Ljava/lang/String;ZLjava/lang/String;Ljava/lang/String;Ljava/lang/String;)V",
+            jKey, (jboolean)success, jId, jCsv, jErr);
+        VRO_DELETE_LOCAL_REF(localObj);
+        VRO_DELETE_WEAK_GLOBAL_REF(weakObj);
+    });
+}
+
 VRO_METHOD(void, nativeRvStartScan)(VRO_ARGS
                                     VRO_REF(VROARSceneController) arSceneControllerPtr) {
     std::weak_ptr<VROARScene> arScene_w = std::dynamic_pointer_cast<VROARScene>(
@@ -705,12 +731,13 @@ VRO_METHOD(void, nativeRvFinishScan)(VRO_ARGS
         std::shared_ptr<VROARScene> arScene = arScene_w.lock();
         std::shared_ptr<VROARSession> arSession = arScene ? arScene->getARSession() : nullptr;
         if (!arSession) {
-            rvFireCloudResult(weakObj, keyStr, false, "", "AR session not available");
+            rvFireFinishScanResult(weakObj, keyStr, false, "", "", "AR session not available");
             return;
         }
         arSession->rvFinishScan((int)ttlDays,
-            [weakObj, keyStr](bool success, std::string cloudAnchorId, std::string error) {
-                rvFireCloudResult(weakObj, keyStr, success, cloudAnchorId, error);
+            [weakObj, keyStr](bool success, std::string cloudAnchorId,
+                              std::string locationTransformCsv, std::string error) {
+                rvFireFinishScanResult(weakObj, keyStr, success, cloudAnchorId, locationTransformCsv, error);
             });
     });
 }
@@ -1718,11 +1745,35 @@ VRO_METHOD(void, nativeSetWorldMeshConfig)(VRO_ARGS
     });
 }
 
+// WS-C: parses the CSV produced by rvMatrixToCsvARC() (this file) back into
+// a VROMatrix4f. Returns identity if malformed (16 values expected).
+static VROMatrix4f rvParseMatrixCsvARC(const std::string& csv) {
+    float values[16];
+    size_t start = 0;
+    int i = 0;
+    while (i < 16) {
+        size_t comma = csv.find(',', start);
+        std::string token = (comma == std::string::npos)
+            ? csv.substr(start) : csv.substr(start, comma - start);
+        values[i] = strtof(token.c_str(), nullptr);
+        i++;
+        if (comma == std::string::npos) break;
+        start = comma + 1;
+    }
+    if (i != 16) {
+        return VROMatrix4f();
+    }
+    return VROMatrix4f(values);
+}
+
 // WS-C: synchronous — returns the serialized current mesh, or null if there
 // is no mesh yet. Java writes the bytes to a cache file (see
-// ARScene.rvSnapshotWorldMeshToFile()).
+// ARScene.rvSnapshotWorldMeshToFile()). locationTransformCsv is the value
+// finishScan() returned — there is no placed anchor to read a transform
+// from otherwise.
 VRO_METHOD(jbyteArray, nativeRvSnapshotWorldMesh)(VRO_ARGS
-                                                  VRO_REF(VROARSceneController) sceneController_j) {
+                                                  VRO_REF(VROARSceneController) sceneController_j,
+                                                  jstring locationTransformCsv_j) {
     std::shared_ptr<VROARScene> scene = std::dynamic_pointer_cast<VROARScene>(
             VRO_REF_GET(VROARSceneController, sceneController_j)->getScene());
     if (!scene) {
@@ -1734,7 +1785,10 @@ VRO_METHOD(jbyteArray, nativeRvSnapshotWorldMesh)(VRO_ARGS
         return nullptr;
     }
 
-    std::vector<uint8_t> bytes = worldMesh->serializeCurrentMesh();
+    std::string csv = VRO_STRING_STL(locationTransformCsv_j);
+    VROMatrix4f locationTransform = rvParseMatrixCsvARC(csv);
+
+    std::vector<uint8_t> bytes = worldMesh->serializeCurrentMesh(locationTransform);
     if (bytes.empty()) {
         return nullptr;
     }

@@ -1361,6 +1361,24 @@ public class ARScene extends Scene {
     }
 
     /**
+     * WS-C: callback for {@link #rvFinishScan} — separate from
+     * {@link RvCloudAnchorCallback} because it also carries the location
+     * transform (needed for {@link #rvSnapshotWorldMesh}, since a
+     * finishScan()-hosted anchor has no placed anchor to read a transform from).
+     */
+    public interface RvFinishScanCallback {
+        void onResult(boolean success, String cloudAnchorId, String locationTransformCsv, String error);
+    }
+
+    private Map<String, RvFinishScanCallback> mRvFinishScanCallbacks = new HashMap<>();
+
+    void onRvFinishScanResult(String key, boolean success, String cloudAnchorId,
+                               String locationTransformCsv, String error) {
+        RvFinishScanCallback cb = mRvFinishScanCallbacks.remove(key);
+        if (cb != null) cb.onResult(success, cloudAnchorId, locationTransformCsv, error);
+    }
+
+    /**
      * WS-A: begin a room/building-scale scan with its own self-defined location
      * frame, independent of any placed anchor. Resets the native background
      * keyframe buffer. Call {@link #rvFinishScan} when done scanning.
@@ -1374,9 +1392,9 @@ public class ARScene extends Scene {
      * cloud. Same pipeline as a placed-anchor host, but positions content in
      * the scan's own location frame instead of relative to an anchor.
      */
-    public void rvFinishScan(int ttlDays, RvCloudAnchorCallback callback) {
+    public void rvFinishScan(int ttlDays, RvFinishScanCallback callback) {
         String key = "rvFinishScan_" + System.nanoTime();
-        mRvCloudCallbacks.put(key, callback);
+        mRvFinishScanCallbacks.put(key, callback);
         nativeRvFinishScan(mNativeRef, key, ttlDays);
     }
 
@@ -1631,10 +1649,12 @@ public class ARScene extends Scene {
      * indices) into a compact binary format for persisting as a cloud anchor
      * asset. Returns null if there is no current mesh.
      *
+     * @param locationTransformCsv the value {@link RvFinishScanCallback} returned —
+     *        there is no placed anchor to read a transform from otherwise.
      * @return the serialized bytes, or null.
      */
-    public byte[] rvSnapshotWorldMesh() {
-        return nativeRvSnapshotWorldMesh(mNativeRef);
+    public byte[] rvSnapshotWorldMesh(String locationTransformCsv) {
+        return nativeRvSnapshotWorldMesh(mNativeRef, locationTransformCsv);
     }
 
     /**
@@ -1788,7 +1808,7 @@ public class ARScene extends Scene {
 
     // World Mesh API native methods
     private native void nativeSetWorldMeshEnabled(long sceneControllerRef, boolean enabled);
-    private native byte[] nativeRvSnapshotWorldMesh(long sceneControllerRef);
+    private native byte[] nativeRvSnapshotWorldMesh(long sceneControllerRef, String locationTransformCsv);
     private native void nativeSetWorldMeshConfig(long sceneControllerRef,
                                                   int stride,
                                                   float minConfidence,
