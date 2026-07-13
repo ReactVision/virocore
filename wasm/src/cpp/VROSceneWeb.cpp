@@ -29,6 +29,7 @@
 #include "VRONodeCamera.h"
 #include "VROLight.h"
 #include "VROBox.h"
+#include "VROSurface.h"
 #include "VROMaterial.h"
 #include "VROTransaction.h"
 #include "VROEventDelegate.h"
@@ -101,17 +102,25 @@ VROSceneWeb::VROSceneWeb(std::string canvasSelector, int width, int height) :
     }
     emscripten_webgl_make_context_current(_context);
 
+    // WebGL2 needs EXT_color_buffer_float enabled before rendering to float
+    // (RGBA16F/RG16F) targets, which HDR/bloom/PBR-IBL use. Enable it and record
+    // support so the driver can degrade gracefully when it's unavailable.
+    bool colorBufferFloat = emscripten_webgl_enable_extension(_context, "EXT_color_buffer_float");
+    pinfo("EXT_color_buffer_float supported: %d", colorBufferFloat);
+
     _driver = std::make_shared<VRODriverOpenGLWasm>();
+    _driver->setColorBufferFloatSupported(colorBufferFloat);
     _inputController = std::make_shared<VROInputControllerWasm>(_driver);
 
-    // Minimal renderer config: no shadows/bloom/HDR/PBR so we stay on the
-    // LinearSoftware path and avoid EXT_color_buffer_float dependencies for
-    // this de-risking cube. These get re-enabled + validated in Phase 1.
+    // Request the full effect set. VROChoreographer auto-degrades each effect
+    // based on driver capability (getColorRenderingMode / isBloomSupported),
+    // which we've wired to EXT_color_buffer_float above — so on a GPU/browser
+    // without float color buffers these fall back to the non-HDR pipeline.
     VRORendererConfiguration config;
-    config.enableShadows = false;
-    config.enableBloom = false;
-    config.enableHDR = false;
-    config.enablePBR = false;
+    config.enableShadows = true;
+    config.enableBloom = true;
+    config.enableHDR = true;
+    config.enablePBR = true;
 
     _renderer = std::make_shared<VRORenderer>(
         config, std::dynamic_pointer_cast<VROInputControllerBase>(_inputController));
@@ -138,7 +147,13 @@ void VROSceneWeb::buildCubeScene() {
 
     std::shared_ptr<VROLight> directional = std::make_shared<VROLight>(VROLightType::Directional);
     directional->setColor({1.0, 1.0, 1.0});
-    directional->setDirection({0.0, -0.5, -1.0});
+    directional->setDirection({0.0, -1.0, -0.6});
+    // Cast shadows so the shadow render pass (a float/depth target) is exercised
+    // and visibly validated against the floor below.
+    directional->setCastsShadow(true);
+    directional->setShadowOrthographicSize(20);
+    directional->setShadowNearZ(1);
+    directional->setShadowFarZ(30);
     rootNode->addLight(directional);
 
     std::shared_ptr<VROBox> box = VROBox::createBox(2, 2, 2);
@@ -147,11 +162,25 @@ void VROSceneWeb::buildCubeScene() {
     std::shared_ptr<VROMaterial> material = box->getMaterials()[0];
     material->setLightingModel(VROLightingModel::Blinn);
     material->getDiffuse().setColor({0.2, 0.6, 1.0, 1.0});
+    // Emit bloom on the brightly-lit faces so the bloom pass is visibly validated.
+    material->setBloomThreshold(0.6);
 
     _boxNode = std::make_shared<VRONode>();
     _boxNode->setGeometry(box);
     _boxNode->setPosition({0, 0, -5});
     rootNode->addChildNode(_boxNode);
+
+    // A floor to receive the cube's shadow (validates the shadow pass visually).
+    std::shared_ptr<VROSurface> floor = VROSurface::createSurface(20, 20);
+    std::shared_ptr<VROMaterial> floorMaterial = floor->getMaterials()[0];
+    floorMaterial->setLightingModel(VROLightingModel::Lambert);
+    floorMaterial->getDiffuse().setColor({0.5, 0.5, 0.5, 1.0});
+
+    std::shared_ptr<VRONode> floorNode = std::make_shared<VRONode>();
+    floorNode->setGeometry(floor);
+    floorNode->setPosition({0, -2, -5});
+    floorNode->setRotationEuler({-(float) M_PI_2, 0, 0});
+    rootNode->addChildNode(floorNode);
 
     // Make the cube tappable: toggle its color on click (demo feedback).
     _cubeDelegate = std::make_shared<CubeClickDelegate>(material);

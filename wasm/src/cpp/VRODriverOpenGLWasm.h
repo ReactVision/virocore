@@ -37,9 +37,32 @@ public:
        
     }
     
+    // Set by VROSceneWeb after context creation, from
+    // emscripten_webgl_enable_extension(ctx, "EXT_color_buffer_float").
+    // WebGL2 requires this extension to render to GL_RGBA16F/RG16F targets,
+    // which HDR, bloom, and IBL/PBR all use. If it's unavailable we must
+    // degrade to a non-HDR pipeline or the float render targets fail.
+    void setColorBufferFloatSupported(bool supported) {
+        _colorBufferFloatSupported = supported;
+    }
+
+    bool isColorBufferFloatSupported() const {
+        return _colorBufferFloatSupported;
+    }
+
     virtual VROColorRenderingMode getColorRenderingMode() {
-        // sRGB framebuffers are not supported on WebGL, so we gamma-correct in software
-        return VROColorRenderingMode::LinearSoftware;
+        // sRGB framebuffers are not supported on WebGL, so we gamma-correct in
+        // software (LinearSoftware) — but only if float color buffers are
+        // available. Without EXT_color_buffer_float, the HDR pipeline's float
+        // targets can't render, so fall back to NonLinear (which disables
+        // HDR/PBR/bloom in VROChoreographer).
+        return _colorBufferFloatSupported ? VROColorRenderingMode::LinearSoftware
+                                          : VROColorRenderingMode::NonLinear;
+    }
+
+    virtual bool isBloomSupported() {
+        // Bloom uses float render targets; gate on the same extension.
+        return _colorBufferFloatSupported;
     }
 
     std::shared_ptr<VROVideoTextureCache> newVideoTextureCache() {
@@ -70,7 +93,8 @@ public:
                       std::string ceilingMaterial, std::string floorMaterial) {}
     
 protected:
-    
+
+    bool _colorBufferFloatSupported = false;
     std::map<std::string, std::weak_ptr<VROTypeface>> _typefaces;
     FT_Library _ft;
     
