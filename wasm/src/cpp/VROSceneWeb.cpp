@@ -33,6 +33,9 @@
 #include "VROSurface.h"
 #include "VROGeometry.h"
 #include "VROMaterial.h"
+#include "VROMaterialVisual.h"
+#include "VROTexture.h"
+#include "VROData.h"
 #include "VROTransaction.h"
 #include "VROEventDelegate.h"
 
@@ -485,6 +488,126 @@ static void viroDestroyMaterial(int material) {
     sMaterials.erase(material);
 }
 
+// Scalar material properties.
+static void viroSetMaterialShininess(int material, float shininess) {
+    if (auto m = getMaterial(material)) m->setShininess(shininess);
+}
+static void viroSetMaterialFresnelExponent(int material, float fresnel) {
+    if (auto m = getMaterial(material)) m->setFresnelExponent(fresnel);
+}
+static void viroSetMaterialRoughness(int material, float roughness) {
+    if (auto m = getMaterial(material)) m->getRoughness().setColor({roughness, roughness, roughness, 1.0});
+}
+static void viroSetMaterialMetalness(int material, float metalness) {
+    if (auto m = getMaterial(material)) m->getMetalness().setColor({metalness, metalness, metalness, 1.0});
+}
+static void viroSetMaterialDiffuseIntensity(int material, float intensity) {
+    if (auto m = getMaterial(material)) m->getDiffuse().setIntensity(intensity);
+}
+// mode: 0=Back, 1=Front, 2=None (VROCullMode)
+static void viroSetMaterialCullMode(int material, int mode) {
+    auto m = getMaterial(material);
+    if (!m) return;
+    switch (mode) {
+        case 1: m->setCullMode(VROCullMode::Front); break;
+        case 2: m->setCullMode(VROCullMode::None); break;
+        default: m->setCullMode(VROCullMode::Back); break;
+    }
+}
+// mode: 0=None,1=Alpha,2=Add,3=Multiply,4=Subtract,5=Screen (VROBlendMode)
+static void viroSetMaterialBlendMode(int material, int mode) {
+    auto m = getMaterial(material);
+    if (!m) return;
+    switch (mode) {
+        case 1: m->setBlendMode(VROBlendMode::Alpha); break;
+        case 2: m->setBlendMode(VROBlendMode::Add); break;
+        case 3: m->setBlendMode(VROBlendMode::Multiply); break;
+        case 4: m->setBlendMode(VROBlendMode::Subtract); break;
+        case 5: m->setBlendMode(VROBlendMode::Screen); break;
+        default: m->setBlendMode(VROBlendMode::None); break;
+    }
+}
+static void viroSetMaterialWritesToDepthBuffer(int material, bool writes) {
+    if (auto m = getMaterial(material)) m->setWritesToDepthBuffer(writes);
+}
+static void viroSetMaterialReadsFromDepthBuffer(int material, bool reads) {
+    if (auto m = getMaterial(material)) m->setReadsFromDepthBuffer(reads);
+}
+
+// --- Textures ---
+
+static std::unordered_map<int, std::shared_ptr<VROTexture>> sTextures;
+static std::shared_ptr<VROTexture> getTexture(int h) {
+    auto it = sTextures.find(h);
+    return it == sTextures.end() ? nullptr : it->second;
+}
+
+// Create a 2D texture from an RGBA8 pixel buffer passed from JS (Uint8Array).
+// sRGB should be true for color (diffuse) textures, false for data maps
+// (normal/roughness/metalness/AO).
+static int viroCreateTextureRGBA(emscripten::val pixels, int width, int height, bool sRGB) {
+    std::vector<uint8_t> bytes = emscripten::convertJSArrayToNumberVector<uint8_t>(pixels);
+    auto data = std::make_shared<VROData>(bytes.data(), (int) bytes.size());
+    std::vector<std::shared_ptr<VROData>> dataVec = { data };
+
+    int h = sNextHandle++;
+    sTextures[h] = std::make_shared<VROTexture>(
+        VROTextureType::Texture2D,
+        VROTextureFormat::RGBA8,
+        VROTextureInternalFormat::RGBA8,
+        sRGB,
+        VROMipmapMode::Runtime,
+        dataVec, width, height, std::vector<uint32_t>());
+    return h;
+}
+// mode: 0=Clamp,1=Repeat,2=ClampToBorder,3=Mirror
+static VROWrapMode wrapModeValue(int mode) {
+    switch (mode) {
+        case 1: return VROWrapMode::Repeat;
+        case 2: return VROWrapMode::ClampToBorder;
+        case 3: return VROWrapMode::Mirror;
+        default: return VROWrapMode::Clamp;
+    }
+}
+static void viroSetTextureWrap(int texture, int wrapS, int wrapT) {
+    if (auto t = getTexture(texture)) {
+        t->setWrapS(wrapModeValue(wrapS));
+        t->setWrapT(wrapModeValue(wrapT));
+    }
+}
+// filter: 0=None,1=Nearest,2=Linear
+static VROFilterMode filterModeValue(int filter) {
+    switch (filter) {
+        case 0: return VROFilterMode::None;
+        case 1: return VROFilterMode::Nearest;
+        default: return VROFilterMode::Linear;
+    }
+}
+static void viroSetTextureFilter(int texture, int minFilter, int magFilter, int mipFilter) {
+    if (auto t = getTexture(texture)) {
+        t->setMinificationFilter(filterModeValue(minFilter));
+        t->setMagnificationFilter(filterModeValue(magFilter));
+        t->setMipFilter(filterModeValue(mipFilter));
+    }
+}
+// channel: 0=diffuse,1=specular,2=normal,3=roughness,4=metalness,5=ambientOcclusion
+static void viroSetMaterialTexture(int material, int channel, int texture) {
+    auto m = getMaterial(material);
+    auto t = getTexture(texture);
+    if (!m || !t) return;
+    switch (channel) {
+        case 1: m->getSpecular().setTexture(t); break;
+        case 2: m->getNormal().setTexture(t); break;
+        case 3: m->getRoughness().setTexture(t); break;
+        case 4: m->getMetalness().setTexture(t); break;
+        case 5: m->getAmbientOcclusion().setTexture(t); break;
+        default: m->getDiffuse().setTexture(t); break;
+    }
+}
+static void viroDestroyTexture(int texture) {
+    sTextures.erase(texture);
+}
+
 // --- Lights ---
 
 static std::unordered_map<int, std::shared_ptr<VROLight>> sLights;
@@ -588,6 +711,21 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroSetMaterialDiffuseColor", &viroSetMaterialDiffuseColor);
     emscripten::function("viroSetMaterialLightingModel", &viroSetMaterialLightingModel);
     emscripten::function("viroDestroyMaterial", &viroDestroyMaterial);
+    emscripten::function("viroSetMaterialShininess", &viroSetMaterialShininess);
+    emscripten::function("viroSetMaterialFresnelExponent", &viroSetMaterialFresnelExponent);
+    emscripten::function("viroSetMaterialRoughness", &viroSetMaterialRoughness);
+    emscripten::function("viroSetMaterialMetalness", &viroSetMaterialMetalness);
+    emscripten::function("viroSetMaterialDiffuseIntensity", &viroSetMaterialDiffuseIntensity);
+    emscripten::function("viroSetMaterialCullMode", &viroSetMaterialCullMode);
+    emscripten::function("viroSetMaterialBlendMode", &viroSetMaterialBlendMode);
+    emscripten::function("viroSetMaterialWritesToDepthBuffer", &viroSetMaterialWritesToDepthBuffer);
+    emscripten::function("viroSetMaterialReadsFromDepthBuffer", &viroSetMaterialReadsFromDepthBuffer);
+
+    emscripten::function("viroCreateTextureRGBA", &viroCreateTextureRGBA);
+    emscripten::function("viroSetTextureWrap", &viroSetTextureWrap);
+    emscripten::function("viroSetTextureFilter", &viroSetTextureFilter);
+    emscripten::function("viroSetMaterialTexture", &viroSetMaterialTexture);
+    emscripten::function("viroDestroyTexture", &viroDestroyTexture);
 
     emscripten::function("viroSetEventCallback", &viroSetEventCallback);
     emscripten::function("viroSetNodeEventEnabled", &viroSetNodeEventEnabled);
