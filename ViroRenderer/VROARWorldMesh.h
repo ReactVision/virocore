@@ -41,6 +41,8 @@ class VROARFrame;
 class VROPhysicsWorld;
 class VROPhysicsShape;
 class VROPencil;
+class VROScene;
+class VROGeometry;
 class btRigidBody;
 class btDefaultMotionState;
 
@@ -277,6 +279,37 @@ public:
      */
     static std::shared_ptr<VROARDepthMesh> loadMeshSnapshot(const std::vector<uint8_t>& data,
                                                              const VROMatrix4f& resolvedTransform);
+
+    /**
+     * WS-C: attach a resolved (static) mesh snapshot loaded via
+     * loadMeshSnapshot() — the counterpart to the live per-frame mesh for
+     * mesh data recovered from a resolved cloud anchor's asset. Adds both:
+     *   - Physics: reuses applyMeshToPhysics() verbatim, the same pipeline
+     *     already used for the live mesh (clustering/decimation + async BVH).
+     *   - Visual occlusion: builds a static, invisible depth-only geometry
+     *     (see buildOcclusionGeometry()) and adds it to the scene root.
+     *     This path is NEW engine code, verified only by compilation — this
+     *     repo has no way to render an AR scene, so it has not been visually
+     *     confirmed to occlude correctly. Test on device before shipping.
+     *
+     * @param mesh The resolved mesh, already in this session's world space
+     *        (see loadMeshSnapshot()'s resolvedTransform parameter).
+     * @param scene The scene to add the occlusion geometry node to.
+     */
+    void attachResolvedMesh(std::shared_ptr<VROARDepthMesh> mesh, std::shared_ptr<VROScene> scene);
+
+    /**
+     * WS-C: build a static, invisible depth-only VROGeometry from a mesh's
+     * vertices/indices. The material writes to the depth buffer but not the
+     * color buffer (VROColorMaskNone) and disables culling (the mesh's
+     * winding was computed relative to a different session's camera, not
+     * guaranteed consistent for this session's viewpoints) — so it never
+     * appears itself but still correctly z-tests virtual content behind it.
+     * Public for testability; normally called via attachResolvedMesh().
+     *
+     * @return nullptr if mesh is null/invalid/empty.
+     */
+    static std::shared_ptr<VROGeometry> buildOcclusionGeometry(std::shared_ptr<VROARDepthMesh> mesh);
 
 private:
     std::weak_ptr<VROPhysicsWorld> _physicsWorld;

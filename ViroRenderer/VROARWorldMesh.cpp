@@ -31,6 +31,15 @@
 #include "VROPencil.h"
 #include "VROLog.h"
 #include "VROPlatformUtil.h"
+#include "VROScene.h"
+#include "VROPortal.h"
+#include "VRONode.h"
+#include "VROGeometry.h"
+#include "VROGeometrySource.h"
+#include "VROGeometryElement.h"
+#include "VROMaterial.h"
+#include "VROShapeUtils.h"
+#include "VROData.h"
 #include <btBulletDynamicsCommon.h>
 #include <unordered_map>
 #include <algorithm>
@@ -617,4 +626,101 @@ std::shared_ptr<VROARDepthMesh> VROARWorldMesh::loadMeshSnapshot(const std::vect
 
     return std::make_shared<VROARDepthMesh>(std::move(vertices), std::move(indices),
                                              std::move(confidences), "snapshot");
+}
+
+// ─── WS-C: resolved (static) mesh attach — physics + visual occlusion ─────────
+
+void VROARWorldMesh::attachResolvedMesh(std::shared_ptr<VROARDepthMesh> mesh,
+                                         std::shared_ptr<VROScene> scene) {
+    if (!mesh || !mesh->isValid()) {
+        pwarn("VROARWorldMesh::attachResolvedMesh: invalid mesh, ignoring");
+        return;
+    }
+    // applyMeshToPhysics()'s async physics-body creation silently aborts if
+    // _enabled is false (see the render-thread callback above) — the world
+    // mesh feature must be turned on for a resolved mesh to take physical
+    // effect, same as the live mesh. Fail loudly here instead of a silent
+    // no-op three threads deep.
+    if (!_enabled) {
+        pwarn("VROARWorldMesh::attachResolvedMesh: world mesh is disabled "
+              "(call setEnabled(true) first) — ignoring resolved mesh");
+        return;
+    }
+
+    // Physics: identical pipeline to the live mesh (clustering/decimation +
+    // async BVH construction) — see applyMeshToPhysics() above.
+    applyMeshToPhysics(mesh);
+
+    // Visual occlusion: new static geometry, depth-only material.
+    if (scene) {
+        std::shared_ptr<VROGeometry> occlusionGeometry = buildOcclusionGeometry(mesh);
+        if (occlusionGeometry) {
+            std::shared_ptr<VRONode> node = std::make_shared<VRONode>();
+            node->setGeometry(occlusionGeometry);
+            scene->getRootNode()->addChildNode(node);
+        } else {
+            pwarn("VROARWorldMesh::attachResolvedMesh: failed to build occlusion geometry");
+        }
+    }
+}
+
+std::shared_ptr<VROGeometry> VROARWorldMesh::buildOcclusionGeometry(std::shared_ptr<VROARDepthMesh> mesh) {
+    if (!mesh || !mesh->isValid()) {
+        return nullptr;
+    }
+
+    const std::vector<VROVector3f>& vertices = mesh->getVertices();
+    const std::vector<int>&         indices  = mesh->getIndices();
+    if (vertices.empty() || indices.empty()) {
+        return nullptr;
+    }
+
+    // Depth-only occlusion material: writes depth, no color output — the
+    // mesh is never itself visible but still z-tests virtual content behind
+    // it. Unlit (Constant) since color never reaches the screen anyway.
+    std::shared_ptr<VROMaterial> material = std::make_shared<VROMaterial>();
+    material->setColorWriteMask(VROColorMaskNone);
+    material->setWritesToDepthBuffer(true);
+    material->setReadsFromDepthBuffer(true);
+    material->setCullMode(VROCullMode::None);
+    material->setLightingModel(VROLightingModel::Constant);
+
+    // Build interleaved position/uv/normal/tangent layout expected by
+    // VROShapeUtilBuildGeometrySources (same helper VROBox uses). UVs/tangents
+    // are unused by an occlusion-only material; normals are a placeholder
+    // direction — real per-vertex normals would require averaging adjacent
+    // face normals across the shared-index depth mesh, which buys nothing
+    // here since color output (and therefore lighting) never reaches the screen.
+    size_t numVertices = vertices.size();
+    std::vector<VROShapeVertexLayout> layout(numVertices);
+    for (size_t i = 0; i < numVertices; ++i) {
+        layout[i].x = vertices[i].x;
+        layout[i].y = vertices[i].y;
+        layout[i].z = vertices[i].z;
+        layout[i].u = 0.f;
+        layout[i].v = 0.f;
+        layout[i].nx = 0.f;
+        layout[i].ny = 1.f;
+        layout[i].nz = 0.f;
+        layout[i].tx = 1.f;
+        layout[i].ty = 0.f;
+        layout[i].tz = 0.f;
+        layout[i].tw = 1.f;
+    }
+
+    std::shared_ptr<VROData> vertexData = std::make_shared<VROData>(
+        (void *)layout.data(), (int)(sizeof(VROShapeVertexLayout) * numVertices));
+    std::vector<std::shared_ptr<VROGeometrySource>> sources =
+        VROShapeUtilBuildGeometrySources(vertexData, numVertices);
+
+    std::shared_ptr<VROData> indexData = std::make_shared<VROData>(
+        (void *)indices.data(), (int)(sizeof(int) * indices.size()));
+    std::shared_ptr<VROGeometryElement> element = std::make_shared<VROGeometryElement>(
+        indexData, VROGeometryPrimitiveType::Triangle,
+        (int)(indices.size() / 3), (int)sizeof(int));
+
+    std::shared_ptr<VROGeometry> geometry = std::make_shared<VROGeometry>(
+        sources, std::vector<std::shared_ptr<VROGeometryElement>>{element});
+    geometry->setMaterials({material});
+    return geometry;
 }
