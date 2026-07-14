@@ -27,6 +27,14 @@ in vec2 texcoord;
 in vec4 tangent;
 in vec4 bone_weights;
 in ivec4 bone_indices;
+in vec3 morph_0;
+in vec3 morph_1;
+in vec3 morph_2;
+in vec3 morph_3;
+in vec3 morph_4;
+in vec3 morph_5;
+in vec3 morph_6;
+in lowp vec4 color;
 
 uniform mat4 normal_matrix;
 uniform mat4 model_matrix;
@@ -40,8 +48,8 @@ out mat3 v_tbn;
 out vec2 v_texcoord;
 out vec3 v_surface_position;
 flat out int v_instance_id;
-
-#include skinning_vsh
+out lowp vec4 v_color;
+#pragma varying_out_declarations
 
 void main() {
     _geometry_position = position;
@@ -68,6 +76,8 @@ void main() {
     v_tbn = mat3(t, b, n);
 
     _vertex_position = _transforms_projection_matrix * _transforms_view_matrix * _transforms_model_matrix * vec4(_geometry_position, 1.0);
+
+    v_color = color;
 
 #pragma vertex_modifier_body
     
