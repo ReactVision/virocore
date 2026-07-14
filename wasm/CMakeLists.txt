@@ -19,7 +19,8 @@ ADD_DEFINITIONS(${GCC_COVERAGE_COMPILE_FLAGS})
 # SDL must be enabled at COMPILE time (not just link) or emscripten's
 # fakesdl/SDL_image.h hard-errors instead of exposing the real port headers.
 # VROImageWasm.cpp / VROJpegReader.cpp include SDL_image.h directly.
-SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -sUSE_SDL=2 -sUSE_SDL_IMAGE=2")
+# USE_ZLIB is needed at compile time too: gzip_stream.cpp includes <zlib.h>.
+SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -sUSE_SDL=2 -sUSE_SDL_IMAGE=2 -sUSE_ZLIB=1")
 
 # By default emscripten produces an .html+.js+.wasm bundle for executables.
 # The library/module target (viro_web) overrides its own SUFFIX to ".js" so it
@@ -116,6 +117,7 @@ SET( VIRO_CORE_SRC
      ${VIRO_RENDERER_SRC}/VROGLTFLoader.cpp
      ${VIRO_RENDERER_SRC}/VROCompress.cpp
      ${VIRO_RENDERER_SRC}/VROSparseBitSet.cpp
+     ${VIRO_RENDERER_SRC}/gzip_stream.cpp
      ${VIRO_RENDERER_SRC}/Nodes.pb.cc
 
      # Renderer
@@ -381,7 +383,7 @@ SET(VIRO_WEB_LINK_FLAGS "-Oz \
                      -sFULL_ES3=1 \
                      -sINITIAL_MEMORY=256MB \
                      -sTEXTDECODER=1 \
-                     -sEXPORTED_RUNTIME_METHODS=[ccall,cwrap] \
+                     -sEXPORTED_RUNTIME_METHODS=[ccall,cwrap,FS] \
                      --bind \
                      --preload-file ${CMAKE_SOURCE_DIR}/preload@/")
 

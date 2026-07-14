@@ -1024,7 +1024,7 @@ class TinyGLTF {
 
 #ifdef _WIN32
 #include <windows.h>
-#elif !defined(__ANDROID__)
+#elif !defined(__ANDROID__) && !defined(__EMSCRIPTEN__)
 #include <wordexp.h>
 #endif
 
@@ -1099,8 +1099,8 @@ static std::string ExpandFilePath(const std::string &filepath) {
 #else
 
 #if defined(TARGET_OS_IPHONE) || defined(TARGET_IPHONE_SIMULATOR) || \
-    defined(__ANDROID__)
-  // no expansion
+    defined(__ANDROID__) || defined(__EMSCRIPTEN__)
+  // no expansion (emscripten has no wordexp; LocalFile paths need none)
   std::string s = filepath;
 #else
   std::string s;

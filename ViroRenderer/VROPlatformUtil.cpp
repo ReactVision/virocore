@@ -1442,6 +1442,13 @@ std::shared_ptr<VROImage> VROPlatformLoadImageFromFile(std::string filename,
     return std::make_shared<VROImageWasm>(filename, format);
 }
 
+std::shared_ptr<VROImage> VROPlatformLoadImageWithBufferedData(std::vector<unsigned char> rawData,
+                                                               VROTextureInternalFormat format) {
+    // Encoded image bytes (e.g. a texture embedded in a GLB/VRX). VROImageWasm
+    // auto-detects the format (PNG/JPEG) from the buffer.
+    return std::make_shared<VROImageWasm>((void *) rawData.data(), (int) rawData.size(), format);
+}
+
 void VROPlatformDispatchAsyncRenderer(std::function<void()> fcn) {
     // Multithreading not supported on WASM
     fcn();

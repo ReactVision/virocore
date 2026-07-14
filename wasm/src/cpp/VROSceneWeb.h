@@ -49,6 +49,9 @@ public:
     // Make the given node's camera the renderer's point of view.
     void setActiveCameraNode(std::shared_ptr<VRONode> node);
 
+    // Driver, needed by the model loaders (GLTF/FBX) invoked from the C API.
+    std::shared_ptr<VRODriverOpenGLWasm> getDriver();
+
     // Build a hardcoded spinning cube demo (smoke test; not used by the bridge).
     void buildCubeScene();
 

@@ -38,6 +38,9 @@
 #include "VROData.h"
 #include "VROTransaction.h"
 #include "VROEventDelegate.h"
+#include "VROGLTFLoader.h"
+#include "VROFBXLoader.h"
+#include "VROModelIOUtil.h"
 
 #include <unordered_map>
 #include <vector>
@@ -154,6 +157,10 @@ void VROSceneWeb::setActiveCameraNode(std::shared_ptr<VRONode> node) {
     if (_renderer && node) {
         _renderer->setPointOfView(node);
     }
+}
+
+std::shared_ptr<VRODriverOpenGLWasm> VROSceneWeb::getDriver() {
+    return _driver;
 }
 
 void VROSceneWeb::buildEmptyScene() {
@@ -682,6 +689,39 @@ static void viroSetActiveCameraNode(int node) {
     if (sScene) sScene->setActiveCameraNode(getNode(node));
 }
 
+// --- Model loading (GLB / glTF / VRX) ---
+
+// cb(nodeHandle, success). Registered by the bridge to know when a load finishes.
+static emscripten::val sModelLoadCallback = emscripten::val::undefined();
+static void viroSetModelLoadCallback(emscripten::val callback) {
+    sModelLoadCallback = callback;
+}
+
+// Loads a model at `path` (already written to the emscripten virtual FS by JS)
+// into the node. format: 0=GLB, 1=glTF, 2=VRX. Self-contained assets (GLB/VRX)
+// need only the single file; the VRX loader handles gzip.
+static void viroLoadModel(int nodeHandle, std::string path, int format) {
+    auto node = getNode(nodeHandle);
+    if (!node || !sScene) {
+        return;
+    }
+    std::shared_ptr<VRODriver> driver = sScene->getDriver();
+
+    auto onFinish = [nodeHandle](std::shared_ptr<VRONode> node, bool success) {
+        if (!sModelLoadCallback.isUndefined() && !sModelLoadCallback.isNull()) {
+            sModelLoadCallback(nodeHandle, success);
+        }
+    };
+
+    if (format == 2) {
+        VROFBXLoader::loadFBXFromResource(path, VROResourceType::LocalFile, node, driver, onFinish);
+    } else {
+        bool isBinary = (format == 0); // 0=GLB binary, 1=glTF text
+        VROGLTFLoader::loadGLTFFromResource(path, {}, VROResourceType::LocalFile, node,
+                                            isBinary, driver, onFinish);
+    }
+}
+
 EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("initViroScene", &initViroScene);
     emscripten::function("setViroSceneSize", &setViroSceneSize);
@@ -745,6 +785,9 @@ EMSCRIPTEN_BINDINGS(viro_web) {
 
     emscripten::function("viroSetNodeCamera", &viroSetNodeCamera);
     emscripten::function("viroSetActiveCameraNode", &viroSetActiveCameraNode);
+
+    emscripten::function("viroSetModelLoadCallback", &viroSetModelLoadCallback);
+    emscripten::function("viroLoadModel", &viroLoadModel);
 }
 
 // The module has no work to do at startup — JS calls initViroScene() once the
