@@ -1799,6 +1799,42 @@ VRO_METHOD(jbyteArray, nativeRvSnapshotWorldMesh)(VRO_ARGS
     return result;
 }
 
+// WS-C: reverse of nativeRvSnapshotWorldMesh — load a resolved mesh snapshot
+// and attach it for physics + visual occlusion. See VROARWorldMesh::
+// attachResolvedMesh() for the (compile-verified only, not visually tested)
+// occlusion geometry construction. Returns false if there's no scene, no
+// world mesh (setWorldMeshEnabled(true) not called), or malformed bytes.
+VRO_METHOD(jboolean, nativeRvLoadWorldMesh)(VRO_ARGS
+                                            VRO_REF(VROARSceneController) sceneController_j,
+                                            jbyteArray meshBytes_j,
+                                            jstring resolvedTransformCsv_j) {
+    std::shared_ptr<VROARScene> scene = std::dynamic_pointer_cast<VROARScene>(
+            VRO_REF_GET(VROARSceneController, sceneController_j)->getScene());
+    if (!scene) {
+        return JNI_FALSE;
+    }
+
+    std::shared_ptr<VROARWorldMesh> worldMesh = scene->getWorldMesh();
+    if (!worldMesh) {
+        return JNI_FALSE;
+    }
+
+    jsize len = env->GetArrayLength(meshBytes_j);
+    std::vector<uint8_t> bytes((size_t)len);
+    env->GetByteArrayRegion(meshBytes_j, 0, len, reinterpret_cast<jbyte*>(bytes.data()));
+
+    std::string csv = VRO_STRING_STL(resolvedTransformCsv_j);
+    VROMatrix4f resolvedTransform = rvParseMatrixCsvARC(csv);
+
+    std::shared_ptr<VROARDepthMesh> mesh = VROARWorldMesh::loadMeshSnapshot(bytes, resolvedTransform);
+    if (!mesh) {
+        return JNI_FALSE;
+    }
+
+    worldMesh->attachResolvedMesh(mesh, scene);
+    return JNI_TRUE;
+}
+
 // +---------------------------------------------------------------------------+
 // | Scene Semantics API
 // +---------------------------------------------------------------------------+

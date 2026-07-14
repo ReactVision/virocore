@@ -1658,6 +1658,20 @@ public class ARScene extends Scene {
     }
 
     /**
+     * WS-C: reverse of {@link #rvSnapshotWorldMesh} — load a resolved mesh
+     * snapshot and attach it for both physics collision and visual occlusion.
+     * Requires {@link #setWorldMeshEnabled} to have been called with true.
+     *
+     * @param meshBytes bytes downloaded from the resolved anchor's mesh asset.
+     * @param resolvedTransformCsv the resolved anchor's transform (16
+     *        comma-separated floats).
+     * @return false if there is no world mesh or the bytes are malformed.
+     */
+    public boolean rvLoadWorldMesh(byte[] meshBytes, String resolvedTransformCsv) {
+        return nativeRvLoadWorldMesh(mNativeRef, meshBytes, resolvedTransformCsv);
+    }
+
+    /**
      * Configure the world mesh generation and physics properties.
      *
      * @param stride Sample every Nth pixel from depth image (lower = more detail)
@@ -1809,6 +1823,7 @@ public class ARScene extends Scene {
     // World Mesh API native methods
     private native void nativeSetWorldMeshEnabled(long sceneControllerRef, boolean enabled);
     private native byte[] nativeRvSnapshotWorldMesh(long sceneControllerRef, String locationTransformCsv);
+    private native boolean nativeRvLoadWorldMesh(long sceneControllerRef, byte[] meshBytes, String resolvedTransformCsv);
     private native void nativeSetWorldMeshConfig(long sceneControllerRef,
                                                   int stride,
                                                   float minConfidence,
