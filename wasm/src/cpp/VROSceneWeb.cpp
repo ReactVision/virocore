@@ -43,6 +43,8 @@
 #include "VROModelIOUtil.h"
 #include "VROExecutableAnimation.h"
 #include "VROTimingFunction.h"
+#include "VROARWeb.h"
+#include "VROQuaternion.h"
 #include <set>
 
 #include <unordered_map>
@@ -176,12 +178,21 @@ void VROSceneWeb::buildEmptyScene() {
     // native SDK, where scenes need lights unless using Constant lighting). A
     // default camera is kept so scenes render before defining a ViroCamera.
     std::shared_ptr<VRONodeCamera> camera = std::make_shared<VRONodeCamera>();
-    std::shared_ptr<VRONode> cameraNode = std::make_shared<VRONode>();
-    cameraNode->setCamera(camera);
-    rootNode->addChildNode(cameraNode);
+    _cameraNode = std::make_shared<VRONode>();
+    _cameraNode->setCamera(camera);
+    rootNode->addChildNode(_cameraNode);
 
     _renderer->setSceneController(_sceneController, _driver);
-    _renderer->setPointOfView(cameraNode);
+    _renderer->setPointOfView(_cameraNode);
+}
+
+void VROSceneWeb::initAR() {
+    _arSession = std::make_shared<VROARSessionWeb>();
+    _arSession->run();
+}
+
+std::shared_ptr<VROARSessionWeb> VROSceneWeb::getARSession() {
+    return _arSession;
 }
 
 void VROSceneWeb::buildCubeScene() {
@@ -231,6 +242,14 @@ void VROSceneWeb::drawFrame() {
         return;
     }
 
+    // AR mode: drive the camera from the injected pose (slam-wasm) and draw the
+    // camera background. Mirrors the native ARCore render loop.
+    if (_arSession) {
+        drawFrameAR(viewport);
+        _frame++;
+        return;
+    }
+
     // Demo-only: spin the cube if buildCubeScene created one. Bridge-built
     // scenes animate via the C API / their own logic instead.
     if (_boxNode) {
@@ -254,6 +273,58 @@ void VROSceneWeb::drawFrame() {
     _renderer->endFrame(_driver);
 
     _frame++;
+}
+
+void VROSceneWeb::drawFrameAR(VROViewport viewport) {
+    _arSession->setViewport(viewport);
+    std::unique_ptr<VROARFrame> &frame = _arSession->updateFrame();
+    const std::shared_ptr<VROARCamera> camera = frame->getCamera();
+
+    // Draw the live camera feed behind the scene. Like the native ARCore path,
+    // this is a screen-space VROSurface whose diffuse is the JS-uploaded camera
+    // texture; created lazily and sized to the viewport.
+    std::shared_ptr<VROTexture> cameraTexture = _arSession->getCameraBackgroundTexture();
+    if (cameraTexture) {
+        if (!_cameraBackground) {
+            _cameraBackground = VROSurface::createSurface(
+                viewport.getX() + viewport.getWidth() / 2.0f,
+                viewport.getY() + viewport.getHeight() / 2.0f,
+                viewport.getWidth(), viewport.getHeight(), 0, 0, 1, 1);
+            _cameraBackground->setScreenSpace(true);
+            _cameraBackground->setName("Camera");
+
+            std::shared_ptr<VROMaterial> material = _cameraBackground->getMaterials()[0];
+            material->setLightingModel(VROLightingModel::Constant);
+            material->setWritesToDepthBuffer(false);
+            material->setNeedsToneMapping(false);
+        }
+        _cameraBackground->getMaterials()[0]->getDiffuse().setTexture(cameraTexture);
+        _renderer->setCameraBackgroundTexture(cameraTexture);
+        if (!_scene->getRootNode()->getBackground()) {
+            _scene->getRootNode()->setBackground(_cameraBackground);
+        }
+    }
+
+    if (camera->getTrackingState() != VROARTrackingState::Normal) {
+        return; // not tracking yet — background shows, scene waits for a pose
+    }
+
+    VROFieldOfView fov;
+    VROMatrix4f projection = camera->getProjection(viewport, kZNear,
+                                                   _renderer->getFarClippingPlane(), &fov);
+    VROMatrix4f rotation = camera->getRotation();
+    VROVector3f position = camera->getPosition();
+
+    // Position the point-of-view from the pose; rotation goes to prepareFrame.
+    _cameraNode->getCamera()->setPosition(position);
+
+    _inputController->setRenderState(_renderer->getLookAtMatrix(), projection, _width, _height);
+
+    _renderer->prepareFrame(_frame, viewport, fov, rotation, projection, _driver);
+    glViewport(viewport.getX(), viewport.getY(), viewport.getWidth(), viewport.getHeight());
+    _renderer->renderEye(VROEyeType::Monocular, _renderer->getLookAtMatrix(), projection, viewport, _driver);
+    _renderer->renderHUD(VROEyeType::Monocular, VROMatrix4f::identity(), projection, _driver);
+    _renderer->endFrame(_driver);
 }
 
 void VROSceneWeb::setSize(int width, int height) {
@@ -844,6 +915,49 @@ static void viroCommitAnimation() {
     VROTransaction::commit();
 }
 
+#pragma mark - AR
+
+// Switch the scene into AR mode. After this, drawFrame() drives the camera from
+// the pose injected via viroARSetPose and draws the camera background.
+static void viroInitAR() {
+    if (sScene) sScene->initAR();
+}
+
+// Inject a camera pose from JS (slam-wasm), already converted to virocore's
+// Y-up/GL convention. Rotation as a quaternion (x,y,z,w); position in meters.
+// trackingState: 1 = Unavailable, 2 = Limited, 3 = Normal.
+static void viroARSetPose(float qx, float qy, float qz, float qw,
+                          float px, float py, float pz, int trackingState) {
+    if (!sScene) return;
+    std::shared_ptr<VROARSessionWeb> session = sScene->getARSession();
+    if (!session) return;
+
+    VROMatrix4f rotation = VROQuaternion(qx, qy, qz, qw).getMatrix();
+    VROARTrackingState state = VROARTrackingState::Normal;
+    switch (trackingState) {
+        case 1: state = VROARTrackingState::Unavailable; break;
+        case 2: state = VROARTrackingState::Limited; break;
+        default: state = VROARTrackingState::Normal; break;
+    }
+    session->setPose(rotation, VROVector3f(px, py, pz), state);
+}
+
+// Set the live camera feed texture (a handle from viroCreateTextureRGBA that JS
+// re-uploads each frame from the <video> element).
+static void viroARSetCameraBackground(int textureHandle) {
+    if (!sScene) return;
+    std::shared_ptr<VROARSessionWeb> session = sScene->getARSession();
+    if (!session) return;
+    session->setCameraBackground(getTexture(textureHandle));
+}
+
+// Report the camera image dimensions (used for projection/intrinsics).
+static void viroARSetCameraImageSize(float width, float height) {
+    if (!sScene) return;
+    std::shared_ptr<VROARSessionWeb> session = sScene->getARSession();
+    if (session) session->setCameraImageSize(width, height);
+}
+
 EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("initViroScene", &initViroScene);
     emscripten::function("setViroSceneSize", &setViroSceneSize);
@@ -920,6 +1034,11 @@ EMSCRIPTEN_BINDINGS(viro_web) {
 
     emscripten::function("viroBeginAnimation", &viroBeginAnimation);
     emscripten::function("viroCommitAnimation", &viroCommitAnimation);
+
+    emscripten::function("viroInitAR", &viroInitAR);
+    emscripten::function("viroARSetPose", &viroARSetPose);
+    emscripten::function("viroARSetCameraBackground", &viroARSetCameraBackground);
+    emscripten::function("viroARSetCameraImageSize", &viroARSetCameraImageSize);
 }
 
 // The module has no work to do at startup — JS calls initViroScene() once the

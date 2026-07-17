@@ -47,6 +47,7 @@ SET( VIRO_CORE_SRC
      src/cpp/VROImageWasm.cpp
      src/cpp/VROTypefaceWasm.cpp
      src/cpp/VROJpegReader.cpp
+     src/cpp/VROARWeb.cpp
 
      # C API
      ${VIRO_CAPI_SRC}/Node_JNI.cpp
