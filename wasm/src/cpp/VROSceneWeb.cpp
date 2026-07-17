@@ -42,6 +42,7 @@
 #include "VROFBXLoader.h"
 #include "VROModelIOUtil.h"
 #include "VROExecutableAnimation.h"
+#include "VROTimingFunction.h"
 #include <set>
 
 #include <unordered_map>
@@ -809,6 +810,40 @@ static void viroStopAnimation(int nodeHandle, bool jumpToEnd) {
     }
 }
 
+// --- Declarative animations (ViroAnimations: transform/opacity via transaction) ---
+//
+// The bridge wraps node property setters between begin/commit; the renderer
+// interpolates from the current values to the new ones over `duration`. Reuses
+// the existing viroSetNode* setters so any animatable property works.
+
+// easing: 0=Linear,1=EaseIn,2=EaseOut,3=EaseInEaseOut,4=Bounce,5=PowerDecel
+static VROTimingFunctionType easingValue(int easing) {
+    switch (easing) {
+        case 1: return VROTimingFunctionType::EaseIn;
+        case 2: return VROTimingFunctionType::EaseOut;
+        case 3: return VROTimingFunctionType::EaseInEaseOut;
+        case 4: return VROTimingFunctionType::Bounce;
+        case 5: return VROTimingFunctionType::PowerDecel;
+        default: return VROTimingFunctionType::Linear;
+    }
+}
+
+static void viroBeginAnimation(int nodeHandle, float duration, float delay, bool loop, int easing) {
+    VROTransaction::begin();
+    VROTransaction::setAnimationDuration(duration);
+    if (delay > 0) {
+        VROTransaction::setAnimationDelay(delay);
+    }
+    VROTransaction::setAnimationLoop(loop);
+    VROTransaction::setTimingFunction(easingValue(easing));
+    VROTransaction::setFinishCallback([nodeHandle](bool terminate) {
+        if (!terminate) emitAnim(nodeHandle, 1);
+    });
+}
+static void viroCommitAnimation() {
+    VROTransaction::commit();
+}
+
 EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("initViroScene", &initViroScene);
     emscripten::function("setViroSceneSize", &setViroSceneSize);
@@ -882,6 +917,9 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroPauseAnimation", &viroPauseAnimation);
     emscripten::function("viroResumeAnimation", &viroResumeAnimation);
     emscripten::function("viroStopAnimation", &viroStopAnimation);
+
+    emscripten::function("viroBeginAnimation", &viroBeginAnimation);
+    emscripten::function("viroCommitAnimation", &viroCommitAnimation);
 }
 
 // The module has no work to do at startup — JS calls initViroScene() once the
