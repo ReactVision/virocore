@@ -41,6 +41,8 @@
 #include "VROGLTFLoader.h"
 #include "VROFBXLoader.h"
 #include "VROModelIOUtil.h"
+#include "VROExecutableAnimation.h"
+#include <set>
 
 #include <unordered_map>
 #include <vector>
@@ -306,6 +308,15 @@ static std::unordered_map<int, std::shared_ptr<VROMaterial>> sMaterials;
 static int sNextHandle = 1;
 static int sRootHandle = 0;
 
+// Per-node running animation, retained so it can be paused/resumed/stopped and
+// re-executed for looping. (Declared here so viroDestroyNode can clear it.)
+struct WebAnimState {
+    std::shared_ptr<VROExecutableAnimation> anim;
+    std::shared_ptr<VRONode> node;
+    bool loop;
+};
+static std::unordered_map<int, std::shared_ptr<WebAnimState>> sNodeAnimations;
+
 #pragma mark - Event marshaling (WASM -> JS)
 
 // Single JS callback the bridge registers to receive node events. Signature:
@@ -414,6 +425,7 @@ static void viroRemoveNodeFromParent(int node) {
 static void viroDestroyNode(int node) {
     sNodes.erase(node);
     sNodeDelegates.erase(node);
+    sNodeAnimations.erase(node);
 }
 
 // --- Events ---
@@ -722,6 +734,81 @@ static void viroLoadModel(int nodeHandle, std::string path, int format) {
     }
 }
 
+// --- Animations (skeletal/keyframe animations embedded in loaded models) ---
+
+// cb(nodeHandle, eventType): 0 = start, 1 = finish.
+static emscripten::val sAnimationCallback = emscripten::val::undefined();
+static void viroSetAnimationCallback(emscripten::val cb) {
+    sAnimationCallback = cb;
+}
+static void emitAnim(int nodeHandle, int eventType) {
+    if (!sAnimationCallback.isUndefined() && !sAnimationCallback.isNull()) {
+        sAnimationCallback(nodeHandle, eventType);
+    }
+}
+
+static void runAnim(int nodeHandle, std::shared_ptr<WebAnimState> state) {
+    std::weak_ptr<WebAnimState> weak = state;
+    state->anim->execute(state->node, [nodeHandle, weak]() {
+        auto s = weak.lock();
+        if (!s) return;
+        // Only continue if this is still the node's active animation.
+        auto it = sNodeAnimations.find(nodeHandle);
+        if (it == sNodeAnimations.end() || it->second != s) return;
+        if (s->loop) {
+            runAnim(nodeHandle, s);
+        } else {
+            sNodeAnimations.erase(nodeHandle);
+            emitAnim(nodeHandle, 1);
+        }
+    });
+}
+
+// Returns the model's animation names (recursive) as a JS array of strings.
+static emscripten::val viroGetAnimationKeys(int nodeHandle) {
+    emscripten::val result = emscripten::val::array();
+    auto node = getNode(nodeHandle);
+    if (!node) return result;
+    std::set<std::string> keys = node->getAnimationKeys(true);
+    int i = 0;
+    for (const std::string &k : keys) {
+        result.set(i++, emscripten::val(k));
+    }
+    return result;
+}
+
+static void viroStartAnimation(int nodeHandle, std::string name, bool loop) {
+    auto node = getNode(nodeHandle);
+    if (!node) return;
+    std::shared_ptr<VROExecutableAnimation> anim = node->getAnimation(name, true);
+    if (!anim) {
+        pinfo("VROSceneWeb: no animation named [%s] on node %d", name.c_str(), nodeHandle);
+        return;
+    }
+    auto state = std::make_shared<WebAnimState>();
+    state->anim = anim->copy(); // copy so per-run tweaks don't mutate the original
+    state->node = node;
+    state->loop = loop;
+    sNodeAnimations[nodeHandle] = state;
+    emitAnim(nodeHandle, 0);
+    runAnim(nodeHandle, state);
+}
+static void viroPauseAnimation(int nodeHandle) {
+    auto it = sNodeAnimations.find(nodeHandle);
+    if (it != sNodeAnimations.end()) it->second->anim->pause();
+}
+static void viroResumeAnimation(int nodeHandle) {
+    auto it = sNodeAnimations.find(nodeHandle);
+    if (it != sNodeAnimations.end()) it->second->anim->resume();
+}
+static void viroStopAnimation(int nodeHandle, bool jumpToEnd) {
+    auto it = sNodeAnimations.find(nodeHandle);
+    if (it != sNodeAnimations.end()) {
+        it->second->anim->terminate(jumpToEnd);
+        sNodeAnimations.erase(it);
+    }
+}
+
 EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("initViroScene", &initViroScene);
     emscripten::function("setViroSceneSize", &setViroSceneSize);
@@ -788,6 +875,13 @@ EMSCRIPTEN_BINDINGS(viro_web) {
 
     emscripten::function("viroSetModelLoadCallback", &viroSetModelLoadCallback);
     emscripten::function("viroLoadModel", &viroLoadModel);
+
+    emscripten::function("viroSetAnimationCallback", &viroSetAnimationCallback);
+    emscripten::function("viroGetAnimationKeys", &viroGetAnimationKeys);
+    emscripten::function("viroStartAnimation", &viroStartAnimation);
+    emscripten::function("viroPauseAnimation", &viroPauseAnimation);
+    emscripten::function("viroResumeAnimation", &viroResumeAnimation);
+    emscripten::function("viroStopAnimation", &viroStopAnimation);
 }
 
 // The module has no work to do at startup — JS calls initViroScene() once the
