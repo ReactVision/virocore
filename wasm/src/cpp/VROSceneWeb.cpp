@@ -49,6 +49,7 @@
 #include "VROEventDelegate.h"
 #include "VROGLTFLoader.h"
 #include "VROFBXLoader.h"
+#include "VROHDRLoader.h"
 #include "VROModelIOUtil.h"
 #include "VROExecutableAnimation.h"
 #include "VROTimingFunction.h"
@@ -854,6 +855,28 @@ static int viroCreateTextureCubeRGBA(emscripten::val px, emscripten::val nx,
     return h;
 }
 
+// --- Lighting environment (IBL) ---
+
+// Load a radiance .hdr file (already written to the virtual FS at `path`) into a
+// texture usable as an image-based lighting environment.
+static int viroLoadRadianceHDRTexture(std::string path) {
+    std::shared_ptr<VROTexture> tex = VROHDRLoader::loadRadianceHDRTexture(path);
+    if (!tex) return 0;
+    int h = sNextHandle++;
+    sTextures[h] = tex;
+    return h;
+}
+
+// Apply (or clear, if 0) the scene's IBL environment.
+static void viroSetLightingEnvironment(int textureHandle) {
+    if (!sScene) return;
+    if (textureHandle == 0) {
+        sScene->getRootNode()->setLightingEnvironment(nullptr);
+    } else if (std::shared_ptr<VROTexture> tex = getTexture(textureHandle)) {
+        sScene->getRootNode()->setLightingEnvironment(tex);
+    }
+}
+
 // --- Background (skybox / 360) ---
 
 static void viroSetBackgroundSphere(int texture) {
@@ -1269,6 +1292,8 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroSetMaterialTexture", &viroSetMaterialTexture);
     emscripten::function("viroDestroyTexture", &viroDestroyTexture);
     emscripten::function("viroCreateTextureCubeRGBA", &viroCreateTextureCubeRGBA);
+    emscripten::function("viroLoadRadianceHDRTexture", &viroLoadRadianceHDRTexture);
+    emscripten::function("viroSetLightingEnvironment", &viroSetLightingEnvironment);
     emscripten::function("viroSetBackgroundSphere", &viroSetBackgroundSphere);
     emscripten::function("viroSetBackgroundCube", &viroSetBackgroundCube);
     emscripten::function("viroSetBackgroundRotation", &viroSetBackgroundRotation);
