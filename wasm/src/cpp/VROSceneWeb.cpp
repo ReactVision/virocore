@@ -38,6 +38,8 @@
 #include "VROGeometry.h"
 #include "VROGeometrySource.h"
 #include "VROGeometryElement.h"
+#include "VROParticleEmitter.h"
+#include "VROParticleModifier.h"
 #include "VROMaterial.h"
 #include "VROMaterialVisual.h"
 #include "VROTexture.h"
@@ -872,6 +874,63 @@ static void viroSetBackgroundRotation(float x, float y, float z) {
     }
 }
 
+// --- Particle emitter ---
+
+// Attach a particle emitter to a node. The sprite is a quad (particleW×particleH)
+// textured with textureHandle. spawnShape: 0 Box, 1 Sphere, 2 Point (shapeParams:
+// Box=[w,h,l], Sphere=[r], Point=[]). velocity is a random range [min,max].
+// Returns 1 on success, 0 on failure.
+static int viroCreateParticleEmitter(int nodeHandle, int textureHandle,
+                                     float particleW, float particleH,
+                                     int maxParticles, int emitRateMin, int emitRateMax,
+                                     int lifetimeMin, int lifetimeMax,
+                                     int spawnShape, float sp0, float sp1, float sp2,
+                                     float velMinX, float velMinY, float velMinZ,
+                                     float velMaxX, float velMaxY, float velMaxZ) {
+    if (!sScene) return 0;
+    std::shared_ptr<VRONode> node = getNode(nodeHandle);
+    if (!node) return 0;
+
+    std::shared_ptr<VROSurface> surface = VROSurface::createSurface(particleW, particleH);
+    std::shared_ptr<VROMaterial> mat = surface->getMaterials()[0];
+    mat->setLightingModel(VROLightingModel::Constant);
+    mat->setBlendMode(VROBlendMode::Add);
+    mat->setWritesToDepthBuffer(false);
+    if (std::shared_ptr<VROTexture> tex = getTexture(textureHandle)) {
+        mat->getDiffuse().setTexture(tex);
+    }
+
+    std::shared_ptr<VROParticleEmitter> emitter =
+        std::make_shared<VROParticleEmitter>(sScene->getDriver(), surface);
+    emitter->setMaxParticles(maxParticles);
+    emitter->setEmissionRatePerSecond({ emitRateMin, emitRateMax });
+    emitter->setParticleLifeTime({ lifetimeMin, lifetimeMax });
+
+    VROParticleSpawnVolume volume;
+    switch (spawnShape) {
+        case 0: volume.shape = VROParticleSpawnVolume::Shape::Box; volume.shapeParams = { sp0, sp1, sp2 }; break;
+        case 1: volume.shape = VROParticleSpawnVolume::Shape::Sphere; volume.shapeParams = { sp0 }; break;
+        default: volume.shape = VROParticleSpawnVolume::Shape::Point; volume.shapeParams = {}; break;
+    }
+    volume.spawnOnSurface = false;
+    emitter->setParticleSpawnVolume(volume);
+
+    emitter->setVelocityModifier(std::make_shared<VROParticleModifier>(
+        VROVector3f(velMinX, velMinY, velMinZ), VROVector3f(velMaxX, velMaxY, velMaxZ)));
+
+    emitter->setRun(true);
+    node->setParticleEmitter(emitter);
+    return 1;
+}
+
+// Toggle a node's emitter run/pause state.
+static void viroSetParticleEmitterRun(int nodeHandle, bool run) {
+    std::shared_ptr<VRONode> node = getNode(nodeHandle);
+    if (node && node->getParticleEmitter()) {
+        node->getParticleEmitter()->setRun(run);
+    }
+}
+
 // --- Lights ---
 
 static std::unordered_map<int, std::shared_ptr<VROLight>> sLights;
@@ -1183,6 +1242,8 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroSetBackgroundSphere", &viroSetBackgroundSphere);
     emscripten::function("viroSetBackgroundCube", &viroSetBackgroundCube);
     emscripten::function("viroSetBackgroundRotation", &viroSetBackgroundRotation);
+    emscripten::function("viroCreateParticleEmitter", &viroCreateParticleEmitter);
+    emscripten::function("viroSetParticleEmitterRun", &viroSetParticleEmitterRun);
 
     emscripten::function("viroSetEventCallback", &viroSetEventCallback);
     emscripten::function("viroSetNodeEventEnabled", &viroSetNodeEventEnabled);
