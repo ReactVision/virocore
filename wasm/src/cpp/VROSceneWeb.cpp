@@ -36,6 +36,8 @@
 #include "VROPolyline.h"
 #include "VROPolygon.h"
 #include "VROGeometry.h"
+#include "VROGeometrySource.h"
+#include "VROGeometryElement.h"
 #include "VROMaterial.h"
 #include "VROMaterialVisual.h"
 #include "VROTexture.h"
@@ -633,6 +635,43 @@ static int viroCreatePolygon(emscripten::val points) {
     return h;
 }
 
+// Create a custom mesh. vertices/normals are flat [x,y,z,…]; texcoords are flat
+// [u,v,…]; indices are a flat triangle-index list. normals/texcoords may be empty.
+static int viroCreateGeometry(emscripten::val vertices, emscripten::val normals,
+                              emscripten::val texcoords, emscripten::val indices) {
+    std::vector<float> v = emscripten::convertJSArrayToNumberVector<float>(vertices);
+    std::vector<float> n = emscripten::convertJSArrayToNumberVector<float>(normals);
+    std::vector<float> t = emscripten::convertJSArrayToNumberVector<float>(texcoords);
+    std::vector<uint32_t> idx = emscripten::convertJSArrayToNumberVector<uint32_t>(indices);
+    if (v.empty() || idx.empty()) return 0;
+
+    int vertexCount = (int) v.size() / 3;
+    std::vector<std::shared_ptr<VROGeometrySource>> sources;
+    std::vector<std::shared_ptr<VROGeometryElement>> elements;
+
+    auto vData = std::make_shared<VROData>((void *) v.data(), (int)(v.size() * sizeof(float)));
+    sources.push_back(std::make_shared<VROGeometrySource>(
+        vData, VROGeometrySourceSemantic::Vertex, vertexCount, true, 3, 4, 0, 12));
+    if (!n.empty()) {
+        auto nData = std::make_shared<VROData>((void *) n.data(), (int)(n.size() * sizeof(float)));
+        sources.push_back(std::make_shared<VROGeometrySource>(
+            nData, VROGeometrySourceSemantic::Normal, (int) n.size() / 3, true, 3, 4, 0, 12));
+    }
+    if (!t.empty()) {
+        auto tData = std::make_shared<VROData>((void *) t.data(), (int)(t.size() * sizeof(float)));
+        sources.push_back(std::make_shared<VROGeometrySource>(
+            tData, VROGeometrySourceSemantic::Texcoord, (int) t.size() / 2, true, 2, 4, 0, 8));
+    }
+
+    auto iData = std::make_shared<VROData>((void *) idx.data(), (int)(idx.size() * sizeof(uint32_t)));
+    elements.push_back(std::make_shared<VROGeometryElement>(
+        iData, VROGeometryPrimitiveType::Triangle, (int) idx.size() / 3, 4, false));
+
+    int handle = sNextHandle++;
+    sGeometries[handle] = std::make_shared<VROGeometry>(sources, elements);
+    return handle;
+}
+
 static void viroSetGeometryMaterial(int geometry, int material) {
     auto g = getGeometry(geometry);
     auto m = getMaterial(material);
@@ -1117,6 +1156,7 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroCreateText", &viroCreateText);
     emscripten::function("viroCreatePolyline", &viroCreatePolyline);
     emscripten::function("viroCreatePolygon", &viroCreatePolygon);
+    emscripten::function("viroCreateGeometry", &viroCreateGeometry);
     emscripten::function("viroSetGeometryMaterial", &viroSetGeometryMaterial);
     emscripten::function("viroDestroyGeometry", &viroDestroyGeometry);
 
