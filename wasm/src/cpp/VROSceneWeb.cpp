@@ -31,6 +31,8 @@
 #include "VROBox.h"
 #include "VROSphere.h"
 #include "VROSurface.h"
+#include "VROText.h"
+#include "VROTypeface.h"
 #include "VROGeometry.h"
 #include "VROMaterial.h"
 #include "VROMaterialVisual.h"
@@ -540,6 +542,71 @@ static int viroCreateSurface(float width, float height) {
     sGeometries[h] = VROSurface::createSurface(width, height);
     return h;
 }
+
+// Minimal UTF-8 → wstring decoder (emscripten wchar_t is 32-bit / UTF-32).
+// Handles the full BMP + astral planes; malformed bytes are skipped.
+static std::wstring utf8ToWString(const std::string &s) {
+    std::wstring out;
+    size_t i = 0, n = s.size();
+    while (i < n) {
+        unsigned char c = (unsigned char) s[i];
+        uint32_t cp;
+        int extra;
+        if (c < 0x80) { cp = c; extra = 0; }
+        else if ((c >> 5) == 0x6) { cp = c & 0x1F; extra = 1; }
+        else if ((c >> 4) == 0xE) { cp = c & 0x0F; extra = 2; }
+        else if ((c >> 3) == 0x1E) { cp = c & 0x07; extra = 3; }
+        else { i++; continue; }
+        if (i + extra >= n) break;
+        for (int k = 0; k < extra; k++) {
+            cp = (cp << 6) | ((unsigned char) s[i + 1 + k] & 0x3F);
+        }
+        out.push_back((wchar_t) cp);
+        i += extra + 1;
+    }
+    return out;
+}
+
+// Create a text geometry. Alignment/linebreak/clip are int-coded to match
+// VROText's enums. color is RGBA in [0,1]. Uses the preloaded system font.
+// hAlign: 0 Left, 1 Right, 2 Center | vAlign: 0 Top, 1 Bottom, 2 Center
+// lineBreak: 0 WordWrap, 1 CharWrap, 2 Justify, 3 None | clip: 0 ClipToBounds, 1 None
+static int viroCreateText(std::string text, float width, float height, int fontSize,
+                          int hAlign, int vAlign, int lineBreak, int clipMode, int maxLines,
+                          float r, float g, float b, float a) {
+    if (!sScene) return 0;
+
+    VROTextHorizontalAlignment h;
+    switch (hAlign) {
+        case 1: h = VROTextHorizontalAlignment::Right; break;
+        case 2: h = VROTextHorizontalAlignment::Center; break;
+        default: h = VROTextHorizontalAlignment::Left; break;
+    }
+    VROTextVerticalAlignment v;
+    switch (vAlign) {
+        case 1: v = VROTextVerticalAlignment::Bottom; break;
+        case 2: v = VROTextVerticalAlignment::Center; break;
+        default: v = VROTextVerticalAlignment::Top; break;
+    }
+    VROLineBreakMode lb;
+    switch (lineBreak) {
+        case 1: lb = VROLineBreakMode::CharWrap; break;
+        case 2: lb = VROLineBreakMode::Justify; break;
+        case 3: lb = VROLineBreakMode::None; break;
+        default: lb = VROLineBreakMode::WordWrap; break;
+    }
+    VROTextClipMode clip = (clipMode == 1) ? VROTextClipMode::None : VROTextClipMode::ClipToBounds;
+
+    std::shared_ptr<VROText> textGeom = VROText::createText(
+        utf8ToWString(text), "Helvetica", fontSize,
+        VROFontStyle::Normal, VROFontWeight::Regular,
+        {r, g, b, a}, 0 /*extrusion*/, width, height,
+        h, v, lb, clip, maxLines, sScene->getDriver());
+
+    int handle = sNextHandle++;
+    sGeometries[handle] = textGeom;
+    return handle;
+}
 static void viroSetGeometryMaterial(int geometry, int material) {
     auto g = getGeometry(geometry);
     auto m = getMaterial(material);
@@ -980,6 +1047,7 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroCreateBox", &viroCreateBox);
     emscripten::function("viroCreateSphere", &viroCreateSphere);
     emscripten::function("viroCreateSurface", &viroCreateSurface);
+    emscripten::function("viroCreateText", &viroCreateText);
     emscripten::function("viroSetGeometryMaterial", &viroSetGeometryMaterial);
     emscripten::function("viroDestroyGeometry", &viroDestroyGeometry);
 
