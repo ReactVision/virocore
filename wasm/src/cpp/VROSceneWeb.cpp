@@ -25,6 +25,7 @@
 #include "VROSceneController.h"
 #include "VROScene.h"
 #include "VROPortal.h"
+#include "VROPortalFrame.h"
 #include "VRONode.h"
 #include "VRONodeCamera.h"
 #include "VROLight.h"
@@ -931,6 +932,35 @@ static void viroSetParticleEmitterRun(int nodeHandle, bool run) {
     }
 }
 
+// --- Portals ---
+// A portal scene (VROPortal) holds content seen through an entrance frame
+// (VROPortalFrame). Both are VRONodes, so parenting uses the normal node API;
+// these just create the right subclass and wire the entrance.
+
+static int viroCreatePortalScene() {
+    int h = sNextHandle++;
+    sNodes[h] = std::make_shared<VROPortal>();
+    return h;
+}
+static int viroCreatePortalFrame() {
+    int h = sNextHandle++;
+    sNodes[h] = std::make_shared<VROPortalFrame>();
+    return h;
+}
+static void viroSetPortalEntrance(int portalScene, int frame) {
+    std::shared_ptr<VROPortal> scene = std::dynamic_pointer_cast<VROPortal>(getNode(portalScene));
+    std::shared_ptr<VROPortalFrame> f = std::dynamic_pointer_cast<VROPortalFrame>(getNode(frame));
+    if (scene && f) {
+        scene->setPortalEntrance(f);
+    }
+}
+static void viroSetPortalPassable(int portalScene, bool passable) {
+    std::shared_ptr<VROPortal> scene = std::dynamic_pointer_cast<VROPortal>(getNode(portalScene));
+    if (scene) {
+        scene->setPassable(passable);
+    }
+}
+
 // --- Lights ---
 
 static std::unordered_map<int, std::shared_ptr<VROLight>> sLights;
@@ -1244,6 +1274,10 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroSetBackgroundRotation", &viroSetBackgroundRotation);
     emscripten::function("viroCreateParticleEmitter", &viroCreateParticleEmitter);
     emscripten::function("viroSetParticleEmitterRun", &viroSetParticleEmitterRun);
+    emscripten::function("viroCreatePortalScene", &viroCreatePortalScene);
+    emscripten::function("viroCreatePortalFrame", &viroCreatePortalFrame);
+    emscripten::function("viroSetPortalEntrance", &viroSetPortalEntrance);
+    emscripten::function("viroSetPortalPassable", &viroSetPortalPassable);
 
     emscripten::function("viroSetEventCallback", &viroSetEventCallback);
     emscripten::function("viroSetNodeEventEnabled", &viroSetNodeEventEnabled);
