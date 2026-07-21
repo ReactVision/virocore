@@ -33,6 +33,8 @@
 #include "VROSurface.h"
 #include "VROText.h"
 #include "VROTypeface.h"
+#include "VROPolyline.h"
+#include "VROPolygon.h"
 #include "VROGeometry.h"
 #include "VROMaterial.h"
 #include "VROMaterialVisual.h"
@@ -607,6 +609,30 @@ static int viroCreateText(std::string text, float width, float height, int fontS
     sGeometries[handle] = textGeom;
     return handle;
 }
+// Create a polyline from a flat [x,y,z, x,y,z, …] point list, with a thickness.
+static int viroCreatePolyline(emscripten::val points, float thickness) {
+    std::vector<float> f = emscripten::convertJSArrayToNumberVector<float>(points);
+    std::vector<VROVector3f> path;
+    for (size_t i = 0; i + 2 < f.size(); i += 3) {
+        path.push_back({ f[i], f[i + 1], f[i + 2] });
+    }
+    int h = sNextHandle++;
+    sGeometries[h] = VROPolyline::createPolyline(path, thickness);
+    return h;
+}
+
+// Create a filled polygon from a flat [x,y,z, …] perimeter point list.
+static int viroCreatePolygon(emscripten::val points) {
+    std::vector<float> f = emscripten::convertJSArrayToNumberVector<float>(points);
+    std::vector<VROVector3f> path;
+    for (size_t i = 0; i + 2 < f.size(); i += 3) {
+        path.push_back({ f[i], f[i + 1], f[i + 2] });
+    }
+    int h = sNextHandle++;
+    sGeometries[h] = VROPolygon::createPolygon(path);
+    return h;
+}
+
 static void viroSetGeometryMaterial(int geometry, int material) {
     auto g = getGeometry(geometry);
     auto m = getMaterial(material);
@@ -1089,6 +1115,8 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroCreateSphere", &viroCreateSphere);
     emscripten::function("viroCreateSurface", &viroCreateSurface);
     emscripten::function("viroCreateText", &viroCreateText);
+    emscripten::function("viroCreatePolyline", &viroCreatePolyline);
+    emscripten::function("viroCreatePolygon", &viroCreatePolygon);
     emscripten::function("viroSetGeometryMaterial", &viroSetGeometryMaterial);
     emscripten::function("viroDestroyGeometry", &viroDestroyGeometry);
 
