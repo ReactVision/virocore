@@ -766,6 +766,47 @@ static void viroDestroyTexture(int texture) {
     sTextures.erase(texture);
 }
 
+// Create a cube texture from six RGBA8 faces (order: +X,-X,+Y,-Y,+Z,-Z), each
+// width*height*4 bytes. Used for skybox backgrounds.
+static int viroCreateTextureCubeRGBA(emscripten::val px, emscripten::val nx,
+                                     emscripten::val py, emscripten::val ny,
+                                     emscripten::val pz, emscripten::val nz,
+                                     int width, int height) {
+    auto toData = [](emscripten::val a) {
+        std::vector<uint8_t> b = emscripten::convertJSArrayToNumberVector<uint8_t>(a);
+        return std::make_shared<VROData>(b.data(), (int) b.size());
+    };
+    std::vector<std::shared_ptr<VROData>> faces = {
+        toData(px), toData(nx), toData(py), toData(ny), toData(pz), toData(nz)
+    };
+    int h = sNextHandle++;
+    sTextures[h] = std::make_shared<VROTexture>(
+        VROTextureType::TextureCube, VROTextureFormat::RGBA8, VROTextureInternalFormat::RGBA8,
+        true, VROMipmapMode::None, faces, width, height, std::vector<uint32_t>());
+    return h;
+}
+
+// --- Background (skybox / 360) ---
+
+static void viroSetBackgroundSphere(int texture) {
+    if (sScene) {
+        auto t = getTexture(texture);
+        if (t) sScene->getRootNode()->setBackgroundSphere(t);
+    }
+}
+static void viroSetBackgroundCube(int texture) {
+    if (sScene) {
+        auto t = getTexture(texture);
+        if (t) sScene->getRootNode()->setBackgroundCube(t);
+    }
+}
+static void viroSetBackgroundRotation(float x, float y, float z) {
+    if (sScene) {
+        VROQuaternion q(x, y, z);
+        sScene->getRootNode()->setBackgroundRotation(q);
+    }
+}
+
 // --- Lights ---
 
 static std::unordered_map<int, std::shared_ptr<VROLight>> sLights;
@@ -1070,6 +1111,10 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroSetTextureFilter", &viroSetTextureFilter);
     emscripten::function("viroSetMaterialTexture", &viroSetMaterialTexture);
     emscripten::function("viroDestroyTexture", &viroDestroyTexture);
+    emscripten::function("viroCreateTextureCubeRGBA", &viroCreateTextureCubeRGBA);
+    emscripten::function("viroSetBackgroundSphere", &viroSetBackgroundSphere);
+    emscripten::function("viroSetBackgroundCube", &viroSetBackgroundCube);
+    emscripten::function("viroSetBackgroundRotation", &viroSetBackgroundRotation);
 
     emscripten::function("viroSetEventCallback", &viroSetEventCallback);
     emscripten::function("viroSetNodeEventEnabled", &viroSetNodeEventEnabled);
