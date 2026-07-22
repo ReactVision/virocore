@@ -315,18 +315,18 @@ void VROSceneWeb::drawFrameAR(VROViewport viewport) {
         }
     }
 
-    if (camera->getTrackingState() != VROARTrackingState::Normal) {
-        return; // not tracking yet — background shows, scene waits for a pose
-    }
-
+    // Always render so the live camera feed is visible even before tracking
+    // converges (mirrors native ARCore, which shows the camera while waiting).
+    // The pose is applied only once tracking is Normal; before that the scene
+    // renders at the default point of view.
     VROFieldOfView fov;
     VROMatrix4f projection = camera->getProjection(viewport, kZNear,
                                                    _renderer->getFarClippingPlane(), &fov);
-    VROMatrix4f rotation = camera->getRotation();
-    VROVector3f position = camera->getPosition();
-
-    // Position the point-of-view from the pose; rotation goes to prepareFrame.
-    _cameraNode->getCamera()->setPosition(position);
+    VROMatrix4f rotation = VROMatrix4f::identity();
+    if (camera->getTrackingState() == VROARTrackingState::Normal) {
+        rotation = camera->getRotation();
+        _cameraNode->getCamera()->setPosition(camera->getPosition());
+    }
 
     _inputController->setRenderState(_renderer->getLookAtMatrix(), projection, _width, _height);
 
