@@ -308,7 +308,10 @@ void VROSceneWeb::drawFrameAR(VROViewport viewport) {
             material->setWritesToDepthBuffer(false);
             material->setNeedsToneMapping(false);
         }
-        _cameraBackground->getMaterials()[0]->getDiffuse().setTexture(cameraTexture);
+        // [ar-diag] Temporarily paint the background surface solid red (no
+        // texture) to check whether the screen-space background renders at all.
+        _cameraBackground->getMaterials()[0]->getDiffuse().setColor({1.0f, 0.0f, 0.0f, 1.0f});
+        // _cameraBackground->getMaterials()[0]->getDiffuse().setTexture(cameraTexture);
         _renderer->setCameraBackgroundTexture(cameraTexture);
         if (!_scene->getRootNode()->getBackground()) {
             _scene->getRootNode()->setBackground(_cameraBackground);
