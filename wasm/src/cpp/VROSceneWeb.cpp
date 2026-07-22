@@ -308,10 +308,11 @@ void VROSceneWeb::drawFrameAR(VROViewport viewport) {
             material->setWritesToDepthBuffer(false);
             material->setNeedsToneMapping(false);
         }
-        // [ar-diag] Temporarily paint the background surface solid red (no
-        // texture) to check whether the screen-space background renders at all.
-        _cameraBackground->getMaterials()[0]->getDiffuse().setColor({1.0f, 0.0f, 0.0f, 1.0f});
-        // _cameraBackground->getMaterials()[0]->getDiffuse().setTexture(cameraTexture);
+        _cameraBackground->getMaterials()[0]->getDiffuse().setTexture(cameraTexture);
+        // JS uploads a fresh VROTexture each frame; force its GPU upload now so
+        // the background samples real pixels this frame (otherwise the one-shot
+        // texture is replaced before it hydrates, sampling empty → blank feed).
+        cameraTexture->prewarm(_driver);
         _renderer->setCameraBackgroundTexture(cameraTexture);
         if (!_scene->getRootNode()->getBackground()) {
             _scene->getRootNode()->setBackground(_cameraBackground);
