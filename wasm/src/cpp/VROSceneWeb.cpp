@@ -315,6 +315,16 @@ void VROSceneWeb::drawFrameAR(VROViewport viewport) {
         }
     }
 
+    static bool sArBgDiag = false;
+    if (!sArBgDiag) {
+        sArBgDiag = true;
+        pinfo("[ar-diag-cpp] cameraTexture=%d viewport=%dx%d bgSet=%d trackingState=%d",
+              cameraTexture != nullptr ? 1 : 0,
+              (int) viewport.getWidth(), (int) viewport.getHeight(),
+              _scene->getRootNode()->getBackground() != nullptr ? 1 : 0,
+              (int) camera->getTrackingState());
+    }
+
     // Always render so the live camera feed is visible even before tracking
     // converges (mirrors native ARCore, which shows the camera while waiting).
     // The pose is applied only once tracking is Normal; before that the scene
