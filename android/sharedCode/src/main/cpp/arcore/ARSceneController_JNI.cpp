@@ -1497,6 +1497,19 @@ VRO_METHOD(void, nativeHostCloudAnchor)(VRO_ARGS
     });
 }
 
+// WS-C: mirrors rvMatrixToCsvARC() (VROARSessionARCore.cpp) so a resolved
+// anchor's transform can be threaded into loadWorldMeshFromFile().
+static std::string rvMatrixToCsvJNI(const VROMatrix4f& m) {
+    const float* a = m.getArray();
+    std::string csv;
+    char buf[32];
+    for (int i = 0; i < 16; ++i) {
+        snprintf(buf, sizeof(buf), i == 0 ? "%g" : ",%g", a[i]);
+        csv += buf;
+    }
+    return csv;
+}
+
 VRO_METHOD(void, nativeResolveCloudAnchor)(VRO_ARGS
                                            VRO_REF(VROARSceneController) sceneController_j,
                                            VRO_STRING cloudAnchorId_j) {
@@ -1543,9 +1556,12 @@ VRO_METHOD(void, nativeResolveCloudAnchor)(VRO_ARGS
                        nodeId = cloudAnchor->getARNode()->getUniqueID();
                    }
 
+                   // WS-C: lets the caller thread this straight into loadWorldMeshFromFile().
+                   VRO_STRING resolvedTransform_j = VRO_NEW_STRING(rvMatrixToCsvJNI(cloudAnchor->getTransform()).c_str());
+
                    VROPlatformCallHostFunction(obj_j, "onResolveSuccess",
-                                               "(Ljava/lang/String;Lcom/viro/core/ARAnchor;I)V",
-                                               cloudAnchorId_j, anchor_j, nodeId);
+                                               "(Ljava/lang/String;Lcom/viro/core/ARAnchor;ILjava/lang/String;)V",
+                                               cloudAnchorId_j, anchor_j, nodeId, resolvedTransform_j);
 
                    VRO_DELETE_LOCAL_REF(obj_j);
                    VRO_DELETE_WEAK_GLOBAL_REF(obj_w);

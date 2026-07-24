@@ -183,8 +183,11 @@ public class ARScene extends Scene {
          * @param anchor The new, successfully resolved, cloud anchor.
          * @param arNode The ARNode attached and synchronized to the cloud anchor, to which you
          *               can add virtual content.
+         * @param resolvedTransform Opaque CSV-encoded transform for this resolved anchor (WS-C).
+         *               Thread it into {@code loadWorldMeshFromFile} to attach a mesh snapshot
+         *               hosted alongside this anchor. Treat as opaque; do not parse.
          */
-        public void onSuccess(ARAnchor anchor, ARNode arNode);
+        public void onSuccess(ARAnchor anchor, ARNode arNode, String resolvedTransform);
 
         /**
          * Invoked when the system fails to resolve an anchor. Anchor resolution can fail for a
@@ -1040,7 +1043,7 @@ public class ARScene extends Scene {
     }
 
     // Called by native
-    void onResolveSuccess(String cloudAnchorId, ARAnchor cloudAnchor, int arNodeId) {
+    void onResolveSuccess(String cloudAnchorId, ARAnchor cloudAnchor, int arNodeId, String resolvedTransform) {
         if (!cloudAnchorId.equals(cloudAnchor.getCloudAnchorId())) {
             throw new IllegalStateException("Resolved cloud anchor ID [" + cloudAnchor.getCloudAnchorId() +
                     "] does not match requested ID [" + cloudAnchorId + "]!");
@@ -1056,7 +1059,7 @@ public class ARScene extends Scene {
                     node = new ARNode(arNodeId);
                 }
             }
-            callback.onSuccess(cloudAnchor, node);
+            callback.onSuccess(cloudAnchor, node, resolvedTransform);
         } else {
             Log.e("Viro", "Cloud anchor resolve successful, but no callback found to invoke [anchor ID: "
                     + cloudAnchorId + "]");
