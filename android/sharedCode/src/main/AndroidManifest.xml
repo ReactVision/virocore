@@ -13,12 +13,6 @@
     <!-- Required for Recording -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
-    <!-- Eye tracking (Meta Quest Pro): drives the optional eye-gaze onHover source
-         via XR_EXT_eye_gaze_interaction. Optional feature — the app runs fine on
-         headsets without eye tracking (Quest 2 / 3 / 3S). -->
-    <uses-permission android:name="com.oculus.permission.EYE_TRACKING" />
-    <uses-feature android:name="oculus.software.eye_tracking" android:required="false" />
-
     <!-- Required to detect viewer insertion. -->
     <uses-permission android:name="android.permission.NFC"/>
     <!-- Required to load remote content -->

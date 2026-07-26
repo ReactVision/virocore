@@ -8,11 +8,9 @@
     <uses-feature android:name="android.hardware.vr.headtracking"
         android:required="true" android:version="1" />
     <uses-permission android:name="com.oculus.permission.HAND_TRACKING" />
-    <uses-permission android:name="com.oculus.permission.EYE_TRACKING" />
 
     <!-- Optional: hand tracking and eye tracking -->
     <uses-feature android:name="oculus.software.handtracking" android:required="false" />
-    <uses-feature android:name="oculus.software.eye_tracking" android:required="false" />
 
     <application
         android:label="OpenXR Test"

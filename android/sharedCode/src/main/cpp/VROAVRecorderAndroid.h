@@ -35,7 +35,6 @@ class VRORecorderEglSurfaceDisplay;
 class MediaRecorder_JNI;
 class VRORenderTarget;
 class VRORenderToTextureDelegateAndroid;
-class VROTexture;
 
 /*
  VROAVRecorderAndroid contains the native implementation of ViroMediaRecorder.java that
@@ -56,18 +55,6 @@ public:
     void setEnableVideoFrameRecording(bool isRecording);
 
     void scheduleScreenCapture();
-
-    /*
-     Sets a watermark texture composited into each recorded frame (used to brand
-     free-tier recordings). The watermark is drawn bottom-center, scaled to
-     `widthFraction` of the recorded frame width with its aspect ratio preserved
-     (derived from imageWidth/imageHeight), and offset up from the bottom edge by
-     `bottomMarginFraction` of the frame height. clearWatermark() removes it.
-     */
-    void setWatermark(std::shared_ptr<VROTexture> texture, int imageWidth, int imageHeight,
-                      float widthFraction, float bottomMarginFraction);
-
-    void clearWatermark();
 
     /*
      True if this recorder is currently recording video.
@@ -139,25 +126,6 @@ private:
      Post process to gamma correct screen shots.
      */
     std::shared_ptr<VROImagePostProcess> _gammaPostProcess;
-
-    /*
-     Free-tier watermark composited into each recorded frame. _watermarkPostProcess is a
-     passthrough blit (kept separate from _recordingPostProcess so it can be vertically
-     flipped to match the bitmap's top-left row order). The rect is derived each frame
-     from the frame size + the watermark's aspect ratio so it never distorts.
-     */
-    std::shared_ptr<VROImagePostProcess> _watermarkPostProcess;
-    std::shared_ptr<VROTexture> _watermarkTexture;
-    int _watermarkImageWidth;
-    int _watermarkImageHeight;
-    float _watermarkWidthFraction;
-    float _watermarkBottomMarginFraction;
-    bool _hasWatermark;
-
-    /*
-     Create or retrieve the passthrough post-process used to blit the watermark.
-     */
-    std::shared_ptr<VROImagePostProcess> getWatermarkPostProcess(std::shared_ptr<VRODriver> driver);
 
     /*
      Weak reference to the native-to-java jni interface for triggering java callbacks.

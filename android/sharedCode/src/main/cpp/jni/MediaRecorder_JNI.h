@@ -58,10 +58,6 @@ public:
     void nativeCreateRecorder(std::shared_ptr<VROSceneRenderer> renderer);
     void nativeEnableFrameRecording(bool isRecording);
     void nativeScheduleScreenCapture();
-    // watermark_j must be a valid (global-ref'd) android.graphics.Bitmap on the
-    // render thread; this uploads it to a GL texture and hands it to the recorder.
-    void nativeSetWatermark(jobject watermark_j, float widthFraction, float bottomMarginFraction);
-    void nativeClearWatermark();
 
     // Native to java calls
     void onBindToEGLSurface();

@@ -26,6 +26,7 @@ package com.viro.core;
 import android.Manifest;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.media.MediaRecorder;
@@ -294,11 +295,8 @@ public class ViroMediaRecorder {
     private static boolean hasAudioAndRecordingPermissions(Context context) {
         boolean hasRecordPermissions = ContextCompat.checkSelfPermission(context,
                 Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
-        // Media now lands in app-specific external storage (getExternalFilesDir),
-        // which needs no runtime storage permission on any API level. Only the
-        // legacy public-directory path (API <= 28) requires WRITE_EXTERNAL_STORAGE.
         boolean hasExternalStoragePerm = true;
-        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.Q) {
             hasExternalStoragePerm = ContextCompat.checkSelfPermission(context,
                     Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED;
         }
@@ -307,39 +305,11 @@ public class ViroMediaRecorder {
 
     private static boolean hasRecordingPermissions(Context context) {
         boolean hasExternalStoragePerm = true;
-        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.Q) {
             hasExternalStoragePerm = ContextCompat.checkSelfPermission(context,
                     Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED;
         }
         return hasExternalStoragePerm;
-    }
-
-    /**
-     * Sets a watermark image to be composited into every recorded video frame (used to brand
-     * free-tier recordings). The watermark is drawn bottom-center, scaled to {@code widthFraction}
-     * of the video width with its aspect ratio preserved, offset up from the bottom edge by
-     * {@code bottomMarginFraction} of the video height. Unlike screenshots (which composite a
-     * CPU bitmap in Java), video frames are rendered directly into the encoder's EGL surface, so
-     * the watermark must be drawn in the native GL record pass — hence this native hook. Call this
-     * BEFORE {@link #startRecordingAsync}; call {@link #clearWatermark()} to remove it.
-     *
-     * @param watermark            The watermark bitmap (with alpha) to composite.
-     * @param widthFraction        Watermark width as a fraction of the video width (0..1).
-     * @param bottomMarginFraction Gap from the bottom edge, as a fraction of the video height (0..1).
-     */
-    public void setWatermark(Bitmap watermark, float widthFraction, float bottomMarginFraction) {
-        if (watermark == null) {
-            clearWatermark();
-            return;
-        }
-        nativeSetWatermark(mNativeRecorderRef, watermark, widthFraction, bottomMarginFraction);
-    }
-
-    /**
-     * Removes any watermark previously set via {@link #setWatermark}.
-     */
-    public void clearWatermark() {
-        nativeClearWatermark(mNativeRecorderRef);
     }
 
     /**
@@ -438,26 +408,40 @@ public class ViroMediaRecorder {
      * if no such path was found.
      */
     private static String getMediaStorageDirectory(Context context, boolean grabCameraRollDirectory) {
-        // Always target app-specific external storage. It is writable on every API
-        // level WITHOUT a runtime storage permission, so the recorded file is always
-        // produced. The previous public-directory path threw EACCES under scoped
-        // storage on API 29+, so recordings/screenshots silently failed to be created.
-        // Publishing into the shared gallery, when requested, is handled by the
-        // caller (the react-viro bridge) in a scoped-storage-safe way via MediaStore.
-        File dir = context.getExternalFilesDir(null);
-        if (dir == null) {
-            // Fallback to internal private storage if external is unavailable.
-            dir = context.getFilesDir();
+        ApplicationInfo appInfo = context.getApplicationInfo();
+        CharSequence appLabel = context.getPackageManager().getApplicationLabel(appInfo);
+
+        String appName;
+        if (appLabel != null && appLabel.length() > 0) {
+            appName = (String) appLabel;
+        } else {
+            appName = context.getPackageName();
         }
-        if (dir == null) {
+
+        String pathToPictures = null;
+        if (grabCameraRollDirectory) {
+            if (Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES) != null) {
+                pathToPictures = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).getAbsolutePath();
+            } else if (Environment.getExternalStorageDirectory() != null) {
+                // We were unable to get the external picture directory - fallback to the
+                // external storage directory for saving large files.
+                pathToPictures = Environment.getExternalStorageDirectory().getAbsolutePath();
+            } else {
+                Log.e("Viro","Unable to access the camera roll directory on this device!");
+                return null;
+            }
+            pathToPictures = pathToPictures + "/" + appName;
+        } else {
+            // Use internal private storage.
+            pathToPictures = context.getFilesDir().getAbsolutePath();
+        }
+
+        if (pathToPictures == null) {
             Log.e("Viro","Unable to access application's directory for storing media!");
             return null;
         }
-        if (!dir.exists()) {
-            dir.mkdirs();
-        }
 
-        return dir.getAbsolutePath();
+        return pathToPictures;
     }
 
     private boolean prepareAndroidMediaRecorder(int width, int height,
@@ -901,7 +885,4 @@ public class ViroMediaRecorder {
     private native void nativeDeleteNativeRecorder(long nativeRecorderRef);
     private native void nativeEnableFrameRecording(long nativeRecorderRef, boolean enabled);
     private native void nativeScheduleScreenCapture(long nativeRecorderRef);
-    private native void nativeSetWatermark(long nativeRecorderRef, Bitmap watermark,
-                                           float widthFraction, float bottomMarginFraction);
-    private native void nativeClearWatermark(long nativeRecorderRef);
 }

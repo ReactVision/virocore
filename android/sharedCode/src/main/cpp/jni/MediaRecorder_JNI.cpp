@@ -26,8 +26,6 @@
 #include "MediaRecorder_JNI.h"
 #include "VRORenderer_JNI.h"
 #include "VROChoreographer.h"
-#include "VROImageAndroid.h"
-#include "VROTexture.h"
 
 #if VRO_PLATFORM_ANDROID
 #define VRO_METHOD(return_type, method_name) \
@@ -70,31 +68,6 @@ VRO_METHOD(void, nativeScheduleScreenCapture)(VRO_ARGS
     std::shared_ptr<MediaRecorder_JNI> recorder = MediaRecorder::native(jRecorderRef);
     VROPlatformDispatchAsyncRenderer([recorder] {
         recorder->nativeScheduleScreenCapture();
-    });
-}
-
-VRO_METHOD(void, nativeSetWatermark)(VRO_ARGS
-                                     jlong recorder_j,
-                                     jobject watermark_j,
-                                     jfloat widthFraction_j,
-                                     jfloat bottomMarginFraction_j) {
-    std::shared_ptr<MediaRecorder_JNI> recorder = MediaRecorder::native(recorder_j);
-    // The bitmap must outlive the hop to the render thread, where its pixels are
-    // read and uploaded to a GL texture; hold a global ref and release it there.
-    jobject watermarkGlobal = env->NewGlobalRef(watermark_j);
-    float widthFraction = widthFraction_j;
-    float bottomMarginFraction = bottomMarginFraction_j;
-    VROPlatformDispatchAsyncRenderer([recorder, watermarkGlobal, widthFraction, bottomMarginFraction] {
-        recorder->nativeSetWatermark(watermarkGlobal, widthFraction, bottomMarginFraction);
-        VROPlatformGetJNIEnv()->DeleteGlobalRef(watermarkGlobal);
-    });
-}
-
-VRO_METHOD(void, nativeClearWatermark)(VRO_ARGS
-                                       jlong recorder_j) {
-    std::shared_ptr<MediaRecorder_JNI> recorder = MediaRecorder::native(recorder_j);
-    VROPlatformDispatchAsyncRenderer([recorder] {
-        recorder->nativeClearWatermark();
     });
 }
 } // extern "C"
@@ -146,31 +119,6 @@ void MediaRecorder_JNI::nativeScheduleScreenCapture() {
     std::shared_ptr<VRORenderToTextureDelegateAndroid> delegate = _nativeMediaRecorder->getRenderToTextureDelegate();
     choreographer->setRenderToTextureDelegate(delegate);
     _nativeMediaRecorder->scheduleScreenCapture();
-}
-
-void MediaRecorder_JNI::nativeSetWatermark(jobject watermark_j, float widthFraction,
-                                           float bottomMarginFraction) {
-    if (!_nativeMediaRecorder) {
-        return;
-    }
-    // Decode the bitmap into a CPU image, then wrap it in a 2D texture. sRGB is false:
-    // the watermark is drawn on top of the already-encoded recorder surface with a
-    // passthrough shader, so its stored bytes should be written through unmodified.
-    std::shared_ptr<VROImage> image = std::make_shared<VROImageAndroid>(
-            watermark_j, VROTextureInternalFormat::RGBA8);
-    int imageWidth = image->getWidth();
-    int imageHeight = image->getHeight();
-    std::shared_ptr<VROTexture> texture = std::make_shared<VROTexture>(
-            false, VROMipmapMode::None, image);
-    _nativeMediaRecorder->setWatermark(texture, imageWidth, imageHeight,
-                                       widthFraction, bottomMarginFraction);
-}
-
-void MediaRecorder_JNI::nativeClearWatermark() {
-    if (!_nativeMediaRecorder) {
-        return;
-    }
-    _nativeMediaRecorder->clearWatermark();
 }
 
 /*
