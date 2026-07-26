@@ -1,5 +1,18 @@
 # CHANGELOG
 
+## v2.57.5 — 26 July 2026
+
+### Added
+
+- **Eye-gaze input source on Meta Quest via `XR_EXT_eye_gaze_interaction`.** When the OpenXR runtime reports eye-tracking support (Quest Pro only), `VROSceneRendererOpenXR` enables the extension and probes `supportsEyeGazeInteraction`; `VROInputControllerOpenXR` then creates an eye-gaze pose action/space (interaction profile `/interaction_profiles/ext/eye_gaze_interaction`, `/user/eyes_ext/input/gaze_ext/pose`) and dispatches it as an additional input source (`ViroOculus::EyeGaze`) feeding the existing hit-test / hover pipeline — surfaced in React as the new `onGaze` prop (see `@reactvision/react-viro` 2.57.5). The `com.oculus.permission.EYE_TRACKING` permission is declared in the manifests. Degrades to a no-op on headsets without eye-tracking hardware (Quest 2 / 3 / 3S).
+- **Per-frame video watermark support (Android).** New `ViroMediaRecorder.setWatermark(bitmap, widthFraction, bottomMarginFraction)` / `clearWatermark()`: the native record pass composites the watermark as an alpha-blended GL quad into each recorded frame before the encoder swap (aspect-preserved, bottom-center). This gives the react-viro bridge a way to burn the free-tier watermark into video, at parity with iOS's CoreImage compositing.
+
+### Fixed
+
+- **Crash loading animated glTF models with a zero-duration animation channel.** A skeletal channel whose keyframes span zero duration (e.g. a single keyframe at t=0 — legal glTF, a common export artifact for a statically-posed bone) caused a divide-by-zero in `VROGLTFLoader::convertChannelToKeyFrameAnimation`, producing `NaN`/`inf` keyframe times. Those then violated strict-weak-ordering inside `std::sort` in `resampleSkeletalChannelsToCommonGrid`, corrupting the heap → `SIGSEGV` on load. The time normalizer now guards against a zero/negative duration (leaving times at 0), and the resample skips non-finite values before sorting.
+- **Media recording writes to app-specific storage (Android).** `ViroMediaRecorder`'s `getMediaStorageDirectory` now targets app-specific external storage — writable on every API level without a runtime storage permission — instead of the public directory that throws `EACCES` under scoped storage on API 29+, so recordings/screenshots are always produced. Gallery publishing is handled scoped-safely by the bridge (`@reactvision/react-viro` 2.57.5). The recording permission check no longer requires `WRITE_EXTERNAL_STORAGE` above API 28.
+- **AR anchor use-after-free hardening.** `nativeCreateAnchoredNode` now null-checks the `VROARSceneController` ref (`VRO_REF_NULL`) and the resolved scene before dereferencing, so a stale/zeroed ref — e.g. an anchor retry racing scene teardown — returns null (an already-handled "anchoring failed" path) instead of crashing. The primary fix lives in `@reactvision/react-viro` 2.57.5's `VRTNode` guard.
+
 ## v2.57.3 — 2 July 2026
 
 ### Changed
