@@ -66,7 +66,10 @@ VROInputControllerOpenXR::~VROInputControllerOpenXR() {
     }
 }
 
-bool VROInputControllerOpenXR::createActionSet(XrInstance instance, XrSession session) {
+bool VROInputControllerOpenXR::createActionSet(XrInstance instance, XrSession session,
+                                               bool eyeGazeSupported) {
+    _eyeGazeEnabled = eyeGazeSupported;
+
     // ── 1. Create action set ──────────────────────────────────────────────────
     XrActionSetCreateInfo asInfo = { XR_TYPE_ACTION_SET_CREATE_INFO };
     strncpy(asInfo.actionSetName,          "viro_gameplay", XR_MAX_ACTION_SET_NAME_SIZE);
@@ -115,6 +118,16 @@ bool VROInputControllerOpenXR::createActionSet(XrInstance instance, XrSession se
                                        "vibrate_left",  "Vibrate Left");
     _rightVibrateAction = createAction(_actionSet, XR_ACTION_TYPE_VIBRATION_OUTPUT,
                                        "vibrate_right", "Vibrate Right");
+
+    // Eye gaze pose (only when the device reports eye-tracking support).
+    if (_eyeGazeEnabled) {
+        _eyeGazePoseAction = createAction(_actionSet, XR_ACTION_TYPE_POSE_INPUT,
+                                          "eye_gaze", "Eye Gaze Pose");
+        if (!_eyeGazePoseAction) {
+            ALOGW("Eye gaze pose action failed to create; disabling eye gaze");
+            _eyeGazeEnabled = false;
+        }
+    }
 
     if (!_leftAimPoseAction  || !_rightAimPoseAction ||
         !_leftTriggerAction  || !_rightTriggerAction ||
@@ -169,6 +182,29 @@ bool VROInputControllerOpenXR::createActionSet(XrInstance instance, XrSession se
         return false;
     }
 
+    // Eye gaze lives under its own interaction profile, so suggest it separately.
+    // A failure here only disables eye gaze — it must not fail the whole set-up.
+    if (_eyeGazeEnabled && _eyeGazePoseAction != XR_NULL_HANDLE) {
+        XrPath eyeGazeProfile;
+        xrStringToPath(instance, "/interaction_profiles/ext/eye_gaze_interaction", &eyeGazeProfile);
+
+        const XrActionSuggestedBinding eyeBindings[] = {
+            { _eyeGazePoseAction, makePath("/user/eyes_ext/input/gaze_ext/pose") },
+        };
+        XrInteractionProfileSuggestedBinding eyeSuggestion = {
+            XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING
+        };
+        eyeSuggestion.interactionProfile     = eyeGazeProfile;
+        eyeSuggestion.suggestedBindings      = eyeBindings;
+        eyeSuggestion.countSuggestedBindings = 1;
+
+        XrResult eyeResult = xrSuggestInteractionProfileBindings(instance, &eyeSuggestion);
+        if (!XR_SUCCEEDED(eyeResult)) {
+            ALOGW("Eye gaze suggested bindings failed: %d; disabling eye gaze", eyeResult);
+            _eyeGazeEnabled = false;
+        }
+    }
+
     // ── 4. Attach action set to session ───────────────────────────────────────
     XrSessionActionSetsAttachInfo attachInfo = { XR_TYPE_SESSION_ACTION_SETS_ATTACH_INFO };
     attachInfo.actionSets      = &_actionSet;
@@ -190,8 +226,9 @@ bool VROInputControllerOpenXR::createActionSet(XrInstance instance, XrSession se
 }
 
 void VROInputControllerOpenXR::destroySpaces() {
-    if (_leftSpace  != XR_NULL_HANDLE) { xrDestroySpace(_leftSpace);  _leftSpace  = XR_NULL_HANDLE; }
-    if (_rightSpace != XR_NULL_HANDLE) { xrDestroySpace(_rightSpace); _rightSpace = XR_NULL_HANDLE; }
+    if (_leftSpace    != XR_NULL_HANDLE) { xrDestroySpace(_leftSpace);    _leftSpace    = XR_NULL_HANDLE; }
+    if (_rightSpace   != XR_NULL_HANDLE) { xrDestroySpace(_rightSpace);   _rightSpace   = XR_NULL_HANDLE; }
+    if (_eyeGazeSpace != XR_NULL_HANDLE) { xrDestroySpace(_eyeGazeSpace); _eyeGazeSpace = XR_NULL_HANDLE; }
 }
 
 bool VROInputControllerOpenXR::createActionSpaces(XrSession session) {
@@ -205,6 +242,17 @@ bool VROInputControllerOpenXR::createActionSpaces(XrSession session) {
     spaceInfo.action = _rightAimPoseAction;
     r = xrCreateActionSpace(session, &spaceInfo, &_rightSpace);
     if (!XR_SUCCEEDED(r)) { ALOGE("xrCreateActionSpace right failed: %d", r); return false; }
+
+    if (_eyeGazeEnabled && _eyeGazePoseAction != XR_NULL_HANDLE) {
+        spaceInfo.action = _eyeGazePoseAction;
+        XrResult re = xrCreateActionSpace(session, &spaceInfo, &_eyeGazeSpace);
+        if (!XR_SUCCEEDED(re)) {
+            // Non-fatal: just disable eye gaze, keep controllers/hands working.
+            ALOGW("xrCreateActionSpace eye gaze failed: %d; disabling eye gaze", re);
+            _eyeGazeSpace   = XR_NULL_HANDLE;
+            _eyeGazeEnabled = false;
+        }
+    }
 
     return true;
 }
@@ -520,6 +568,25 @@ void VROInputControllerOpenXR::onProcess(XrSession session, XrSpace baseSpace,
     };
     dispatchSide(rightValid, ViroOculus::Controller,     rightPos, rightRot, rightForward);
     dispatchSide(leftValid,  ViroOculus::LeftController, leftPos,  leftRot,  leftForward);
+
+    // ── Eye gaze (Quest Pro) — additive onHover source ──────────────────────
+    // Locate the eye-gaze pose and feed it through the same hit-test/onHover path
+    // as the controllers, under its own source id. No laser line is drawn (a gaze
+    // ray shouldn't render a beam); the reticle still follows via processGazeEvent.
+    if (_eyeGazeEnabled && _eyeGazeSpace != XR_NULL_HANDLE) {
+        XrSpaceLocation loc = { XR_TYPE_SPACE_LOCATION };
+        XrResult r = xrLocateSpace(_eyeGazeSpace, baseSpace, time, &loc);
+        if (XR_SUCCEEDED(r) &&
+            (loc.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) &&
+            (loc.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT)) {
+            VROVector3f   gazePos     = xrVec3ToVRO(loc.pose.position);
+            VROQuaternion gazeRot     = xrQuatToVRO(loc.pose.orientation);
+            VROVector3f   gazeForward = xrAimForward(loc.pose);
+            VROInputControllerBase::updateHitNode(ViroOculus::EyeGaze, camera, gazePos, gazeForward);
+            VROInputControllerBase::onMove(ViroOculus::EyeGaze, gazePos, gazeRot, gazeForward);
+            VROInputControllerBase::processGazeEvent(ViroOculus::EyeGaze);
+        }
+    }
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

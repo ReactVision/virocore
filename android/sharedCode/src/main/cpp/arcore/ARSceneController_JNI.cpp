@@ -1272,8 +1272,26 @@ VRO_METHOD(VRO_REF(VROARNode), nativeCreateAnchoredNode)(VRO_ARGS
                                                          float posX, float posY, float posZ,
                                                          float quatX, float quatY, float quatZ, float quatW) {
 
-    std::shared_ptr<VROARScene> scene = std::dynamic_pointer_cast<VROARScene>(
-            VRO_REF_GET(VROARSceneController, sceneController_j)->getScene());
+    // Defense-in-depth against a use-after-free: if the AR scene was torn down
+    // while a Java-side anchor retry was still queued, the scene controller's
+    // native ref is zeroed (Scene.dispose() sets mNativeRef = 0). VRO_REF_GET
+    // would reinterpret_cast that stale/zero jlong and deref it -> SIGSEGV in
+    // nativeCreateAnchoredNode. Bail to a null ARNode instead; the Java
+    // AnchorAttempt already treats a null result as "anchoring failed" and
+    // simply floats the node. The primary fix lives in VRTNode.AnchorAttempt
+    // (guards the parent scene before this call); this hardens the native side
+    // against any other stale caller.
+    if (VRO_REF_NULL(sceneController_j)) {
+        return 0;
+    }
+    std::shared_ptr<VROARSceneController> sceneController = VRO_REF_GET(VROARSceneController, sceneController_j);
+    if (!sceneController) {
+        return 0;
+    }
+    std::shared_ptr<VROARScene> scene = std::dynamic_pointer_cast<VROARScene>(sceneController->getScene());
+    if (!scene) {
+        return 0;
+    }
 
     std::shared_ptr<VROARNode> node = std::make_shared<VROARNode>();
 
