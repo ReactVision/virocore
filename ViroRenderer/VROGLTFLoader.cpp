@@ -857,9 +857,20 @@ std::shared_ptr<VROKeyframeAnimation> VROGLTFLoader::convertChannelToKeyFrameAni
     // Set the total duration of this keyframe animation, in seconds
     float duration = frames.back()->time;
 
-    // Normalize the input key frame time (expected by Viro's animation system)
-    for (int i = 0; i < frames.size(); i++) {
-        frames[i]->time = frames[i]->time / duration;
+    // Normalize the input key frame time to [0, 1] (expected by Viro's animation
+    // system). Guard against a zero/negative duration: a channel with a single
+    // keyframe (or all-zero input times) is legal glTF, and dividing by it would
+    // yield NaN/inf frame times. Those later poison std::sort() in
+    // resampleSkeletalChannelsToCommonGrid (NaN breaks strict-weak-ordering ->
+    // heap out-of-bounds -> SIGSEGV). Leave the times at 0 in that case.
+    if (duration > 1e-8f) {
+        for (int i = 0; i < frames.size(); i++) {
+            frames[i]->time = frames[i]->time / duration;
+        }
+    } else {
+        for (int i = 0; i < frames.size(); i++) {
+            frames[i]->time = 0.0f;
+        }
     }
 
     // Grab the channel object from the given index, and process it's raw buffered data
@@ -1340,6 +1351,13 @@ void VROGLTFLoader::resampleSkeletalChannelsToCommonGrid(std::map<int, std::pair
             }
             for (const std::shared_ptr<VROKeyframeAnimation> &chan : animIt->second) {
                 float chanDur = chan->getDuration();
+                // Defense-in-depth: skip a channel whose duration is non-finite or
+                // negative (a degenerate rig) so a bad value can never reach the
+                // std::sort() below — a NaN there violates strict-weak-ordering and
+                // corrupts the heap (crash).
+                if (isnan(chanDur) || isinf(chanDur) || chanDur < 0.0f) {
+                    continue;
+                }
                 clipDuration = std::max(clipDuration, chanDur);
                 const auto &frames = chan->getFrames();
                 maxChannelFrames = std::max(maxChannelFrames, frames.size());
@@ -1347,7 +1365,10 @@ void VROGLTFLoader::resampleSkeletalChannelsToCommonGrid(std::map<int, std::pair
                     // Channel frame times are normalized to [0, 1] by the channel's own duration
                     // (see convertChannelToKeyFrameAnimation); recover absolute seconds so grids
                     // from channels of differing duration are comparable.
-                    unionTimes.push_back(f->time * chanDur);
+                    float t = f->time * chanDur;
+                    if (!isnan(t) && !isinf(t)) {
+                        unionTimes.push_back(t);
+                    }
                 }
             }
         }

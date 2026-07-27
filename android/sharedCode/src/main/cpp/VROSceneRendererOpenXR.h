@@ -122,6 +122,8 @@ private:
     bool            _fbSceneAvailable         = false;  // XR_FB_scene present
     bool            _fbSpatialEntityAvailable = false;  // XR_FB_spatial_entity present
     bool            _fbSpatialQueryAvailable  = false;  // XR_FB_spatial_entity_query present
+    bool            _eyeGazeAvailable         = false;  // XR_EXT_eye_gaze_interaction present
+    bool            _eyeGazeSupported         = false;  // system actually has eye tracking (Quest Pro)
 
     // Per-eye swapchains (index 0 = left, 1 = right)
     VROOpenXRSwapchain _swapchains[2];
