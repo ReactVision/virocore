@@ -463,6 +463,7 @@ void VRORenderer::prepareFrame(int frame, VROViewport viewport, VROFieldOfView f
 
     _context->setHDREnabled(_choreographer->isHDREnabled());
     _context->setPBREnabled(_choreographer->isPBREnabled());
+    _context->setBloomEnabled(_choreographer->isBloomEnabled());
     _context->setFrame(frame);
     _context->setFPS(getFPS());
     _context->getPencil()->clear();

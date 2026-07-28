@@ -1,0 +1,1356 @@
+//
+//  VROSceneWeb.cpp
+//  ViroRenderer — Web (WASM) library entry point
+//
+//  See VROSceneWeb.h. Render loop mirrors VROViewScene::drawFrame; the scene
+//  build mirrors VROBoxTest but with no texture (so no image/SDL load at
+//  scene-build time) and minimal lighting (Blinn), so we exercise the least
+//  amount of the renderer needed to prove the pipeline.
+//
+
+#include "VROSceneWeb.h"
+
+#include <emscripten/bind.h>
+
+#include "VROLog.h"
+#include "VRORenderer.h"
+#include "VRORendererConfiguration.h"
+#include "VRODriverOpenGLWasm.h"
+#include "VROInputControllerWasm.h"
+#include "VROInputControllerBase.h"
+#include "VROThreadRestricted.h"
+#include "VROEye.h"
+#include "VROPlatformUtil.h"
+
+#include "VROSceneController.h"
+#include "VROScene.h"
+#include "VROPortal.h"
+#include "VROPortalFrame.h"
+#include "VRONode.h"
+#include "VRONodeCamera.h"
+#include "VROLight.h"
+#include "VROBox.h"
+#include "VROSphere.h"
+#include "VROSurface.h"
+#include "VROText.h"
+#include "VROTypeface.h"
+#include "VROPolyline.h"
+#include "VROPolygon.h"
+#include "VROGeometry.h"
+#include "VROGeometrySource.h"
+#include "VROGeometryElement.h"
+#include "VROParticleEmitter.h"
+#include "VROParticleModifier.h"
+#include "VROMaterial.h"
+#include "VROMaterialVisual.h"
+#include "VROTexture.h"
+#include "VROData.h"
+#include "VROTransaction.h"
+#include "VROEventDelegate.h"
+#include "VROGLTFLoader.h"
+#include "VROFBXLoader.h"
+#include "VROHDRLoader.h"
+#include "VROModelIOUtil.h"
+#include "VROExecutableAnimation.h"
+#include "VROTimingFunction.h"
+#include "VROARWeb.h"
+#include "VROQuaternion.h"
+#include <set>
+
+#include <unordered_map>
+#include <vector>
+
+static VROSceneWeb *sInstance = nullptr;
+
+// Minimal click handler for the demo cube: toggles the diffuse color on each
+// click so touch → hit-test → click wiring is visible without any component API.
+class CubeClickDelegate : public VROEventDelegate {
+public:
+    CubeClickDelegate(std::shared_ptr<VROMaterial> material) : _material(material), _toggled(false) {}
+    virtual ~CubeClickDelegate() {}
+
+    virtual void onClick(int source, std::shared_ptr<VRONode> node,
+                         ClickState clickState, std::vector<float> position) {
+        if (clickState != ClickState::ClickUp) {
+            return;
+        }
+        std::shared_ptr<VROMaterial> material = _material.lock();
+        if (!material) {
+            return;
+        }
+        _toggled = !_toggled;
+        if (_toggled) {
+            material->getDiffuse().setColor({1.0, 0.4, 0.2, 1.0});
+        } else {
+            material->getDiffuse().setColor({0.2, 0.6, 1.0, 1.0});
+        }
+        pinfo("VROSceneWeb: cube clicked, toggled color");
+    }
+
+private:
+    std::weak_ptr<VROMaterial> _material;
+    bool _toggled;
+};
+
+// emscripten_set_main_loop requires a plain C-style callback.
+static void VROSceneWebMainLoop() {
+    if (sInstance != nullptr) {
+        sInstance->drawFrame();
+    }
+}
+
+VROSceneWeb::VROSceneWeb(std::string canvasSelector, int width, int height) :
+    _frame(0),
+    _width(width),
+    _height(height),
+    _angle(0),
+    _canvasSelector(canvasSelector) {
+
+    sInstance = this;
+    VROThreadRestricted::setThread(VROThreadName::Renderer);
+
+    pinfo("Constructing VROSceneWeb on canvas [%s] (%d x %d)",
+          canvasSelector.c_str(), width, height);
+
+    EmscriptenWebGLContextAttributes attribs;
+    emscripten_webgl_init_context_attributes(&attribs);
+    attribs.majorVersion = 2;
+    attribs.minorVersion = 0;
+    attribs.explicitSwapControl = 0;
+    attribs.depth = 1;
+    attribs.stencil = 1;
+    attribs.antialias = 1;
+
+    _context = emscripten_webgl_create_context(_canvasSelector.c_str(), &attribs);
+    if (_context <= 0) {
+        pabort("Failed to create WebGL2 context for canvas [%s]", _canvasSelector.c_str());
+        return;
+    }
+    emscripten_webgl_make_context_current(_context);
+
+    // WebGL2 needs EXT_color_buffer_float enabled before rendering to float
+    // (RGBA16F/RG16F) targets, which HDR/bloom/PBR-IBL use. Enable it and record
+    // support so the driver can degrade gracefully when it's unavailable.
+    bool colorBufferFloat = emscripten_webgl_enable_extension(_context, "EXT_color_buffer_float");
+    pinfo("EXT_color_buffer_float supported: %d", colorBufferFloat);
+
+    _driver = std::make_shared<VRODriverOpenGLWasm>();
+    _driver->setColorBufferFloatSupported(colorBufferFloat);
+    _inputController = std::make_shared<VROInputControllerWasm>(_driver);
+
+    // Request the full effect set. VROChoreographer auto-degrades each effect
+    // based on driver capability (getColorRenderingMode / isBloomSupported),
+    // which we've wired to EXT_color_buffer_float above — so on a GPU/browser
+    // without float color buffers these fall back to the non-HDR pipeline.
+    VRORendererConfiguration config;
+    config.enableShadows = true;
+    config.enableBloom = true;
+    config.enableHDR = true;
+    config.enablePBR = true;
+
+    _renderer = std::make_shared<VRORenderer>(
+        config, std::dynamic_pointer_cast<VROInputControllerBase>(_inputController));
+
+    buildEmptyScene();
+    emscripten_set_main_loop(VROSceneWebMainLoop, 0, 0);
+}
+
+VROSceneWeb::~VROSceneWeb() {
+    if (sInstance == this) {
+        sInstance = nullptr;
+    }
+}
+
+std::shared_ptr<VROPortal> VROSceneWeb::getRootNode() {
+    if (!_scene) {
+        return nullptr;
+    }
+    return _scene->getRootNode();
+}
+
+void VROSceneWeb::setActiveCameraNode(std::shared_ptr<VRONode> node) {
+    if (_renderer && node) {
+        _renderer->setPointOfView(node);
+    }
+}
+
+std::shared_ptr<VRODriverOpenGLWasm> VROSceneWeb::getDriver() {
+    return _driver;
+}
+
+void VROSceneWeb::buildEmptyScene() {
+    _sceneController = std::make_shared<VROSceneController>();
+    _scene = _sceneController->getScene();
+    std::shared_ptr<VROPortal> rootNode = _scene->getRootNode();
+    rootNode->setPosition({0, 0, 0});
+
+    // No default lights: the bridge provides lights explicitly (parity with the
+    // native SDK, where scenes need lights unless using Constant lighting). A
+    // default camera is kept so scenes render before defining a ViroCamera.
+    std::shared_ptr<VRONodeCamera> camera = std::make_shared<VRONodeCamera>();
+    _cameraNode = std::make_shared<VRONode>();
+    _cameraNode->setCamera(camera);
+    rootNode->addChildNode(_cameraNode);
+
+    _renderer->setSceneController(_sceneController, _driver);
+    _renderer->setPointOfView(_cameraNode);
+}
+
+void VROSceneWeb::initAR() {
+    _arSession = std::make_shared<VROARSessionWeb>();
+    _arSession->run();
+}
+
+std::shared_ptr<VROARSessionWeb> VROSceneWeb::getARSession() {
+    return _arSession;
+}
+
+void VROSceneWeb::buildCubeScene() {
+    // Reuse the empty scene's root/camera/lights, then add demo geometry.
+    std::shared_ptr<VROPortal> rootNode = getRootNode();
+    if (!rootNode) {
+        return;
+    }
+
+    std::shared_ptr<VROBox> box = VROBox::createBox(2, 2, 2);
+    box->setName("Cube");
+
+    std::shared_ptr<VROMaterial> material = box->getMaterials()[0];
+    material->setLightingModel(VROLightingModel::Blinn);
+    material->getDiffuse().setColor({0.2, 0.6, 1.0, 1.0});
+    // Emit bloom on the brightly-lit faces so the bloom pass is visibly validated.
+    material->setBloomThreshold(0.6);
+
+    _boxNode = std::make_shared<VRONode>();
+    _boxNode->setGeometry(box);
+    _boxNode->setPosition({0, 0, -5});
+    rootNode->addChildNode(_boxNode);
+
+    // A floor to receive the cube's shadow (validates the shadow pass visually).
+    std::shared_ptr<VROSurface> floor = VROSurface::createSurface(20, 20);
+    std::shared_ptr<VROMaterial> floorMaterial = floor->getMaterials()[0];
+    floorMaterial->setLightingModel(VROLightingModel::Lambert);
+    floorMaterial->getDiffuse().setColor({0.5, 0.5, 0.5, 1.0});
+
+    std::shared_ptr<VRONode> floorNode = std::make_shared<VRONode>();
+    floorNode->setGeometry(floor);
+    floorNode->setPosition({0, -2, -5});
+    floorNode->setRotationEuler({-(float) M_PI_2, 0, 0});
+    rootNode->addChildNode(floorNode);
+
+    // Make the cube tappable: toggle its color on click (demo feedback).
+    _cubeDelegate = std::make_shared<CubeClickDelegate>(material);
+    _cubeDelegate->setEnabledEvent(VROEventDelegate::EventAction::OnClick, true);
+    _boxNode->setEventDelegate(_cubeDelegate);
+}
+
+void VROSceneWeb::drawFrame() {
+    emscripten_webgl_make_context_current(_context);
+
+    VROViewport viewport(0, 0, _width, _height);
+    if (viewport.getWidth() == 0 || viewport.getHeight() == 0) {
+        return;
+    }
+
+    // AR mode: drive the camera from the injected pose (slam-wasm) and draw the
+    // camera background. Mirrors the native ARCore render loop.
+    if (_arSession) {
+        drawFrameAR(viewport);
+        _frame++;
+        return;
+    }
+
+    // Demo-only: spin the cube if buildCubeScene created one. Bridge-built
+    // scenes animate via the C API / their own logic instead.
+    if (_boxNode) {
+        _angle += 0.01f;
+        _boxNode->setRotationEuler({0, _angle, 0});
+    }
+
+    VROFieldOfView fov = _renderer->computeUserFieldOfView(viewport.getWidth(), viewport.getHeight());
+    VROMatrix4f projection = fov.toPerspectiveProjection(kZNear, _renderer->getFarClippingPlane());
+
+    // Give the input controller the same view/projection/viewport used to render
+    // this frame, so screen touches unproject into matching world rays.
+    _inputController->setRenderState(_renderer->getLookAtMatrix(), projection, _width, _height);
+
+    _renderer->setClearColor({0.1, 0.1, 0.12, 1.0}, _driver);
+
+    _renderer->prepareFrame(_frame, viewport, fov, VROMatrix4f::identity(), projection, _driver);
+    glViewport(viewport.getX(), viewport.getY(), viewport.getWidth(), viewport.getHeight());
+    _renderer->renderEye(VROEyeType::Monocular, _renderer->getLookAtMatrix(), projection, viewport, _driver);
+    _renderer->renderHUD(VROEyeType::Monocular, VROMatrix4f::identity(), projection, _driver);
+    _renderer->endFrame(_driver);
+
+    _frame++;
+}
+
+void VROSceneWeb::drawFrameAR(VROViewport viewport) {
+    _arSession->setViewport(viewport);
+    std::unique_ptr<VROARFrame> &frame = _arSession->updateFrame();
+    const std::shared_ptr<VROARCamera> camera = frame->getCamera();
+
+    // Draw the live camera feed behind the scene. Like the native ARCore path,
+    // this is a screen-space VROSurface whose diffuse is the JS-uploaded camera
+    // texture; created lazily and sized to the viewport.
+    std::shared_ptr<VROTexture> cameraTexture = _arSession->getCameraBackgroundTexture();
+    if (cameraTexture) {
+        if (!_cameraBackground) {
+            _cameraBackground = VROSurface::createSurface(
+                viewport.getX() + viewport.getWidth() / 2.0f,
+                viewport.getY() + viewport.getHeight() / 2.0f,
+                viewport.getWidth(), viewport.getHeight(), 0, 0, 1, 1);
+            _cameraBackground->setScreenSpace(true);
+            _cameraBackground->setName("Camera");
+
+            std::shared_ptr<VROMaterial> material = _cameraBackground->getMaterials()[0];
+            material->setLightingModel(VROLightingModel::Constant);
+            material->setWritesToDepthBuffer(false);
+            material->setNeedsToneMapping(false);
+        }
+        _cameraBackground->getMaterials()[0]->getDiffuse().setTexture(cameraTexture);
+        // JS uploads a fresh VROTexture each frame; force its GPU upload now so
+        // the background samples real pixels this frame (otherwise the one-shot
+        // texture is replaced before it hydrates, sampling empty → blank feed).
+        cameraTexture->prewarm(_driver);
+        _renderer->setCameraBackgroundTexture(cameraTexture);
+        if (!_scene->getRootNode()->getBackground()) {
+            _scene->getRootNode()->setBackground(_cameraBackground);
+        }
+    }
+
+
+    // Always render so the live camera feed is visible even before tracking
+    // converges (mirrors native ARCore, which shows the camera while waiting).
+    // The pose is applied only once tracking is Normal; before that the scene
+    // renders at the default point of view.
+    VROFieldOfView fov;
+    VROMatrix4f projection = camera->getProjection(viewport, kZNear,
+                                                   _renderer->getFarClippingPlane(), &fov);
+    VROMatrix4f rotation = VROMatrix4f::identity();
+    if (camera->getTrackingState() == VROARTrackingState::Normal) {
+        rotation = camera->getRotation();
+        _cameraNode->getCamera()->setPosition(camera->getPosition());
+    }
+
+    _inputController->setRenderState(_renderer->getLookAtMatrix(), projection, _width, _height);
+
+    _renderer->prepareFrame(_frame, viewport, fov, rotation, projection, _driver);
+    glViewport(viewport.getX(), viewport.getY(), viewport.getWidth(), viewport.getHeight());
+    _renderer->renderEye(VROEyeType::Monocular, _renderer->getLookAtMatrix(), projection, viewport, _driver);
+    _renderer->renderHUD(VROEyeType::Monocular, VROMatrix4f::identity(), projection, _driver);
+    _renderer->endFrame(_driver);
+}
+
+void VROSceneWeb::setSize(int width, int height) {
+    _width = width;
+    _height = height;
+}
+
+void VROSceneWeb::onTouch(int action, float x, float y) {
+    if (_inputController) {
+        _inputController->onScreenTouch(action, x, y);
+    }
+}
+
+#pragma mark - JS bindings
+
+// A single global scene instance owned by the module. JS calls initViroScene()
+// once the canvas exists, then the emscripten main loop drives drawFrame().
+static std::shared_ptr<VROSceneWeb> sScene;
+
+static void initViroScene(std::string canvasSelector, int width, int height) {
+    sScene = std::make_shared<VROSceneWeb>(canvasSelector, width, height);
+}
+
+static void setViroSceneSize(int width, int height) {
+    if (sScene) {
+        sScene->setSize(width, height);
+    }
+}
+
+static void viroOnTouch(int action, float x, float y) {
+    if (sScene) {
+        sScene->onTouch(action, x, y);
+    }
+}
+
+static void viroBuildDemoCube() {
+    if (sScene) {
+        sScene->buildCubeScene();
+    }
+}
+
+#pragma mark - Web C API (handle-based scene graph)
+
+// The bridge (TS reconciler) builds the scene by calling these functions with
+// opaque integer handles instead of pointers. Handles index into per-type
+// tables of shared_ptrs held here; JS never sees a raw pointer or shared_ptr.
+// Single-threaded (wasm main loop), so no locking is needed — the C API is
+// invoked from JS callbacks between frames on the same thread as drawFrame.
+
+static std::unordered_map<int, std::shared_ptr<VRONode>> sNodes;
+static std::unordered_map<int, std::shared_ptr<VROGeometry>> sGeometries;
+static std::unordered_map<int, std::shared_ptr<VROMaterial>> sMaterials;
+static int sNextHandle = 1;
+static int sRootHandle = 0;
+
+// Per-node running animation, retained so it can be paused/resumed/stopped and
+// re-executed for looping. (Declared here so viroDestroyNode can clear it.)
+struct WebAnimState {
+    std::shared_ptr<VROExecutableAnimation> anim;
+    std::shared_ptr<VRONode> node;
+    bool loop;
+};
+static std::unordered_map<int, std::shared_ptr<WebAnimState>> sNodeAnimations;
+
+#pragma mark - Event marshaling (WASM -> JS)
+
+// Single JS callback the bridge registers to receive node events. Signature:
+//   cb(nodeHandle, eventAction, source, intArg, x, y, z)
+// eventAction matches VROEventDelegate::EventAction (1=Hover, 2=Click). intArg
+// carries ClickState for clicks (1=down,2=up,3=clicked) or isHovering (0/1).
+static emscripten::val sEventCallback = emscripten::val::undefined();
+
+// Per-node event delegate that forwards to sEventCallback tagged with the node's
+// handle, so JS can route the event back to the right React component.
+class VROWebEventDelegate : public VROEventDelegate {
+public:
+    VROWebEventDelegate(int handle) : _handle(handle) {}
+    virtual ~VROWebEventDelegate() {}
+
+    virtual void onClick(int source, std::shared_ptr<VRONode> node,
+                         ClickState clickState, std::vector<float> position) {
+        emit(EventAction::OnClick, source, (int) clickState, position);
+    }
+    virtual void onHover(int source, std::shared_ptr<VRONode> node,
+                         bool isHovering, std::vector<float> position) {
+        emit(EventAction::OnHover, source, isHovering ? 1 : 0, position);
+    }
+
+private:
+    void emit(int action, int source, int intArg, const std::vector<float> &pos) {
+        if (sEventCallback.isUndefined() || sEventCallback.isNull()) {
+            return;
+        }
+        float x = pos.size() > 0 ? pos[0] : 0.0f;
+        float y = pos.size() > 1 ? pos[1] : 0.0f;
+        float z = pos.size() > 2 ? pos[2] : 0.0f;
+        sEventCallback(_handle, action, source, intArg, x, y, z);
+    }
+    int _handle;
+};
+
+static std::unordered_map<int, std::shared_ptr<VROWebEventDelegate>> sNodeDelegates;
+
+static std::shared_ptr<VRONode> getNode(int h) {
+    auto it = sNodes.find(h);
+    return it == sNodes.end() ? nullptr : it->second;
+}
+static std::shared_ptr<VROGeometry> getGeometry(int h) {
+    auto it = sGeometries.find(h);
+    return it == sGeometries.end() ? nullptr : it->second;
+}
+static std::shared_ptr<VROMaterial> getMaterial(int h) {
+    auto it = sMaterials.find(h);
+    return it == sMaterials.end() ? nullptr : it->second;
+}
+
+// --- Nodes ---
+
+static int viroCreateNode() {
+    int h = sNextHandle++;
+    sNodes[h] = std::make_shared<VRONode>();
+    return h;
+}
+
+// Registers the active scene's root node and returns its (cached) handle.
+static int viroGetRootNode() {
+    if (sRootHandle != 0) {
+        return sRootHandle;
+    }
+    if (!sScene) {
+        return 0;
+    }
+    std::shared_ptr<VROPortal> root = sScene->getRootNode();
+    if (!root) {
+        return 0;
+    }
+    sRootHandle = sNextHandle++;
+    sNodes[sRootHandle] = root;
+    return sRootHandle;
+}
+
+static void viroSetNodePosition(int node, float x, float y, float z) {
+    if (auto n = getNode(node)) n->setPosition({x, y, z});
+}
+static void viroSetNodeRotation(int node, float x, float y, float z) {
+    if (auto n = getNode(node)) n->setRotationEuler({x, y, z});
+}
+static void viroSetNodeScale(int node, float x, float y, float z) {
+    if (auto n = getNode(node)) n->setScale({x, y, z});
+}
+static void viroSetNodeOpacity(int node, float opacity) {
+    if (auto n = getNode(node)) n->setOpacity(opacity);
+}
+static void viroSetNodeVisible(int node, bool visible) {
+    if (auto n = getNode(node)) n->setHidden(!visible);
+}
+static void viroSetNodeGeometry(int node, int geometry) {
+    auto n = getNode(node);
+    auto g = getGeometry(geometry);
+    if (n && g) n->setGeometry(g);
+}
+static void viroAddChildNode(int parent, int child) {
+    auto p = getNode(parent);
+    auto c = getNode(child);
+    if (p && c) p->addChildNode(c);
+}
+static void viroRemoveNodeFromParent(int node) {
+    if (auto n = getNode(node)) n->removeFromParentNode();
+}
+static void viroDestroyNode(int node) {
+    sNodes.erase(node);
+    sNodeDelegates.erase(node);
+    sNodeAnimations.erase(node);
+}
+
+// --- Events ---
+
+static void viroSetEventCallback(emscripten::val callback) {
+    sEventCallback = callback;
+}
+
+// eventAction: VROEventDelegate::EventAction (1=Hover, 2=Click, ...).
+static void viroSetNodeEventEnabled(int node, int eventAction, bool enabled) {
+    auto n = getNode(node);
+    if (!n) return;
+
+    auto it = sNodeDelegates.find(node);
+    std::shared_ptr<VROWebEventDelegate> delegate;
+    if (it == sNodeDelegates.end()) {
+        delegate = std::make_shared<VROWebEventDelegate>(node);
+        sNodeDelegates[node] = delegate;
+        n->setEventDelegate(delegate);
+    } else {
+        delegate = it->second;
+    }
+    delegate->setEnabledEvent(static_cast<VROEventDelegate::EventAction>(eventAction), enabled);
+}
+
+// --- Geometries ---
+
+static int viroCreateBox(float width, float height, float length) {
+    int h = sNextHandle++;
+    sGeometries[h] = VROBox::createBox(width, height, length);
+    return h;
+}
+static int viroCreateSphere(float radius) {
+    int h = sNextHandle++;
+    sGeometries[h] = VROSphere::createSphere(radius, 20, 20, true);
+    return h;
+}
+static int viroCreateSurface(float width, float height) {
+    int h = sNextHandle++;
+    sGeometries[h] = VROSurface::createSurface(width, height);
+    return h;
+}
+
+// Minimal UTF-8 → wstring decoder (emscripten wchar_t is 32-bit / UTF-32).
+// Handles the full BMP + astral planes; malformed bytes are skipped.
+static std::wstring utf8ToWString(const std::string &s) {
+    std::wstring out;
+    size_t i = 0, n = s.size();
+    while (i < n) {
+        unsigned char c = (unsigned char) s[i];
+        uint32_t cp;
+        int extra;
+        if (c < 0x80) { cp = c; extra = 0; }
+        else if ((c >> 5) == 0x6) { cp = c & 0x1F; extra = 1; }
+        else if ((c >> 4) == 0xE) { cp = c & 0x0F; extra = 2; }
+        else if ((c >> 3) == 0x1E) { cp = c & 0x07; extra = 3; }
+        else { i++; continue; }
+        if (i + extra >= n) break;
+        for (int k = 0; k < extra; k++) {
+            cp = (cp << 6) | ((unsigned char) s[i + 1 + k] & 0x3F);
+        }
+        out.push_back((wchar_t) cp);
+        i += extra + 1;
+    }
+    return out;
+}
+
+// Create a text geometry. Alignment/linebreak/clip are int-coded to match
+// VROText's enums. color is RGBA in [0,1]. Uses the preloaded system font.
+// hAlign: 0 Left, 1 Right, 2 Center | vAlign: 0 Top, 1 Bottom, 2 Center
+// lineBreak: 0 WordWrap, 1 CharWrap, 2 Justify, 3 None | clip: 0 ClipToBounds, 1 None
+static int viroCreateText(std::string text, float width, float height, int fontSize,
+                          int hAlign, int vAlign, int lineBreak, int clipMode, int maxLines,
+                          float r, float g, float b, float a) {
+    if (!sScene) return 0;
+
+    VROTextHorizontalAlignment h;
+    switch (hAlign) {
+        case 1: h = VROTextHorizontalAlignment::Right; break;
+        case 2: h = VROTextHorizontalAlignment::Center; break;
+        default: h = VROTextHorizontalAlignment::Left; break;
+    }
+    VROTextVerticalAlignment v;
+    switch (vAlign) {
+        case 1: v = VROTextVerticalAlignment::Bottom; break;
+        case 2: v = VROTextVerticalAlignment::Center; break;
+        default: v = VROTextVerticalAlignment::Top; break;
+    }
+    VROLineBreakMode lb;
+    switch (lineBreak) {
+        case 1: lb = VROLineBreakMode::CharWrap; break;
+        case 2: lb = VROLineBreakMode::Justify; break;
+        case 3: lb = VROLineBreakMode::None; break;
+        default: lb = VROLineBreakMode::WordWrap; break;
+    }
+    VROTextClipMode clip = (clipMode == 1) ? VROTextClipMode::None : VROTextClipMode::ClipToBounds;
+
+    std::shared_ptr<VROText> textGeom = VROText::createText(
+        utf8ToWString(text), "Helvetica", fontSize,
+        VROFontStyle::Normal, VROFontWeight::Regular,
+        {r, g, b, a}, 0 /*extrusion*/, width, height,
+        h, v, lb, clip, maxLines, sScene->getDriver());
+
+    int handle = sNextHandle++;
+    sGeometries[handle] = textGeom;
+    return handle;
+}
+// Create a polyline from a flat [x,y,z, x,y,z, …] point list, with a thickness.
+static int viroCreatePolyline(emscripten::val points, float thickness) {
+    std::vector<float> f = emscripten::convertJSArrayToNumberVector<float>(points);
+    std::vector<VROVector3f> path;
+    for (size_t i = 0; i + 2 < f.size(); i += 3) {
+        path.push_back({ f[i], f[i + 1], f[i + 2] });
+    }
+    int h = sNextHandle++;
+    sGeometries[h] = VROPolyline::createPolyline(path, thickness);
+    return h;
+}
+
+// Create a filled polygon from a flat [x,y,z, …] perimeter point list.
+static int viroCreatePolygon(emscripten::val points) {
+    std::vector<float> f = emscripten::convertJSArrayToNumberVector<float>(points);
+    std::vector<VROVector3f> path;
+    for (size_t i = 0; i + 2 < f.size(); i += 3) {
+        path.push_back({ f[i], f[i + 1], f[i + 2] });
+    }
+    int h = sNextHandle++;
+    sGeometries[h] = VROPolygon::createPolygon(path);
+    return h;
+}
+
+// Create a custom mesh. vertices/normals are flat [x,y,z,…]; texcoords are flat
+// [u,v,…]; indices are a flat triangle-index list. normals/texcoords may be empty.
+static int viroCreateGeometry(emscripten::val vertices, emscripten::val normals,
+                              emscripten::val texcoords, emscripten::val indices) {
+    std::vector<float> v = emscripten::convertJSArrayToNumberVector<float>(vertices);
+    std::vector<float> n = emscripten::convertJSArrayToNumberVector<float>(normals);
+    std::vector<float> t = emscripten::convertJSArrayToNumberVector<float>(texcoords);
+    std::vector<uint32_t> idx = emscripten::convertJSArrayToNumberVector<uint32_t>(indices);
+    if (v.empty() || idx.empty()) return 0;
+
+    int vertexCount = (int) v.size() / 3;
+    std::vector<std::shared_ptr<VROGeometrySource>> sources;
+    std::vector<std::shared_ptr<VROGeometryElement>> elements;
+
+    auto vData = std::make_shared<VROData>((void *) v.data(), (int)(v.size() * sizeof(float)));
+    sources.push_back(std::make_shared<VROGeometrySource>(
+        vData, VROGeometrySourceSemantic::Vertex, vertexCount, true, 3, 4, 0, 12));
+    if (!n.empty()) {
+        auto nData = std::make_shared<VROData>((void *) n.data(), (int)(n.size() * sizeof(float)));
+        sources.push_back(std::make_shared<VROGeometrySource>(
+            nData, VROGeometrySourceSemantic::Normal, (int) n.size() / 3, true, 3, 4, 0, 12));
+    }
+    if (!t.empty()) {
+        auto tData = std::make_shared<VROData>((void *) t.data(), (int)(t.size() * sizeof(float)));
+        sources.push_back(std::make_shared<VROGeometrySource>(
+            tData, VROGeometrySourceSemantic::Texcoord, (int) t.size() / 2, true, 2, 4, 0, 8));
+    }
+
+    auto iData = std::make_shared<VROData>((void *) idx.data(), (int)(idx.size() * sizeof(uint32_t)));
+    elements.push_back(std::make_shared<VROGeometryElement>(
+        iData, VROGeometryPrimitiveType::Triangle, (int) idx.size() / 3, 4, false));
+
+    int handle = sNextHandle++;
+    sGeometries[handle] = std::make_shared<VROGeometry>(sources, elements);
+    return handle;
+}
+
+static void viroSetGeometryMaterial(int geometry, int material) {
+    auto g = getGeometry(geometry);
+    auto m = getMaterial(material);
+    if (g && m) {
+        std::vector<std::shared_ptr<VROMaterial>> materials = { m };
+        g->setMaterials(materials);
+    }
+}
+static void viroDestroyGeometry(int geometry) {
+    sGeometries.erase(geometry);
+}
+
+// --- Materials ---
+
+static int viroCreateMaterial() {
+    int h = sNextHandle++;
+    sMaterials[h] = std::make_shared<VROMaterial>();
+    return h;
+}
+static void viroSetMaterialDiffuseColor(int material, float r, float g, float b, float a) {
+    if (auto m = getMaterial(material)) m->getDiffuse().setColor({r, g, b, a});
+}
+// model: 0=Constant, 1=Lambert, 2=Blinn, 3=Phong, 4=PhysicallyBased
+static void viroSetMaterialLightingModel(int material, int model) {
+    auto m = getMaterial(material);
+    if (!m) return;
+    switch (model) {
+        case 0: m->setLightingModel(VROLightingModel::Constant); break;
+        case 1: m->setLightingModel(VROLightingModel::Lambert); break;
+        case 2: m->setLightingModel(VROLightingModel::Blinn); break;
+        case 3: m->setLightingModel(VROLightingModel::Phong); break;
+        case 4: m->setLightingModel(VROLightingModel::PhysicallyBased); break;
+        default: break;
+    }
+}
+static void viroDestroyMaterial(int material) {
+    sMaterials.erase(material);
+}
+
+// Scalar material properties.
+static void viroSetMaterialShininess(int material, float shininess) {
+    if (auto m = getMaterial(material)) m->setShininess(shininess);
+}
+static void viroSetMaterialFresnelExponent(int material, float fresnel) {
+    if (auto m = getMaterial(material)) m->setFresnelExponent(fresnel);
+}
+static void viroSetMaterialRoughness(int material, float roughness) {
+    if (auto m = getMaterial(material)) m->getRoughness().setColor({roughness, roughness, roughness, 1.0});
+}
+static void viroSetMaterialMetalness(int material, float metalness) {
+    if (auto m = getMaterial(material)) m->getMetalness().setColor({metalness, metalness, metalness, 1.0});
+}
+static void viroSetMaterialDiffuseIntensity(int material, float intensity) {
+    if (auto m = getMaterial(material)) m->getDiffuse().setIntensity(intensity);
+}
+// mode: 0=Back, 1=Front, 2=None (VROCullMode)
+static void viroSetMaterialCullMode(int material, int mode) {
+    auto m = getMaterial(material);
+    if (!m) return;
+    switch (mode) {
+        case 1: m->setCullMode(VROCullMode::Front); break;
+        case 2: m->setCullMode(VROCullMode::None); break;
+        default: m->setCullMode(VROCullMode::Back); break;
+    }
+}
+// mode: 0=None,1=Alpha,2=Add,3=Multiply,4=Subtract,5=Screen (VROBlendMode)
+static void viroSetMaterialBlendMode(int material, int mode) {
+    auto m = getMaterial(material);
+    if (!m) return;
+    switch (mode) {
+        case 1: m->setBlendMode(VROBlendMode::Alpha); break;
+        case 2: m->setBlendMode(VROBlendMode::Add); break;
+        case 3: m->setBlendMode(VROBlendMode::Multiply); break;
+        case 4: m->setBlendMode(VROBlendMode::Subtract); break;
+        case 5: m->setBlendMode(VROBlendMode::Screen); break;
+        default: m->setBlendMode(VROBlendMode::None); break;
+    }
+}
+static void viroSetMaterialWritesToDepthBuffer(int material, bool writes) {
+    if (auto m = getMaterial(material)) m->setWritesToDepthBuffer(writes);
+}
+static void viroSetMaterialReadsFromDepthBuffer(int material, bool reads) {
+    if (auto m = getMaterial(material)) m->setReadsFromDepthBuffer(reads);
+}
+
+// --- Textures ---
+
+static std::unordered_map<int, std::shared_ptr<VROTexture>> sTextures;
+static std::shared_ptr<VROTexture> getTexture(int h) {
+    auto it = sTextures.find(h);
+    return it == sTextures.end() ? nullptr : it->second;
+}
+
+// Create a 2D texture from an RGBA8 pixel buffer passed from JS (Uint8Array).
+// sRGB should be true for color (diffuse) textures, false for data maps
+// (normal/roughness/metalness/AO).
+static int viroCreateTextureRGBA(emscripten::val pixels, int width, int height, bool sRGB) {
+    std::vector<uint8_t> bytes = emscripten::convertJSArrayToNumberVector<uint8_t>(pixels);
+    auto data = std::make_shared<VROData>(bytes.data(), (int) bytes.size());
+    std::vector<std::shared_ptr<VROData>> dataVec = { data };
+
+    int h = sNextHandle++;
+    sTextures[h] = std::make_shared<VROTexture>(
+        VROTextureType::Texture2D,
+        VROTextureFormat::RGBA8,
+        VROTextureInternalFormat::RGBA8,
+        sRGB,
+        VROMipmapMode::Runtime,
+        dataVec, width, height, std::vector<uint32_t>());
+    return h;
+}
+// mode: 0=Clamp,1=Repeat,2=ClampToBorder,3=Mirror
+static VROWrapMode wrapModeValue(int mode) {
+    switch (mode) {
+        case 1: return VROWrapMode::Repeat;
+        case 2: return VROWrapMode::ClampToBorder;
+        case 3: return VROWrapMode::Mirror;
+        default: return VROWrapMode::Clamp;
+    }
+}
+static void viroSetTextureWrap(int texture, int wrapS, int wrapT) {
+    if (auto t = getTexture(texture)) {
+        t->setWrapS(wrapModeValue(wrapS));
+        t->setWrapT(wrapModeValue(wrapT));
+    }
+}
+// filter: 0=None,1=Nearest,2=Linear
+static VROFilterMode filterModeValue(int filter) {
+    switch (filter) {
+        case 0: return VROFilterMode::None;
+        case 1: return VROFilterMode::Nearest;
+        default: return VROFilterMode::Linear;
+    }
+}
+static void viroSetTextureFilter(int texture, int minFilter, int magFilter, int mipFilter) {
+    if (auto t = getTexture(texture)) {
+        t->setMinificationFilter(filterModeValue(minFilter));
+        t->setMagnificationFilter(filterModeValue(magFilter));
+        t->setMipFilter(filterModeValue(mipFilter));
+    }
+}
+// channel: 0=diffuse,1=specular,2=normal,3=roughness,4=metalness,5=ambientOcclusion
+static void viroSetMaterialTexture(int material, int channel, int texture) {
+    auto m = getMaterial(material);
+    auto t = getTexture(texture);
+    if (!m || !t) return;
+    switch (channel) {
+        case 1: m->getSpecular().setTexture(t); break;
+        case 2: m->getNormal().setTexture(t); break;
+        case 3: m->getRoughness().setTexture(t); break;
+        case 4: m->getMetalness().setTexture(t); break;
+        case 5: m->getAmbientOcclusion().setTexture(t); break;
+        default: m->getDiffuse().setTexture(t); break;
+    }
+}
+static void viroDestroyTexture(int texture) {
+    sTextures.erase(texture);
+}
+
+// Create a cube texture from six RGBA8 faces (order: +X,-X,+Y,-Y,+Z,-Z), each
+// width*height*4 bytes. Used for skybox backgrounds.
+static int viroCreateTextureCubeRGBA(emscripten::val px, emscripten::val nx,
+                                     emscripten::val py, emscripten::val ny,
+                                     emscripten::val pz, emscripten::val nz,
+                                     int width, int height) {
+    auto toData = [](emscripten::val a) {
+        std::vector<uint8_t> b = emscripten::convertJSArrayToNumberVector<uint8_t>(a);
+        return std::make_shared<VROData>(b.data(), (int) b.size());
+    };
+    std::vector<std::shared_ptr<VROData>> faces = {
+        toData(px), toData(nx), toData(py), toData(ny), toData(pz), toData(nz)
+    };
+    int h = sNextHandle++;
+    sTextures[h] = std::make_shared<VROTexture>(
+        VROTextureType::TextureCube, VROTextureFormat::RGBA8, VROTextureInternalFormat::RGBA8,
+        true, VROMipmapMode::None, faces, width, height, std::vector<uint32_t>());
+    return h;
+}
+
+// --- Lighting environment (IBL) ---
+
+// Load a radiance .hdr file (already written to the virtual FS at `path`) into a
+// texture usable as an image-based lighting environment.
+static int viroLoadRadianceHDRTexture(std::string path) {
+    std::shared_ptr<VROTexture> tex = VROHDRLoader::loadRadianceHDRTexture(path);
+    if (!tex) return 0;
+    int h = sNextHandle++;
+    sTextures[h] = tex;
+    return h;
+}
+
+// Apply (or clear, if 0) the scene's IBL environment.
+static void viroSetLightingEnvironment(int textureHandle) {
+    if (!sScene) return;
+    if (textureHandle == 0) {
+        sScene->getRootNode()->setLightingEnvironment(nullptr);
+    } else if (std::shared_ptr<VROTexture> tex = getTexture(textureHandle)) {
+        sScene->getRootNode()->setLightingEnvironment(tex);
+    }
+}
+
+// --- Background (skybox / 360) ---
+
+static void viroSetBackgroundSphere(int texture) {
+    if (sScene) {
+        auto t = getTexture(texture);
+        if (t) sScene->getRootNode()->setBackgroundSphere(t);
+    }
+}
+static void viroSetBackgroundCube(int texture) {
+    if (sScene) {
+        auto t = getTexture(texture);
+        if (t) sScene->getRootNode()->setBackgroundCube(t);
+    }
+}
+static void viroSetBackgroundRotation(float x, float y, float z) {
+    if (sScene) {
+        VROQuaternion q(x, y, z);
+        sScene->getRootNode()->setBackgroundRotation(q);
+    }
+}
+
+// --- Particle emitter ---
+
+// Attach a particle emitter to a node. The sprite is a quad (particleW×particleH)
+// textured with textureHandle. spawnShape: 0 Box, 1 Sphere, 2 Point (shapeParams:
+// Box=[w,h,l], Sphere=[r], Point=[]). velocity is a random range [min,max].
+// Returns 1 on success, 0 on failure.
+static int viroCreateParticleEmitter(int nodeHandle, int textureHandle,
+                                     float particleW, float particleH,
+                                     int maxParticles, int emitRateMin, int emitRateMax,
+                                     int lifetimeMin, int lifetimeMax,
+                                     int spawnShape, float sp0, float sp1, float sp2,
+                                     float velMinX, float velMinY, float velMinZ,
+                                     float velMaxX, float velMaxY, float velMaxZ) {
+    if (!sScene) return 0;
+    std::shared_ptr<VRONode> node = getNode(nodeHandle);
+    if (!node) return 0;
+
+    std::shared_ptr<VROSurface> surface = VROSurface::createSurface(particleW, particleH);
+    std::shared_ptr<VROMaterial> mat = surface->getMaterials()[0];
+    mat->setLightingModel(VROLightingModel::Constant);
+    mat->setBlendMode(VROBlendMode::Add);
+    mat->setWritesToDepthBuffer(false);
+    if (std::shared_ptr<VROTexture> tex = getTexture(textureHandle)) {
+        mat->getDiffuse().setTexture(tex);
+    }
+
+    std::shared_ptr<VROParticleEmitter> emitter =
+        std::make_shared<VROParticleEmitter>(sScene->getDriver(), surface);
+    emitter->setMaxParticles(maxParticles);
+    emitter->setEmissionRatePerSecond({ emitRateMin, emitRateMax });
+    emitter->setParticleLifeTime({ lifetimeMin, lifetimeMax });
+
+    VROParticleSpawnVolume volume;
+    switch (spawnShape) {
+        case 0: volume.shape = VROParticleSpawnVolume::Shape::Box; volume.shapeParams = { sp0, sp1, sp2 }; break;
+        case 1: volume.shape = VROParticleSpawnVolume::Shape::Sphere; volume.shapeParams = { sp0 }; break;
+        default: volume.shape = VROParticleSpawnVolume::Shape::Point; volume.shapeParams = {}; break;
+    }
+    volume.spawnOnSurface = false;
+    emitter->setParticleSpawnVolume(volume);
+
+    emitter->setVelocityModifier(std::make_shared<VROParticleModifier>(
+        VROVector3f(velMinX, velMinY, velMinZ), VROVector3f(velMaxX, velMaxY, velMaxZ)));
+
+    emitter->setRun(true);
+    node->setParticleEmitter(emitter);
+    return 1;
+}
+
+// Toggle a node's emitter run/pause state.
+static void viroSetParticleEmitterRun(int nodeHandle, bool run) {
+    std::shared_ptr<VRONode> node = getNode(nodeHandle);
+    if (node && node->getParticleEmitter()) {
+        node->getParticleEmitter()->setRun(run);
+    }
+}
+
+// --- Portals ---
+// A portal scene (VROPortal) holds content seen through an entrance frame
+// (VROPortalFrame). Both are VRONodes, so parenting uses the normal node API;
+// these just create the right subclass and wire the entrance.
+
+static int viroCreatePortalScene() {
+    int h = sNextHandle++;
+    sNodes[h] = std::make_shared<VROPortal>();
+    return h;
+}
+static int viroCreatePortalFrame() {
+    int h = sNextHandle++;
+    sNodes[h] = std::make_shared<VROPortalFrame>();
+    return h;
+}
+static void viroSetPortalEntrance(int portalScene, int frame) {
+    std::shared_ptr<VROPortal> scene = std::dynamic_pointer_cast<VROPortal>(getNode(portalScene));
+    std::shared_ptr<VROPortalFrame> f = std::dynamic_pointer_cast<VROPortalFrame>(getNode(frame));
+    if (scene && f) {
+        scene->setPortalEntrance(f);
+    }
+}
+static void viroSetPortalPassable(int portalScene, bool passable) {
+    std::shared_ptr<VROPortal> scene = std::dynamic_pointer_cast<VROPortal>(getNode(portalScene));
+    if (scene) {
+        scene->setPassable(passable);
+    }
+}
+
+// --- Lights ---
+
+static std::unordered_map<int, std::shared_ptr<VROLight>> sLights;
+static std::shared_ptr<VROLight> getLight(int h) {
+    auto it = sLights.find(h);
+    return it == sLights.end() ? nullptr : it->second;
+}
+
+// type: 0=Ambient, 1=Directional, 2=Omni, 3=Spot
+static int viroCreateLight(int type) {
+    VROLightType lt = VROLightType::Ambient;
+    switch (type) {
+        case 1: lt = VROLightType::Directional; break;
+        case 2: lt = VROLightType::Omni; break;
+        case 3: lt = VROLightType::Spot; break;
+        default: lt = VROLightType::Ambient; break;
+    }
+    int h = sNextHandle++;
+    sLights[h] = std::make_shared<VROLight>(lt);
+    return h;
+}
+static void viroSetLightColor(int light, float r, float g, float b) {
+    if (auto l = getLight(light)) l->setColor({r, g, b});
+}
+static void viroSetLightIntensity(int light, float intensity) {
+    if (auto l = getLight(light)) l->setIntensity(intensity);
+}
+static void viroSetLightTemperature(int light, float temperature) {
+    if (auto l = getLight(light)) l->setTemperature(temperature);
+}
+static void viroSetLightDirection(int light, float x, float y, float z) {
+    if (auto l = getLight(light)) l->setDirection({x, y, z});
+}
+static void viroSetLightPosition(int light, float x, float y, float z) {
+    if (auto l = getLight(light)) l->setPosition({x, y, z});
+}
+static void viroSetLightAttenuation(int light, float start, float end) {
+    if (auto l = getLight(light)) {
+        l->setAttenuationStartDistance(start);
+        l->setAttenuationEndDistance(end);
+    }
+}
+static void viroSetLightSpotAngles(int light, float inner, float outer) {
+    if (auto l = getLight(light)) {
+        l->setSpotInnerAngle(inner);
+        l->setSpotOuterAngle(outer);
+    }
+}
+static void viroSetLightCastsShadow(int light, bool castsShadow) {
+    if (auto l = getLight(light)) l->setCastsShadow(castsShadow);
+}
+static void viroAddLightToNode(int node, int light) {
+    auto n = getNode(node);
+    auto l = getLight(light);
+    if (n && l) n->addLight(l);
+}
+static void viroRemoveLightFromNode(int node, int light) {
+    auto n = getNode(node);
+    auto l = getLight(light);
+    if (n && l) n->removeLight(l);
+}
+static void viroDestroyLight(int light) {
+    sLights.erase(light);
+}
+
+// --- Camera ---
+
+static void viroSetNodeCamera(int node) {
+    if (auto n = getNode(node)) n->setCamera(std::make_shared<VRONodeCamera>());
+}
+static void viroSetActiveCameraNode(int node) {
+    if (sScene) sScene->setActiveCameraNode(getNode(node));
+}
+
+// --- Model loading (GLB / glTF / VRX) ---
+
+// cb(nodeHandle, success). Registered by the bridge to know when a load finishes.
+static emscripten::val sModelLoadCallback = emscripten::val::undefined();
+static void viroSetModelLoadCallback(emscripten::val callback) {
+    sModelLoadCallback = callback;
+}
+
+// Loads a model at `path` (already written to the emscripten virtual FS by JS)
+// into the node. format: 0=GLB, 1=glTF, 2=VRX. Self-contained assets (GLB/VRX)
+// need only the single file; the VRX loader handles gzip.
+static void viroLoadModel(int nodeHandle, std::string path, int format) {
+    auto node = getNode(nodeHandle);
+    if (!node || !sScene) {
+        return;
+    }
+    std::shared_ptr<VRODriver> driver = sScene->getDriver();
+
+    auto onFinish = [nodeHandle](std::shared_ptr<VRONode> node, bool success) {
+        if (!sModelLoadCallback.isUndefined() && !sModelLoadCallback.isNull()) {
+            sModelLoadCallback(nodeHandle, success);
+        }
+    };
+
+    if (format == 2) {
+        VROFBXLoader::loadFBXFromResource(path, VROResourceType::LocalFile, node, driver, onFinish);
+    } else {
+        bool isBinary = (format == 0); // 0=GLB binary, 1=glTF text
+        VROGLTFLoader::loadGLTFFromResource(path, {}, VROResourceType::LocalFile, node,
+                                            isBinary, driver, onFinish);
+    }
+}
+
+// --- Animations (skeletal/keyframe animations embedded in loaded models) ---
+
+// cb(nodeHandle, eventType): 0 = start, 1 = finish.
+static emscripten::val sAnimationCallback = emscripten::val::undefined();
+static void viroSetAnimationCallback(emscripten::val cb) {
+    sAnimationCallback = cb;
+}
+static void emitAnim(int nodeHandle, int eventType) {
+    if (!sAnimationCallback.isUndefined() && !sAnimationCallback.isNull()) {
+        sAnimationCallback(nodeHandle, eventType);
+    }
+}
+
+static void runAnim(int nodeHandle, std::shared_ptr<WebAnimState> state) {
+    std::weak_ptr<WebAnimState> weak = state;
+    state->anim->execute(state->node, [nodeHandle, weak]() {
+        auto s = weak.lock();
+        if (!s) return;
+        // Only continue if this is still the node's active animation.
+        auto it = sNodeAnimations.find(nodeHandle);
+        if (it == sNodeAnimations.end() || it->second != s) return;
+        if (s->loop) {
+            runAnim(nodeHandle, s);
+        } else {
+            sNodeAnimations.erase(nodeHandle);
+            emitAnim(nodeHandle, 1);
+        }
+    });
+}
+
+// Returns the model's animation names (recursive) as a JS array of strings.
+static emscripten::val viroGetAnimationKeys(int nodeHandle) {
+    emscripten::val result = emscripten::val::array();
+    auto node = getNode(nodeHandle);
+    if (!node) return result;
+    std::set<std::string> keys = node->getAnimationKeys(true);
+    int i = 0;
+    for (const std::string &k : keys) {
+        result.set(i++, emscripten::val(k));
+    }
+    return result;
+}
+
+static void viroStartAnimation(int nodeHandle, std::string name, bool loop) {
+    auto node = getNode(nodeHandle);
+    if (!node) return;
+    std::shared_ptr<VROExecutableAnimation> anim = node->getAnimation(name, true);
+    if (!anim) {
+        pinfo("VROSceneWeb: no animation named [%s] on node %d", name.c_str(), nodeHandle);
+        return;
+    }
+    auto state = std::make_shared<WebAnimState>();
+    state->anim = anim->copy(); // copy so per-run tweaks don't mutate the original
+    state->node = node;
+    state->loop = loop;
+    sNodeAnimations[nodeHandle] = state;
+    emitAnim(nodeHandle, 0);
+    runAnim(nodeHandle, state);
+}
+static void viroPauseAnimation(int nodeHandle) {
+    auto it = sNodeAnimations.find(nodeHandle);
+    if (it != sNodeAnimations.end()) it->second->anim->pause();
+}
+static void viroResumeAnimation(int nodeHandle) {
+    auto it = sNodeAnimations.find(nodeHandle);
+    if (it != sNodeAnimations.end()) it->second->anim->resume();
+}
+static void viroStopAnimation(int nodeHandle, bool jumpToEnd) {
+    auto it = sNodeAnimations.find(nodeHandle);
+    if (it != sNodeAnimations.end()) {
+        it->second->anim->terminate(jumpToEnd);
+        sNodeAnimations.erase(it);
+    }
+}
+
+// --- Declarative animations (ViroAnimations: transform/opacity via transaction) ---
+//
+// The bridge wraps node property setters between begin/commit; the renderer
+// interpolates from the current values to the new ones over `duration`. Reuses
+// the existing viroSetNode* setters so any animatable property works.
+
+// easing: 0=Linear,1=EaseIn,2=EaseOut,3=EaseInEaseOut,4=Bounce,5=PowerDecel
+static VROTimingFunctionType easingValue(int easing) {
+    switch (easing) {
+        case 1: return VROTimingFunctionType::EaseIn;
+        case 2: return VROTimingFunctionType::EaseOut;
+        case 3: return VROTimingFunctionType::EaseInEaseOut;
+        case 4: return VROTimingFunctionType::Bounce;
+        case 5: return VROTimingFunctionType::PowerDecel;
+        default: return VROTimingFunctionType::Linear;
+    }
+}
+
+static void viroBeginAnimation(int nodeHandle, float duration, float delay, bool loop, int easing) {
+    VROTransaction::begin();
+    VROTransaction::setAnimationDuration(duration);
+    if (delay > 0) {
+        VROTransaction::setAnimationDelay(delay);
+    }
+    VROTransaction::setAnimationLoop(loop);
+    VROTransaction::setTimingFunction(easingValue(easing));
+    VROTransaction::setFinishCallback([nodeHandle](bool terminate) {
+        if (!terminate) emitAnim(nodeHandle, 1);
+    });
+}
+static void viroCommitAnimation() {
+    VROTransaction::commit();
+}
+
+#pragma mark - AR
+
+// Switch the scene into AR mode. After this, drawFrame() drives the camera from
+// the pose injected via viroARSetPose and draws the camera background.
+static void viroInitAR() {
+    if (sScene) sScene->initAR();
+}
+
+// Inject a camera pose from JS (slam-wasm), already converted to virocore's
+// Y-up/GL convention. Rotation as a quaternion (x,y,z,w); position in meters.
+// trackingState: 1 = Unavailable, 2 = Limited, 3 = Normal.
+static void viroARSetPose(float qx, float qy, float qz, float qw,
+                          float px, float py, float pz, int trackingState) {
+    if (!sScene) return;
+    std::shared_ptr<VROARSessionWeb> session = sScene->getARSession();
+    if (!session) return;
+
+    VROMatrix4f rotation = VROQuaternion(qx, qy, qz, qw).getMatrix();
+    VROARTrackingState state = VROARTrackingState::Normal;
+    switch (trackingState) {
+        case 1: state = VROARTrackingState::Unavailable; break;
+        case 2: state = VROARTrackingState::Limited; break;
+        default: state = VROARTrackingState::Normal; break;
+    }
+    session->setPose(rotation, VROVector3f(px, py, pz), state);
+}
+
+// Set the live camera feed texture (a handle from viroCreateTextureRGBA that JS
+// re-uploads each frame from the <video> element).
+static void viroARSetCameraBackground(int textureHandle) {
+    if (!sScene) return;
+    std::shared_ptr<VROARSessionWeb> session = sScene->getARSession();
+    if (!session) return;
+    session->setCameraBackground(getTexture(textureHandle));
+}
+
+// Report the camera image dimensions (used for projection/intrinsics).
+static void viroARSetCameraImageSize(float width, float height) {
+    if (!sScene) return;
+    std::shared_ptr<VROARSessionWeb> session = sScene->getARSession();
+    if (session) session->setCameraImageSize(width, height);
+}
+
+EMSCRIPTEN_BINDINGS(viro_web) {
+    emscripten::function("initViroScene", &initViroScene);
+    emscripten::function("setViroSceneSize", &setViroSceneSize);
+    emscripten::function("viroOnTouch", &viroOnTouch);
+    emscripten::function("viroBuildDemoCube", &viroBuildDemoCube);
+
+    // Scene graph C API (handle-based)
+    emscripten::function("viroCreateNode", &viroCreateNode);
+    emscripten::function("viroGetRootNode", &viroGetRootNode);
+    emscripten::function("viroSetNodePosition", &viroSetNodePosition);
+    emscripten::function("viroSetNodeRotation", &viroSetNodeRotation);
+    emscripten::function("viroSetNodeScale", &viroSetNodeScale);
+    emscripten::function("viroSetNodeOpacity", &viroSetNodeOpacity);
+    emscripten::function("viroSetNodeVisible", &viroSetNodeVisible);
+    emscripten::function("viroSetNodeGeometry", &viroSetNodeGeometry);
+    emscripten::function("viroAddChildNode", &viroAddChildNode);
+    emscripten::function("viroRemoveNodeFromParent", &viroRemoveNodeFromParent);
+    emscripten::function("viroDestroyNode", &viroDestroyNode);
+
+    emscripten::function("viroCreateBox", &viroCreateBox);
+    emscripten::function("viroCreateSphere", &viroCreateSphere);
+    emscripten::function("viroCreateSurface", &viroCreateSurface);
+    emscripten::function("viroCreateText", &viroCreateText);
+    emscripten::function("viroCreatePolyline", &viroCreatePolyline);
+    emscripten::function("viroCreatePolygon", &viroCreatePolygon);
+    emscripten::function("viroCreateGeometry", &viroCreateGeometry);
+    emscripten::function("viroSetGeometryMaterial", &viroSetGeometryMaterial);
+    emscripten::function("viroDestroyGeometry", &viroDestroyGeometry);
+
+    emscripten::function("viroCreateMaterial", &viroCreateMaterial);
+    emscripten::function("viroSetMaterialDiffuseColor", &viroSetMaterialDiffuseColor);
+    emscripten::function("viroSetMaterialLightingModel", &viroSetMaterialLightingModel);
+    emscripten::function("viroDestroyMaterial", &viroDestroyMaterial);
+    emscripten::function("viroSetMaterialShininess", &viroSetMaterialShininess);
+    emscripten::function("viroSetMaterialFresnelExponent", &viroSetMaterialFresnelExponent);
+    emscripten::function("viroSetMaterialRoughness", &viroSetMaterialRoughness);
+    emscripten::function("viroSetMaterialMetalness", &viroSetMaterialMetalness);
+    emscripten::function("viroSetMaterialDiffuseIntensity", &viroSetMaterialDiffuseIntensity);
+    emscripten::function("viroSetMaterialCullMode", &viroSetMaterialCullMode);
+    emscripten::function("viroSetMaterialBlendMode", &viroSetMaterialBlendMode);
+    emscripten::function("viroSetMaterialWritesToDepthBuffer", &viroSetMaterialWritesToDepthBuffer);
+    emscripten::function("viroSetMaterialReadsFromDepthBuffer", &viroSetMaterialReadsFromDepthBuffer);
+
+    emscripten::function("viroCreateTextureRGBA", &viroCreateTextureRGBA);
+    emscripten::function("viroSetTextureWrap", &viroSetTextureWrap);
+    emscripten::function("viroSetTextureFilter", &viroSetTextureFilter);
+    emscripten::function("viroSetMaterialTexture", &viroSetMaterialTexture);
+    emscripten::function("viroDestroyTexture", &viroDestroyTexture);
+    emscripten::function("viroCreateTextureCubeRGBA", &viroCreateTextureCubeRGBA);
+    emscripten::function("viroLoadRadianceHDRTexture", &viroLoadRadianceHDRTexture);
+    emscripten::function("viroSetLightingEnvironment", &viroSetLightingEnvironment);
+    emscripten::function("viroSetBackgroundSphere", &viroSetBackgroundSphere);
+    emscripten::function("viroSetBackgroundCube", &viroSetBackgroundCube);
+    emscripten::function("viroSetBackgroundRotation", &viroSetBackgroundRotation);
+    emscripten::function("viroCreateParticleEmitter", &viroCreateParticleEmitter);
+    emscripten::function("viroSetParticleEmitterRun", &viroSetParticleEmitterRun);
+    emscripten::function("viroCreatePortalScene", &viroCreatePortalScene);
+    emscripten::function("viroCreatePortalFrame", &viroCreatePortalFrame);
+    emscripten::function("viroSetPortalEntrance", &viroSetPortalEntrance);
+    emscripten::function("viroSetPortalPassable", &viroSetPortalPassable);
+
+    emscripten::function("viroSetEventCallback", &viroSetEventCallback);
+    emscripten::function("viroSetNodeEventEnabled", &viroSetNodeEventEnabled);
+
+    emscripten::function("viroCreateLight", &viroCreateLight);
+    emscripten::function("viroSetLightColor", &viroSetLightColor);
+    emscripten::function("viroSetLightIntensity", &viroSetLightIntensity);
+    emscripten::function("viroSetLightTemperature", &viroSetLightTemperature);
+    emscripten::function("viroSetLightDirection", &viroSetLightDirection);
+    emscripten::function("viroSetLightPosition", &viroSetLightPosition);
+    emscripten::function("viroSetLightAttenuation", &viroSetLightAttenuation);
+    emscripten::function("viroSetLightSpotAngles", &viroSetLightSpotAngles);
+    emscripten::function("viroSetLightCastsShadow", &viroSetLightCastsShadow);
+    emscripten::function("viroAddLightToNode", &viroAddLightToNode);
+    emscripten::function("viroRemoveLightFromNode", &viroRemoveLightFromNode);
+    emscripten::function("viroDestroyLight", &viroDestroyLight);
+
+    emscripten::function("viroSetNodeCamera", &viroSetNodeCamera);
+    emscripten::function("viroSetActiveCameraNode", &viroSetActiveCameraNode);
+
+    emscripten::function("viroSetModelLoadCallback", &viroSetModelLoadCallback);
+    emscripten::function("viroLoadModel", &viroLoadModel);
+
+    emscripten::function("viroSetAnimationCallback", &viroSetAnimationCallback);
+    emscripten::function("viroGetAnimationKeys", &viroGetAnimationKeys);
+    emscripten::function("viroStartAnimation", &viroStartAnimation);
+    emscripten::function("viroPauseAnimation", &viroPauseAnimation);
+    emscripten::function("viroResumeAnimation", &viroResumeAnimation);
+    emscripten::function("viroStopAnimation", &viroStopAnimation);
+
+    emscripten::function("viroBeginAnimation", &viroBeginAnimation);
+    emscripten::function("viroCommitAnimation", &viroCommitAnimation);
+
+    emscripten::function("viroInitAR", &viroInitAR);
+    emscripten::function("viroARSetPose", &viroARSetPose);
+    emscripten::function("viroARSetCameraBackground", &viroARSetCameraBackground);
+    emscripten::function("viroARSetCameraImageSize", &viroARSetCameraImageSize);
+}
+
+// The module has no work to do at startup — JS calls initViroScene() once the
+// canvas exists. An empty main() keeps the default emscripten entry happy so we
+// don't need --no-entry.
+int main() {
+    return 0;
+}
+
