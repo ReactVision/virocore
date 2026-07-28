@@ -1659,8 +1659,16 @@ void VROARSessionARCore::setGeospatialAnchorProvider(VROGeospatialAnchorProvider
 VROEarthTrackingState VROARSessionARCore::getEarthTrackingState() const {
 #if RVCCA_AVAILABLE
     if (getGeospatialAnchorProvider() == VROGeospatialAnchorProvider::ReactVision) {
-        return _geospatialProviderRV ? VROEarthTrackingState::Tracking
-                                     : VROEarthTrackingState::Stopped;
+        if (!_geospatialProviderRV) {
+            return VROEarthTrackingState::Stopped;
+        }
+        // WS-D: mirrors the iOS fix — Tracking requires a GPS fix within the
+        // accuracy threshold, not just the provider existing.
+        bool accurate = _lastKnownGPSPose.isValid() &&
+                        _lastKnownGPSPose.horizontalAccuracy > 0 &&
+                        _lastKnownGPSPose.horizontalAccuracy < kVROGeospatialAccuracyThresholdMeters;
+        return accurate ? VROEarthTrackingState::Tracking
+                        : VROEarthTrackingState::Localizing;
     }
 #endif
     if (!_session) return VROEarthTrackingState::Stopped;
@@ -2406,6 +2414,20 @@ static std::string rvCloudAssetToJsonARC(const ReactVisionCCA::CloudAnchorAsset&
     return j;
 }
 
+// WS-C: mirrors rvMatrixToCsv() in VROARSessioniOS.cpp — 16 comma-separated
+// floats (column-major, matching getArray()) so the transform can cross the
+// RN bridge as an opaque string. See VROARSession::rvFinishScan().
+static std::string rvMatrixToCsvARC(const VROMatrix4f& m) {
+    const float* a = m.getArray();
+    std::string csv;
+    char buf[32];
+    for (int i = 0; i < 16; ++i) {
+        snprintf(buf, sizeof(buf), i == 0 ? "%g" : ",%g", a[i]);
+        csv += buf;
+    }
+    return csv;
+}
+
 static std::string rvCloudAnchorToJsonARC(const ReactVisionCCA::CloudAnchorRecord& r) {
     char buf[128];
     std::string j = "{";
@@ -2448,6 +2470,38 @@ static std::string rvCloudAnchorToJsonARC(const ReactVisionCCA::CloudAnchorRecor
     return j;
 }
 #endif // RVCCA_AVAILABLE
+
+void VROARSessionARCore::rvStartScan() {
+#if RVCCA_AVAILABLE
+    if (_cloudAnchorProviderRV) {
+        auto p = _cloudAnchorProviderRV->getProvider();
+        if (p) {
+            p->startScan();
+        }
+    }
+#endif
+}
+
+void VROARSessionARCore::rvFinishScan(
+    int ttlDays,
+    std::function<void(bool, std::string, std::string, std::string)> callback) {
+#if RVCCA_AVAILABLE
+    if (_cloudAnchorProviderRV) {
+        auto p = _cloudAnchorProviderRV->getProvider();
+        if (p) {
+            p->finishScan(ttlDays,
+                [callback](const std::string& cloudAnchorId, const VROMatrix4f& locationTransform) {
+                    if (callback) callback(true, cloudAnchorId, rvMatrixToCsvARC(locationTransform), "");
+                },
+                [callback](const std::string& error, ReactVisionCCA::RVCCACloudAnchorProvider::ErrorCode) {
+                    if (callback) callback(false, "", "", error);
+                });
+            return;
+        }
+    }
+#endif
+    if (callback) callback(false, "", "", "ReactVision cloud anchor provider not available");
+}
 
 void VROARSessionARCore::rvGetCloudAnchor(
     const std::string& anchorId,

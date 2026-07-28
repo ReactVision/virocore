@@ -183,8 +183,11 @@ public class ARScene extends Scene {
          * @param anchor The new, successfully resolved, cloud anchor.
          * @param arNode The ARNode attached and synchronized to the cloud anchor, to which you
          *               can add virtual content.
+         * @param resolvedTransform Opaque CSV-encoded transform for this resolved anchor (WS-C).
+         *               Thread it into {@code loadWorldMeshFromFile} to attach a mesh snapshot
+         *               hosted alongside this anchor. Treat as opaque; do not parse.
          */
-        public void onSuccess(ARAnchor anchor, ARNode arNode);
+        public void onSuccess(ARAnchor anchor, ARNode arNode, String resolvedTransform);
 
         /**
          * Invoked when the system fails to resolve an anchor. Anchor resolution can fail for a
@@ -215,7 +218,13 @@ public class ARScene extends Scene {
         /**
          * Geospatial tracking is stopped or not initialized.
          */
-        STOPPED
+        STOPPED,
+        /**
+         * WS-D: GPS fix acquired but not yet within the accuracy threshold —
+         * appended last to keep the native ordinal mapping in
+         * {@link #getEarthTrackingState()} stable for ENABLED/PAUSED/STOPPED.
+         */
+        LOCALIZING
     }
 
     /**
@@ -1034,7 +1043,7 @@ public class ARScene extends Scene {
     }
 
     // Called by native
-    void onResolveSuccess(String cloudAnchorId, ARAnchor cloudAnchor, int arNodeId) {
+    void onResolveSuccess(String cloudAnchorId, ARAnchor cloudAnchor, int arNodeId, String resolvedTransform) {
         if (!cloudAnchorId.equals(cloudAnchor.getCloudAnchorId())) {
             throw new IllegalStateException("Resolved cloud anchor ID [" + cloudAnchor.getCloudAnchorId() +
                     "] does not match requested ID [" + cloudAnchorId + "]!");
@@ -1050,7 +1059,7 @@ public class ARScene extends Scene {
                     node = new ARNode(arNodeId);
                 }
             }
-            callback.onSuccess(cloudAnchor, node);
+            callback.onSuccess(cloudAnchor, node, resolvedTransform);
         } else {
             Log.e("Viro", "Cloud anchor resolve successful, but no callback found to invoke [anchor ID: "
                     + cloudAnchorId + "]");
@@ -1114,6 +1123,9 @@ public class ARScene extends Scene {
             case 1:
                 return EarthTrackingState.PAUSED;
             case 2:
+                return EarthTrackingState.STOPPED;
+            case 3:
+                return EarthTrackingState.LOCALIZING;
             default:
                 return EarthTrackingState.STOPPED;
         }
@@ -1349,6 +1361,44 @@ public class ARScene extends Scene {
     void onRvCloudAnchorResult(String key, boolean success, String jsonData, String error) {
         RvCloudAnchorCallback cb = mRvCloudCallbacks.remove(key);
         if (cb != null) cb.onResult(success, jsonData, error);
+    }
+
+    /**
+     * WS-C: callback for {@link #rvFinishScan} — separate from
+     * {@link RvCloudAnchorCallback} because it also carries the location
+     * transform (needed for {@link #rvSnapshotWorldMesh}, since a
+     * finishScan()-hosted anchor has no placed anchor to read a transform from).
+     */
+    public interface RvFinishScanCallback {
+        void onResult(boolean success, String cloudAnchorId, String locationTransformCsv, String error);
+    }
+
+    private Map<String, RvFinishScanCallback> mRvFinishScanCallbacks = new HashMap<>();
+
+    void onRvFinishScanResult(String key, boolean success, String cloudAnchorId,
+                               String locationTransformCsv, String error) {
+        RvFinishScanCallback cb = mRvFinishScanCallbacks.remove(key);
+        if (cb != null) cb.onResult(success, cloudAnchorId, locationTransformCsv, error);
+    }
+
+    /**
+     * WS-A: begin a room/building-scale scan with its own self-defined location
+     * frame, independent of any placed anchor. Resets the native background
+     * keyframe buffer. Call {@link #rvFinishScan} when done scanning.
+     */
+    public void rvStartScan() {
+        nativeRvStartScan(mNativeRef);
+    }
+
+    /**
+     * WS-A: finish a scan started with {@link #rvStartScan} and host it to the
+     * cloud. Same pipeline as a placed-anchor host, but positions content in
+     * the scan's own location frame instead of relative to an anchor.
+     */
+    public void rvFinishScan(int ttlDays, RvFinishScanCallback callback) {
+        String key = "rvFinishScan_" + System.nanoTime();
+        mRvFinishScanCallbacks.put(key, callback);
+        nativeRvFinishScan(mNativeRef, key, ttlDays);
     }
 
     public void rvGetCloudAnchor(String anchorId, RvCloudAnchorCallback callback) {
@@ -1598,6 +1648,33 @@ public class ARScene extends Scene {
     }
 
     /**
+     * WS-C: serialize the current world mesh (vertices, confidences, triangle
+     * indices) into a compact binary format for persisting as a cloud anchor
+     * asset. Returns null if there is no current mesh.
+     *
+     * @param locationTransformCsv the value {@link RvFinishScanCallback} returned —
+     *        there is no placed anchor to read a transform from otherwise.
+     * @return the serialized bytes, or null.
+     */
+    public byte[] rvSnapshotWorldMesh(String locationTransformCsv) {
+        return nativeRvSnapshotWorldMesh(mNativeRef, locationTransformCsv);
+    }
+
+    /**
+     * WS-C: reverse of {@link #rvSnapshotWorldMesh} — load a resolved mesh
+     * snapshot and attach it for both physics collision and visual occlusion.
+     * Requires {@link #setWorldMeshEnabled} to have been called with true.
+     *
+     * @param meshBytes bytes downloaded from the resolved anchor's mesh asset.
+     * @param resolvedTransformCsv the resolved anchor's transform (16
+     *        comma-separated floats).
+     * @return false if there is no world mesh or the bytes are malformed.
+     */
+    public boolean rvLoadWorldMesh(byte[] meshBytes, String resolvedTransformCsv) {
+        return nativeRvLoadWorldMesh(mNativeRef, meshBytes, resolvedTransformCsv);
+    }
+
+    /**
      * Configure the world mesh generation and physics properties.
      *
      * @param stride Sample every Nth pixel from depth image (lower = more detail)
@@ -1714,6 +1791,8 @@ public class ARScene extends Scene {
                                                        int limit, int offset);
 
     // Cloud anchor management native methods
+    private native void nativeRvStartScan(long sceneControllerRef);
+    private native void nativeRvFinishScan(long sceneControllerRef, String key, int ttlDays);
     private native void nativeRvGetCloudAnchor(long sceneControllerRef, String key, String anchorId);
     private native void nativeRvListCloudAnchors(long sceneControllerRef, String key,
                                                   int limit, int offset);
@@ -1746,6 +1825,8 @@ public class ARScene extends Scene {
 
     // World Mesh API native methods
     private native void nativeSetWorldMeshEnabled(long sceneControllerRef, boolean enabled);
+    private native byte[] nativeRvSnapshotWorldMesh(long sceneControllerRef, String locationTransformCsv);
+    private native boolean nativeRvLoadWorldMesh(long sceneControllerRef, byte[] meshBytes, String resolvedTransformCsv);
     private native void nativeSetWorldMeshConfig(long sceneControllerRef,
                                                   int stride,
                                                   float minConfidence,
