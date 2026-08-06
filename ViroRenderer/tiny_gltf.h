@@ -2518,13 +2518,9 @@ static bool ParsePrimitive(Primitive *primitive, std::string *err,
     return false;
   }
 
-  // TODO VIRO-3664: Support Draw Arrays for Viro Geometry in the main render pass.
-  if (indices == -1.0){
-      if (err) {
-          (*err) += "Viro Does not yet have support for models without indexed vertices.\n";
-      }
-      return false;
-  }
+  // VIRO-3664: Draw Arrays (a primitive with no "indices", legal per spec) are supported —
+  // VROGLTFLoader::processVertexElement synthesizes sequential indices (the
+  // glDrawArrays-equivalent) whenever primitive->indices is left at -1 here.
 
   // Look for morph targets
   json::const_iterator targetsObject = o.find("targets");
