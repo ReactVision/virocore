@@ -52,11 +52,28 @@ public:
                               VROFieldOfView *outFOV) override;
     VROVector3f getImageSize() override { return { _width, _height, 0 }; }
 
+    /**
+     Real camera intrinsics, when the host has them.
+
+     Without these the projection falls back to a fixed 60-degree vertical
+     field of view, which is very unlikely to be the field of view of the
+     camera that produced the image behind the scene. The background is drawn
+     as a screen-space surface and fills the viewport regardless, so it looks
+     right while the 3-D content is projected through a different camera --
+     content near the optical axis lands close to correct and content toward
+     the edges is off by hundreds of pixels.
+     */
+    void setIntrinsics(float fx, float fy, float cx, float cy) {
+        _fx = fx; _fy = fy; _cx = cx; _cy = cy;
+    }
+    bool hasIntrinsics() const { return _fx > 0 && _fy > 0; }
+
 private:
     VROMatrix4f _rotation;
     VROVector3f _position;
     VROARTrackingState _trackingState;
     float _width, _height;
+    float _fx = 0, _fy = 0, _cx = 0, _cy = 0;
 };
 
 #pragma mark - Frame
@@ -110,6 +127,9 @@ public:
     void setPose(VROMatrix4f rotation, VROVector3f position, VROARTrackingState state);
     void setCameraBackground(std::shared_ptr<VROTexture> texture);
     void setCameraImageSize(float w, float h);
+    /** Real intrinsics for the projection; see VROARCameraWeb::setIntrinsics. */
+    void setCameraIntrinsics(float fx, float fy, float cx, float cy,
+                             float w, float h);
 
     // --- VROARSession ---
     void run() override { _running = true; }

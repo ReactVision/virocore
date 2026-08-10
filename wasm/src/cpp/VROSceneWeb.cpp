@@ -1248,6 +1248,17 @@ static void viroARSetCameraImageSize(float width, float height) {
     if (session) session->setCameraImageSize(width, height);
 }
 
+// The camera's real intrinsics. Prefer this over viroARSetCameraImageSize
+// wherever the host knows them: without them the frustum is a fixed 60-degree
+// vertical field of view, and 3-D content is then projected through a different
+// camera from the one that produced the background image.
+static void viroARSetCameraIntrinsics(float fx, float fy, float cx, float cy,
+                                      float width, float height) {
+    if (!sScene) return;
+    std::shared_ptr<VROARSessionWeb> session = sScene->getARSession();
+    if (session) session->setCameraIntrinsics(fx, fy, cx, cy, width, height);
+}
+
 EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("initViroScene", &initViroScene);
     emscripten::function("setViroSceneSize", &setViroSceneSize);
@@ -1345,6 +1356,7 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroARSetPose", &viroARSetPose);
     emscripten::function("viroARSetCameraBackground", &viroARSetCameraBackground);
     emscripten::function("viroARSetCameraImageSize", &viroARSetCameraImageSize);
+    emscripten::function("viroARSetCameraIntrinsics", &viroARSetCameraIntrinsics);
 }
 
 // The module has no work to do at startup — JS calls initViroScene() once the
