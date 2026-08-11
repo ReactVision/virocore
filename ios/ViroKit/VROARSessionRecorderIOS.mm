@@ -4,6 +4,8 @@
 //
 //  See VROARSessionRecorderIOS.h.
 //
+//  Copyright © 2026 ReactVision. All rights reserved.
+//
 
 #include "VROARSessionRecorderIOS.h"
 #if __IPHONE_OS_VERSION_MAX_ALLOWED >= 110000

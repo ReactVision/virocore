@@ -16,6 +16,8 @@
 //  session has no Simulator equivalent, so this can only be exercised on a
 //  physical device.
 //
+//  Copyright © 2026 ReactVision. All rights reserved.
+//
 
 #ifndef VROARSessionRecorderIOS_h
 #define VROARSessionRecorderIOS_h
