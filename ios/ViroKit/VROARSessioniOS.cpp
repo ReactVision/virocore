@@ -26,6 +26,7 @@
 
 #include "Availability.h"
 #if __IPHONE_OS_VERSION_MAX_ALLOWED >= 110000
+#include <memory>
 #include "VROARAnchor.h"
 #include "VROARCameraiOS.h"
 #include "VROARFrameiOS.h"
@@ -968,6 +969,9 @@ std::unique_ptr<VROARFrame> &VROARSessioniOS::updateFrame() {
       // localization for the ReactVision provider (no-op when nothing is pending).
       if (_cloudAnchorProviderRV != nil) {
         [_cloudAnchorProviderRV updateWithFrame:arFrame];
+      }
+      if (_recorder && _recorder->getStatus() == VROARRecordingStatus::Recording) {
+        _recorder->recordFrame(arFrame);
       }
     }
   }
@@ -2817,6 +2821,31 @@ float VROARSessioniOS::getSemanticLabelFraction(VROSemanticLabel label) const {
     return [_cloudAnchorProviderARCore getSemanticLabelFraction:(NSInteger)label];
   }
   return 0.0f;
+}
+
+bool VROARSessioniOS::isRecordingSupported() const {
+  // ARKit's camera session has no Simulator equivalent — recording needs a
+  // physical device, same requirement as the AR session itself.
+  return true;
+}
+
+void VROARSessioniOS::startRecording(const VROARRecordingConfig &config,
+                                     std::function<void()> onSuccess,
+                                     std::function<void(std::string error)> onFailure) {
+  if (!_recorder) {
+    _recorder.reset(new VROARSessionRecorderIOS());
+  }
+  _recorder->start(config, onSuccess, onFailure);
+}
+
+void VROARSessioniOS::stopRecording() {
+  if (_recorder) {
+    _recorder->stop();
+  }
+}
+
+VROARRecordingStatus VROARSessioniOS::getRecordingStatus() const {
+  return _recorder ? _recorder->getStatus() : VROARRecordingStatus::None;
 }
 
 std::shared_ptr<VROTexture> VROARSessioniOS::getSemanticTexture() {
