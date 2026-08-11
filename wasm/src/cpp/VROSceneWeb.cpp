@@ -839,6 +839,9 @@ static void viroRemoveAllMaterialShaderModifiers(int material) {
 static void viroSetMaterialShaderUniformFloat(int material, std::string name, float value) {
     if (auto m = getMaterial(material)) m->setShaderUniform(name, value);
 }
+static void viroSetMaterialShaderUniformVec2(int material, std::string name, float x, float y) {
+    if (auto m = getMaterial(material)) m->setShaderUniform(name, VROVector2f(x, y));
+}
 static void viroSetMaterialShaderUniformVec3(int material, std::string name, float x, float y, float z) {
     if (auto m = getMaterial(material)) m->setShaderUniform(name, VROVector3f(x, y, z));
 }
@@ -1401,6 +1404,7 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroAddMaterialShaderModifier", &viroAddMaterialShaderModifier);
     emscripten::function("viroRemoveAllMaterialShaderModifiers", &viroRemoveAllMaterialShaderModifiers);
     emscripten::function("viroSetMaterialShaderUniformFloat", &viroSetMaterialShaderUniformFloat);
+    emscripten::function("viroSetMaterialShaderUniformVec2", &viroSetMaterialShaderUniformVec2);
     emscripten::function("viroSetMaterialShaderUniformVec3", &viroSetMaterialShaderUniformVec3);
     emscripten::function("viroSetMaterialShaderUniformVec4", &viroSetMaterialShaderUniformVec4);
     emscripten::function("viroSetMaterialShaderUniformMat4", &viroSetMaterialShaderUniformMat4);
