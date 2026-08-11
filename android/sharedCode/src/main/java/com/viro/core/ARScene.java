@@ -26,6 +26,7 @@ package com.viro.core;
 //#IFDEF 'viro_react'
 import com.viro.core.internal.ARDeclarativeNode;
 //#ENDIF
+import android.content.Context;
 import android.net.Uri;
 import android.util.Log;
 
@@ -166,6 +167,25 @@ public class ARScene extends Scene {
          * @param error The error message.
          */
         public void onFailure(String error);
+    }
+
+    /**
+     * The state of an in-progress (or not-yet-started) AR session recording.
+     * See {@link #getRecordingStatus()}. Mirrors native's VROARRecordingStatus
+     * (VROARSession.h) — ordinals must stay in sync with that enum.
+     */
+    public enum RecordingStatus {
+        NONE, RECORDING, IO_ERROR, UNSUPPORTED
+    }
+
+    /**
+     * Callback interface for {@link #startRecording(String, Context, RecordingStartListener)}.
+     */
+    public interface RecordingStartListener {
+        /** Invoked once recording has actually started (files created, sensors/encoder running). */
+        void onSuccess();
+        /** Invoked if recording could not start, or if it fails mid-stream (encoder/IO error). */
+        void onFailure(String error);
     }
 
     /**
@@ -475,6 +495,12 @@ public class ARScene extends Scene {
     private boolean mHasTrackingInitialized = false;
     private Map<String, CloudAnchorHostListener> mCloudAnchorHostCallbacks = new HashMap<>();
     private Map<String, CloudAnchorResolveListener> mCloudAnchorResolveCallbacks = new HashMap<>();
+
+    // AR Session Recording API state. mSessionRecorder does the actual work
+    // (MediaCodec/MediaMuxer/SensorManager/file I/O — see ARSessionRecorder);
+    // this class only bridges native's per-frame calls to it.
+    private com.viro.core.internal.ARSessionRecorder mSessionRecorder;
+    private RecordingStartListener mRecordingStartListener;
 
     // Geospatial API state
     private boolean mGeospatialModeEnabled = false;
@@ -974,6 +1000,100 @@ public class ARScene extends Scene {
         }
         mCloudAnchorHostCallbacks.put(anchorId, callback);
         nativeHostCloudAnchor(mNativeRef, anchorId, ttlDays);
+    }
+
+    /**
+     * Start recording this AR session to local storage: video.mp4 (the camera passthrough
+     * feed) + session.jsonl (raw IMU + ARCore's own tracked pose, one JSON object per line) —
+     * see ViroWorkspace/plans/viro-ar-recording-playback-plan.md for the format. This is for
+     * offline analysis/replay; there is no in-app playback of a recording.
+     * <p>
+     * context is needed for {@link android.hardware.SensorManager} access (the raw IMU tap is
+     * independent of ARCore, which does not expose one) — pass the Activity/View context, e.g.
+     * from {@link ViroViewARCore#getContext()}.
+     *
+     * @param outputDir A directory that will contain video.mp4 + session.jsonl. Created if it
+     *                  doesn't exist.
+     * @param context   Used for SensorManager access.
+     * @param listener  Invoked once recording has started, or with an error if it couldn't.
+     */
+    public void startRecording(String outputDir, Context context, RecordingStartListener listener) {
+        if (mSessionRecorder != null) {
+            if (listener != null) {
+                listener.onFailure("Already recording");
+            }
+            return;
+        }
+        mSessionRecorder = new com.viro.core.internal.ARSessionRecorder(context, new com.viro.core.internal.ARSessionRecorder.ErrorListener() {
+            @Override
+            public void onRecordingError(String message) {
+                nativeReportRecordingError(mNativeRef, message);
+            }
+        });
+        try {
+            mSessionRecorder.start(outputDir);
+        } catch (Exception e) {
+            mSessionRecorder = null;
+            if (listener != null) {
+                listener.onFailure(e.getMessage());
+            }
+            return;
+        }
+        mRecordingStartListener = listener;
+        nativeStartRecording(mNativeRef, outputDir);
+    }
+
+    /**
+     * Stop the recording started by {@link #startRecording(String, Context, RecordingStartListener)}
+     * and finalize video.mp4 + session.jsonl. No-op if not currently recording.
+     */
+    public void stopRecording() {
+        nativeStopRecording(mNativeRef);
+        if (mSessionRecorder != null) {
+            mSessionRecorder.stop();
+            mSessionRecorder = null;
+        }
+    }
+
+    /** The current recording state. See {@link RecordingStatus}. */
+    public RecordingStatus getRecordingStatus() {
+        int ordinal = nativeGetRecordingStatus(mNativeRef);
+        RecordingStatus[] values = RecordingStatus.values();
+        if (ordinal < 0 || ordinal >= values.length) {
+            return RecordingStatus.UNSUPPORTED;
+        }
+        return values[ordinal];
+    }
+
+    // Called by native (ARSceneController_JNI.cpp::nativeStartRecording) once
+    // the session has actually started recording.
+    void onRecordingStartSuccess() {
+        if (mRecordingStartListener != null) {
+            mRecordingStartListener.onSuccess();
+        }
+    }
+
+    // Called by native if startRecording() couldn't proceed (no active AR
+    // session) — note this does NOT tear down mSessionRecorder itself, since
+    // in that path native never got as far as calling setRecordingJavaCallback;
+    // the Java-side encoder/sensors we already started need to be stopped too.
+    void onRecordingStartFailure(String error) {
+        if (mSessionRecorder != null) {
+            mSessionRecorder.stop();
+            mSessionRecorder = null;
+        }
+        if (mRecordingStartListener != null) {
+            mRecordingStartListener.onFailure(error);
+        }
+    }
+
+    // Called by native (VROARSessionARCore::recordFrameForRecording) once per
+    // frame while recording — see ARSessionRecorder.onRecordingFrame() for
+    // the actual encode/sidecar-write work.
+    void onRecordingFrame(byte[] y, byte[] u, byte[] v, int[] dims, long timestampNs, float[] pose) {
+        if (mSessionRecorder != null) {
+            mSessionRecorder.onRecordingFrame(y, u, v, dims, timestampNs, pose);
+        }
     }
 
     // Called by native
@@ -1837,6 +1957,10 @@ public class ARScene extends Scene {
                                                   float restitution,
                                                   String collisionTag,
                                                   boolean debugDrawEnabled);
+    private native void nativeStartRecording(long sceneControllerRef, String outputDir);
+    private native void nativeStopRecording(long sceneControllerRef);
+    private native int nativeGetRecordingStatus(long sceneControllerRef);
+    private native void nativeReportRecordingError(long sceneControllerRef, String error);
 
     // Called by JNI
 

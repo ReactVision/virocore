@@ -25,6 +25,7 @@
 //  SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #include "VROARSessionARCore.h"
+#include "VROARCameraARCore.h"
 #include "VROARAnchor.h"
 #include "VROGeospatialAnchor.h"
 #include "VROARHitTestResult.h"
@@ -936,6 +937,9 @@ std::unique_ptr<VROARFrame> &VROARSessionARCore::updateFrame() {
   updateDepthTexture();
   if (isSemanticModeEnabled()) {
       updateSemanticTexture();
+  }
+  if (_recordingStatus == VROARRecordingStatus::Recording && _recordingJavaCallback) {
+      recordFrameForRecording(arFrame);
   }
 
   return _currentFrame;
@@ -2810,6 +2814,118 @@ void VROARSessionARCore::setSemanticModeEnabled(bool enabled) {
         _semanticMode = arcore::SemanticMode::Disabled;
         _semanticModeEnabled = false;
     }
+}
+
+void VROARSessionARCore::startRecording(const VROARRecordingConfig &config,
+                                        std::function<void()> onSuccess,
+                                        std::function<void(std::string error)> onFailure) {
+    if (!_recordingJavaCallback) {
+        if (onFailure) {
+            onFailure("No recording callback registered (setRecordingJavaCallback was not called)");
+        }
+        return;
+    }
+    // The actual video/IMU/sidecar setup already happened in Java before this
+    // was called (see ARScene.startRecording()) — this just tells updateFrame()
+    // to start calling recordFrameForRecording() each frame.
+    _recordingStatus = VROARRecordingStatus::Recording;
+    if (onSuccess) {
+        onSuccess();
+    }
+}
+
+void VROARSessionARCore::stopRecording() {
+    _recordingStatus = VROARRecordingStatus::None;
+    setRecordingJavaCallback(nullptr);
+}
+
+VROARRecordingStatus VROARSessionARCore::getRecordingStatus() const {
+    return _recordingStatus;
+}
+
+void VROARSessionARCore::setRecordingJavaCallback(jobject javaARScene) {
+    JNIEnv *env = VROPlatformGetJNIEnv();
+    if (_recordingJavaCallback) {
+        env->DeleteGlobalRef(_recordingJavaCallback);
+        _recordingJavaCallback = nullptr;
+    }
+    if (javaARScene) {
+        _recordingJavaCallback = env->NewGlobalRef(javaARScene);
+    }
+}
+
+void VROARSessionARCore::reportRecordingError(std::string error) {
+    _recordingStatus = VROARRecordingStatus::IOError;
+    pwarn("VROARSessionARCore recording error: %s", error.c_str());
+}
+
+// Pulls a YUV camera image + pose + intrinsics out of the current ARCore
+// frame and hands them to Java's ARSessionRecorder (see VROARSessionARCore.h
+// for why this lives in Java rather than as an NDK media pipeline here).
+// Packs strides into one int[] and pose+intrinsics into one float[] to keep
+// the JNI call signature manageable rather than passing a dozen primitives.
+void VROARSessionARCore::recordFrameForRecording(VROARFrameARCore *arFrame) {
+    arcore::Image *img = nullptr;
+    arcore::ImageRetrievalStatus status = _frame->acquireCameraImage(&img);
+    if (status != arcore::ImageRetrievalStatus::Success || !img) {
+        return; // no image this frame; skip rather than write a video-less line
+    }
+
+    int width = img->getWidth();
+    int height = img->getHeight();
+    int yStride = img->getPlaneRowStride(0);
+    int uStride = img->getPlaneRowStride(1);
+    int uPixelStride = img->getPlanePixelStride(1);
+    int vStride = img->getPlaneRowStride(2);
+    int vPixelStride = img->getPlanePixelStride(2);
+
+    const uint8_t *yData = nullptr; int yLen = 0;
+    const uint8_t *uData = nullptr; int uLen = 0;
+    const uint8_t *vData = nullptr; int vLen = 0;
+    img->getPlaneData(0, &yData, &yLen);
+    img->getPlaneData(1, &uData, &uLen);
+    img->getPlaneData(2, &vData, &vLen);
+
+    std::shared_ptr<VROARCamera> camera = arFrame->getCamera();
+    VROMatrix4f rotation = camera->getRotation();
+    VROVector3f position = camera->getPosition();
+    VROQuaternion q(rotation);
+
+    float fx = 0, fy = 0, cx = 0, cy = 0;
+    std::shared_ptr<VROARCameraARCore> cameraARCore = std::dynamic_pointer_cast<VROARCameraARCore>(camera);
+    if (cameraARCore) {
+        cameraARCore->getImageIntrinsics(&fx, &fy, &cx, &cy);
+    }
+
+    int64_t timestampNs = _frame->getTimestampNs();
+
+    JNIEnv *env = VROPlatformGetJNIEnv();
+    jbyteArray yArr = env->NewByteArray(yLen);
+    env->SetByteArrayRegion(yArr, 0, yLen, (const jbyte *) yData);
+    jbyteArray uArr = env->NewByteArray(uLen);
+    env->SetByteArrayRegion(uArr, 0, uLen, (const jbyte *) uData);
+    jbyteArray vArr = env->NewByteArray(vLen);
+    env->SetByteArrayRegion(vArr, 0, vLen, (const jbyte *) vData);
+
+    jint dims[7] = { width, height, yStride, uStride, uPixelStride, vStride, vPixelStride };
+    jintArray dimsArr = env->NewIntArray(7);
+    env->SetIntArrayRegion(dimsArr, 0, 7, dims);
+
+    jfloat pose[11] = { q.X, q.Y, q.Z, q.W, position.x, position.y, position.z, fx, fy, cx, cy };
+    jfloatArray poseArr = env->NewFloatArray(11);
+    env->SetFloatArrayRegion(poseArr, 0, 11, pose);
+
+    VROPlatformCallHostFunction(_recordingJavaCallback, "onRecordingFrame",
+                                "([B[B[B[IJ[F)V",
+                                yArr, uArr, vArr, dimsArr, (jlong) timestampNs, poseArr);
+
+    env->DeleteLocalRef(yArr);
+    env->DeleteLocalRef(uArr);
+    env->DeleteLocalRef(vArr);
+    env->DeleteLocalRef(dimsArr);
+    env->DeleteLocalRef(poseArr);
+
+    delete img;
 }
 
 void VROARSessionARCore::updateDepthTexture() {
