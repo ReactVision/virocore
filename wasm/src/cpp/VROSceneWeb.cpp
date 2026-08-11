@@ -827,6 +827,36 @@ static void viroRemoveAllMaterialShaderModifiers(int material) {
     if (auto m = getMaterial(material)) m->removeAllShaderModifiers();
 }
 
+// Dynamic shader-uniform updates (ViroMaterials.updateShaderUniform). Mirrors
+// MaterialManager.java's updateShaderUniform: it does the type-string
+// dispatch itself (float/vec3/vec4/mat4/sampler2D — there is no vec2 here,
+// matching the native bridge, which has no VROMaterial vec2 overload either)
+// and calls straight into VROMaterial::setShaderUniform. That just stores the
+// value in a map on the material; VROMaterialShaderBinding::bindMaterialUniforms
+// re-pushes every entry to the GL uniform of the same name every frame, so
+// there's no per-frame work to do here and no thread hop needed (this file is
+// synchronous, unlike the JNI/ObjC bridges these mirror).
+static void viroSetMaterialShaderUniformFloat(int material, std::string name, float value) {
+    if (auto m = getMaterial(material)) m->setShaderUniform(name, value);
+}
+static void viroSetMaterialShaderUniformVec3(int material, std::string name, float x, float y, float z) {
+    if (auto m = getMaterial(material)) m->setShaderUniform(name, VROVector3f(x, y, z));
+}
+static void viroSetMaterialShaderUniformVec4(int material, std::string name, float x, float y, float z, float w) {
+    if (auto m = getMaterial(material)) m->setShaderUniform(name, VROVector4f(x, y, z, w));
+}
+// matrix: JS array/typed array of 16 floats, matching VROMatrix4f's flat-array constructor.
+static void viroSetMaterialShaderUniformMat4(int material, std::string name, emscripten::val matrix) {
+    auto m = getMaterial(material);
+    if (!m) return;
+    std::vector<float> elements = emscripten::convertJSArrayToNumberVector<float>(matrix);
+    if (elements.size() != 16) {
+        pwarn("viroSetMaterialShaderUniformMat4: matrix must have 16 elements, got %zu", elements.size());
+        return;
+    }
+    m->setShaderUniform(name, VROMatrix4f(elements.data()));
+}
+
 // --- Textures ---
 
 static std::unordered_map<int, std::shared_ptr<VROTexture>> sTextures;
@@ -899,6 +929,12 @@ static void viroSetMaterialTexture(int material, int channel, int texture) {
 }
 static void viroDestroyTexture(int texture) {
     sTextures.erase(texture);
+}
+// sampler2D shader uniform. texture may be VIRO_INVALID_HANDLE (0) to clear it.
+static void viroSetMaterialShaderUniformTexture(int material, std::string name, int texture) {
+    auto m = getMaterial(material);
+    if (!m) return;
+    m->setShaderUniform(name, getTexture(texture));
 }
 
 // Create a cube texture from six RGBA8 faces (order: +X,-X,+Y,-Y,+Z,-Z), each
@@ -1364,12 +1400,17 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroSetMaterialReadsFromDepthBuffer", &viroSetMaterialReadsFromDepthBuffer);
     emscripten::function("viroAddMaterialShaderModifier", &viroAddMaterialShaderModifier);
     emscripten::function("viroRemoveAllMaterialShaderModifiers", &viroRemoveAllMaterialShaderModifiers);
+    emscripten::function("viroSetMaterialShaderUniformFloat", &viroSetMaterialShaderUniformFloat);
+    emscripten::function("viroSetMaterialShaderUniformVec3", &viroSetMaterialShaderUniformVec3);
+    emscripten::function("viroSetMaterialShaderUniformVec4", &viroSetMaterialShaderUniformVec4);
+    emscripten::function("viroSetMaterialShaderUniformMat4", &viroSetMaterialShaderUniformMat4);
 
     emscripten::function("viroCreateTextureRGBA", &viroCreateTextureRGBA);
     emscripten::function("viroSetTextureWrap", &viroSetTextureWrap);
     emscripten::function("viroSetTextureFilter", &viroSetTextureFilter);
     emscripten::function("viroSetMaterialTexture", &viroSetMaterialTexture);
     emscripten::function("viroDestroyTexture", &viroDestroyTexture);
+    emscripten::function("viroSetMaterialShaderUniformTexture", &viroSetMaterialShaderUniformTexture);
     emscripten::function("viroCreateTextureCubeRGBA", &viroCreateTextureCubeRGBA);
     emscripten::function("viroLoadRadianceHDRTexture", &viroLoadRadianceHDRTexture);
     emscripten::function("viroSetLightingEnvironment", &viroSetLightingEnvironment);
