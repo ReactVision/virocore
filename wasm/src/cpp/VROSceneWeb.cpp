@@ -43,6 +43,7 @@
 #include "VROParticleModifier.h"
 #include "VROMaterial.h"
 #include "VROMaterialVisual.h"
+#include "VROShaderModifier.h"
 #include "VROTexture.h"
 #include "VROData.h"
 #include "VROTransaction.h"
@@ -59,6 +60,7 @@
 
 #include <unordered_map>
 #include <vector>
+#include <sstream>
 
 static VROSceneWeb *sInstance = nullptr;
 
@@ -766,6 +768,65 @@ static void viroSetMaterialReadsFromDepthBuffer(int material, bool reads) {
     if (auto m = getMaterial(material)) m->setReadsFromDepthBuffer(reads);
 }
 
+// entryPoint: "geometry"|"vertex"|"surface"|"fragment"|"lightingModel"|"image".
+// Mirrors parseShaderEntryPoint in capi/Material_JNI.cpp (kept local rather than
+// reused across that file's JNI macros, since this file has no JNI dependency
+// otherwise); unknown names fall back to Fragment, same as the JNI side.
+static VROShaderEntryPoint webParseShaderEntryPoint(const std::string &name) {
+    if (name == "geometry") return VROShaderEntryPoint::Geometry;
+    if (name == "vertex") return VROShaderEntryPoint::Vertex;
+    if (name == "surface") return VROShaderEntryPoint::Surface;
+    if (name == "fragment") return VROShaderEntryPoint::Fragment;
+    if (name == "lightingModel") return VROShaderEntryPoint::LightingModel;
+    if (name == "image") return VROShaderEntryPoint::Image;
+    pwarn("viroAddMaterialShaderModifier: unknown entry point [%s], defaulting to Fragment", name.c_str());
+    return VROShaderEntryPoint::Fragment;
+}
+
+// shaderCode is the modifier body, with any `uniforms` block already prepended
+// by the JS bridge (same convention as MaterialManager.java's
+// parseShaderModifiers: uniforms + "\n" + body) — this API takes one blob of
+// GLSL text and splits it into lines the way VROShaderModifier expects.
+// varyings is an optional JS array of strings; pass undefined/null for none.
+static void viroAddMaterialShaderModifier(int material, std::string entryPoint, std::string shaderCode,
+                                           emscripten::val varyings,
+                                           bool requiresSceneDepth, bool requiresCameraTexture) {
+    auto m = getMaterial(material);
+    if (!m) return;
+
+    VROShaderEntryPoint entry = webParseShaderEntryPoint(entryPoint);
+
+    std::vector<std::string> lines;
+    std::stringstream ss(shaderCode);
+    std::string line;
+    while (std::getline(ss, line)) {
+        lines.push_back(line);
+    }
+
+    std::vector<std::string> varyingsVec;
+    if (!varyings.isNull() && !varyings.isUndefined()) {
+        int len = varyings["length"].as<int>();
+        for (int i = 0; i < len; i++) {
+            varyingsVec.push_back(varyings[i].as<std::string>());
+        }
+    }
+
+    // Match the JNI side: shader modifiers are added synchronously, so disable
+    // thread-restriction the same way the immutable-material constructor does.
+    m->setThreadRestrictionEnabled(false);
+    auto modifier = std::make_shared<VROShaderModifier>(entry, lines);
+    if (!varyingsVec.empty()) {
+        modifier->setVaryings(varyingsVec);
+    }
+    modifier->setRequiresSceneDepth(requiresSceneDepth);
+    modifier->setRequiresCameraTexture(requiresCameraTexture);
+    m->addShaderModifier(modifier);
+    m->setThreadRestrictionEnabled(true);
+}
+static void viroRemoveAllMaterialShaderModifiers(int material) {
+    if (auto m = getMaterial(material)) m->removeAllShaderModifiers();
+}
+
 // --- Textures ---
 
 static std::unordered_map<int, std::shared_ptr<VROTexture>> sTextures;
@@ -1301,6 +1362,8 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroSetMaterialBlendMode", &viroSetMaterialBlendMode);
     emscripten::function("viroSetMaterialWritesToDepthBuffer", &viroSetMaterialWritesToDepthBuffer);
     emscripten::function("viroSetMaterialReadsFromDepthBuffer", &viroSetMaterialReadsFromDepthBuffer);
+    emscripten::function("viroAddMaterialShaderModifier", &viroAddMaterialShaderModifier);
+    emscripten::function("viroRemoveAllMaterialShaderModifiers", &viroRemoveAllMaterialShaderModifiers);
 
     emscripten::function("viroCreateTextureRGBA", &viroCreateTextureRGBA);
     emscripten::function("viroSetTextureWrap", &viroSetTextureWrap);
