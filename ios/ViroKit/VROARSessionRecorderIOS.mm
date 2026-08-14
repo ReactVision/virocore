@@ -16,6 +16,8 @@
 #include "VROConvert.h"
 #include "VROCameraTexture.h" // VROCameraOrientation
 
+#include <algorithm>
+
 #import <Foundation/Foundation.h>
 
 // Matches ARFrame.capturedImage's documented format. If a future OS/device
@@ -133,8 +135,26 @@ bool VROARSessionRecorderIOS::start(const VROARRecordingConfig &config,
 }
 
 void VROARSessionRecorderIOS::stop() {
-    if (_status != VROARRecordingStatus::Recording && _status != VROARRecordingStatus::IOError) {
-        return;
+    AVAssetWriter *writerToFinish = nil;
+    AVAssetWriterInput *inputToFinish = nil;
+    {
+        // Flip _status away from Recording under the same lock recordFrame()
+        // takes around its own status check + appendPixelBuffer call — see
+        // the _stateMutex comment in the header. Anything recordFrame() does
+        // after this block either completed before we got the lock (fine,
+        // that frame is already in the file) or observes the new status and
+        // returns early, so markAsFinished below can never race a concurrent
+        // append.
+        std::lock_guard<std::mutex> lock(_stateMutex);
+        if (_status != VROARRecordingStatus::Recording && _status != VROARRecordingStatus::IOError) {
+            return;
+        }
+        _status = VROARRecordingStatus::None;
+        writerToFinish = _videoWriter;
+        inputToFinish = _videoWriterInput;
+        _videoWriter = nil;
+        _videoWriterInput = nil;
+        _videoAdaptor = nil;
     }
 
     if (_motionManager) {
@@ -145,22 +165,32 @@ void VROARSessionRecorderIOS::stop() {
     }
     _imuQueue = nil;
 
-    if (_videoWriter && _videoWriter.status == AVAssetWriterStatusWriting) {
-        [_videoWriterInput markAsFinished];
+    if (writerToFinish && writerToFinish.status == AVAssetWriterStatusWriting) {
+        [inputToFinish markAsFinished];
         dispatch_semaphore_t sema = dispatch_semaphore_create(0);
-        [_videoWriter finishWritingWithCompletionHandler:^{
+        __block BOOL completed = NO;
+        [writerToFinish finishWritingWithCompletionHandler:^{
+            completed = YES;
             dispatch_semaphore_signal(sema);
         }];
-        // Bounded wait so a stuck encoder can't hang the caller forever —
-        // stop() is expected to return promptly (e.g. app backgrounding).
-        dispatch_semaphore_wait(sema, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5.0 * NSEC_PER_SEC)));
+        // Bounded wait so a stuck encoder can't hang the caller forever (e.g.
+        // app backgrounding) — raised from 5s since draining a 4K/H.264
+        // session's last buffered frames can legitimately take longer than
+        // that. If this still elapses, the recording is genuinely incomplete
+        // (no moov atom will ever be written for it) — surfaced as IOError
+        // below instead of silently reporting success on an unplayable file.
+        dispatch_semaphore_wait(sema, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(20.0 * NSEC_PER_SEC)));
+        if (!completed || writerToFinish.status != AVAssetWriterStatusCompleted) {
+            perr("VROARSessionRecorderIOS: finishWriting did not complete (status=%ld, error=%s) — "
+                 "video.mp4 is likely missing its moov atom and will not decode",
+                 (long)writerToFinish.status,
+                 writerToFinish.error ? [writerToFinish.error.localizedDescription UTF8String] : "none");
+            std::lock_guard<std::mutex> lock(_stateMutex);
+            _status = VROARRecordingStatus::IOError;
+        }
     }
-    _videoWriter = nil;
-    _videoWriterInput = nil;
-    _videoAdaptor = nil;
 
     closeSidecar();
-    _status = VROARRecordingStatus::None;
 }
 
 VROARRecordingStatus VROARSessionRecorderIOS::getStatus() const {
@@ -168,6 +198,7 @@ VROARRecordingStatus VROARSessionRecorderIOS::getStatus() const {
 }
 
 void VROARSessionRecorderIOS::closeSidecar() {
+    flushBufferedLinesSorted();
     std::lock_guard<std::mutex> lock(_sidecarMutex);
     if (_sidecar.is_open()) {
         _sidecar.close();
@@ -207,9 +238,11 @@ void VROARSessionRecorderIOS::writeImuLine(double tSec, double ax, double ay, do
         "{\"type\":\"imu\",\"t\":%lld,\"accel\":[%.6f,%.6f,%.6f],\"gyro\":[%.6f,%.6f,%.6f]}",
         (long long)tNs, ax, ay, az, gx, gy, gz);
 
+    // Buffered, not written immediately — see the _bufferedLines comment in
+    // the header. Sorted by `t` and flushed at stop().
     std::lock_guard<std::mutex> lock(_sidecarMutex);
     if (_sidecar.is_open()) {
-        _sidecar << buf << "\n";
+        _bufferedLines.push_back({tNs, std::string(buf)});
     }
 }
 
@@ -233,13 +266,35 @@ void VROARSessionRecorderIOS::writePoseLine(ARFrame *frame) {
         (long long)tNs, q.X, q.Y, q.Z, q.W, m[12], m[13], m[14],
         gravity.x, gravity.y, gravity.z);
 
+    // Buffered, not written immediately — see the _bufferedLines comment in
+    // the header. Sorted by `t` and flushed at stop().
     std::lock_guard<std::mutex> lock(_sidecarMutex);
     if (_sidecar.is_open()) {
-        _sidecar << buf << "\n";
+        _bufferedLines.push_back({tNs, std::string(buf)});
     }
 }
 
+void VROARSessionRecorderIOS::flushBufferedLinesSorted() {
+    std::lock_guard<std::mutex> lock(_sidecarMutex);
+    if (!_sidecar.is_open()) {
+        return;
+    }
+    // Stable sort: imu/pose lines carrying the same timestamp (rare, but
+    // possible at 1ns granularity) keep their original relative order rather
+    // than being shuffled arbitrarily.
+    std::stable_sort(_bufferedLines.begin(), _bufferedLines.end(),
+                      [](const SidecarLine &a, const SidecarLine &b) { return a.t < b.t; });
+    for (const auto &line : _bufferedLines) {
+        _sidecar << line.text << "\n";
+    }
+    _bufferedLines.clear();
+}
+
 void VROARSessionRecorderIOS::recordFrame(ARFrame *frame) {
+    // Held for the whole call (including appendPixelBuffer below) so this can
+    // never interleave with stop()'s status-flip + markAsFinished — see the
+    // _stateMutex comment in the header.
+    std::lock_guard<std::mutex> lock(_stateMutex);
     if (_status != VROARRecordingStatus::Recording || !frame) {
         return;
     }
