@@ -154,12 +154,24 @@ public class ARSessionRecorder {
         mSensorManager = null;
         mSensorListener = null;
 
+        // Unlike iOS's AVAssetWriter (async finishWriting + completion handler,
+        // racing against a concurrent appendPixelBuffer if not carefully
+        // sequenced — see VROARSessionRecorderIOS.stop()), MediaCodec.stop()/
+        // MediaMuxer.stop() are synchronous, blocking calls, and this whole
+        // method is `synchronized` on the same monitor as onRecordingFrame(),
+        // so there is no equivalent race here: either onRecordingFrame() is
+        // still running and this blocks until it finishes, or it can't start
+        // once this method holds the lock. What IS missing without the
+        // reportError() calls below is failure *visibility* — a thrown
+        // exception here was only Log.w'd, so getRecordingStatus() could
+        // still report success on an encoder/muxer that failed to finalize.
         if (mEncoder != null) {
             try {
                 drainEncoder(true); // flush any buffered frames before finalizing the mp4
                 mEncoder.stop();
             } catch (Exception e) {
                 Log.w(TAG, "ARSessionRecorder: encoder.stop() failed", e);
+                reportError("encoder.stop() failed: " + e.getMessage());
             }
             mEncoder.release();
             mEncoder = null;
@@ -171,11 +183,13 @@ public class ARSessionRecorder {
                 }
             } catch (Exception e) {
                 Log.w(TAG, "ARSessionRecorder: muxer.stop() failed", e);
+                reportError("muxer.stop() failed: " + e.getMessage());
             }
             mMuxer.release();
             mMuxer = null;
         }
         mMuxerStarted = false;
+        flushBufferedLinesSorted();
         closeSidecarQuietly();
     }
 
@@ -243,27 +257,11 @@ public class ARSessionRecorder {
             "{\"type\":\"header\",\"intrinsics\":{\"fx\":%.4f,\"fy\":%.4f,\"cx\":%.4f,\"cy\":%.4f,\"width\":%d,\"height\":%d}," +
             "\"extrinsics\":{\"q_imu_cam\":[0,0,0,1],\"p_imu_cam\":[0,0,0],\"time_offset\":0.0}}",
             fx, fy, cx, cy, width, height);
-        writeLine(line);
-    }
-
-    private void writePoseLine(long timestampNs, float[] pose) {
-        String line = String.format(Locale.US,
-            "{\"type\":\"pose\",\"t\":%d,\"orientation\":[%.6f,%.6f,%.6f,%.6f]," +
-            "\"position\":[%.6f,%.6f,%.6f],\"gravity\":[%.6f,%.6f,%.6f]}",
-            timestampNs, pose[0], pose[1], pose[2], pose[3], pose[4], pose[5], pose[6],
-            mLastGravity[0], mLastGravity[1], mLastGravity[2]);
-        writeLine(line);
-    }
-
-    private void writeImuLine(long timestampNs, float ax, float ay, float az,
-                               float gx, float gy, float gz) {
-        String line = String.format(Locale.US,
-            "{\"type\":\"imu\",\"t\":%d,\"accel\":[%.6f,%.6f,%.6f],\"gyro\":[%.6f,%.6f,%.6f]}",
-            timestampNs, ax, ay, az, gx, gy, gz);
-        writeLine(line);
-    }
-
-    private void writeLine(String line) {
+        // Written immediately, not buffered — the header must be the sidecar's
+        // first line, which it always is as long as it's flushed before any
+        // buffered imu/pose line (guaranteed: header is only ever written from
+        // onRecordingFrame() on the first call, before that call's own
+        // writePoseLine(), and before flushBufferedLinesSorted() ever runs).
         synchronized (mSidecarLock) {
             if (mSidecar == null) {
                 return;
@@ -275,6 +273,72 @@ public class ARSessionRecorder {
             } catch (IOException e) {
                 reportError("session.jsonl write failed: " + e.getMessage());
             }
+        }
+    }
+
+    private void writePoseLine(long timestampNs, float[] pose) {
+        String line = String.format(Locale.US,
+            "{\"type\":\"pose\",\"t\":%d,\"orientation\":[%.6f,%.6f,%.6f,%.6f]," +
+            "\"position\":[%.6f,%.6f,%.6f],\"gravity\":[%.6f,%.6f,%.6f]}",
+            timestampNs, pose[0], pose[1], pose[2], pose[3], pose[4], pose[5], pose[6],
+            mLastGravity[0], mLastGravity[1], mLastGravity[2]);
+        bufferLine(timestampNs, line);
+    }
+
+    private void writeImuLine(long timestampNs, float ax, float ay, float az,
+                               float gx, float gy, float gz) {
+        String line = String.format(Locale.US,
+            "{\"type\":\"imu\",\"t\":%d,\"accel\":[%.6f,%.6f,%.6f],\"gyro\":[%.6f,%.6f,%.6f]}",
+            timestampNs, ax, ay, az, gx, gy, gz);
+        bufferLine(timestampNs, line);
+    }
+
+    // imu/pose lines are buffered here rather than written straight to
+    // mSidecar, then sorted by timestamp and flushed at stop() — see
+    // flushBufferedLinesSorted(). Without this, the format's documented
+    // "monotonic timestamp_ns order" guarantee breaks: imu arrives on the
+    // SensorManager listener (main Looper thread) while pose is written from
+    // onRecordingFrame() (the native/GL callback thread, doing much more work
+    // per call — image packing + MediaCodec encode), so pose lines can land
+    // in the file later than their own timestamp would place them relative to
+    // imu, even though each stream is individually monotonic. Matches the
+    // same fix applied to VROARSessionRecorderIOS.
+    private final java.util.List<long[]> mBufferedTimestamps = new java.util.ArrayList<>();
+    private final java.util.List<String> mBufferedLines = new java.util.ArrayList<>();
+
+    private void bufferLine(long timestampNs, String line) {
+        synchronized (mSidecarLock) {
+            if (mSidecar == null) {
+                return;
+            }
+            mBufferedTimestamps.add(new long[]{timestampNs, mBufferedLines.size()});
+            mBufferedLines.add(line);
+        }
+    }
+
+    private void flushBufferedLinesSorted() {
+        synchronized (mSidecarLock) {
+            if (mSidecar == null) {
+                return;
+            }
+            // Stable sort by timestamp (ties broken by original insertion
+            // index, held in element [1]) so same-timestamp lines keep their
+            // original relative order rather than being shuffled arbitrarily.
+            java.util.Collections.sort(mBufferedTimestamps, (a, b) -> {
+                int cmp = Long.compare(a[0], b[0]);
+                return cmp != 0 ? cmp : Long.compare(a[1], b[1]);
+            });
+            try {
+                for (long[] entry : mBufferedTimestamps) {
+                    mSidecar.write(mBufferedLines.get((int) entry[1]));
+                    mSidecar.write("\n");
+                }
+                mSidecar.flush();
+            } catch (IOException e) {
+                reportError("session.jsonl write failed: " + e.getMessage());
+            }
+            mBufferedTimestamps.clear();
+            mBufferedLines.clear();
         }
     }
 
