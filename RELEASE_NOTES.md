@@ -1,5 +1,40 @@
 # Release Notes
 
+## v2.58.0
+
+### Highlights
+
+**VPS-Lite v1 — geo-anchored persistent AR**
+
+- Room/building-scale cloud anchors, discoverable by GPS, with an optional attached mesh for occlusion + physics.
+- New scan session API (`startScan`/`finishScan`) — no pre-placed anchor needed, no small-radius cap.
+- Mesh snapshot/attach for occlusion + physics collision on resolve.
+- `resolveCloudAnchor()` now returns `resolvedTransform`.
+- GPS accuracy gating: `getEarthTrackingState()` reports a real `Localizing → Enabled` transition (15m horizontal accuracy threshold), gated identically on both the ReactVision and ARCore geospatial provider paths — previously the ARCore path reported `Enabled` immediately, regardless of fix quality.
+
+**Web platform**
+
+- virocore compiles to WebAssembly/WebGL2 (`viro-web.wasm`), shipping as the engine behind the new `@reactvision/viro-web-renderer` package — nodes, geometry, materials/textures, text, particles, portals, IBL, lights/camera, model loading, animation, and a JS-driven AR backend.
+- AR projection now derived from the camera's real intrinsics (was a fixed 60° FOV).
+
+**AR Session Recording**
+
+- `VROARSession` gains an optional local recording surface (`startRecording`/`stopRecording`/`getRecordingStatus`) — `video.mp4` + `session.jsonl` (raw IMU + ground-truth pose), for offline analysis/replay via `tinyvio`. iOS (`AVAssetWriter`) and Android (`MediaCodec`/`MediaMuxer`) implementations, both with sorted, race-free sidecar/video finalization.
+
+**Fixes**
+
+- glTF: sparse accessors and non-indexed (draw-arrays) primitives no longer fail to load (VIRO-3664).
+
+### Notes
+
+- Rebuild the prebuilt AARs/frameworks before publishing — this release touches the Android/iOS AR session classes, the wasm build, and the glTF loader.
+- The web platform is additive: it introduces no changes to the existing iOS/Android/Quest/visionOS renderers or their public API.
+- Pairs with `@reactvision/react-viro` 2.58.0.
+
+See [`CHANGELOG.md`](./CHANGELOG.md) for full detail.
+
+---
+
 ## v2.57.5
 
 ### Highlights
