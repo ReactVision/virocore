@@ -337,6 +337,15 @@ bool VROGLTFLoader::applySparseAccessorData(const tinygltf::Model &gModel,
 
     size_t elementSize = componentSize * numComponents;
 
+    // Sparse indices/values bufferViews are required fields whenever sparse.isSparse is true,
+    // but bounds-check them anyway rather than trusting the file — an out-of-range index here
+    // is the same out-of-bounds vector::operator[] hazard this function exists to avoid.
+    if (sparse.indices.bufferView < 0 || sparse.indices.bufferView >= (int) gModel.bufferViews.size() ||
+        sparse.values.bufferView < 0 || sparse.values.bufferView >= (int) gModel.bufferViews.size()) {
+        perr("Sparse accessor references an out-of-range bufferView");
+        return false;
+    }
+
     // Read sparse indices
     const tinygltf::BufferView &indicesBufferView = gModel.bufferViews[sparse.indices.bufferView];
     const tinygltf::Buffer &indicesBuffer = gModel.buffers[indicesBufferView.buffer];
@@ -385,6 +394,44 @@ bool VROGLTFLoader::applySparseAccessorData(const tinygltf::Model &gModel,
     }
 
     return true;
+}
+
+bool VROGLTFLoader::materializeAccessorData(const tinygltf::Model &gModel,
+                                            const tinygltf::Accessor &accessor,
+                                            GLTFType gType,
+                                            GLTFTypeComponent gTypeComponent,
+                                            std::vector<unsigned char> &outputData) {
+    size_t elementSize = (size_t) (getTypeSize(gType) * getComponentTypeSize(gTypeComponent));
+    if (elementSize == 0) {
+        perr("Invalid element size when materializing GLTF accessor data");
+        return false;
+    }
+    outputData.assign(accessor.count * elementSize, 0);
+
+    // Copy the base data, if any. Per spec accessor.bufferView is legitimately -1 when the
+    // accessor is sparse-only (e.g. a morph target delta with no unaffected-vertex base) —
+    // in that case the base is implicitly all-zero, so outputData's zero-fill above is already
+    // correct and there's nothing to copy.
+    if (accessor.bufferView >= 0) {
+        if (accessor.bufferView >= (int) gModel.bufferViews.size()) {
+            perr("GLTF accessor references an out-of-range bufferView %d", accessor.bufferView);
+            return false;
+        }
+        const tinygltf::BufferView &baseBufferView = gModel.bufferViews[accessor.bufferView];
+        if (baseBufferView.buffer < 0 || baseBufferView.buffer >= (int) gModel.buffers.size()) {
+            perr("GLTF bufferView references an out-of-range buffer %d", baseBufferView.buffer);
+            return false;
+        }
+        const tinygltf::Buffer &baseBuffer = gModel.buffers[baseBufferView.buffer];
+        size_t baseStride = baseBufferView.byteStride != 0 ? baseBufferView.byteStride : elementSize;
+        const unsigned char *baseData = baseBuffer.data.data() + baseBufferView.byteOffset + accessor.byteOffset;
+        for (size_t i = 0; i < accessor.count; i++) {
+            memcpy(outputData.data() + i * elementSize, baseData + i * baseStride, elementSize);
+        }
+    }
+
+    // Overlay the sparse deltas, if any (no-op if accessor.sparse.isSparse is false).
+    return applySparseAccessorData(gModel, accessor, outputData);
 }
 
 void VROGLTFLoader::loadGLTFFromResource(std::string gltfManifestFilePath, const std::map<std::string, std::string> overwriteResourceMap,
@@ -2568,34 +2615,72 @@ bool VROGLTFLoader::processVertexAttributes(const tinygltf::Model &gModel,
         if (!getComponentType(gAttributeAccesor, gTypeComponent) || !getComponent(gAttributeAccesor, gType)) {
             return false;
         }
-        
-        // Determine the offsets and data sizes representing the 'window of data' for this attribute in the buffer
-        const tinygltf::BufferView gIndiceBufferView = gModel.bufferViews[gAttributeAccesor.bufferView];
-        
+
         std::shared_ptr<VROGeometrySource> source;
 
-        if (attributeType != VROGeometrySourceSemantic::BoneWeights) {
-            size_t bufferViewOffset = gIndiceBufferView.byteOffset;
-            size_t bufferViewTotalSize = gIndiceBufferView.byteLength;
-            
-            // Process and cache the attribute data to be used by the VROGeometrySource associated with
-            // this attribute. If we've already been processed (cached) it before, simply grab it.
-            std::string key = VROStringUtil::toString(gAttributeAccesor.bufferView);
-            std::shared_ptr<VROVertexBuffer> vbo;
-            
-            auto it = VROGLTFLoader::_dataCache.find(key);
-            if (it == VROGLTFLoader::_dataCache.end()) {
-                const tinygltf::Buffer &gbuffer = gModel.buffers[gIndiceBufferView.buffer];
-                vbo = driver->newVertexBuffer(std::make_shared<VROData>((void *) gbuffer.data.data(), bufferViewTotalSize, bufferViewOffset));
-                VROGLTFLoader::_dataCache[key] = vbo;
-            } else {
-                vbo = it->second;
+        // Sparse accessors (common on morph-target deltas — e.g. Blender only exports the
+        // vertices that actually move) don't describe one contiguous memory window: they only
+        // encode the elements that differ from a base, and per spec that base is OPTIONAL —
+        // accessor.bufferView can legitimately be -1 when the accessor is sparse-only. Indexing
+        // gModel.bufferViews[-1] in that case is an out-of-bounds vector read that hands back
+        // garbage byteOffset/byteLength, which then sizes a vertex-buffer allocation — the
+        // "std::length_error: vector" crash on GLB models with sparse morph targets. Materialize
+        // those accessors into a dense, tightly-packed buffer instead of treating them as a window.
+        if (gAttributeAccesor.sparse.isSparse || gAttributeAccesor.bufferView < 0) {
+            std::vector<unsigned char> materializedData;
+            if (!materializeAccessorData(gModel, gAttributeAccesor, gType, gTypeComponent, materializedData)) {
+                pwarn("Failed to materialize sparse GLTF accessor data for attribute %s.", attributeName.c_str());
+                return false;
             }
-            source = buildGeometrySource(attributeType, gType, gTypeComponent, gAttributeAccesor, gIndiceBufferView, vbo);
-            
+
+            // The accessor's own byteOffset has already been consumed while materializing —
+            // present a zero-offset, tightly-packed accessor/bufferView pair downstream so it
+            // isn't double-applied.
+            tinygltf::Accessor denseAccessor = gAttributeAccesor;
+            denseAccessor.byteOffset = 0;
+            tinygltf::BufferView denseBufferView;
+            denseBufferView.buffer = -1; // unused below: the materialized data is supplied directly, not via gModel.buffers
+            denseBufferView.byteOffset = 0;
+            denseBufferView.byteStride = 0;
+            denseBufferView.byteLength = materializedData.size();
+
+            if (attributeType != VROGeometrySourceSemantic::BoneWeights) {
+                std::shared_ptr<VROVertexBuffer> vbo = driver->newVertexBuffer(
+                    std::make_shared<VROData>((void *) materializedData.data(), (int) materializedData.size(),
+                                              VRODataOwnership::Copy));
+                source = buildGeometrySource(attributeType, gType, gTypeComponent, denseAccessor, denseBufferView, vbo);
+            } else {
+                tinygltf::Buffer denseBuffer;
+                denseBuffer.data = materializedData;
+                source = buildBoneWeightSource(gType, gTypeComponent, denseAccessor, denseBufferView, denseBuffer);
+            }
         } else {
-            const tinygltf::Buffer &gBuffer = gModel.buffers[gIndiceBufferView.buffer];
-            source = buildBoneWeightSource(gType, gTypeComponent, gAttributeAccesor, gIndiceBufferView, gBuffer);
+            // Determine the offsets and data sizes representing the 'window of data' for this attribute in the buffer
+            const tinygltf::BufferView gIndiceBufferView = gModel.bufferViews[gAttributeAccesor.bufferView];
+
+            if (attributeType != VROGeometrySourceSemantic::BoneWeights) {
+                size_t bufferViewOffset = gIndiceBufferView.byteOffset;
+                size_t bufferViewTotalSize = gIndiceBufferView.byteLength;
+
+                // Process and cache the attribute data to be used by the VROGeometrySource associated with
+                // this attribute. If we've already been processed (cached) it before, simply grab it.
+                std::string key = VROStringUtil::toString(gAttributeAccesor.bufferView);
+                std::shared_ptr<VROVertexBuffer> vbo;
+
+                auto it = VROGLTFLoader::_dataCache.find(key);
+                if (it == VROGLTFLoader::_dataCache.end()) {
+                    const tinygltf::Buffer &gbuffer = gModel.buffers[gIndiceBufferView.buffer];
+                    vbo = driver->newVertexBuffer(std::make_shared<VROData>((void *) gbuffer.data.data(), bufferViewTotalSize, bufferViewOffset));
+                    VROGLTFLoader::_dataCache[key] = vbo;
+                } else {
+                    vbo = it->second;
+                }
+                source = buildGeometrySource(attributeType, gType, gTypeComponent, gAttributeAccesor, gIndiceBufferView, vbo);
+
+            } else {
+                const tinygltf::Buffer &gBuffer = gModel.buffers[gIndiceBufferView.buffer];
+                source = buildBoneWeightSource(gType, gTypeComponent, gAttributeAccesor, gIndiceBufferView, gBuffer);
+            }
         }
 
         // Because GLTF can have VROGeometryElements that corresponds to different sets of VROGeometrySources,

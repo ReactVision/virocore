@@ -26,6 +26,7 @@
 
 #include "Availability.h"
 #if __IPHONE_OS_VERSION_MAX_ALLOWED >= 110000
+#include <memory>
 #include "VROARAnchor.h"
 #include "VROARCameraiOS.h"
 #include "VROARFrameiOS.h"
@@ -65,6 +66,10 @@
 @property (nonatomic, strong) CLLocationManager *locationManager;
 // Raw pointer into the owning VROARSessioniOS; cleared before the session dies.
 @property (nonatomic, assign) VROGeospatialPose *poseOut;
+// WS-D: true once we've confirmed the OS will only give approximate location
+// (iOS 14+ "Precise Location" off) and a temporary full-accuracy request was
+// denied, is pending, or unavailable pre-iOS 14. See start's accuracyAuthorization check.
+@property (nonatomic, assign) BOOL reducedAccuracy;
 @end
 
 @implementation VROLocationDelegate
@@ -90,6 +95,37 @@
     if (status == kCLAuthorizationStatusNotDetermined) {
         [_locationManager requestWhenInUseAuthorization];
     }
+
+    // WS-D: iOS 14+ users can grant only approximate location ("Precise Location"
+    // off). horizontalAccuracy then stays at the ~km scale and never crosses
+    // kVROGeospatialAccuracyThresholdMeters, so getEarthTrackingState() would sit
+    // in Localizing forever with no signal to the app. Request a temporary precise
+    // fix and surface the outcome via reducedAccuracy so the app can show an
+    // explicit error instead of a silent hang.
+    // Requires an NSLocationTemporaryUsageDescriptionDictionary entry for the key
+    // below in the consuming app's Info.plist — without it this call is a no-op
+    // and reducedAccuracy stays true.
+    if (@available(iOS 14.0, *)) {
+        if (_locationManager.accuracyAuthorization == CLAccuracyAuthorizationReducedAccuracy) {
+            _reducedAccuracy = YES;
+            __weak VROLocationDelegate *weakSelf = self;
+            [_locationManager requestTemporaryFullAccuracyAuthorizationWithPurposeKey:@"ReactVisionVPSAccuracy"
+                completion:^(NSError * _Nullable error) {
+                __strong VROLocationDelegate *strongSelf = weakSelf;
+                if (!strongSelf) return;
+                strongSelf.reducedAccuracy =
+                    (strongSelf.locationManager.accuracyAuthorization == CLAccuracyAuthorizationReducedAccuracy);
+                if (strongSelf.reducedAccuracy) {
+                    pwarn("ReactVision: location accuracy is reduced — geospatial "
+                          "tracking will never converge. Add an "
+                          "NSLocationTemporaryUsageDescriptionDictionary entry for key "
+                          "'ReactVisionVPSAccuracy' in Info.plist to allow requesting "
+                          "temporary full accuracy.");
+                }
+            }];
+        }
+    }
+
     [_locationManager startUpdatingLocation];
     [_locationManager startUpdatingHeading];
 }
@@ -934,6 +970,9 @@ std::unique_ptr<VROARFrame> &VROARSessioniOS::updateFrame() {
       if (_cloudAnchorProviderRV != nil) {
         [_cloudAnchorProviderRV updateWithFrame:arFrame];
       }
+      if (_recorder && _recorder->getStatus() == VROARRecordingStatus::Recording) {
+        _recorder->recordFrame(arFrame);
+      }
     }
   }
 
@@ -1757,8 +1796,17 @@ void VROARSessioniOS::setGeospatialModeEnabled(bool enabled) {
 VROEarthTrackingState VROARSessioniOS::getEarthTrackingState() const {
 #if RVCCA_AVAILABLE
   if (getGeospatialAnchorProvider() == VROGeospatialAnchorProvider::ReactVision) {
-    return _geospatialProviderRV ? VROEarthTrackingState::Enabled
-                                 : VROEarthTrackingState::Stopped;
+    if (!_geospatialProviderRV) {
+      return VROEarthTrackingState::Stopped;
+    }
+    // WS-D: Enabled requires an actual GPS fix within the accuracy threshold —
+    // previously this returned Enabled the instant the provider existed, even
+    // with a stale/zero pose, hiding the ~1 min cold-start wait from the app.
+    bool accurate = _lastKnownGPSPose.isValid() &&
+                    _lastKnownGPSPose.horizontalAccuracy > 0 &&
+                    _lastKnownGPSPose.horizontalAccuracy < kVROGeospatialAccuracyThresholdMeters;
+    return accurate ? VROEarthTrackingState::Enabled
+                    : VROEarthTrackingState::Localizing;
   }
 #endif
   if (_cloudAnchorProviderARCore) {
@@ -1777,6 +1825,13 @@ VROGeospatialPose VROARSessioniOS::getCameraGeospatialPose() const {
     return [_cloudAnchorProviderARCore getCameraGeospatialPose];
   }
   return VROGeospatialPose();
+}
+
+bool VROARSessioniOS::isLocationAccuracyReduced() const {
+  if (_rvLocationDelegate) {
+    return ((VROLocationDelegate *)_rvLocationDelegate).reducedAccuracy;
+  }
+  return false;
 }
 
 void VROARSessioniOS::checkVPSAvailability(double latitude, double longitude,
@@ -2381,6 +2436,20 @@ static std::string rvCloudAssetToJson(const ReactVisionCCA::CloudAnchorAsset& a)
     return j;
 }
 
+// WS-C: serializes a VROMatrix4f as 16 comma-separated floats (column-major,
+// matching getArray()) so it can cross the RN bridge as an opaque string —
+// see VROARSession::rvFinishScan().
+static std::string rvMatrixToCsv(const VROMatrix4f& m) {
+    const float* a = m.getArray();
+    std::string csv;
+    char buf[32];
+    for (int i = 0; i < 16; ++i) {
+        snprintf(buf, sizeof(buf), i == 0 ? "%g" : ",%g", a[i]);
+        csv += buf;
+    }
+    return csv;
+}
+
 static std::string rvCloudAnchorToJson(const ReactVisionCCA::CloudAnchorRecord& r) {
     char buf[128];
     std::string j = "{";
@@ -2426,6 +2495,34 @@ static std::string rvCloudAnchorToJson(const ReactVisionCCA::CloudAnchorRecord& 
     return j;
 }
 #endif // RVCCA_AVAILABLE
+
+void VROARSessioniOS::rvStartScan() {
+#if RVCCA_AVAILABLE
+  auto p = [_cloudAnchorProviderRV cppProvider];
+  if (p) {
+    p->startScan();
+  }
+#endif
+}
+
+void VROARSessioniOS::rvFinishScan(
+    int ttlDays,
+    std::function<void(bool, std::string, std::string, std::string)> callback) {
+#if RVCCA_AVAILABLE
+  auto p = [_cloudAnchorProviderRV cppProvider];
+  if (p) {
+    p->finishScan(ttlDays,
+        [callback](const std::string& cloudAnchorId, const VROMatrix4f& locationTransform) {
+          if (callback) callback(true, cloudAnchorId, rvMatrixToCsv(locationTransform), "");
+        },
+        [callback](const std::string& error, ReactVisionCCA::RVCCACloudAnchorProvider::ErrorCode) {
+          if (callback) callback(false, "", "", error);
+        });
+    return;
+  }
+#endif
+  if (callback) callback(false, "", "", "ReactVision cloud anchor provider not available");
+}
 
 void VROARSessioniOS::rvGetCloudAnchor(
     const std::string& anchorId,
@@ -2724,6 +2821,31 @@ float VROARSessioniOS::getSemanticLabelFraction(VROSemanticLabel label) const {
     return [_cloudAnchorProviderARCore getSemanticLabelFraction:(NSInteger)label];
   }
   return 0.0f;
+}
+
+bool VROARSessioniOS::isRecordingSupported() const {
+  // ARKit's camera session has no Simulator equivalent — recording needs a
+  // physical device, same requirement as the AR session itself.
+  return true;
+}
+
+void VROARSessioniOS::startRecording(const VROARRecordingConfig &config,
+                                     std::function<void()> onSuccess,
+                                     std::function<void(std::string error)> onFailure) {
+  if (!_recorder) {
+    _recorder.reset(new VROARSessionRecorderIOS());
+  }
+  _recorder->start(config, onSuccess, onFailure);
+}
+
+void VROARSessioniOS::stopRecording() {
+  if (_recorder) {
+    _recorder->stop();
+  }
+}
+
+VROARRecordingStatus VROARSessioniOS::getRecordingStatus() const {
+  return _recorder ? _recorder->getStatus() : VROARRecordingStatus::None;
 }
 
 std::shared_ptr<VROTexture> VROARSessioniOS::getSemanticTexture() {

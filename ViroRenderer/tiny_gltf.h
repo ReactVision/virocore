@@ -1024,7 +1024,7 @@ class TinyGLTF {
 
 #ifdef _WIN32
 #include <windows.h>
-#elif !defined(__ANDROID__)
+#elif !defined(__ANDROID__) && !defined(__EMSCRIPTEN__)
 #include <wordexp.h>
 #endif
 
@@ -1099,8 +1099,8 @@ static std::string ExpandFilePath(const std::string &filepath) {
 #else
 
 #if defined(TARGET_OS_IPHONE) || defined(TARGET_IPHONE_SIMULATOR) || \
-    defined(__ANDROID__)
-  // no expansion
+    defined(__ANDROID__) || defined(__EMSCRIPTEN__)
+  // no expansion (emscripten has no wordexp; LocalFile paths need none)
   std::string s = filepath;
 #else
   std::string s;
@@ -2518,13 +2518,9 @@ static bool ParsePrimitive(Primitive *primitive, std::string *err,
     return false;
   }
 
-  // TODO VIRO-3664: Support Draw Arrays for Viro Geometry in the main render pass.
-  if (indices == -1.0){
-      if (err) {
-          (*err) += "Viro Does not yet have support for models without indexed vertices.\n";
-      }
-      return false;
-  }
+  // VIRO-3664: Draw Arrays (a primitive with no "indices", legal per spec) are supported —
+  // VROGLTFLoader::processVertexElement synthesizes sequential indices (the
+  // glDrawArrays-equivalent) whenever primitive->indices is left at -1 here.
 
   // Look for morph targets
   json::const_iterator targetsObject = o.find("targets");

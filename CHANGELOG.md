@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## v2.58.0 — 16 August 2026
+
+### Added
+
+- **AR Session Recording.** `VROARSession` gains an optional recording surface (`startRecording`/`stopRecording`/`getRecordingStatus`, defaulting to unsupported) that captures a session to local storage — `video.mp4` (H.264, muxed directly from the same camera frames already flowing to the AR background) plus `session.jsonl` (camera intrinsics, raw IMU sampled independently of the AR session, and the platform's own fused pose kept only as ground truth) — for **offline** analysis/replay via `tinyvio`, not in-app playback. Implemented on iOS (`VROARSessionRecorderIOS`: `AVAssetWriter` + a dedicated `CMMotionManager` tap) and Android (`ARSessionRecorder`: `MediaCodec`/`MediaMuxer` in buffer mode + a `SensorManager` tap, muxing/sidecar entirely in Java — the native side only pulls a YUV image + pose + intrinsics out of the ARCore frame per frame). Both platforms buffer `imu`/`pose` sidecar lines and flush them sorted by timestamp at `stop()`, so the merged file holds the documented monotonic order even though IMU and pose are captured on different threads/queues at different rates; on iOS, `stop()` and the per-frame capture callback now share a lock so the video file can't be finalized while a frame is mid-append, closing a race that could otherwise leave `video.mp4` without its `moov` atom (unplayable).
+
+### Fixed
+
+- **glTF: sparse accessors and non-indexed (draw-arrays) primitives.** A sparse-only accessor can legally leave `bufferView` unset (implicit all-zero base) — `materializeAccessorData` now densifies it into a tightly-packed buffer instead of failing on the missing byteOffset/byteLength window. Primitives with no `indices` (legal per spec, draw-arrays style) are no longer rejected; `processVertexElement` synthesizes sequential indices (VIRO-3664).
+
 ## v2.57.5 — 26 July 2026
 
 ### Added

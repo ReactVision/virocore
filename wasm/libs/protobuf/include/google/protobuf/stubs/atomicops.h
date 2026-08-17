@@ -243,7 +243,10 @@ Atomic64 Release_Load(volatile const Atomic64* ptr);
 
 // On some platforms we need additional declarations to make AtomicWord
 // compatible with our other Atomic* types.
-#if defined(GOOGLE_PROTOBUF_OS_APPLE)
+// Emscripten/wasm32 is a 32-bit target where AtomicWord (long) differs from
+// Atomic32 (int), so it needs the same AtomicWord->Atomic32 forwarding shims
+// as Apple. (Phase 0 web build migration.)
+#if defined(GOOGLE_PROTOBUF_OS_APPLE) || defined(GOOGLE_PROTOBUF_OS_EMSCRIPTEN)
 #include <google/protobuf/stubs/atomicops_internals_atomicword_compat.h>
 #endif
 

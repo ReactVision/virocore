@@ -94,18 +94,20 @@ struct VROLightingShaderCapabilities {
     bool shadows;
     bool hdr;
     bool pbr;
+    bool bloom;  // Pipeline-level bloom: the HDR target has a bloom color attachment
     bool diffuseIrradiance;
     bool specularIrradiance;
     bool arOcclusion;  // AR depth-based occlusion (LiDAR on iOS, ARCore depth on Android)
 
     bool operator< (const VROLightingShaderCapabilities &r) const {
-        return std::tie(  shadows,   hdr,   pbr,   diffuseIrradiance,   specularIrradiance,   arOcclusion)
-             < std::tie(r.shadows, r.hdr, r.pbr, r.diffuseIrradiance, r.specularIrradiance, r.arOcclusion);
+        return std::tie(  shadows,   hdr,   pbr,   bloom,   diffuseIrradiance,   specularIrradiance,   arOcclusion)
+             < std::tie(r.shadows, r.hdr, r.pbr, r.bloom, r.diffuseIrradiance, r.specularIrradiance, r.arOcclusion);
     }
     bool operator== (const VROLightingShaderCapabilities& r) const {
         return shadows == r.shadows &&
                hdr == r.hdr &&
                pbr == r.pbr &&
+               bloom == r.bloom &&
                diffuseIrradiance == r.diffuseIrradiance &&
                specularIrradiance == r.specularIrradiance &&
                arOcclusion == r.arOcclusion;
@@ -114,6 +116,7 @@ struct VROLightingShaderCapabilities {
         return shadows != r.shadows ||
                hdr != r.hdr ||
                pbr != r.pbr ||
+               bloom != r.bloom ||
                diffuseIrradiance != r.diffuseIrradiance ||
                specularIrradiance != r.specularIrradiance ||
                arOcclusion != r.arOcclusion;

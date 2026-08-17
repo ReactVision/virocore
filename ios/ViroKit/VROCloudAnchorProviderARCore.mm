@@ -346,8 +346,21 @@
     }
 
     switch (_currentGARFrame.earth.trackingState) {
-        case GARTrackingStateTracking:
-            return VROEarthTrackingState::Enabled;
+        case GARTrackingStateTracking: {
+            // WS-D: gate on GPS/VPS fix accuracy, same threshold as the
+            // ReactVision provider path (VROARSessioniOS::getEarthTrackingState) —
+            // this branch was the one WS-D's plan actually described ("returns
+            // Enabled the moment the provider exists, regardless of fix"): ARCore's
+            // trackingState is a *visual* tracking lock, unrelated to how precise
+            // the geospatial fix is, so returning Enabled here unconditionally
+            // skipped the Localizing step entirely for this provider.
+            GARGeospatialTransform *transform = _currentGARFrame.earth.cameraGeospatialTransform;
+            bool accurate = transform != nil &&
+                            transform.horizontalAccuracy > 0 &&
+                            transform.horizontalAccuracy < kVROGeospatialAccuracyThresholdMeters;
+            return accurate ? VROEarthTrackingState::Enabled
+                            : VROEarthTrackingState::Localizing;
+        }
         case GARTrackingStatePaused:
             return VROEarthTrackingState::Paused;
         case GARTrackingStateStopped:

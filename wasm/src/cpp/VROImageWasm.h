@@ -22,6 +22,11 @@ public:
      or downloaded.
      */
     VROImageWasm(std::string file, VROTextureInternalFormat format);
+    /*
+     Construct a new VROImage from an in-memory encoded image buffer
+     (e.g. a PNG/JPEG embedded in a GLB/VRX model). Format is auto-detected.
+     */
+    VROImageWasm(void *data, int length, VROTextureInternalFormat format);
     virtual ~VROImageWasm();
     
     int getWidth() const;
@@ -32,7 +37,8 @@ public:
     void unlock();
     
 private:
-    
+
+    void initFromData(void *data, int length, const char *ext);
     SDL_Surface *_surface;
     SDL_Surface *convertToRGBA8(SDL_Surface *surface);
     
