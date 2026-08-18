@@ -1,5 +1,26 @@
 # Release Notes
 
+## v2.58.1
+
+### Highlights
+
+**AR session recording fixes**
+
+- **The clip no longer plays sideways (iOS and Android).** Recordings carried no rotation at all, so they played in the camera sensor's landscape orientation however the device was held. Both recorders now tag the file for a quarter turn clockwise on playback — Android via `MediaMuxer.setOrientationHint()`, iOS via `AVAssetWriterInput.transform`.
+- **The IMU is in the right units on iOS.** CoreMotion reports acceleration in G and Android reports m/s², but `session.jsonl` has one schema for both, so every `imu.accel` and `pose.gravity` iOS wrote was off by 9.81×. iOS now scales to m/s². Against tinyvio on a real recording this moved tracking from 0% of frames to 96%.
+- **One pose per frame on iOS.** ARKit can hand the recorder the same frame twice; the duplicate used to add a pose line while the muxer dropped its video frame, sliding every later pose onto the wrong frame. Duplicates are now dropped whole, and a pose is only written once its frame has actually reached the encoder — so the pairing holds even if the encoder refuses one. A session that loses video entirely still keeps its full IMU/pose sidecar.
+- **Colour is correct again (Android).** Recorded `video.mp4` came out with sharp, correctly-framed luma but large green/magenta blocks over it: the encoder was configured with `COLOR_FormatYUV420Flexible` — an abstract format, not a byte layout — and fed a tightly-packed planar I420 buffer, which most devices read as NV12 semi-planar. Frames now go through `MediaCodec.getInputImage()` and honour the encoder's real per-plane strides.
+
+### Notes
+
+- The rotation is container metadata only, on both platforms. Encoded frames stay sensor-native so they keep matching the intrinsics in `session.jsonl`. **Anything that decodes `video.mp4` for tracking must pass `-noautorotate`** — ffmpeg would otherwise rotate the pixels while `ffprobe` still reports the unrotated size the intrinsics assume, which goes wrong silently. Older recordings carry no matrix, so the flag is harmless on them.
+- **iOS `imu.accel`/`pose.gravity` are now m/s², where they used to be G.** Android was always m/s². The format only shipped in 2.58.0, so there is effectively no earlier iOS data to reconcile.
+- Pairs with `@reactvision/react-viro` 2.58.1.
+
+See [`CHANGELOG.md`](./CHANGELOG.md) for full detail.
+
+---
+
 ## v2.58.0
 
 ### Highlights
