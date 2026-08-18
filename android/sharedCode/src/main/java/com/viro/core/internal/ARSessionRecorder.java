@@ -24,6 +24,9 @@ import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
+import android.hardware.camera2.CameraCharacteristics;
+import android.hardware.camera2.CameraManager;
+import android.media.Image;
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaFormat;
@@ -79,7 +82,9 @@ public class ARSessionRecorder {
     private int mVideoTrackIndex = -1;
     private boolean mMuxerStarted;
     private int mWidth, mHeight;
+    // Only used by the packed fallback in fillInputBuffer().
     private byte[] mI420Buffer;
+    private boolean mWarnedNoInputImage = false;
 
     public ARSessionRecorder(Context context, ErrorListener errorListener) {
         mContext = context;
@@ -342,12 +347,8 @@ public class ARSessionRecorder {
         }
     }
 
-    // Packs ARCore's YUV_420_888 planes (arbitrary row/pixel strides) into a
-    // tightly-packed I420 (planar Y, then U, then V) buffer — the layout
-    // COLOR_FormatYUV420Flexible/COLOR_FormatYUV420Planar encoders expect.
-    // Done with a defensive per-pixel copy rather than assuming a stride
-    // layout, since ARCore's actual U/V pixel stride varies by device/driver
-    // (often 2, for NV21-style interleaving, but not guaranteed).
+    // Fallback only — see fillInputBuffer(). Tightly-packed planar I420, which is
+    // right only for genuinely planar encoders; NV12 ones get scrambled chroma.
     private void packI420(byte[] y, byte[] u, byte[] v, int width, int height,
                           int yStride, int uStride, int uPixelStride, int vStride, int vPixelStride) {
         int frameSize = width * height;
@@ -380,17 +381,82 @@ public class ARSessionRecorder {
         if (mEncoder == null) {
             initEncoder(width, height);
         }
-        packI420(y, u, v, width, height, yStride, uStride, uPixelStride, vStride, vPixelStride);
 
         int inputIndex = mEncoder.dequeueInputBuffer(10_000);
         if (inputIndex >= 0) {
-            ByteBuffer inputBuffer = mEncoder.getInputBuffer(inputIndex);
-            inputBuffer.clear();
-            inputBuffer.put(mI420Buffer);
+            fillInputBuffer(inputIndex, y, u, v, width, height,
+                            yStride, uStride, uPixelStride, vStride, vPixelStride);
             long presentationTimeUs = presentationTimeNs / 1000;
-            mEncoder.queueInputBuffer(inputIndex, 0, mI420Buffer.length, presentationTimeUs, 0);
+            // Nominal 4:2:0 size — a size declaration, not a layout claim.
+            int frameBytes = width * height * 3 / 2;
+            mEncoder.queueInputBuffer(inputIndex, 0, frameBytes, presentationTimeUs, 0);
         }
         drainEncoder(false);
+    }
+
+    // COLOR_FormatYUV420Flexible promises 8-bit 4:2:0, not a byte layout — the real
+    // one is device-specific (commonly NV12 semi-planar, padded row stride). So go
+    // through getInputImage(), which exposes the encoder's actual planes and strides.
+    private void fillInputBuffer(int inputIndex, byte[] y, byte[] u, byte[] v,
+                                 int width, int height,
+                                 int yStride, int uStride, int uPixelStride,
+                                 int vStride, int vPixelStride) {
+        Image image = null;
+        try {
+            image = mEncoder.getInputImage(inputIndex);
+        } catch (Exception e) {
+            // Same as unsupported Image mode: fall through to the packed path.
+            Log.w(TAG, "ARSessionRecorder: getInputImage failed, using packed fallback", e);
+        }
+
+        if (image != null) {
+            Image.Plane[] planes = image.getPlanes();
+            copyPlane(y, yStride, 1, planes[0], width, height);
+            copyPlane(u, uStride, uPixelStride, planes[1], width / 2, height / 2);
+            copyPlane(v, vStride, vPixelStride, planes[2], width / 2, height / 2);
+            return;
+        }
+
+        if (!mWarnedNoInputImage) {
+            mWarnedNoInputImage = true;
+            Log.w(TAG, "ARSessionRecorder: encoder has no input Image; falling back to packed "
+                    + "I420, chroma may be incorrect on semi-planar encoders");
+        }
+        packI420(y, u, v, width, height, yStride, uStride, uPixelStride, vStride, vPixelStride);
+        ByteBuffer inputBuffer = mEncoder.getInputBuffer(inputIndex);
+        inputBuffer.clear();
+        inputBuffer.put(mI420Buffer);
+    }
+
+    // Both sides carry their own row/pixel stride; neither is assumed packed.
+    private static void copyPlane(byte[] src, int srcRowStride, int srcPixelStride,
+                                  Image.Plane dst, int w, int h) {
+        copyPlane(src, srcRowStride, srcPixelStride,
+                  dst.getBuffer(), dst.getRowStride(), dst.getPixelStride(), w, h);
+    }
+
+    // Split out so the stride arithmetic is testable off-device (Image.Plane cannot
+    // be constructed in a host-side test; a ByteBuffer plus its strides can).
+    static void copyPlane(byte[] src, int srcRowStride, int srcPixelStride,
+                          ByteBuffer buf, int dstRowStride, int dstPixelStride, int w, int h) {
+        if (srcPixelStride == 1 && dstPixelStride == 1) {
+            // Both sides packed within the row: bulk-copy row by row.
+            for (int row = 0; row < h; row++) {
+                buf.position(row * dstRowStride);
+                buf.put(src, row * srcRowStride, w);
+            }
+            return;
+        }
+
+        // At least one side interleaves (NV12/NV21): copy pixel by pixel.
+        for (int row = 0; row < h; row++) {
+            int srcBase = row * srcRowStride;
+            int dstBase = row * dstRowStride;
+            for (int col = 0; col < w; col++) {
+                buf.position(dstBase + col * dstPixelStride);
+                buf.put(src[srcBase + col * srcPixelStride]);
+            }
+        }
     }
 
     private void initEncoder(int width, int height) throws IOException {
@@ -407,8 +473,35 @@ public class ARSessionRecorder {
         mEncoder.start();
 
         mMuxer = new MediaMuxer(mOutputDir + "/video.mp4", MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
+        // Container-level only: players show it upright while the frames stay
+        // sensor-native, so they still match session.jsonl's intrinsics. Consumers
+        // decoding for tracking must pass ffmpeg -noautorotate.
+        mMuxer.setOrientationHint(getSensorOrientationDegrees());
         mMuxerStarted = false;
         mVideoTrackIndex = -1;
+    }
+
+    // Degrees to rotate the sensor image upright on a device held portrait. Read from
+    // the rear camera rather than hardcoded; 90 is the fallback and the common value.
+    private int getSensorOrientationDegrees() {
+        try {
+            CameraManager cm = (CameraManager) mContext.getSystemService(Context.CAMERA_SERVICE);
+            if (cm != null) {
+                for (String id : cm.getCameraIdList()) {
+                    CameraCharacteristics cc = cm.getCameraCharacteristics(id);
+                    Integer facing = cc.get(CameraCharacteristics.LENS_FACING);
+                    if (facing != null && facing == CameraCharacteristics.LENS_FACING_BACK) {
+                        Integer orientation = cc.get(CameraCharacteristics.SENSOR_ORIENTATION);
+                        if (orientation != null) {
+                            return orientation;
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "ARSessionRecorder: could not read SENSOR_ORIENTATION, assuming 90", e);
+        }
+        return 90;
     }
 
     private void drainEncoder(boolean endOfStream) {
