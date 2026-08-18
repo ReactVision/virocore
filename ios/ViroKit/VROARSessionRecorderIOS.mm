@@ -26,6 +26,10 @@
 // take as configured.
 static const OSType kExpectedPixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarFullRange;
 
+// CoreMotion reports acceleration in G, Android in m/s^2, and session.jsonl has one
+// schema for both. m/s^2 wins (it matches the gyro and the SLAM convention).
+static const double kGravityMetresPerSecondSquared = 9.80665;
+
 VROARSessionRecorderIOS::VROARSessionRecorderIOS() :
     _status(VROARRecordingStatus::None),
     _startTimestamp(0),
@@ -33,6 +37,10 @@ VROARSessionRecorderIOS::VROARSessionRecorderIOS() :
     _videoWriterInput(nil),
     _videoAdaptor(nil),
     _loggedPixelFormatMismatch(false),
+    _videoDisabled(false),
+    _videoWidth(0),
+    _videoHeight(0),
+    _lastFrameTimestamp(0),
     _motionManager(nil),
     _imuQueue(nil),
     _wroteHeader(false) {
@@ -65,6 +73,10 @@ bool VROARSessionRecorderIOS::start(const VROARRecordingConfig &config,
     _startTimestamp = 0;
     _wroteHeader = false;
     _loggedPixelFormatMismatch = false;
+    _videoDisabled = false;
+    _videoWidth = 0;
+    _videoHeight = 0;
+    _lastFrameTimestamp = 0;
 
     // video.mp4 itself is created lazily, on the first recordFrame(), once we
     // know the camera's actual image resolution (AVAssetWriterInput's output
@@ -236,7 +248,11 @@ void VROARSessionRecorderIOS::writeImuLine(double tSec, double ax, double ay, do
     char buf[256];
     snprintf(buf, sizeof(buf),
         "{\"type\":\"imu\",\"t\":%lld,\"accel\":[%.6f,%.6f,%.6f],\"gyro\":[%.6f,%.6f,%.6f]}",
-        (long long)tNs, ax, ay, az, gx, gy, gz);
+        (long long)tNs,
+        ax * kGravityMetresPerSecondSquared,
+        ay * kGravityMetresPerSecondSquared,
+        az * kGravityMetresPerSecondSquared,
+        gx, gy, gz);
 
     // Buffered, not written immediately — see the _bufferedLines comment in
     // the header. Sorted by `t` and flushed at stop().
@@ -264,7 +280,9 @@ void VROARSessionRecorderIOS::writePoseLine(ARFrame *frame) {
         "{\"type\":\"pose\",\"t\":%lld,\"orientation\":[%.6f,%.6f,%.6f,%.6f],"
         "\"position\":[%.6f,%.6f,%.6f],\"gravity\":[%.6f,%.6f,%.6f]}",
         (long long)tNs, q.X, q.Y, q.Z, q.W, m[12], m[13], m[14],
-        gravity.x, gravity.y, gravity.z);
+        gravity.x * kGravityMetresPerSecondSquared,
+        gravity.y * kGravityMetresPerSecondSquared,
+        gravity.z * kGravityMetresPerSecondSquared);
 
     // Buffered, not written immediately — see the _bufferedLines comment in
     // the header. Sorted by `t` and flushed at stop().
@@ -298,6 +316,13 @@ void VROARSessionRecorderIOS::recordFrame(ARFrame *frame) {
     if (_status != VROARRecordingStatus::Recording || !frame) {
         return;
     }
+    // ARKit can hand us the same frame twice. The muxer drops the repeat but the
+    // sidecar would keep its pose, sliding every later pose onto the wrong frame.
+    if (_lastFrameTimestamp != 0 && frame.timestamp <= _lastFrameTimestamp) {
+        return;
+    }
+    _lastFrameTimestamp = frame.timestamp;
+
     if (_startTimestamp == 0) {
         _startTimestamp = frame.timestamp;
     }
@@ -305,6 +330,7 @@ void VROARSessionRecorderIOS::recordFrame(ARFrame *frame) {
     writeHeaderIfNeeded(frame);
 
     CVPixelBufferRef pixelBuffer = frame.capturedImage;
+    bool appended = false;
     if (pixelBuffer) {
         if (CVPixelBufferGetPixelFormatType(pixelBuffer) != kExpectedPixelFormat) {
             if (!_loggedPixelFormatMismatch) {
@@ -318,6 +344,8 @@ void VROARSessionRecorderIOS::recordFrame(ARFrame *frame) {
             if (!_videoWriter) {
                 size_t width = CVPixelBufferGetWidth(pixelBuffer);
                 size_t height = CVPixelBufferGetHeight(pixelBuffer);
+                _videoWidth = width;
+                _videoHeight = height;
                 NSString *videoPath = [NSString stringWithUTF8String:(_outputDir + "/video.mp4").c_str()];
                 [[NSFileManager defaultManager] removeItemAtPath:videoPath error:nil];
                 NSURL *videoURL = [NSURL fileURLWithPath:videoPath];
@@ -342,6 +370,10 @@ void VROARSessionRecorderIOS::recordFrame(ARFrame *frame) {
                 _videoWriterInput = [AVAssetWriterInput assetWriterInputWithMediaType:AVMediaTypeVideo
                                                                         outputSettings:videoSettings];
                 _videoWriterInput.expectsMediaDataInRealTime = YES;
+                // Container-level only, like Android's setOrientationHint(90): frames
+                // stay sensor-native so they still match session.jsonl's intrinsics.
+                // Exact matrix; CGAffineTransformMakeRotation(M_PI_2) leaves 6.12e-17.
+                _videoWriterInput.transform = CGAffineTransformMake(0, 1, -1, 0, 0, 0);
 
                 NSDictionary *pixelBufferAttributes = @{
                     (id)kCVPixelBufferPixelFormatTypeKey: @(kExpectedPixelFormat),
@@ -353,30 +385,60 @@ void VROARSessionRecorderIOS::recordFrame(ARFrame *frame) {
                     sourcePixelBufferAttributes:pixelBufferAttributes];
 
                 [_videoWriter addInput:_videoWriterInput];
-                [_videoWriter startWriting];
-                [_videoWriter startSessionAtSourceTime:kCMTimeZero];
-            }
-
-            if (_videoWriterInput.readyForMoreMediaData) {
-                double relativeSec = frame.timestamp - _startTimestamp;
-                CMTime pts = CMTimeMakeWithSeconds(relativeSec, 1000000);
-                if (![_videoAdaptor appendPixelBuffer:pixelBuffer withPresentationTime:pts]) {
-                    perr("VROARSessionRecorderIOS: appendPixelBuffer failed (writer status %ld)",
-                         (long)_videoWriter.status);
+                // Unchecked, a failed startWriting turns into one append error per
+                // frame that never names the cause. Report it once and stop.
+                if (![_videoWriter startWriting]) {
+                    perr("VROARSessionRecorderIOS: startWriting failed (status=%ld, error=%s) — "
+                         "skipping video for this session (session.jsonl still recorded)",
+                         (long)_videoWriter.status,
+                         _videoWriter.error ? [_videoWriter.error.localizedDescription UTF8String] : "none");
+                    _videoDisabled = true;
+                    _videoWriter = nil;
+                    _videoWriterInput = nil;
+                    _videoAdaptor = nil;
+                } else {
+                    [_videoWriter startSessionAtSourceTime:kCMTimeZero];
                 }
             }
-            // If not yet ready for more data, this frame's video is dropped —
-            // the pose line below is still written every frame regardless
-            // (frames stay associated with poses by array position on the
-            // consumer side per the plan, so a dropped video frame here
-            // would desync that pairing in a real encoder-backpressure case;
-            // expectsMediaDataInRealTime plus H.264's hardware encoder easily
-            // keeping up with a camera feed makes this a rare edge, not
-            // absent — flagged as a known limitation, not silently correct).
+
+            if (!_videoDisabled && _videoWriterInput.readyForMoreMediaData) {
+                double relativeSec = frame.timestamp - _startTimestamp;
+                CMTime pts = CMTimeMakeWithSeconds(relativeSec, 1000000);
+                appended = [_videoAdaptor appendPixelBuffer:pixelBuffer withPresentationTime:pts];
+                if (!appended) {
+                    // AVError's localizedDescription is useless here; the domain/code and
+                    // underlying OSStatus identify it. Geometry too — a mismatch against
+                    // the writer's fixed outputSettings is the usual cause.
+                    NSError *e = _videoWriter.error;
+                    NSError *underlying = e.userInfo[NSUnderlyingErrorKey];
+                    perr("VROARSessionRecorderIOS: appendPixelBuffer failed — status=%ld "
+                         "error=%s/%ld \"%s\" underlying=%s/%ld pts=%.4fs "
+                         "buffer=%zux%zu fmt=%u planes=%zu writer=%zux%zu — "
+                         "skipping video for the rest of this session",
+                         (long)_videoWriter.status,
+                         e ? [e.domain UTF8String] : "none", e ? (long)e.code : 0,
+                         e ? [e.localizedDescription UTF8String] : "none",
+                         underlying ? [underlying.domain UTF8String] : "none",
+                         underlying ? (long)underlying.code : 0,
+                         CMTimeGetSeconds(pts),
+                         CVPixelBufferGetWidth(pixelBuffer), CVPixelBufferGetHeight(pixelBuffer),
+                         (unsigned)CVPixelBufferGetPixelFormatType(pixelBuffer),
+                         CVPixelBufferGetPlaneCount(pixelBuffer),
+                         (size_t)_videoWidth, (size_t)_videoHeight);
+                    _videoDisabled = true;
+                }
+            }
         }
     }
 
-    writePoseLine(frame);
+    // Poses pair with video frames by array position, so a frame that never reached
+    // the encoder must not leave a pose behind. The exception is a session with no
+    // video at all (writer failed, or an unexpected pixel format): nothing to pair
+    // with, and the IMU/pose sidecar is still worth keeping on its own.
+    bool videoActive = !_videoDisabled && !_loggedPixelFormatMismatch;
+    if (!videoActive || appended) {
+        writePoseLine(frame);
+    }
 }
 
 #endif /* __IPHONE_OS_VERSION_MAX_ALLOWED >= 110000 */
