@@ -68,6 +68,15 @@ cp "$SCRIPT_DIR/ViroKit/VisionOS/VROMetalRenderPassHost.h" "$HEADERS_STAGING/"
 # Umbrella header (must match target name: ViroKitVisionOS.h)
 cp "$SCRIPT_DIR/ViroKit/ViroKitVisionOS.h" "$HEADERS_STAGING/"
 
+# VRODriverMetal compiles shader modifiers at runtime from the MSL source, which it
+# loads as a bundled resource named ViroShadersSource.txt. That resource is a
+# preprocessed variant of Shaders.metal — newLibraryWithSource: has no include paths, so
+# the shared structures must be inlined. It used to be maintained by hand and silently
+# drifted; generate it instead.
+echo "--- Generating ViroShadersSource.txt ---"
+ruby "$SCRIPT_DIR/generate_shader_source.rb" \
+  "$SCRIPT_DIR/ViroKitVisionOSTest/App/ViroShadersSource.txt"
+
 echo "Staged $(ls "$HEADERS_STAGING" | wc -l | tr -d ' ') header entries."
 
 # ── 4. Create xcframework ─────────────────────────────────────────────────────

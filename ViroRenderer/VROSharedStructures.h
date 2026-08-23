@@ -44,6 +44,12 @@ typedef struct {
     
     float spot_inner_angle;
     float spot_outer_angle;
+
+    // Shadowing. shadow_map_index is the slice of the shadow map texture array this
+    // light rendered into, or -1 when the light casts no shadow.
+    int   shadow_map_index;
+    float shadow_bias;
+    float shadow_opacity;
 } VROLightUniforms;
 
 typedef struct {
@@ -107,6 +113,11 @@ typedef struct {
     vector_float3    ambient_light_color;
     VROLightUniforms lights[8];
     int              num_lights;
+
+    // Per-light shadow transforms, indexed the same way as lights[]. The vertex stage
+    // uses them to project each vertex into every shadow-casting light's clip space.
+    matrix_float4x4  shadow_view_matrices[8];
+    matrix_float4x4  shadow_projection_matrices[8];
 } VROSceneLightingUniforms;
 
 typedef struct {

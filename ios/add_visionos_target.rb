@@ -144,8 +144,6 @@ EXCLUDE_PATTERNS = [
 
   # Post-processing passes not needed for M0 frame (shadow, bloom, tone map)
   /VROBRDFRenderPass/i,
-  /VROShadowMapRenderPass/i,
-  /VROShadowPreprocess/i,
   /VROToneMappingRenderPass/i,
   /VROGaussianBlurRenderPass/i,
   /VROIrradianceRenderPass/i,
@@ -202,6 +200,7 @@ OBJCPP_NAMES = %w[
   VROParticleEmitter.cpp
   VROFixedParticleEmitter.cpp
   VROGLTFLoader.cpp
+  VROShadowMapRenderPass.cpp
 ].freeze
 
 # Collect .cpp files from ViroRenderer/, splitting into plain C++ vs forced ObjC++

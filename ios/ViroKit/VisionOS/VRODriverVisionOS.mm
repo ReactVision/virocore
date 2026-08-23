@@ -8,6 +8,8 @@
 #include "VROMetalPostProcess.h"
 #include "VROTextureSubstrateMetal.h"
 #include "VROLog.h"
+#include "VROLight.h"
+#include "VROSharedStructures.h"
 #include "VROData.h"
 
 // ── Constructor ──────────────────────────────────────────────────────────────
@@ -46,6 +48,27 @@ void VRODriverVisionOS::endDisplayPass() {
 
 std::shared_ptr<VRODriver> VRODriverVisionOS::getRenderPassDriver() {
     return std::static_pointer_cast<VRODriver>(shared_from_this());
+}
+
+void VRODriverVisionOS::installDefaultLightingFallback(float ambient,
+                                                       float directionX,
+                                                       float directionY,
+                                                       float directionZ) {
+    VROSceneLightingUniforms uniforms = {};
+    uniforms.ambient_light_color = (vector_float3){ ambient, ambient, ambient };
+    uniforms.num_lights = 1;
+    uniforms.lights[0].type = (int) VROLightType::Directional;
+    uniforms.lights[0].color = (vector_float3){ 1.0f, 1.0f, 1.0f };
+    uniforms.lights[0].direction = (vector_float3){ directionX, directionY, directionZ };
+    uniforms.lights[0].attenuation_falloff_exp = 1.0f;
+
+    // -1 means "casts no shadow". Zero would point at slice 0 of the shadow map and
+    // make every fragment sample a map that was never rendered.
+    for (int i = 0; i < 8; i++) {
+        uniforms.lights[i].shadow_map_index = -1;
+    }
+
+    setFallbackUniformBytes(4, &uniforms, sizeof(uniforms));
 }
 
 void VRODriverVisionOS::setFallbackUniformBytes(int bufferIndex, const void *bytes, size_t length) {

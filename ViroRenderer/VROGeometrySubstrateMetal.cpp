@@ -75,6 +75,12 @@ VROGeometrySubstrateMetal::VROGeometrySubstrateMetal(const VROGeometry &geometry
 
 VROGeometrySubstrateMetal::~VROGeometrySubstrateMetal() {
     delete (_viewUniformsBuffer);
+    [_vertexDescriptor release];
+    [_silhouetteDepthState release];
+    for (auto &entry : _silhouettePipelineStates) {
+        [entry.second release];
+    }
+    _silhouettePipelineStates.clear();
 }
 
 void VROGeometrySubstrateMetal::readGeometryElements(id <MTLDevice> device,
@@ -101,7 +107,11 @@ void VROGeometrySubstrateMetal::readGeometryElements(id <MTLDevice> device,
 void VROGeometrySubstrateMetal::readGeometrySources(id <MTLDevice> device,
                                                     const std::vector<std::shared_ptr<VROGeometrySource>> &sources) {
 
-    _vertexDescriptor = [MTLVertexDescriptor vertexDescriptor];
+    // ARC is off in this target, so the autoreleased descriptor has to be retained.
+    // Without this it survives only until the pool drains — long enough for the pipeline
+    // states built during construction, and a use-after-free for anything that builds a
+    // pipeline later (silhouette passes, a material update on a later frame).
+    _vertexDescriptor = [[MTLVertexDescriptor vertexDescriptor] retain];
 
     // Partition sources by geometry element index.
     // Each GLTF primitive becomes one element; sources from different primitives
@@ -630,9 +640,6 @@ void VROGeometrySubstrateMetal::drawSilhouette(const VROGeometry &geometry,
         return;
     }
 
-    const int frame = context.getFrame();
-    const VROEyeType eyeType = context.getEyeType();
-
     // The silhouette is rendered from the light's point of view, so the projection and
     // view matrices here are the shadow pass's, not the camera's.
     VROMatrix4f viewMatrix = context.getViewMatrix();
@@ -642,21 +649,26 @@ void VROGeometrySubstrateMetal::drawSilhouette(const VROGeometry &geometry,
     }
     const VROMatrix4f modelview = viewMatrix.multiply(transform);
 
-    VROViewUniforms *viewUniforms =
-        (VROViewUniforms *)_viewUniformsBuffer->getWritableContents(eyeType, frame);
-    viewUniforms->normal_matrix = toMatrixFloat4x4(transform.invert().transpose());
-    viewUniforms->model_matrix = toMatrixFloat4x4(transform);
-    viewUniforms->modelview_matrix = toMatrixFloat4x4(modelview);
-    viewUniforms->modelview_projection_matrix = toMatrixFloat4x4(projectionMatrix.multiply(modelview));
-    viewUniforms->view_matrix = toMatrixFloat4x4(viewMatrix);
-    viewUniforms->projection_matrix = toMatrixFloat4x4(projectionMatrix);
-    viewUniforms->camera_position = toVectorFloat3(context.getCamera().getPosition());
+    // Deliberately NOT _viewUniformsBuffer: that buffer has a single slot per
+    // (eye, frame), so the silhouette pass and the main pass would share it. Metal
+    // executes the command buffer after both have written, so the shadow map would be
+    // rendered with whichever matrices were written last — the camera's, not the
+    // light's. setVertexBytes copies into the command buffer at encode time, which is
+    // what a second draw of the same geometry in one frame needs. VROViewUniforms is a
+    // few hundred bytes, far below the setVertexBytes limit.
+    VROViewUniforms viewUniforms = {};
+    viewUniforms.normal_matrix = toMatrixFloat4x4(transform.invert().transpose());
+    viewUniforms.model_matrix = toMatrixFloat4x4(transform);
+    viewUniforms.modelview_matrix = toMatrixFloat4x4(modelview);
+    viewUniforms.modelview_projection_matrix = toMatrixFloat4x4(projectionMatrix.multiply(modelview));
+    viewUniforms.view_matrix = toMatrixFloat4x4(viewMatrix);
+    viewUniforms.projection_matrix = toMatrixFloat4x4(projectionMatrix);
+    viewUniforms.camera_position = toVectorFloat3(context.getCamera().getPosition());
 
     [renderEncoder pushDebugGroup:@"VROSilhouette"];
     [renderEncoder setRenderPipelineState:pipelineState];
     [renderEncoder setDepthStencilState:silhouetteDepthState(metal)];
-    [renderEncoder setVertexBuffer:_viewUniformsBuffer->getMTLBuffer(eyeType)
-                            offset:_viewUniformsBuffer->getWriteOffset(frame) atIndex:1];
+    [renderEncoder setVertexBytes:&viewUniforms length:sizeof(viewUniforms) atIndex:1];
 
     if (skinned && _boneUBO) {
         _boneUBO->update(geometry.getSkinner());

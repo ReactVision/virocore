@@ -60,6 +60,18 @@ public:
     void beginDisplayPass(MTLRenderPassDescriptor *descriptor);
     void endDisplayPass();
 
+    /*
+     Install a default scene-lighting block as the fallback at buffer index 4.
+     Shaders read that slot before a material binds its own lights (Constant shaders,
+     early-exit paths), and an unbound buffer read is undefined.
+
+     This lives here rather than in the bridge because the block must match
+     VROSceneLightingUniforms exactly — the bridge used to keep a hand-written copy of
+     that struct and it silently went stale the moment shadow fields were added.
+     */
+    void installDefaultLightingFallback(float ambient,
+                                        float directionX, float directionY, float directionZ);
+
     // Bytes bound at the given buffer index on every encoder this driver opens,
     // as a fallback for shaders that read a slot before the material binds it
     // (Constant shaders, early-exit paths). Re-applied per encoder because Metal

@@ -500,6 +500,28 @@ void VROMaterialSubstrateMetal::bindShader() {
     // The virtual bindShader(int lightsHash, ...) should be used instead
 }
 
+// A 1x1 depth texture array, bound when the scene has no shadow map. Metal requires
+// every declared fragment texture argument to be bound, even when the shader never
+// samples it.
+static id <MTLTexture> getBlankShadowMap(id <MTLDevice> device) {
+    static id <MTLTexture> sBlankShadowMap = nil;
+    if (sBlankShadowMap) {
+        return sBlankShadowMap;
+    }
+    MTLTextureDescriptor *descriptor = [MTLTextureDescriptor new];
+    descriptor.textureType = MTLTextureType2DArray;
+    descriptor.pixelFormat = MTLPixelFormatDepth32Float;
+    descriptor.width  = 1;
+    descriptor.height = 1;
+    descriptor.arrayLength = 1;
+    descriptor.mipmapLevelCount = 1;
+    descriptor.usage = MTLTextureUsageShaderRead;
+    descriptor.storageMode = MTLStorageModePrivate;
+    sBlankShadowMap = [device newTextureWithDescriptor:descriptor];
+    [descriptor release];
+    return sBlankShadowMap;
+}
+
 void VROMaterialSubstrateMetal::bindLights(int lightsHash,
                                            const std::vector<std::shared_ptr<VROLight>> &lights,
                                            const VRORenderContext &context,
@@ -531,12 +553,43 @@ void VROMaterialSubstrateMetal::bindLights(int lightsHash,
             light_uniforms.attenuation_falloff_exp = light->getAttenuationFalloffExponent();
             light_uniforms.spot_inner_angle = degrees_to_radians(light->getSpotInnerAngle());
             light_uniforms.spot_outer_angle = degrees_to_radians(light->getSpotOuterAngle());
-            
+
+            // Shadowing. VROShadowPreprocess assigns each shadow-casting light a slice
+            // of the shadow map array and leaves the index at -1 otherwise, which is what
+            // the shader tests before sampling.
+            light_uniforms.shadow_map_index = light->getShadowMapIndex();
+            light_uniforms.shadow_bias      = light->getShadowBias();
+            light_uniforms.shadow_opacity   = light->getShadowOpacity();
+            uniforms->shadow_view_matrices[uniforms->num_lights] =
+                toMatrixFloat4x4(light->getShadowViewMatrix());
+            uniforms->shadow_projection_matrices[uniforms->num_lights] =
+                toMatrixFloat4x4(light->getShadowProjectionMatrix());
+
             uniforms->num_lights++;
         }
     }
     
     uniforms->ambient_light_color = toVectorFloat3(ambientLight);
+
+    // Shadow map at the reserved texture slot 4 (material textures use 0..2). Every
+    // lit fragment function declares the argument, and Metal requires a bound texture
+    // for each declared argument, so a 1x1 dummy stands in when no light casts a
+    // shadow. compute_shadow never samples it: shadow_map_index is -1 in that case.
+    {
+        id <MTLTexture> shadowTexture = nil;
+        std::shared_ptr<VROTexture> shadowMap = context.getShadowMap();
+        if (shadowMap) {
+            VROTextureSubstrateMetal *substrate =
+                (VROTextureSubstrateMetal *) shadowMap->getSubstrate(0, driver, true);
+            if (substrate) {
+                shadowTexture = substrate->getTexture();
+            }
+        }
+        if (!shadowTexture) {
+            shadowTexture = getBlankShadowMap(metal.getDevice());
+        }
+        [renderEncoder setFragmentTexture:shadowTexture atIndex:4];
+    }
 
     [renderEncoder setVertexBuffer:_lightingUniformsBuffer->getMTLBuffer(eyeType)
                             offset:_lightingUniformsBuffer->getWriteOffset(frame)

@@ -37,18 +37,12 @@ void VROPhysicsWorld::computePhysics(const VRORenderContext &context) {}
 // ── IBL / Shadow preprocesses ─────────────────────────────────────────────────
 
 #include "VROIBLPreprocess.h"
-#include "VROShadowPreprocess.h"
 
 VROIBLPreprocess::VROIBLPreprocess() {}
 VROIBLPreprocess::~VROIBLPreprocess() {}
 void VROIBLPreprocess::execute(std::shared_ptr<VROScene> scene,
                                VRORenderContext *context,
                                std::shared_ptr<VRODriver> driver) {}
-
-VROShadowPreprocess::VROShadowPreprocess(std::shared_ptr<VRODriver> driver) {}
-void VROShadowPreprocess::execute(std::shared_ptr<VROScene> scene,
-                                  VRORenderContext *context,
-                                  std::shared_ptr<VRODriver> driver) {}
 
 // ── Shader program base + image shader ───────────────────────────────────────
 // VROShaderProgram.cpp is excluded from the visionOS target (GL-only impl).
