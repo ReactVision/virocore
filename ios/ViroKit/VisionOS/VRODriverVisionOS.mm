@@ -5,6 +5,7 @@
 #if VRO_METAL
 
 #include "VRORenderTargetMetal.h"
+#include "VROMetalPostProcess.h"
 #include "VROTextureSubstrateMetal.h"
 #include "VROLog.h"
 #include "VROData.h"
@@ -113,6 +114,49 @@ std::shared_ptr<VRORenderTarget> VRODriverVisionOS::newRenderTarget(
     return std::make_shared<VRORenderTargetMetal>(type, numAttachments, numImages,
                                                   enableMipmaps, needsDepthStencil,
                                                   getDevice(), this);
+}
+
+// ── Post-process ──────────────────────────────────────────────────────────────
+
+id <MTLLibrary> VRODriverVisionOS::postProcessLibrary() {
+    if (_postProcessLibrary) {
+        return _postProcessLibrary;
+    }
+    id <MTLLibrary> library = getLibrary();
+    if (library) {
+        _postProcessLibrary = [library retain];
+        return _postProcessLibrary;
+    }
+    // No precompiled metallib in the bundle (the common case when ViroKit ships as a
+    // static library and the host app does not compile Shaders.metal). Fall back to
+    // the shader source staged alongside it.
+    const std::string &source = getLibrarySource();
+    if (source.empty()) {
+        pinfo("VRODriverVisionOS: no Metal library and no shader source — post-processing unavailable");
+        return nil;
+    }
+    NSError *error = nil;
+    _postProcessLibrary =
+        [[getDevice() newLibraryWithSource:[NSString stringWithUTF8String:source.c_str()]
+                                  options:nil
+                                    error:&error] retain];
+    if (!_postProcessLibrary) {
+        pinfo("VRODriverVisionOS: post-process library compile failed: %s",
+              error ? [[error localizedDescription] UTF8String] : "unknown");
+    }
+    return _postProcessLibrary;
+}
+
+std::shared_ptr<VROImagePostProcess> VRODriverVisionOS::newMetalPostProcess(
+    const std::string &fragmentFunction)
+{
+    std::shared_ptr<VROMetalPostProcess> postProcess =
+        std::make_shared<VROMetalPostProcess>(getDevice(), postProcessLibrary(),
+                                              fragmentFunction, this);
+    if (!postProcess->isValid()) {
+        return nullptr;
+    }
+    return postProcess;
 }
 
 // ── Cull mode ─────────────────────────────────────────────────────────────────

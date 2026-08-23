@@ -27,6 +27,8 @@
 #include "VROGeometrySubstrateMetal.h"
 #if VRO_METAL
 
+#include "VRORenderTargetMetal.h"
+
 #include "VROImageUtil.h"
 #include "VROGeometry.h"
 #include "VROGeometrySource.h"
@@ -47,7 +49,8 @@
 VROGeometrySubstrateMetal::VROGeometrySubstrateMetal(const VROGeometry &geometry,
                                                      VRODriverMetal &driver) :
     _needsFakeColorBuffer(false),
-    _fakeColorBuffer(nil)
+    _fakeColorBuffer(nil),
+    _silhouetteDepthState(nil)
 {
     id <MTLDevice> device = driver.getDevice();
 
@@ -509,6 +512,201 @@ void VROGeometrySubstrateMetal::render(const VROGeometry &geometry,
                    context, driver);
 
     [renderEncoder popDebugGroup];
+}
+
+// ── Silhouette rendering ─────────────────────────────────────────────────────
+//
+// Used by the shadow-map pass (depth-only target) and the portal stencil passes
+// (colour target with the write mask disabled). Both cases write depth and nothing
+// else, so the plain pipeline has no fragment stage at all and the textured one has a
+// void fragment stage that only discards cut-out fragments.
+
+id <MTLDepthStencilState> VROGeometrySubstrateMetal::silhouetteDepthState(VRODriverMetal &metal) {
+    if (_silhouetteDepthState) {
+        return _silhouetteDepthState;
+    }
+    MTLDepthStencilDescriptor *descriptor = [MTLDepthStencilDescriptor new];
+    descriptor.depthCompareFunction = MTLCompareFunctionLess;
+    descriptor.depthWriteEnabled    = YES;
+    _silhouetteDepthState = [metal.getDevice() newDepthStencilStateWithDescriptor:descriptor];
+    [descriptor release];
+    return _silhouetteDepthState;
+}
+
+id <MTLRenderPipelineState> VROGeometrySubstrateMetal::silhouettePipelineState(VRODriverMetal &metal,
+                                                                              bool skinned,
+                                                                              bool textured) {
+    // A silhouette is drawn into whatever target is bound: the shadow map's depth-only
+    // target, or a colour target during a portal pass. The pipeline's attachment
+    // formats have to match that target, so they are part of the cache key.
+    MTLPixelFormat colorFormat = MTLPixelFormatInvalid;
+    MTLPixelFormat depthFormat = metal.getDepthPixelFormat();
+
+    std::shared_ptr<VRORenderTarget> boundTarget = metal.getRenderTarget();
+    VRORenderTargetMetal *target = dynamic_cast<VRORenderTargetMetal *>(boundTarget.get());
+    if (target && !target->isDisplay()) {
+        id <MTLTexture> color = target->getMetalTexture(0);
+        id <MTLTexture> depth = target->getMetalDepthTexture();
+        colorFormat = color ? color.pixelFormat : MTLPixelFormatInvalid;
+        depthFormat = depth ? depth.pixelFormat : MTLPixelFormatInvalid;
+    } else {
+        colorFormat = metal.getColorPixelFormat();
+    }
+
+    const uint64_t key = (uint64_t)(skinned ? 1 : 0)
+                       | ((uint64_t)(textured ? 1 : 0) << 1)
+                       | ((uint64_t)colorFormat << 8)
+                       | ((uint64_t)depthFormat << 32);
+    auto it = _silhouettePipelineStates.find(key);
+    if (it != _silhouettePipelineStates.end()) {
+        return it->second;
+    }
+
+    id <MTLLibrary> library = metal.getLibrary();
+    if (!library) {
+        return nil;
+    }
+    id <MTLFunction> vertexFunction =
+        [library newFunctionWithName:skinned ? @"silhouette_skinned_vertex" : @"silhouette_vertex"];
+    id <MTLFunction> fragmentFunction =
+        textured ? [library newFunctionWithName:@"silhouette_fragment_textured"] : nil;
+    if (!vertexFunction || (textured && !fragmentFunction)) {
+        pinfo("VROGeometrySubstrateMetal: missing silhouette shader (skinned=%d textured=%d)",
+              skinned, textured);
+        [vertexFunction release];
+        [fragmentFunction release];
+        return nil;
+    }
+
+    MTLRenderPipelineDescriptor *descriptor = [MTLRenderPipelineDescriptor new];
+    descriptor.vertexFunction   = vertexFunction;
+    descriptor.fragmentFunction = fragmentFunction;
+    descriptor.vertexDescriptor = _vertexDescriptor;
+    descriptor.sampleCount      = 1;
+    descriptor.depthAttachmentPixelFormat = depthFormat;
+    if (depthFormat == MTLPixelFormatDepth32Float_Stencil8) {
+        descriptor.stencilAttachmentPixelFormat = depthFormat;
+    }
+    if (colorFormat != MTLPixelFormatInvalid) {
+        descriptor.colorAttachments[0].pixelFormat = colorFormat;
+        // Depth (and stencil) only — leave the colour buffer untouched. This is the
+        // Metal equivalent of VRODriver::setRenderTargetColorWritingMask(VROColorMaskNone),
+        // which cannot be encoder state here because Metal bakes the mask into the pipeline.
+        descriptor.colorAttachments[0].writeMask = MTLColorWriteMaskNone;
+    }
+
+    NSError *error = nil;
+    id <MTLRenderPipelineState> state =
+        [metal.getDevice() newRenderPipelineStateWithDescriptor:descriptor error:&error];
+    [descriptor release];
+    [vertexFunction release];
+    [fragmentFunction release];
+
+    if (!state) {
+        pinfo("VROGeometrySubstrateMetal: silhouette pipeline failed: %s",
+              error ? [[error localizedDescription] UTF8String] : "unknown");
+        return nil;
+    }
+    _silhouettePipelineStates[key] = state;
+    return state;
+}
+
+void VROGeometrySubstrateMetal::drawSilhouette(const VROGeometry &geometry,
+                                               int element,
+                                               VROMatrix4f transform,
+                                               std::shared_ptr<VROMaterial> &material,
+                                               bool textured,
+                                               const VRORenderContext &context,
+                                               std::shared_ptr<VRODriver> &driver) {
+    VRODriverMetal &metal = (VRODriverMetal &)(*driver);
+    id <MTLRenderCommandEncoder> renderEncoder = metal.getActiveEncoder();
+    if (!renderEncoder) {
+        return;
+    }
+
+    const bool skinned = geometry.getSkinner() != nullptr;
+    id <MTLRenderPipelineState> pipelineState = silhouettePipelineState(metal, skinned, textured);
+    if (!pipelineState) {
+        return;
+    }
+
+    const int frame = context.getFrame();
+    const VROEyeType eyeType = context.getEyeType();
+
+    // The silhouette is rendered from the light's point of view, so the projection and
+    // view matrices here are the shadow pass's, not the camera's.
+    VROMatrix4f viewMatrix = context.getViewMatrix();
+    const VROMatrix4f projectionMatrix = context.getProjectionMatrix();
+    if (geometry.isCameraEnclosure()) {
+        viewMatrix = context.getEnclosureViewMatrix();
+    }
+    const VROMatrix4f modelview = viewMatrix.multiply(transform);
+
+    VROViewUniforms *viewUniforms =
+        (VROViewUniforms *)_viewUniformsBuffer->getWritableContents(eyeType, frame);
+    viewUniforms->normal_matrix = toMatrixFloat4x4(transform.invert().transpose());
+    viewUniforms->model_matrix = toMatrixFloat4x4(transform);
+    viewUniforms->modelview_matrix = toMatrixFloat4x4(modelview);
+    viewUniforms->modelview_projection_matrix = toMatrixFloat4x4(projectionMatrix.multiply(modelview));
+    viewUniforms->view_matrix = toMatrixFloat4x4(viewMatrix);
+    viewUniforms->projection_matrix = toMatrixFloat4x4(projectionMatrix);
+    viewUniforms->camera_position = toVectorFloat3(context.getCamera().getPosition());
+
+    [renderEncoder pushDebugGroup:@"VROSilhouette"];
+    [renderEncoder setRenderPipelineState:pipelineState];
+    [renderEncoder setDepthStencilState:silhouetteDepthState(metal)];
+    [renderEncoder setVertexBuffer:_viewUniformsBuffer->getMTLBuffer(eyeType)
+                            offset:_viewUniformsBuffer->getWriteOffset(frame) atIndex:1];
+
+    if (skinned && _boneUBO) {
+        _boneUBO->update(geometry.getSkinner());
+        [renderEncoder setVertexBuffer:_boneUBO->getBuffer() offset:0 atIndex:5];
+    }
+
+    if (textured && material) {
+        VROMaterialSubstrateMetal *substrate =
+            static_cast<VROMaterialSubstrateMetal *>(material->getSubstrate(driver));
+        const std::vector<std::shared_ptr<VROTexture>> &textures = substrate->getTextures();
+        if (!textures.empty() && textures[0]) {
+            VROTextureSubstrateMetal *textureSubstrate =
+                (VROTextureSubstrateMetal *)textures[0]->getSubstrate(0, driver, true);
+            if (textureSubstrate) {
+                [renderEncoder setFragmentTexture:textureSubstrate->getTexture() atIndex:0];
+            }
+        }
+    }
+
+    const int first = (element < 0) ? 0 : element;
+    const int last  = (element < 0) ? (int)_elements.size() : (element + 1);
+    for (int i = first; i < last && i < (int)_elements.size(); i++) {
+        if (i < (int)_vars.size()) {
+            [renderEncoder setVertexBuffer:_vars[i].buffer offset:0 atIndex:0];
+        }
+        VROGeometryElementMetal &metalElement = _elements[i];
+        [renderEncoder drawIndexedPrimitives:metalElement.primitiveType
+                                  indexCount:metalElement.indexCount
+                                   indexType:metalElement.indexType
+                                 indexBuffer:metalElement.buffer
+                           indexBufferOffset:0];
+    }
+    [renderEncoder popDebugGroup];
+}
+
+void VROGeometrySubstrateMetal::renderSilhouette(const VROGeometry &geometry,
+                                                 VROMatrix4f transform,
+                                                 std::shared_ptr<VROMaterial> &material,
+                                                 const VRORenderContext &context,
+                                                 std::shared_ptr<VRODriver> &driver) {
+    drawSilhouette(geometry, -1, transform, material, false, context, driver);
+}
+
+void VROGeometrySubstrateMetal::renderSilhouetteTextured(const VROGeometry &geometry,
+                                                         int element,
+                                                         VROMatrix4f transform,
+                                                         std::shared_ptr<VROMaterial> &material,
+                                                         const VRORenderContext &context,
+                                                         std::shared_ptr<VRODriver> &driver) {
+    drawSilhouette(geometry, element, transform, material, true, context, driver);
 }
 
 void VROGeometrySubstrateMetal::renderMaterial(VROMaterialSubstrateMetal *material,

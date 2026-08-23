@@ -184,6 +184,7 @@ metal_files = Dir.glob("#{RENDERER_DIR}/*.metal")
 visionos_mm = [
   "#{IOS_DIR}/VisionOS/VRODriverVisionOS.mm",
   "#{IOS_DIR}/VisionOS/VRORenderTargetMetal.mm",
+  "#{IOS_DIR}/VisionOS/VROMetalPostProcess.mm",
   "#{IOS_DIR}/VisionOS/VROVisionOSRenderStubs.cpp",
 ]
 

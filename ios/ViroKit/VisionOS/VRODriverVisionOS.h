@@ -28,6 +28,7 @@
 #include "VROFrameScheduler.h"
 #include <memory>
 #include <vector>
+#include <string>
 #include <cstdint>
 
 // CPU-only vertex buffer: holds VROData for CPU-side operations (e.g. processTangent).
@@ -155,10 +156,17 @@ public:
         return std::make_shared<VROVertexBufferCPU>(data);
     }
 
-    // Image post-process — not needed for basic scenes; return null stub
+    // The shared VROImagePostProcess factory takes a GLSL VROShaderProgram, which has
+    // no meaning on Metal. The visionOS render passes call newMetalPostProcess instead.
     std::shared_ptr<VROImagePostProcess> newImagePostProcess(std::shared_ptr<VROShaderProgram>) override {
         return nullptr;
     }
+
+    /*
+     A full-screen post-process running the named fragment function from Shaders.metal.
+     Returns null if the function is missing.
+     */
+    std::shared_ptr<VROImagePostProcess> newMetalPostProcess(const std::string &fragmentFunction);
 
     // Sound — not supported; return null
     std::shared_ptr<VROSound> newSound(std::shared_ptr<VROSoundData>, VROSoundType) override {
@@ -193,6 +201,12 @@ private:
     // Fallback uniform bytes re-bound on every new encoder.
     std::vector<uint8_t> _fallbackUniformBytes;
     int _fallbackUniformIndex = -1;
+
+    // Library used for post-process shaders. Normally the driver's precompiled
+    // default.metallib; compiled from the bundled shader source when the host app
+    // ships no metallib of its own.
+    id <MTLLibrary> postProcessLibrary();
+    id <MTLLibrary> _postProcessLibrary = nil;
 };
 
 #endif  // VRO_METAL

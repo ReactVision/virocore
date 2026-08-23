@@ -100,14 +100,14 @@ public:
                           VROMatrix4f transform,
                           std::shared_ptr<VROMaterial> &material,
                           const VRORenderContext &context,
-                          std::shared_ptr<VRODriver> &driver) override {}
+                          std::shared_ptr<VRODriver> &driver) override;
 
     void renderSilhouetteTextured(const VROGeometry &geometry,
                                   int element,
                                   VROMatrix4f transform,
                                   std::shared_ptr<VROMaterial> &material,
                                   const VRORenderContext &context,
-                                  std::shared_ptr<VRODriver> &driver) override {}
+                                  std::shared_ptr<VRODriver> &driver) override;
 
 private:
     
@@ -188,6 +188,30 @@ private:
     /*
      Rendering helper function.
      */
+    /*
+     Silhouette pipelines, keyed by (skinned, textured, colour format, depth format).
+     A silhouette pass writes depth (and, for portals, stencil) only, so the plain
+     variant has no fragment stage and the textured variant writes nothing.
+     */
+    std::map<uint64_t, id <MTLRenderPipelineState>> _silhouettePipelineStates;
+    id <MTLDepthStencilState> _silhouetteDepthState;
+
+    id <MTLRenderPipelineState> silhouettePipelineState(VRODriverMetal &metal,
+                                                        bool skinned, bool textured);
+    id <MTLDepthStencilState> silhouetteDepthState(VRODriverMetal &metal);
+
+    /*
+     Shared body of renderSilhouette / renderSilhouetteTextured. Passing element < 0
+     draws every element.
+     */
+    void drawSilhouette(const VROGeometry &geometry,
+                        int element,
+                        VROMatrix4f transform,
+                        std::shared_ptr<VROMaterial> &material,
+                        bool textured,
+                        const VRORenderContext &context,
+                        std::shared_ptr<VRODriver> &driver);
+
     void renderMaterial(VROMaterialSubstrateMetal *material,
                         VROGeometryElementMetal &element,
                         id <MTLRenderPipelineState> pipelineState,

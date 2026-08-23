@@ -1378,6 +1378,235 @@ fragment float4 distortion_aberration_fragment(VRODistortionAberrationVertexOut 
                                 1.0);
 }
 
+// ── Silhouette rendering ──────────────────────────────────────────────────────
+//
+// Depth-only draws used by the shadow-map pass and by the portal stencil passes.
+// The colour write mask is disabled by the pipeline state, so the fragment output is
+// discarded; only depth (and, for portals, stencil) matters. The textured variant
+// still needs a real fragment stage so an alpha-masked surface can discard, which is
+// what keeps cut-out foliage from casting a solid rectangular shadow.
+//
+// Skinning is inlined here rather than injected as a shader modifier: the silhouette
+// materials are built by shared code that knows nothing about MSL, so the two vertex
+// entry points are selected by VROGeometrySubstrateMetal instead.
+
+constexpr sampler kVROSilhouetteSampler(coord::normalized, filter::linear, address::clamp_to_edge);
+
+struct VROSilhouetteVertexOut {
+    float4 position [[ position ]];
+    float2 texcoord;
+};
+
+vertex VROSilhouetteVertexOut silhouette_vertex(VRORendererAttributes attributes [[ stage_in ]],
+                                                constant VROViewUniforms &view [[ buffer(1) ]]) {
+    VROSilhouetteVertexOut out;
+    out.position = view.modelview_projection_matrix * float4(attributes.position, 1.0);
+    out.texcoord = attributes.texcoord;
+    return out;
+}
+
+vertex VROSilhouetteVertexOut silhouette_skinned_vertex(VRORendererAttributes attributes [[ stage_in ]],
+                                                        constant VROViewUniforms &view [[ buffer(1) ]],
+                                                        constant float4x4 *bone_matrices [[ buffer(5) ]]) {
+    const float4 pos_h = float4(attributes.position, 1.0);
+    const float4 blended =
+        (bone_matrices[attributes.bone_indices.x] * pos_h) * attributes.bone_weights.x +
+        (bone_matrices[attributes.bone_indices.y] * pos_h) * attributes.bone_weights.y +
+        (bone_matrices[attributes.bone_indices.z] * pos_h) * attributes.bone_weights.z +
+        (bone_matrices[attributes.bone_indices.w] * pos_h) * attributes.bone_weights.w;
+
+    VROSilhouetteVertexOut out;
+    out.position = view.modelview_projection_matrix * float4(blended.xyz, 1.0);
+    out.texcoord = attributes.texcoord;
+    return out;
+}
+
+// A plain silhouette needs no fragment stage at all — VROGeometrySubstrateMetal builds
+// that pipeline with a nil fragment function, which is both legal and the fast path for
+// a depth-only target. Only the textured variant needs one, and it writes nothing: a
+// void fragment stage is valid whether or not the pass has a colour attachment, so the
+// same function serves the depth-only shadow target and the colour-masked portal pass.
+fragment void silhouette_fragment_textured(VROSilhouetteVertexOut in [[ stage_in ]],
+                                           texture2d<float> diffuse_texture [[ texture(0) ]]) {
+    const float alpha = diffuse_texture.sample(kVROSilhouetteSampler, in.texcoord).a;
+    // Cut-outs must not cast a solid shadow.
+    if (alpha < 0.5) {
+        discard_fragment();
+    }
+}
+
+// ── Post-processing ───────────────────────────────────────────────────────────
+//
+// The OpenGL path assembles a GLSL fragment shader at runtime from string fragments
+// supplied by each render pass. MSL is compiled ahead of time, so each effect lives
+// here as a named fragment function and VROMetalPostProcess selects one by name.
+//
+// Every function samples its inputs on texture slots 0..N (matching the order the
+// pass hands them to blit) and reads its parameters from one uniform block at
+// fragment buffer index 0.
+
+struct VROPostProcessVertexOut {
+    float4 position [[ position ]];
+    float2 texcoord;
+};
+
+constexpr sampler kVROPostSampler(coord::normalized, filter::linear, address::clamp_to_edge);
+
+// Full-screen quad from vertex_id alone; no vertex buffer is bound.
+//
+// Metal's texture origin is top-left while NDC is centre-origin with +y up, so a
+// naive uv = ndc * 0.5 + 0.5 samples upside down. The default therefore flips v, and
+// flip_y > 0.5 restores the unflipped mapping — which is what setVerticalFlip(true)
+// asks for.
+vertex VROPostProcessVertexOut post_process_vertex(uint vid [[ vertex_id ]],
+                                                  constant float &flip_y [[ buffer(0) ]]) {
+    const float2 ndc = float2((vid == 1 || vid == 3) ?  1.0 : -1.0,
+                              (vid == 2 || vid == 3) ?  1.0 : -1.0);
+    VROPostProcessVertexOut out;
+    out.position = float4(ndc, 0.0, 1.0);
+    const float2 uv = ndc * 0.5 + 0.5;
+    out.texcoord = float2(uv.x, (flip_y > 0.5) ? uv.y : (1.0 - uv.y));
+    return out;
+}
+
+// Straight copy — the equivalent of VROChoreographer's blit-to-display post-process.
+fragment float4 post_blit(VROPostProcessVertexOut in [[ stage_in ]],
+                          texture2d<float> source [[ texture(0) ]]) {
+    return source.sample(kVROPostSampler, in.texcoord);
+}
+
+// ── Tone mapping ──────────────────────────────────────────────────────────────
+//
+// Mirrors VROToneMappingRenderPass::createPostProcess. The mask texture holds, per
+// fragment, how much tone mapping the material asked for (1 = full, 0 = none), already
+// alpha-blended across fragments; the result is mixed by that value so a tone-mapped
+// transparent surface over a non-tone-mapped background blends smoothly.
+
+struct VROToneMappingUniforms {
+    float exposure;
+    float white_point;
+    float gamma_correct;   // > 0.5 applies the 1/2.2 gamma curve in-shader
+};
+
+static float3 VROToneMapFinish(float3 hdr_color, float3 mapped, float tone_mapped,
+                               float gamma_correct) {
+    float3 result = mix(hdr_color, mapped, clamp(tone_mapped, 0.0, 1.0));
+    if (gamma_correct > 0.5) {
+        result = pow(result, float3(1.0 / 2.2));
+    }
+    return result;
+}
+
+static float3 VROHableCurve(float3 x) {
+    const float A = 0.15, B = 0.50, C = 0.10, D = 0.20, E = 0.02, F = 0.30;
+    return max(((x * (A * x + C * B) + D * E) / (x * (A * x + B) + D * F)) - E / F, float3(0.0));
+}
+
+static float VROHableCurveScalar(float x) {
+    const float A = 0.15, B = 0.50, C = 0.10, D = 0.20, E = 0.02, F = 0.30;
+    return max(((x * (A * x + C * B) + D * E) / (x * (A * x + B) + D * F)) - E / F, 0.0);
+}
+
+fragment float4 post_tone_map_disabled(VROPostProcessVertexOut in [[ stage_in ]],
+                                       constant VROToneMappingUniforms &uniforms [[ buffer(0) ]],
+                                       texture2d<float> hdr_texture [[ texture(0) ]],
+                                       texture2d<float> tone_mapping_mask [[ texture(1) ]]) {
+    const float4 hdr = hdr_texture.sample(kVROPostSampler, in.texcoord);
+    const float mask = tone_mapping_mask.sample(kVROPostSampler, in.texcoord).r;
+    return float4(VROToneMapFinish(hdr.rgb, hdr.rgb, mask, uniforms.gamma_correct), hdr.a);
+}
+
+fragment float4 post_tone_map_reinhard(VROPostProcessVertexOut in [[ stage_in ]],
+                                       constant VROToneMappingUniforms &uniforms [[ buffer(0) ]],
+                                       texture2d<float> hdr_texture [[ texture(0) ]],
+                                       texture2d<float> tone_mapping_mask [[ texture(1) ]]) {
+    const float4 hdr = hdr_texture.sample(kVROPostSampler, in.texcoord);
+    const float mask = tone_mapping_mask.sample(kVROPostSampler, in.texcoord).r;
+    const float3 H = hdr.rgb * pow(2.0, uniforms.exposure);
+    const float3 mapped = clamp(H / (H + float3(1.0)), 0.0, 1.0);
+    return float4(VROToneMapFinish(hdr.rgb, mapped, mask, uniforms.gamma_correct), hdr.a);
+}
+
+fragment float4 post_tone_map_hable(VROPostProcessVertexOut in [[ stage_in ]],
+                                    constant VROToneMappingUniforms &uniforms [[ buffer(0) ]],
+                                    texture2d<float> hdr_texture [[ texture(0) ]],
+                                    texture2d<float> tone_mapping_mask [[ texture(1) ]]) {
+    const float4 hdr = hdr_texture.sample(kVROPostSampler, in.texcoord);
+    const float mask = tone_mapping_mask.sample(kVROPostSampler, in.texcoord).r;
+    const float3 H = hdr.rgb * pow(2.0, uniforms.exposure);
+    const float3 W = float3(uniforms.white_point);
+    const float3 mapped = clamp(VROHableCurve(H) / VROHableCurve(W), 0.0, 1.0);
+    return float4(VROToneMapFinish(hdr.rgb, mapped, mask, uniforms.gamma_correct), hdr.a);
+}
+
+fragment float4 post_tone_map_hable_luminance(VROPostProcessVertexOut in [[ stage_in ]],
+                                              constant VROToneMappingUniforms &uniforms [[ buffer(0) ]],
+                                              texture2d<float> hdr_texture [[ texture(0) ]],
+                                              texture2d<float> tone_mapping_mask [[ texture(1) ]]) {
+    const float4 hdr = hdr_texture.sample(kVROPostSampler, in.texcoord);
+    const float mask = tone_mapping_mask.sample(kVROPostSampler, in.texcoord).r;
+    const float3 H = hdr.rgb * pow(2.0, uniforms.exposure);
+    const float3 W = float3(uniforms.white_point);
+    const float3 kLuma = float3(0.2126, 0.7152, 0.0722);
+    const float luminance_H = dot(H, kLuma);
+    const float luminance_W = dot(W, kLuma);
+    // Guard the divides: a fully black fragment has zero luminance.
+    const float3 hdr_mapped   = (luminance_H > 0.0) ? (VROHableCurveScalar(luminance_H) / luminance_H) * H : float3(0.0);
+    const float3 white_mapped = (luminance_W > 0.0) ? (VROHableCurveScalar(luminance_W) / luminance_W) * W : float3(1.0);
+    const float3 mapped = clamp(hdr_mapped / max(white_mapped, float3(1e-5)), 0.0, 1.0);
+    return float4(VROToneMapFinish(hdr.rgb, mapped, mask, uniforms.gamma_correct), hdr.a);
+}
+
+fragment float4 post_tone_map_exposure(VROPostProcessVertexOut in [[ stage_in ]],
+                                       constant VROToneMappingUniforms &uniforms [[ buffer(0) ]],
+                                       texture2d<float> hdr_texture [[ texture(0) ]],
+                                       texture2d<float> tone_mapping_mask [[ texture(1) ]]) {
+    const float4 hdr = hdr_texture.sample(kVROPostSampler, in.texcoord);
+    const float mask = tone_mapping_mask.sample(kVROPostSampler, in.texcoord).r;
+    const float3 mapped = float3(1.0) - exp(-hdr.rgb * uniforms.exposure);
+    return float4(VROToneMapFinish(hdr.rgb, mapped, mask, uniforms.gamma_correct), hdr.a);
+}
+
+// ── Gaussian blur ─────────────────────────────────────────────────────────────
+//
+// Separable two-pass blur. The pass sets direction to (1/width, 0) horizontally and
+// (0, 1/height) vertically, and supplies the half-kernel with its centre weight in
+// weights[0]. Bilinear offsets are precomputed by the pass, so the shader only walks
+// the taps.
+
+struct VROGaussianBlurUniforms {
+    float2 direction;
+    int    tap_count;      // number of entries in weights/offsets, centre included
+    float  intensity;
+    float4 weights[8];     // packed 4 per float4 → up to 32 taps
+    float4 offsets[8];
+};
+
+fragment float4 post_gaussian_blur(VROPostProcessVertexOut in [[ stage_in ]],
+                                   constant VROGaussianBlurUniforms &uniforms [[ buffer(0) ]],
+                                   texture2d<float> source [[ texture(0) ]]) {
+    const int taps = min(uniforms.tap_count, 32);
+    float4 result = source.sample(kVROPostSampler, in.texcoord) * uniforms.weights[0][0];
+    for (int i = 1; i < taps; i++) {
+        const float weight = uniforms.weights[i >> 2][i & 3];
+        const float offset = uniforms.offsets[i >> 2][i & 3];
+        const float2 delta = uniforms.direction * offset;
+        result += source.sample(kVROPostSampler, in.texcoord + delta) * weight;
+        result += source.sample(kVROPostSampler, in.texcoord - delta) * weight;
+    }
+    return result * uniforms.intensity;
+}
+
+// Additive blend of a bloom texture back over the scene. The bloom input is
+// premultiplied, matching the OpenGL path's PremultiplyAlpha blend mode.
+fragment float4 post_additive_blend(VROPostProcessVertexOut in [[ stage_in ]],
+                                    texture2d<float> scene [[ texture(0) ]],
+                                    texture2d<float> bloom [[ texture(1) ]]) {
+    const float4 base  = scene.sample(kVROPostSampler, in.texcoord);
+    const float4 added = bloom.sample(kVROPostSampler, in.texcoord);
+    return float4(base.rgb + added.rgb, base.a);
+}
+
 // ── Diagnostic test shaders ───────────────────────────────────────────────────
 // Hardcoded screen-space triangle covering the upper-right quadrant.
 // Used by VRORendererBridge raw-draw test to verify the encoder produces output.
