@@ -78,8 +78,63 @@ for vendor in freetype bullet; do
   fi
 done
 
+# Header-only delegate declarations: ObjC protocols plus inline C++ adapters, with no
+# implementation in this target. Nothing here needs a .cpp — but every VRT view in
+# ios/ViroReact declares conformance to VROEventDelegateProtocol and
+# VROTransformDelegateProtocol, so omitting them fails the entire React view layer on a
+# missing type. The set is the five protocols the VRT layer references (measured, not
+# guessed) plus the transitive closure of their own includes.
+#
+# The two AR delegate protocols are deliberately NOT staged: the AR subsystem is excluded
+# from this target, so the files needing them cannot link on visionOS regardless, and
+# staging them would only turn a clear compile error into an obscure link error.
+for delegate_header in \
+  VROEventDelegateiOS.h \
+  VROTransformDelegateiOS.h \
+  VROSceneDelegateiOS.h \
+  VROPortalDelegateiOS.h \
+  VROPhysicsBodyDelegateiOS.h \
+  VRORenderDelegate.h \
+  VRORenderDelegateiOS.h \
+  VROVideoDelegate.h \
+  VROVideoDelegateiOS.h
+do
+  cp "$SCRIPT_DIR/ViroKit/$delegate_header" "$HEADERS_STAGING/"
+done
+
 # Umbrella header (must match target name: ViroKitVisionOS.h)
 cp "$SCRIPT_DIR/ViroKit/ViroKitVisionOS.h" "$HEADERS_STAGING/"
+
+# ── ViroKit/ forwarding headers ───────────────────────────────────────────────
+#
+# Consumers include headers two ways and both have to work:
+#
+#   #include "VRODefines.h"            flat — used 38 times in ios/ViroReact
+#   #import <ViroKit/VRODefines.h>     framework style — 17 distinct forms, and
+#                                      <ViroKit/ViroKit.h> alone appears in 32 files
+#
+# The flat form works because CocoaPods puts this Headers/ directory on the search path.
+# The framework form needs a directory literally named ViroKit, which a static-library
+# xcframework has no reason to have — so before 2026-08-23 none of those 49 includes
+# resolved and the ViroReact pod could not compile for xros at all. It went unnoticed
+# because the standalone test app includes "VRORendererBridge.h" directly and never goes
+# through the pod.
+#
+# Forwarding stubs rather than copies or symlinks: copying would double 8.2 MB of headers
+# per slice, and symlinks can be flattened by whatever unpacks the npm tarball. Each stub
+# is one line and costs nothing.
+#
+# ViroKit.h maps to ViroKitVisionOS.h: the iOS framework's umbrella is named ViroKit.h and
+# that is the name the 32 consumers use.
+mkdir -p "$HEADERS_STAGING/ViroKit"
+fwd_count=0
+for h in "$HEADERS_STAGING"/*.h; do
+  base="$(basename "$h")"
+  printf '#include "../%s"\n' "$base" > "$HEADERS_STAGING/ViroKit/$base"
+  fwd_count=$((fwd_count + 1))
+done
+printf '#include "../ViroKitVisionOS.h"\n' > "$HEADERS_STAGING/ViroKit/ViroKit.h"
+echo "    ViroKit/ forwarding headers: $fwd_count (+ ViroKit.h -> ViroKitVisionOS.h)"
 
 # VRODriverMetal compiles shader modifiers at runtime from the MSL source, which it
 # loads as a bundled resource named ViroShadersSource.txt. That resource is a
