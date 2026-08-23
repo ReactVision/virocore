@@ -288,6 +288,9 @@ void VROPortalTreeRenderPass::render(std::shared_ptr<VROScene> scene,
     const auto &treeNode = scene->getPortalTree();
     const std::shared_ptr<VROPortal> &rootPortal = treeNode.value;
     if (rootPortal) {
+        // Background first, and the order is not cosmetic: the background writes depth at the
+        // far plane, so drawing it after the contents would bury them.
+        rootPortal->renderBackground(*context, driver);
         rootPortal->renderContents(*context, driver);
     }
 }
@@ -735,6 +738,168 @@ void VROPortal::renderContents(const VRORenderContext &context, std::shared_ptr<
              context.getIrradianceMap() != nullptr)) {
             node->render(key.elementIndex, material, context, driver);
         }
+    }
+}
+
+// ── Portal backgrounds ────────────────────────────────────────────────────────
+//
+// VROPortal.cpp is excluded from this target, so the whole background family lands here. It was
+// missing until now, which meant ViroSkyBox, Viro360Image and Viro360Video could not link into a
+// visionOS app at all — the standalone test app never called these, so nothing surfaced it.
+//
+// Everything the implementation needs is already in the target: VROSkybox and VROSphere for the
+// geometry, and the Metal constant-lighting shaders exist in both flavours the two paths need —
+// constant_lighting_fragment_t for a 2D sphere texture, constant_lighting_fragment_q for a cube.
+
+#include "VROSkybox.h"
+#include "VROSphere.h"
+#include "VROShaderModifier.h"
+
+static const float kSphereBackgroundRadius = 1;
+static const int   kSphereBackgroundNumSegments = 60;
+
+/*
+ Pushes the background to the far plane.
+
+ The modifier body is identical to the shared implementation's, and deliberately so: the
+ generated MSL spells the vertex position `_vertex.position` too, and z/w = 1 is the far plane
+ under both depth conventions — Metal's [0,1] and OpenGL's [-1,1] differ at the *near* plane,
+ which this never touches. This is the rare case where the OpenGL-era code ports over verbatim.
+
+ The 0.9999 nudge exists on iOS so an AR camera background at depth 1.0 cannot overwrite the
+ sphere through a GL_LEQUAL test. visionOS has no camera background, so it buys nothing here, but
+ it is kept: a background sitting at a different depth than on iOS is a divergence waiting to
+ surface in some scene that layers content right against it.
+ */
+static std::shared_ptr<VROShaderModifier> getPortalBackgroundModifier() {
+    static thread_local std::shared_ptr<VROShaderModifier> modifier;
+    if (!modifier) {
+        std::vector<std::string> code = {
+            "_vertex.position = _vertex.position.xyww;",
+            "_vertex.position.z = _vertex.position.w * 0.9999;"
+        };
+        modifier = std::make_shared<VROShaderModifier>(VROShaderEntryPoint::Vertex, code);
+        modifier->setName("portal_background");
+    }
+    return modifier;
+}
+
+/*
+ The plain far-plane variant, used for caller-supplied background geometry. Kept separate from
+ the one above rather than merged, because the shared implementation distinguishes them and a
+ caller passing its own geometry gets the depth it asked for.
+ */
+static std::shared_ptr<VROShaderModifier> getBackgroundModifier() {
+    static thread_local std::shared_ptr<VROShaderModifier> modifier;
+    if (!modifier) {
+        std::vector<std::string> code = { "_vertex.position = _vertex.position.xyww;" };
+        modifier = std::make_shared<VROShaderModifier>(VROShaderEntryPoint::Vertex, code);
+        modifier->setName("background");
+    }
+    return modifier;
+}
+
+void VROPortal::setBackgroundCube(std::shared_ptr<VROTexture> textureCube) {
+    passert_thread(__func__);
+    _background = VROSkybox::createSkybox(textureCube);
+    _background->setName("Background");
+    _background->getMaterials().front()->setWritesToDepthBuffer(true);
+    _background->getMaterials().front()->addShaderModifier(getPortalBackgroundModifier());
+}
+
+void VROPortal::setBackgroundCube(VROVector4f color) {
+    passert_thread(__func__);
+    _background = VROSkybox::createSkybox(color);
+    _background->setName("Background");
+    _background->getMaterials().front()->setWritesToDepthBuffer(true);
+    _background->getMaterials().front()->addShaderModifier(getPortalBackgroundModifier());
+}
+
+void VROPortal::setBackgroundSphere(std::shared_ptr<VROTexture> textureSphere) {
+    passert_thread(__func__);
+    _background = VROSphere::createSphere(kSphereBackgroundRadius,
+                                          kSphereBackgroundNumSegments,
+                                          kSphereBackgroundNumSegments,
+                                          false);
+    _background->setCameraEnclosure(true);
+    _background->setName("Background");
+
+    std::shared_ptr<VROMaterial> material = _background->getMaterials().front();
+    material->setLightingModel(VROLightingModel::Constant);
+    material->getDiffuse().setTexture(textureSphere);
+    material->setWritesToDepthBuffer(true);
+    // HDR is on by default on visionOS, and a 360 photo is already display-referred — running it
+    // through the tone mapper would wash out the very image the user supplied.
+    material->setNeedsToneMapping(false);
+    material->addShaderModifier(getPortalBackgroundModifier());
+}
+
+void VROPortal::setBackground(std::shared_ptr<VROGeometry> background) {
+    passert_thread(__func__);
+    _background = background;
+    if (_background && !_background->getMaterials().empty()) {
+        _background->getMaterials().front()->addShaderModifier(getBackgroundModifier());
+    }
+}
+
+void VROPortal::setBackgroundTransform(VROMatrix4f transform) {
+    _backgroundTransform = transform;
+}
+
+void VROPortal::setBackgroundRotation(VROQuaternion rotation) {
+    passert_thread(__func__);
+    _backgroundTransform = rotation.getMatrix();
+}
+
+void VROPortal::removeBackground() {
+    passert_thread(__func__);
+    // Guarded, unlike the shared implementation: VRTNode calls this whenever a background view is
+    // removed, which includes the case where none was ever set.
+    if (!_background) {
+        return;
+    }
+    if (!_background->getMaterials().empty()) {
+        const std::shared_ptr<VROMaterial> &material = _background->getMaterials().front();
+        material->removeShaderModifier(getBackgroundModifier());
+        material->removeShaderModifier(getPortalBackgroundModifier());
+    }
+    _background.reset();
+}
+
+void VROPortal::renderBackground(const VRORenderContext &context, std::shared_ptr<VRODriver> &driver) {
+    if (!_background || _background->getMaterials().empty()) {
+        return;
+    }
+    const std::shared_ptr<VROMaterial> &material = _background->getMaterials()[0];
+    if (material->bindShader(0, {}, context, driver)) {
+        material->bindProperties(driver);
+
+        VROMatrix4f transform;
+        transform = _backgroundTransform.multiply(transform);
+        _background->render(0, material, transform, {}, 1.0, context, driver);
+    }
+}
+
+/*
+ The sky effect masks a background sphere to the pixels a segmentation pass labelled as sky. That
+ mask comes from ARCore/ARKit semantics, which visionOS does not provide, so there is nothing to
+ mask against. Rather than render nothing — which is what a no-op would do to a <Viro360Image
+ skyEffect> — this degrades to the ordinary background sphere and says so once.
+ */
+void VROPortal::setSkyEffectBackground(std::shared_ptr<VROTexture> texture) {
+    static bool warned = false;
+    if (!warned) {
+        pinfo("VROPortal: skyEffect has no semantic segmentation source on visionOS; "
+              "falling back to a plain background sphere");
+        warned = true;
+    }
+    setBackgroundSphere(texture);
+}
+
+void VROPortal::removeSkyEffectBackground() {
+    if (_skyEffectNode) {
+        _skyEffectNode->removeFromParentNode();
+        _skyEffectNode = nullptr;
     }
 }
 
