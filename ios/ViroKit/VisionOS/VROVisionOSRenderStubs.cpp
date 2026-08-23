@@ -903,6 +903,59 @@ void VROPortal::removeSkyEffectBackground() {
     }
 }
 
+// ── FBX loader ────────────────────────────────────────────────────────────────
+//
+// FBX needs protobuf, which has not been rebuilt for xros. The loader gets a body that
+// reports failure rather than being left undefined, because VRT3DObject calls it on the
+// .vrx branch and Viro3DObject is otherwise a fully working component here — GLB and GLTF
+// load through VROGLTFLoader, which is in this target.
+//
+// Leaving the symbol out would take the whole component down over a format nobody has
+// asked for on visionOS. Failing the callback surfaces it as "this model did not load",
+// which is what actually happened, and only for .vrx sources.
+
+#include "VROFBXLoader.h"
+
+static void VROFBXUnsupported(std::function<void(std::shared_ptr<VRONode>, bool)> onFinish,
+                              std::shared_ptr<VRONode> node) {
+    pinfo("VROFBXLoader: FBX/VRX is not supported on visionOS (protobuf is not built for xros); use GLB or GLTF");
+    if (onFinish) {
+        onFinish(node, false);
+    }
+}
+
+void VROFBXLoader::loadFBXFromResource(std::string resource, VROResourceType type,
+                                       std::shared_ptr<VRONode> node,
+                                       std::shared_ptr<VRODriver> driver,
+                                       std::function<void(std::shared_ptr<VRONode>, bool)> onFinish) {
+    VROFBXUnsupported(onFinish, node);
+}
+
+void VROFBXLoader::loadFBXFromResources(std::string resource, VROResourceType type,
+                                        std::shared_ptr<VRONode> node,
+                                        std::map<std::string, std::string> resourceMap,
+                                        std::shared_ptr<VRODriver> driver,
+                                        std::function<void(std::shared_ptr<VRONode>, bool)> onFinish) {
+    VROFBXUnsupported(onFinish, node);
+}
+
+// ── AR shadow ─────────────────────────────────────────────────────────────────
+//
+// VROARShadow makes a surface receive shadows cast onto the AR camera feed. There is no
+// camera feed here — the AR subsystem is excluded from this target entirely — so this is a
+// no-op rather than an error.
+//
+// It gets an implementation instead of being left undefined because VRTQuad and VRTPolygon
+// call VROARShadow::apply() whenever arShadowReceiver is set, and ViroQuad and ViroPolygon
+// are components that otherwise work perfectly well on visionOS. Leaving the symbol out
+// would take two working components down over a property that cannot apply here. Setting
+// arShadowReceiver on visionOS now does nothing, which is the honest behaviour.
+
+#include "VROARShadow.h"
+
+void VROARShadow::apply(std::shared_ptr<VROMaterial> material) {}
+void VROARShadow::remove(std::shared_ptr<VROMaterial> material) {}
+
 // ── Reticle ───────────────────────────────────────────────────────────────────
 
 #include "VROReticle.h"

@@ -57,6 +57,18 @@ cp "$REPO_ROOT/ViroRenderer"/*.h "$HEADERS_STAGING/"
 [ -d "$REPO_ROOT/ViroRenderer/glm" ]          && cp -r "$REPO_ROOT/ViroRenderer/glm" "$HEADERS_STAGING/"
 
 # iOS/Metal-specific headers required by VRODriverMetal.h
+# VROImageiOS.cpp is one of the three ios/ViroKit sources in this target, so its symbols
+# ship — but its header was never staged, which left the VRT image views unable to compile
+# against an implementation that was right there.
+# VROView is the ObjC protocol the React view layer talks to — renderer, sceneController,
+# setPointOfView. Ten files in ios/ViroReact declare id<VROView> properties, including
+# VRTNode, VRTScene and VRTSceneNavigator, so without it there is no view layer at all.
+# On visionOS VRORendererBridge plays that role; only the protocol is needed here, not any
+# of its UIKit implementations. VROViewRecorder.h comes along because VROView.h imports it
+# for its typedefs (its GLKit dependency is guarded out for xros).
+cp "$SCRIPT_DIR/ViroKit/VROView.h"                    "$HEADERS_STAGING/"
+cp "$SCRIPT_DIR/ViroKit/VROViewRecorder.h"            "$HEADERS_STAGING/"
+cp "$SCRIPT_DIR/ViroKit/VROImageiOS.h"                "$HEADERS_STAGING/"
 cp "$SCRIPT_DIR/ViroKit/VROVideoTextureCache.h"       "$HEADERS_STAGING/"
 cp "$SCRIPT_DIR/ViroKit/VROVideoTextureCacheMetal.h"  "$HEADERS_STAGING/"
 

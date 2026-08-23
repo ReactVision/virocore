@@ -132,6 +132,39 @@
 #import "VRODriverVisionOS.h"
 #import "VRORenderTargetMetal.h"
 
+// ── Text (freetype, built for xros in M5) ────────────────────────────────────
+// 59 symbols in the archive. The enums the VRT layer needs — VROTextHorizontalAlignment,
+// VROTextClipMode, VROLineBreakMode, VROTextOuterStroke — come from these two.
+#import "VROText.h"
+#import "VROTextFormatter.h"
+// VRODriver.h forward-declares VROFontStyle and VROFontWeight; VROTypeface.h defines them.
+// Without this, VRTText fails on "incomplete type named in nested name specifier" — which
+// reads like a broken enum rather than a missing include.
+#import "VROTypeface.h"
+#import "VROTypefaceCollection.h"
+
+// ── Particles ─────────────────────────────────────────────────────────────────
+// VROParticleSpawnVolume is declared in VROParticleEmitter.h, not in the modifier header.
+#import "VROParticleEmitter.h"
+#import "VROParticleModifier.h"
+
+// ── FBX loader (fails cleanly here, but declared) ────────────────────────────
+// Same reasoning as VROARShadow below: VRT3DObject calls VROFBXLoader on its .vrx branch,
+// and Viro3DObject works here for GLB/GLTF. The stub in VROVisionOSRenderStubs.cpp reports
+// failure through the callback, so only .vrx sources fail — not the component.
+#import "VROFBXLoader.h"
+
+// ── AR shadow (no-op here, but declared) ──────────────────────────────────────
+// The only AR header in this umbrella, and it earns its place: VRTQuad and VRTPolygon call
+// VROARShadow::apply() for the arShadowReceiver property, and both ViroQuad and ViroPolygon
+// work fine on visionOS otherwise. VROVisionOSRenderStubs.cpp gives it a no-op body, so the
+// declaration and the symbol agree — the property simply does nothing here.
+#import "VROARShadow.h"
+
+// ── Image and texture utilities ───────────────────────────────────────────────
+#import "VROImageiOS.h"
+#import "VROTextureUtil.h"
+
 // ── Delegate protocols (header-only) ─────────────────────────────────────────
 // ObjC protocol declarations with inline C++ adapters and no implementation in this
 // target. Every VRT view declares conformance to VROEventDelegateProtocol and
@@ -147,6 +180,10 @@
 #import "VROPortalDelegate.h"
 #import "VROPhysicsBodyDelegate.h"
 #import "VROVideoDelegateInternal.h"
+
+// The renderer-host protocol. VRORendererBridge is what implements this role on visionOS;
+// the protocol itself is what the React view layer declares its properties against.
+#import "VROView.h"
 
 #import "VROEventDelegateiOS.h"
 #import "VROTransformDelegateiOS.h"
