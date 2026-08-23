@@ -105,6 +105,13 @@ public:
 
     bool isDisplay() const { return _type == VRORenderTargetType::Display; }
 
+    /*
+     True when the face / slice / mip this target writes to has changed since it was last
+     bound, so the driver knows a rebind is needed even though the target itself is
+     already the bound one. Rendering the six faces of a cubemap is exactly that case.
+     */
+    bool needsRebind() const { return _attachmentSelectionDirty; }
+
     // ── VRORenderTarget ──────────────────────────────────────────────────────
 
     bool setViewport(VROViewport viewport) override;
@@ -193,6 +200,7 @@ private:
     int _imageIndex;
     int _cubeFace;
     int _mipLevel;
+    bool _attachmentSelectionDirty = false;
 
     bool _invalidated;
 

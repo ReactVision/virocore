@@ -1511,6 +1511,19 @@ static float3 vro_fresnel_schlick(float cos_theta, float3 F0) {
     return F0 + (1.0 - F0) * pow(clamp(1.0 - cos_theta, 0.0, 1.0), 5.0);
 }
 
+// Roughness-aware variant, used for the IBL specular term so that rough surfaces do not
+// pick up a hard rim.
+static float3 vro_fresnel_schlick_roughness(float cos_theta, float3 F0, float roughness) {
+    return F0 + (max(float3(1.0 - roughness), F0) - F0) * pow(clamp(1.0 - cos_theta, 0.0, 1.0), 5.0);
+}
+
+// Mip count of the prefiltered environment chain minus one; must match
+// kVROIBLPrefilterMips in the IBL preprocess.
+constant float kVROPrefilterMipCount = 4.0;
+
+constexpr sampler kVROIBLSampler(coord::normalized, filter::linear, mip_filter::linear,
+                                 address::clamp_to_edge);
+
 // Trowbridge-Reitz GGX: how much of the surface's microfacets align with the halfway
 // vector, driven by roughness.
 static float vro_distribution_ggx(float3 N, float3 H, float roughness) {
@@ -1645,7 +1658,10 @@ static float4 vro_pbr_shade(VROPBRLightingVertexOut in,
                             float4 albedo,
                             constant VROMaterialUniforms &material,
                             constant VROSceneLightingUniforms &lighting,
-                            depth2d_array<float> shadow_map) {
+                            depth2d_array<float> shadow_map,
+                            texturecube<float> irradiance_map,
+                            texturecube<float> prefiltered_map,
+                            texture2d<float> brdf_map) {
     VROSurface _surface;
     _surface.diffuse_color = albedo;
     _surface.diffuse_texcoord = in.texcoord;
@@ -1701,10 +1717,28 @@ static float4 vro_pbr_shade(VROPBRLightingVertexOut in,
         radiance_out += (kD * base_color / kVROPi + specular) * radiance * NdotL;
     }
 
-    // Ambient stands in for image-based lighting until VROIBLPreprocess has a Metal
-    // implementation; with an irradiance map this term becomes the diffuse and specular
-    // environment contributions.
-    const float3 ambient = in.ambient_color * base_color * _surface.ao;
+    // Ambient: the environment contribution when IBL is available, a flat term otherwise.
+    float3 ambient;
+    if (lighting.has_ibl != 0) {
+        // Split-sum approximation: a prefiltered environment mip chosen by roughness,
+        // scaled by the precomputed BRDF terms.
+        const float NdotV = max(dot(N, V), 0.0);
+        const float3 F = vro_fresnel_schlick_roughness(NdotV, F0, _surface.roughness);
+        const float3 kD = (float3(1.0) - F) * (1.0 - _surface.metalness);
+
+        const float3 irradiance = irradiance_map.sample(kVROIBLSampler, N).rgb;
+        const float3 diffuse_ibl = irradiance * base_color;
+
+        const float3 R = reflect(-V, N);
+        const float mip = _surface.roughness * kVROPrefilterMipCount;
+        const float3 prefiltered = prefiltered_map.sample(kVROIBLSampler, R, level(mip)).rgb;
+        const float2 brdf = brdf_map.sample(kVROIBLSampler, float2(NdotV, _surface.roughness)).rg;
+        const float3 specular_ibl = prefiltered * (F * brdf.x + brdf.y);
+
+        ambient = (kD * diffuse_ibl + specular_ibl) * _surface.ao;
+    } else {
+        ambient = in.ambient_color * base_color * _surface.ao;
+    }
 
     return float4(ambient + radiance_out, _surface.alpha * _surface.diffuse_color.a);
 }
@@ -1714,8 +1748,12 @@ fragment VROLightingFragmentOut pbr_lighting_fragment_c(VROPBRLightingVertexOut 
                                              constant VROCustomUniforms &_custom [[ buffer(3) ]],
                                              constant VROSceneLightingUniforms &lighting [[ buffer(4) ]],
                                              constant float4 *particle_colors [[ buffer(7) ]],
-                                             depth2d_array<float> shadow_map [[ texture(4) ]]) {
-    const float4 color = vro_pbr_shade(in, material.diffuse_surface_color, material, lighting, shadow_map);
+                                             depth2d_array<float> shadow_map [[ texture(4) ]],
+                                             texturecube<float> irradiance_map [[ texture(5) ]],
+                                             texturecube<float> prefiltered_map [[ texture(6) ]],
+                                             texture2d<float> brdf_map [[ texture(7) ]]) {
+    const float4 color = vro_pbr_shade(in, material.diffuse_surface_color, material, lighting, shadow_map,
+                                      irradiance_map, prefiltered_map, brdf_map);
     return VROMakeLightingOut(color, material);
 }
 
@@ -1725,9 +1763,13 @@ fragment VROLightingFragmentOut pbr_lighting_fragment_t(VROPBRLightingVertexOut 
                                              constant VROCustomUniforms &_custom [[ buffer(3) ]],
                                              constant VROSceneLightingUniforms &lighting [[ buffer(4) ]],
                                              constant float4 *particle_colors [[ buffer(7) ]],
-                                             depth2d_array<float> shadow_map [[ texture(4) ]]) {
+                                             depth2d_array<float> shadow_map [[ texture(4) ]],
+                                             texturecube<float> irradiance_map [[ texture(5) ]],
+                                             texturecube<float> prefiltered_map [[ texture(6) ]],
+                                             texture2d<float> brdf_map [[ texture(7) ]]) {
     const float4 albedo = diffuse_texture.sample(s, in.texcoord) * material.diffuse_surface_color;
-    const float4 color = vro_pbr_shade(in, albedo, material, lighting, shadow_map);
+    const float4 color = vro_pbr_shade(in, albedo, material, lighting, shadow_map,
+                                      irradiance_map, prefiltered_map, brdf_map);
     return VROMakeLightingOut(color, material);
 }
 
@@ -2005,6 +2047,179 @@ fragment float4 post_additive_blend(VROPostProcessVertexOut in [[ stage_in ]],
     const float4 base  = scene.sample(kVROPostSampler, in.texcoord);
     const float4 added = bloom.sample(kVROPostSampler, in.texcoord);
     return float4(base.rgb + added.rgb, base.a);
+}
+
+// ── Image-based lighting ──────────────────────────────────────────────────────
+//
+// The four passes VROIBLPreprocess runs, in order: convert the scene's equirectangular
+// lighting environment into a cubemap, convolve it into a diffuse irradiance cubemap,
+// prefilter it into a roughness mip chain for specular, and integrate the split-sum BRDF
+// into a 2D lookup table.
+//
+// The OpenGL path draws a cube and rasterises each face. Here every pass is a full-screen
+// quad rendered into one face at a time, with the sampling direction reconstructed from
+// the face index and the quad's uv. Same result, no cube geometry and no per-face view
+// matrices.
+
+struct VROIBLUniforms {
+    int   face;        // 0..5, matching MTLTextureType Cube slice order (+X -X +Y -Y +Z -Z)
+    float roughness;   // prefilter pass only
+    float sample_delta;// irradiance pass step; larger is faster and coarser
+    float padding;
+};
+
+// Direction for a texel of one cube face. uv is in [0,1] with v already flipped by the
+// post-process vertex stage, so it matches Metal's top-left texture origin.
+static float3 VROCubeDirection(int face, float2 uv) {
+    const float2 st = uv * 2.0 - 1.0;
+    switch (face) {
+        case 0: return normalize(float3(  1.0, -st.y, -st.x));  // +X
+        case 1: return normalize(float3( -1.0, -st.y,  st.x));  // -X
+        case 2: return normalize(float3( st.x,   1.0,  st.y));  // +Y
+        case 3: return normalize(float3( st.x,  -1.0, -st.y));  // -Y
+        case 4: return normalize(float3( st.x, -st.y,   1.0));  // +Z
+        default:return normalize(float3(-st.x, -st.y,  -1.0));  // -Z
+    }
+}
+
+// Equirectangular lookup for a direction.
+static float2 VROEquirectUV(float3 direction) {
+    const float u = atan2(direction.z, direction.x) / (2.0 * kVROPi) + 0.5;
+    const float v = asin(clamp(direction.y, -1.0, 1.0)) / kVROPi + 0.5;
+    // Metal's texture origin is top-left, so the vertical axis is inverted.
+    return float2(u, 1.0 - v);
+}
+
+fragment float4 post_equirect_to_cube(VROPostProcessVertexOut in [[ stage_in ]],
+                                      constant VROIBLUniforms &uniforms [[ buffer(0) ]],
+                                      texture2d<float> equirect [[ texture(0) ]]) {
+    const float3 direction = VROCubeDirection(uniforms.face, in.texcoord);
+    return float4(equirect.sample(kVROPostSampler, VROEquirectUV(direction)).rgb, 1.0);
+}
+
+// Diffuse irradiance: the cosine-weighted integral of incoming radiance over the
+// hemisphere around the texel's normal.
+fragment float4 post_irradiance_convolution(VROPostProcessVertexOut in [[ stage_in ]],
+                                            constant VROIBLUniforms &uniforms [[ buffer(0) ]],
+                                            texturecube<float> environment [[ texture(0) ]]) {
+    const float3 N = VROCubeDirection(uniforms.face, in.texcoord);
+
+    // Tangent basis around N.
+    float3 up = float3(0.0, 1.0, 0.0);
+    if (abs(N.y) > 0.999) {
+        up = float3(0.0, 0.0, 1.0);
+    }
+    const float3 right = normalize(cross(up, N));
+    up = normalize(cross(N, right));
+
+    const float delta = max(uniforms.sample_delta, 0.005);
+    float3 irradiance = float3(0.0);
+    float samples = 0.0;
+
+    for (float phi = 0.0; phi < 2.0 * kVROPi; phi += delta) {
+        for (float theta = 0.0; theta < 0.5 * kVROPi; theta += delta) {
+            // Spherical to world, in N's tangent frame.
+            const float3 tangent = float3(sin(theta) * cos(phi), sin(theta) * sin(phi), cos(theta));
+            const float3 sample_dir = tangent.x * right + tangent.y * up + tangent.z * N;
+            irradiance += environment.sample(kVROPostSampler, sample_dir).rgb
+                        * cos(theta) * sin(theta);
+            samples += 1.0;
+        }
+    }
+    irradiance = kVROPi * irradiance / max(samples, 1.0);
+    return float4(irradiance, 1.0);
+}
+
+// Van der Corput radical inverse, for the Hammersley sequence.
+static float VRORadicalInverseVdC(uint bits) {
+    bits = (bits << 16u) | (bits >> 16u);
+    bits = ((bits & 0x55555555u) << 1u) | ((bits & 0xAAAAAAAAu) >> 1u);
+    bits = ((bits & 0x33333333u) << 2u) | ((bits & 0xCCCCCCCCu) >> 2u);
+    bits = ((bits & 0x0F0F0F0Fu) << 4u) | ((bits & 0xF0F0F0F0u) >> 4u);
+    bits = ((bits & 0x00FF00FFu) << 8u) | ((bits & 0xFF00FF00u) >> 8u);
+    return float(bits) * 2.3283064365386963e-10;
+}
+
+static float2 VROHammersley(uint i, uint n) {
+    return float2(float(i) / float(n), VRORadicalInverseVdC(i));
+}
+
+// GGX importance sample around N for a given roughness.
+static float3 VROImportanceSampleGGX(float2 Xi, float3 N, float roughness) {
+    const float a = roughness * roughness;
+    const float phi = 2.0 * kVROPi * Xi.x;
+    const float cos_theta = sqrt((1.0 - Xi.y) / (1.0 + (a * a - 1.0) * Xi.y));
+    const float sin_theta = sqrt(1.0 - cos_theta * cos_theta);
+
+    const float3 H = float3(cos(phi) * sin_theta, sin(phi) * sin_theta, cos_theta);
+
+    float3 up = float3(0.0, 1.0, 0.0);
+    if (abs(N.z) > 0.999) {
+        up = float3(1.0, 0.0, 0.0);
+    }
+    const float3 tangent_x = normalize(cross(up, N));
+    const float3 tangent_y = cross(N, tangent_x);
+    return normalize(tangent_x * H.x + tangent_y * H.y + N * H.z);
+}
+
+// Specular prefilter: one mip per roughness level of the split-sum approximation.
+fragment float4 post_prefilter_convolution(VROPostProcessVertexOut in [[ stage_in ]],
+                                           constant VROIBLUniforms &uniforms [[ buffer(0) ]],
+                                           texturecube<float> environment [[ texture(0) ]]) {
+    const float3 N = VROCubeDirection(uniforms.face, in.texcoord);
+    const float3 V = N;
+    const uint kSamples = 64u;
+
+    float3 prefiltered = float3(0.0);
+    float total_weight = 0.0;
+
+    for (uint i = 0u; i < kSamples; i++) {
+        const float2 Xi = VROHammersley(i, kSamples);
+        const float3 H = VROImportanceSampleGGX(Xi, N, uniforms.roughness);
+        const float3 L = normalize(2.0 * dot(V, H) * H - V);
+        const float NdotL = dot(N, L);
+        if (NdotL > 0.0) {
+            prefiltered += environment.sample(kVROPostSampler, L).rgb * NdotL;
+            total_weight += NdotL;
+        }
+    }
+    return float4(prefiltered / max(total_weight, 1e-4), 1.0);
+}
+
+// Split-sum BRDF integration into a 2D LUT indexed by (NdotV, roughness).
+fragment float4 post_brdf_integration(VROPostProcessVertexOut in [[ stage_in ]]) {
+    const float NdotV = max(in.texcoord.x, 1e-3);
+    const float roughness = in.texcoord.y;
+
+    const float3 V = float3(sqrt(1.0 - NdotV * NdotV), 0.0, NdotV);
+    const float3 N = float3(0.0, 0.0, 1.0);
+    const uint kSamples = 256u;
+
+    float A = 0.0;
+    float B = 0.0;
+    for (uint i = 0u; i < kSamples; i++) {
+        const float2 Xi = VROHammersley(i, kSamples);
+        const float3 H = VROImportanceSampleGGX(Xi, N, roughness);
+        const float3 L = normalize(2.0 * dot(V, H) * H - V);
+
+        const float NdotL = max(L.z, 0.0);
+        const float NdotH = max(H.z, 0.0);
+        const float VdotH = max(dot(V, H), 0.0);
+        if (NdotL > 0.0) {
+            // Geometry term for IBL uses k = a^2 / 2 rather than the direct-lighting form.
+            const float a = roughness * roughness;
+            const float k = a / 2.0;
+            const float ggx_v = NdotV / (NdotV * (1.0 - k) + k);
+            const float ggx_l = NdotL / (NdotL * (1.0 - k) + k);
+            const float G = ggx_v * ggx_l;
+
+            const float G_Vis = (G * VdotH) / max(NdotH * NdotV, 1e-4);
+            const float Fc = pow(1.0 - VdotH, 5.0);
+            A += (1.0 - Fc) * G_Vis;
+            B += Fc * G_Vis;
+        }
+    }
+    return float4(A / float(kSamples), B / float(kSamples), 0.0, 1.0);
 }
 
 // ── Diagnostic test shaders ───────────────────────────────────────────────────

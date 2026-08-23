@@ -231,9 +231,12 @@ bool VRORenderTargetMetal::hydrate() {
     // Depth-only targets expose the depth texture as attachment 0, matching how
     // VRORenderTargetOpenGL presents a DepthTexture target.
     if (typeHasColor()) {
+        const VROTextureType wrapperType = (metalTextureType() == MTLTextureTypeCube)
+                                               ? VROTextureType::TextureCube
+                                               : VROTextureType::Texture2D;
         for (id <MTLTexture> texture : _colorTextures) {
             std::unique_ptr<VROTextureSubstrate> substrate(new VROTextureSubstrateMetal(texture));
-            _textureWrappers.push_back(std::make_shared<VROTexture>(VROTextureType::Texture2D,
+            _textureWrappers.push_back(std::make_shared<VROTexture>(wrapperType,
                                                                     VROTextureInternalFormat::RGBA8,
                                                                     std::move(substrate)));
         }
@@ -394,6 +397,7 @@ void VRORenderTargetMetal::bind() {
         _clearDepthPending   = false;
         _clearStencilPending = false;
         _invalidated         = false;
+        _attachmentSelectionDirty = false;
     }
 
     _encoder = encoder;
@@ -545,16 +549,25 @@ bool VRORenderTargetMetal::attachNewTextures() {
 }
 
 void VRORenderTargetMetal::setTextureImageIndex(int index, int attachment) {
-    _imageIndex = index;
+    if (_imageIndex != index) {
+        _imageIndex = index;
+        _attachmentSelectionDirty = true;
+    }
 }
 
 void VRORenderTargetMetal::setTextureCubeFace(int face, int mipLevel, int attachmentIndex) {
-    _cubeFace = face;
-    _mipLevel = mipLevel;
+    if (_cubeFace != face || _mipLevel != mipLevel) {
+        _cubeFace = face;
+        _mipLevel = mipLevel;
+        _attachmentSelectionDirty = true;
+    }
 }
 
 void VRORenderTargetMetal::setMipLevel(int mipLevel, int attachmentIndex) {
-    _mipLevel = mipLevel;
+    if (_mipLevel != mipLevel) {
+        _mipLevel = mipLevel;
+        _attachmentSelectionDirty = true;
+    }
 }
 
 void VRORenderTargetMetal::attachTexture(std::shared_ptr<VROTexture> texture, int attachment) {

@@ -37,12 +37,176 @@ void VROPhysicsWorld::computePhysics(const VRORenderContext &context) {}
 // ── IBL / Shadow preprocesses ─────────────────────────────────────────────────
 
 #include "VROIBLPreprocess.h"
+#include "VRODriverVisionOS.h"
+#include "VROMetalPostProcess.h"
+#include "VRORenderTarget.h"
+#include "VRORenderTargetMetal.h"
+#include "VROTexture.h"
+#include "VROPortal.h"
+#include "VROScene.h"
+#include "VRORenderContext.h"
 
-VROIBLPreprocess::VROIBLPreprocess() {}
+// Must match VROIBLUniforms in Shaders.metal.
+struct VROMetalIBLUniforms {
+    int   face;
+    float roughness;
+    float sample_delta;
+    float padding;
+};
+
+static const int kVROIBLCubeSize        = 256;   // environment cubemap edge
+static const int kVROIBLIrradianceSize  = 32;    // diffuse irradiance is very low frequency
+static const int kVROIBLPrefilterSize   = 128;   // base mip of the specular chain
+static const int kVROIBLPrefilterMips   = 5;
+static const int kVROIBLBRDFSize        = 256;
+
+// One full-screen blit into each face of a cube target.
+static std::shared_ptr<VROTexture> VRORenderIBLCubeFaces(std::shared_ptr<VRODriver> &driver,
+                                                        const std::string &function,
+                                                        std::shared_ptr<VROTexture> source,
+                                                        int size, int mipCount,
+                                                        float sampleDelta) {
+    std::shared_ptr<VRODriverVisionOS> metal = std::dynamic_pointer_cast<VRODriverVisionOS>(driver);
+    if (!metal || !source) {
+        return nullptr;
+    }
+    std::shared_ptr<VROImagePostProcess> post = metal->newMetalPostProcess(function);
+    if (!post) {
+        pinfo("VROIBLPreprocess: no post-process for '%s'", function.c_str());
+        return nullptr;
+    }
+
+    std::shared_ptr<VRORenderTarget> target =
+        driver->newRenderTarget(VRORenderTargetType::CubeTextureHDR16, 1, 1, mipCount > 1, false);
+    std::shared_ptr<VRORenderTargetMetal> metalTarget =
+        std::dynamic_pointer_cast<VRORenderTargetMetal>(target);
+    if (!metalTarget) {
+        return nullptr;
+    }
+
+    for (int mip = 0; mip < mipCount; mip++) {
+        // Each mip is half the previous one, and the viewport has to follow or the blit
+        // covers only a corner of the smaller level.
+        const int mipSize = std::max(1, size >> mip);
+        target->setViewport({ 0, 0, mipSize, mipSize });
+        if (!target->hydrate()) {
+            pinfo("VROIBLPreprocess: could not hydrate a %dx%d cube target", mipSize, mipSize);
+            return nullptr;
+        }
+        // Roughness walks 0..1 across the chain; with a single mip it stays at 0.
+        const float roughness = (mipCount > 1) ? (float)mip / (float)(mipCount - 1) : 0.0f;
+
+        for (int face = 0; face < 6; face++) {
+            VROMetalIBLUniforms uniforms = {};
+            uniforms.face = face;
+            uniforms.roughness = roughness;
+            uniforms.sample_delta = sampleDelta;
+            std::static_pointer_cast<VROMetalPostProcess>(post)->setUniforms(&uniforms, sizeof(uniforms));
+
+            target->setTextureCubeFace(face, mip, 0);
+            driver->bindRenderTarget(target, VRORenderTargetUnbindOp::None);
+            post->blit({ source }, driver);
+        }
+    }
+    return target->getTexture(0);
+}
+
+VROIBLPreprocess::VROIBLPreprocess() : _phase(VROIBLPhase::Idle) {}
 VROIBLPreprocess::~VROIBLPreprocess() {}
+
+void VROIBLPreprocess::doCubeConversionPhase(std::shared_ptr<VROScene> scene,
+                                            VRORenderContext *context,
+                                            std::shared_ptr<VRODriver> driver) {
+    _cubeLightingEnvironment = VRORenderIBLCubeFaces(driver, "post_equirect_to_cube",
+                                                     _currentLightingEnvironment,
+                                                     kVROIBLCubeSize, 1, 0.0f);
+}
+
+void VROIBLPreprocess::doIrradianceConvolutionPhase(std::shared_ptr<VROScene> scene,
+                                                   VRORenderContext *context,
+                                                   std::shared_ptr<VRODriver> driver) {
+    // 0.025 rad keeps the hemisphere integral under ~8k samples per texel, which is
+    // affordable because the target is only 32x32.
+    _irradianceMap = VRORenderIBLCubeFaces(driver, "post_irradiance_convolution",
+                                           _cubeLightingEnvironment,
+                                           kVROIBLIrradianceSize, 1, 0.025f);
+}
+
+void VROIBLPreprocess::doPrefilterConvolutionPhase(std::shared_ptr<VROScene> scene,
+                                                   VRORenderContext *context,
+                                                   std::shared_ptr<VRODriver> driver) {
+    _prefilterMap = VRORenderIBLCubeFaces(driver, "post_prefilter_convolution",
+                                          _cubeLightingEnvironment,
+                                          kVROIBLPrefilterSize, kVROIBLPrefilterMips, 0.0f);
+}
+
+void VROIBLPreprocess::doBRDFComputationPhase(std::shared_ptr<VROScene> scene,
+                                              VRORenderContext *context,
+                                              std::shared_ptr<VRODriver> driver) {
+    std::shared_ptr<VRODriverVisionOS> metal = std::dynamic_pointer_cast<VRODriverVisionOS>(driver);
+    if (!metal) {
+        return;
+    }
+    std::shared_ptr<VROImagePostProcess> post = metal->newMetalPostProcess("post_brdf_integration");
+    if (!post) {
+        return;
+    }
+    // A plain 2D LUT indexed by (NdotV, roughness); it depends on nothing in the scene, so
+    // it is computed once and reused.
+    std::shared_ptr<VRORenderTarget> target =
+        driver->newRenderTarget(VRORenderTargetType::ColorTextureHDR16, 1, 1, false, false);
+    target->setViewport({ 0, 0, kVROIBLBRDFSize, kVROIBLBRDFSize });
+    if (!target->hydrate()) {
+        return;
+    }
+    driver->bindRenderTarget(target, VRORenderTargetUnbindOp::None);
+    post->blit({}, driver);
+    _brdfMap = target->getTexture(0);
+}
+
 void VROIBLPreprocess::execute(std::shared_ptr<VROScene> scene,
                                VRORenderContext *context,
-                               std::shared_ptr<VRODriver> driver) {}
+                               std::shared_ptr<VRODriver> driver) {
+    // One phase per frame, matching the shared implementation: each is expensive and
+    // spreading them keeps the first frames after a lighting-environment change smooth.
+    if (_phase == VROIBLPhase::Idle) {
+        std::shared_ptr<VROPortal> portal = scene->getActivePortal();
+        if (!portal) {
+            return;
+        }
+        std::shared_ptr<VROTexture> environment = portal->getLightingEnvironment();
+
+        if (environment != nullptr && environment != _currentLightingEnvironment) {
+            _currentLightingEnvironment = environment;
+            _phase = VROIBLPhase::CubeConvert;
+        }
+        else if (environment == nullptr && _currentLightingEnvironment != nullptr) {
+            context->setIrradianceMap(nullptr);
+            context->setBRDFMap(nullptr);
+            context->setPrefilteredMap(nullptr);
+            _currentLightingEnvironment = nullptr;
+        }
+    }
+    else if (_phase == VROIBLPhase::CubeConvert) {
+        doCubeConversionPhase(scene, context, driver);
+        _phase = _cubeLightingEnvironment ? VROIBLPhase::IrradianceConvolution : VROIBLPhase::Idle;
+    }
+    else if (_phase == VROIBLPhase::IrradianceConvolution) {
+        doIrradianceConvolutionPhase(scene, context, driver);
+        context->setIrradianceMap(_irradianceMap);
+        _phase = VROIBLPhase::PrefilterConvolution;
+    }
+    else if (_phase == VROIBLPhase::PrefilterConvolution) {
+        doPrefilterConvolutionPhase(scene, context, driver);
+        context->setPrefilteredMap(_prefilterMap);
+        _phase = VROIBLPhase::BRDFConvolution;
+    }
+    else if (_phase == VROIBLPhase::BRDFConvolution) {
+        doBRDFComputationPhase(scene, context, driver);
+        context->setBRDFMap(_brdfMap);
+        _phase = VROIBLPhase::Idle;
+    }
+}
 
 // ── Shader program base + image shader ───────────────────────────────────────
 // VROShaderProgram.cpp is excluded from the visionOS target (GL-only impl).
@@ -541,6 +705,16 @@ void VROIKRig::processRig() {}
 VROPortal::VROPortal() {}
 VROPortal::~VROPortal() {}
 void VROPortal::deleteGL() {}
+
+// VROPortal.cpp is excluded from this target, so the lighting-environment accessors are
+// implemented here. They are what feeds VROIBLPreprocess.
+void VROPortal::setLightingEnvironment(std::shared_ptr<VROTexture> texture) {
+    _lightingEnvironment = texture;
+}
+
+std::shared_ptr<VROTexture> VROPortal::getLightingEnvironment() const {
+    return _lightingEnvironment;
+}
 
 void VROPortal::traversePortals(int frame, int recursionLevel,
                                 std::shared_ptr<VROPortalFrame> activeFrame,

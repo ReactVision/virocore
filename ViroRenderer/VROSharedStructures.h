@@ -128,6 +128,11 @@ typedef struct {
     // uses them to project each vertex into every shadow-casting light's clip space.
     matrix_float4x4  shadow_view_matrices[8];
     matrix_float4x4  shadow_projection_matrices[8];
+
+    // Non-zero once VROIBLPreprocess has produced the irradiance, prefiltered and BRDF
+    // maps. Until then the physically based model falls back to a flat ambient term,
+    // because the bound IBL textures are 1x1 placeholders.
+    int              has_ibl;
 } VROSceneLightingUniforms;
 
 typedef struct {

@@ -115,7 +115,11 @@ bool VRODriverVisionOS::bindRenderTarget(std::shared_ptr<VRORenderTarget> target
     if (unbindOp == VRORenderTargetUnbindOp::Invalidate && _boundTarget) {
         _boundTarget->invalidate();
     }
-    if (_boundTarget == target) {
+    // Already bound and writing to the same face / slice / mip: nothing to do. A changed
+    // selection still needs a fresh encoder, which is how the six faces of a cubemap get
+    // rendered one after another into the same target.
+    VRORenderTargetMetal *metalTarget = dynamic_cast<VRORenderTargetMetal *>(target.get());
+    if (_boundTarget == target && !(metalTarget && metalTarget->needsRebind())) {
         return false;
     }
     target->bind();

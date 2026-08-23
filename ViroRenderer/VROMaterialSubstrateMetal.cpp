@@ -578,6 +578,45 @@ void VROMaterialSubstrateMetal::bindShader() {
     // The virtual bindShader(int lightsHash, ...) should be used instead
 }
 
+// 1x1 placeholders for the IBL slots, bound whenever the scene has no lighting
+// environment. Metal requires every declared fragment texture argument to be bound; the
+// shader gates on VROSceneLightingUniforms::has_ibl rather than sampling these.
+static id <MTLTexture> getBlankCubeTexture(id <MTLDevice> device) {
+    static id <MTLTexture> sBlankCube = nil;
+    if (sBlankCube) {
+        return sBlankCube;
+    }
+    MTLTextureDescriptor *descriptor = [MTLTextureDescriptor new];
+    descriptor.textureType = MTLTextureTypeCube;
+    descriptor.pixelFormat = MTLPixelFormatRGBA16Float;
+    descriptor.width  = 1;
+    descriptor.height = 1;
+    descriptor.mipmapLevelCount = 1;
+    descriptor.usage = MTLTextureUsageShaderRead;
+    descriptor.storageMode = MTLStorageModePrivate;
+    sBlankCube = [device newTextureWithDescriptor:descriptor];
+    [descriptor release];
+    return sBlankCube;
+}
+
+static id <MTLTexture> getBlankLUTTexture(id <MTLDevice> device) {
+    static id <MTLTexture> sBlankLUT = nil;
+    if (sBlankLUT) {
+        return sBlankLUT;
+    }
+    MTLTextureDescriptor *descriptor = [MTLTextureDescriptor new];
+    descriptor.textureType = MTLTextureType2D;
+    descriptor.pixelFormat = MTLPixelFormatRGBA16Float;
+    descriptor.width  = 1;
+    descriptor.height = 1;
+    descriptor.mipmapLevelCount = 1;
+    descriptor.usage = MTLTextureUsageShaderRead;
+    descriptor.storageMode = MTLStorageModePrivate;
+    sBlankLUT = [device newTextureWithDescriptor:descriptor];
+    [descriptor release];
+    return sBlankLUT;
+}
+
 // A 1x1 depth texture array, bound when the scene has no shadow map. Metal requires
 // every declared fragment texture argument to be bound, even when the shader never
 // samples it.
@@ -668,6 +707,38 @@ void VROMaterialSubstrateMetal::bindLights(int lightsHash,
             shadowTexture = getBlankShadowMap(metal.getDevice());
         }
         [renderEncoder setFragmentTexture:shadowTexture atIndex:4];
+    }
+
+    // IBL maps at the reserved slots 5..7. All three are produced together by
+    // VROIBLPreprocess, so one flag covers them.
+    {
+        std::shared_ptr<VROTexture> irradiance = context.getIrradianceMap();
+        std::shared_ptr<VROTexture> prefiltered = context.getPrefilteredMap();
+        std::shared_ptr<VROTexture> brdf = context.getBRDFMap();
+        const bool hasIBL = irradiance && prefiltered && brdf;
+        uniforms->has_ibl = hasIBL ? 1 : 0;
+
+        id <MTLTexture> irradianceTexture = nil;
+        id <MTLTexture> prefilteredTexture = nil;
+        id <MTLTexture> brdfTexture = nil;
+        if (hasIBL) {
+            VROTextureSubstrateMetal *a = (VROTextureSubstrateMetal *) irradiance->getSubstrate(0, driver, true);
+            VROTextureSubstrateMetal *b = (VROTextureSubstrateMetal *) prefiltered->getSubstrate(0, driver, true);
+            VROTextureSubstrateMetal *c = (VROTextureSubstrateMetal *) brdf->getSubstrate(0, driver, true);
+            if (a) { irradianceTexture = a->getTexture(); }
+            if (b) { prefilteredTexture = b->getTexture(); }
+            if (c) { brdfTexture = c->getTexture(); }
+            if (!irradianceTexture || !prefilteredTexture || !brdfTexture) {
+                uniforms->has_ibl = 0;
+            }
+        }
+        if (!irradianceTexture)  { irradianceTexture  = getBlankCubeTexture(metal.getDevice()); }
+        if (!prefilteredTexture) { prefilteredTexture = getBlankCubeTexture(metal.getDevice()); }
+        if (!brdfTexture)        { brdfTexture        = getBlankLUTTexture(metal.getDevice()); }
+
+        [renderEncoder setFragmentTexture:irradianceTexture  atIndex:5];
+        [renderEncoder setFragmentTexture:prefilteredTexture atIndex:6];
+        [renderEncoder setFragmentTexture:brdfTexture        atIndex:7];
     }
 
     [renderEncoder setVertexBuffer:_lightingUniformsBuffer->getMTLBuffer(eyeType)
