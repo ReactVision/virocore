@@ -96,6 +96,8 @@ void VROImageShaderProgram::addStandardUniforms() {}
 #include "VRORenderContext.h"
 #include "VROScene.h"
 #include "VROPortalTreeRenderPass.h"
+#include "VRORenderTarget.h"
+#include "VRODriver.h"
 
 VROPortalTreeRenderPass::VROPortalTreeRenderPass() {}
 VROPortalTreeRenderPass::~VROPortalTreeRenderPass() {}
@@ -105,6 +107,17 @@ void VROPortalTreeRenderPass::render(std::shared_ptr<VROScene> scene,
                                      VRORenderContext *context,
                                      std::shared_ptr<VRODriver> &driver) {
     if (!scene) return;
+
+    // Bind the pass's output target before drawing. On Metal this is what opens the
+    // render command encoder, so it is not optional the way glBindFramebuffer would
+    // be — without it there is nothing to encode into. It is also what makes
+    // render-to-texture work: the choreographer hands us an offscreen target for the
+    // HDR / bloom / RTT paths and the display target otherwise.
+    std::shared_ptr<VRORenderTarget> target = inputs.outputTarget;
+    if (target) {
+        driver->bindRenderTarget(target, VRORenderTargetUnbindOp::Invalidate);
+    }
+
     const auto &treeNode = scene->getPortalTree();
     const std::shared_ptr<VROPortal> &rootPortal = treeNode.value;
     if (rootPortal) {

@@ -61,8 +61,9 @@ cp "$SCRIPT_DIR/ViroKit/VROVideoTextureCache.h"       "$HEADERS_STAGING/"
 cp "$SCRIPT_DIR/ViroKit/VROVideoTextureCacheMetal.h"  "$HEADERS_STAGING/"
 
 # visionOS-specific driver headers
-cp "$SCRIPT_DIR/ViroKit/VisionOS/VRODriverVisionOS.h"    "$HEADERS_STAGING/"
-cp "$SCRIPT_DIR/ViroKit/VisionOS/VRORenderTargetMetal.h" "$HEADERS_STAGING/"
+cp "$SCRIPT_DIR/ViroKit/VisionOS/VRODriverVisionOS.h"      "$HEADERS_STAGING/"
+cp "$SCRIPT_DIR/ViroKit/VisionOS/VRORenderTargetMetal.h"   "$HEADERS_STAGING/"
+cp "$SCRIPT_DIR/ViroKit/VisionOS/VROMetalRenderPassHost.h" "$HEADERS_STAGING/"
 
 # Umbrella header (must match target name: ViroKitVisionOS.h)
 cp "$SCRIPT_DIR/ViroKit/ViroKitVisionOS.h" "$HEADERS_STAGING/"

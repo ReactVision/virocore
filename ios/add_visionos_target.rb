@@ -183,6 +183,7 @@ metal_files = Dir.glob("#{RENDERER_DIR}/*.metal")
 # VisionOS-specific sources (driver + linker stubs)
 visionos_mm = [
   "#{IOS_DIR}/VisionOS/VRODriverVisionOS.mm",
+  "#{IOS_DIR}/VisionOS/VRORenderTargetMetal.mm",
   "#{IOS_DIR}/VisionOS/VROVisionOSRenderStubs.cpp",
 ]
 

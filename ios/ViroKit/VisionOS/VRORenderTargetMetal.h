@@ -1,17 +1,31 @@
-// VRORenderTargetMetal.h
-// ViroKit — visionOS
 //
-// Minimal VRORenderTarget implementation for Metal / CompositorServices.
+//  VRORenderTargetMetal.h
+//  ViroKit — visionOS
 //
-// In the visionOS rendering path the platform (ViroImmersiveRenderer.swift) is
-// responsible for creating MTLRenderCommandEncoder objects — one per eye — and
-// handing them to VRODriverVisionOS via setActiveEncoder().  This class just
-// satisfies the VRORenderTarget interface so VROChoreographer (which creates and
-// tracks a few render targets even when HDR is off) does not crash.
+//  Copyright © 2026 ReactVision. All rights reserved.
 //
-// The "display" target (returned by VRODriverVisionOS::getDisplay()) also tracks
-// the current encoder and forwards setViewport() to it so that the choreographer
-// can set the Metal viewport in the normal way.
+//  VRORenderTarget for Metal / CompositorServices.
+//
+//  Two shapes share this class:
+//
+//  • The *display* target, returned by VRODriverVisionOS::getDisplay(). Its encoder
+//    is created by the Swift render loop (ViroImmersiveRenderer) from the
+//    CompositorServices drawable and pushed in via setEncoder(). This target owns
+//    no textures.
+//
+//  • *Offscreen* targets, returned by VRODriverVisionOS::newRenderTarget(). These
+//    own their colour / depth MTLTextures and build their own
+//    MTLRenderPassDescriptor. bind() ends whatever encoder is in flight and begins
+//    a new one against those textures, so the choreographer's render-to-texture
+//    passes (bloom, shadows, tone mapping, IBL) work the way they do on OpenGL.
+//
+//  Clearing works differently than in OpenGL and the difference leaks into the API.
+//  Metal clears as part of beginning a pass (loadAction = Clear), not as a command
+//  inside one, so clearColor() / clearDepth() / clearStencil() record intent and the
+//  next bind() consumes it. A clear requested *after* bind() cannot be honoured
+//  without ending and restarting the pass, which would discard what was drawn — so
+//  those calls are recorded for the following bind, matching how the choreographer
+//  actually sequences them (clear, then bind, then draw).
 
 #ifndef VRORenderTargetMetal_h
 #define VRORenderTargetMetal_h
@@ -21,79 +35,169 @@
 
 #include "VRORenderTarget.h"
 #include "VROViewport.h"
+#include "VROMetalRenderPassHost.h"
 #include <Metal/Metal.h>
+#include <vector>
+#include <memory>
+
+class VROTexture;
 
 class VRORenderTargetMetal : public VRORenderTarget {
 public:
 
-    VRORenderTargetMetal()
-        : VRORenderTarget(VRORenderTargetType::Display, 1)
-        , _encoder(nil)
-        , _width(1), _height(1) {}
+    /*
+     Display target. Owns no textures; its encoder arrives from the Swift render
+     loop via setEncoder().
+     */
+    VRORenderTargetMetal();
 
-    virtual ~VRORenderTargetMetal() {}
+    /*
+     Offscreen target. Allocates its own textures on hydrate().
+     */
+    VRORenderTargetMetal(VRORenderTargetType type,
+                         int numAttachments,
+                         int numImages,
+                         bool enableMipmaps,
+                         bool needsDepthStencil,
+                         id <MTLDevice> device,
+                         VROMetalRenderPassHost *host);
 
-    // ── Encoder plumbing ──────────────────────────────────────────────────────
-    void setEncoder(id <MTLRenderCommandEncoder> encoder) {
-        _encoder = encoder;
-        // Re-apply stored viewport to the new encoder if we have one.
-        if (_encoder && _viewportSet) {
-            [_encoder setViewport:_metalViewport];
-        }
-    }
+    virtual ~VRORenderTargetMetal();
+
+    // ── Display-target encoder plumbing ──────────────────────────────────────
+
+    /*
+     Hand the display target the render pass describing this eye's drawable
+     textures. The target opens its own encoder from the frame's command buffer
+     when bind() is called, which is what lets an offscreen pass interleave: Metal
+     allows one encoder per command buffer, so a detour has to end the display
+     encoder and reopen it afterwards with a Load action.
+     */
+    void setDisplayPass(MTLRenderPassDescriptor *descriptor);
+
+    /*
+     Finish this eye. Ends the display encoder if one is open and forgets the
+     descriptor, so the next eye starts with a Clear.
+     */
+    void endDisplayPass();
+
     id <MTLRenderCommandEncoder> getEncoder() const { return _encoder; }
 
-    // ── VRORenderTarget interface ─────────────────────────────────────────────
+    /*
+     The display target is constructed before the driver finishes building, so its
+     host is attached afterwards rather than passed to the constructor.
+     */
+    void setRenderPassHost(VROMetalRenderPassHost *host) { _host = host; }
 
-    bool setViewport(VROViewport viewport) override {
-        _width  = viewport.getWidth();
-        _height = viewport.getHeight();
-        _metalViewport = { (double)viewport.getX(), (double)viewport.getY(),
-                           (double)_width, (double)_height, 0.0, 1.0 };
-        _viewportSet = true;
-        if (_encoder) {
-            [_encoder setViewport:_metalViewport];
-        }
-        return true;
-    }
+    /*
+     The colour texture backing attachment 0, or nil for the display target.
+     Used by the Metal post-process to sample a target it did not create.
+     */
+    id <MTLTexture> getMetalTexture(int attachment) const;
+    id <MTLTexture> getMetalDepthTexture() const { return _depthTexture; }
 
-    bool   hydrate()    override { return true; }
-    int    getWidth()   const override { return _width; }
-    int    getHeight()  const override { return _height; }
-    void   bind()       override {}
-    void   bindRead()   override {}
-    void   invalidate() override {}
+    bool isDisplay() const { return _type == VRORenderTargetType::Display; }
 
-    void blitColor(std::shared_ptr<VRORenderTarget>, bool, std::shared_ptr<VRODriver>) override {}
-    void blitStencil(std::shared_ptr<VRORenderTarget>, bool, std::shared_ptr<VRODriver>) override {}
-    void blitDepth(std::shared_ptr<VRORenderTarget>) override {}
-    void deleteFramebuffers()  override {}
-    bool restoreFramebuffers() override { return true; }
+    // ── VRORenderTarget ──────────────────────────────────────────────────────
 
-    bool hasTextureAttached(int)  override { return false; }
-    void clearTextures()          override {}
-    bool attachNewTextures()      override { return true; }
-    void setTextureImageIndex(int, int) override {}
-    void setTextureCubeFace(int, int, int) override {}
-    void setMipLevel(int, int) override {}
-    void attachTexture(std::shared_ptr<VROTexture>, int) override {}
-    const std::shared_ptr<VROTexture> getTexture(int) const override { return nullptr; }
+    bool setViewport(VROViewport viewport) override;
+    bool hydrate() override;
+    int  getWidth()  const override { return _width;  }
+    int  getHeight() const override { return _height; }
 
-    void clearStencil()       override {}
-    void clearDepth()         override {}
-    void clearColor()         override {}
-    void clearDepthAndColor() override {}
+    void bind()     override;
+    void bindRead() override;
+    void invalidate() override;
 
-    void enablePortalStencilWriting(VROFace) override {}
-    void enablePortalStencilRemoval(VROFace) override {}
-    void disablePortalStencilWriting(VROFace) override {}
-    void setPortalStencilPassFunction(VROFace, VROStencilFunc, int) override {}
+    void blitColor(std::shared_ptr<VRORenderTarget> destination, bool flipY,
+                   std::shared_ptr<VRODriver> driver) override;
+    void blitStencil(std::shared_ptr<VRORenderTarget> destination, bool flipY,
+                     std::shared_ptr<VRODriver> driver) override;
+    void blitDepth(std::shared_ptr<VRORenderTarget> destination) override;
+
+    void deleteFramebuffers()  override;
+    bool restoreFramebuffers() override;
+
+    bool hasTextureAttached(int attachment) override;
+    void clearTextures() override;
+    bool attachNewTextures() override;
+    void setTextureImageIndex(int index, int attachment) override;
+    void setTextureCubeFace(int face, int mipLevel, int attachmentIndex) override;
+    void setMipLevel(int mipLevel, int attachmentIndex) override;
+    void attachTexture(std::shared_ptr<VROTexture> texture, int attachment) override;
+    const std::shared_ptr<VROTexture> getTexture(int attachment) const override;
+
+    void clearStencil() override;
+    void clearDepth()   override;
+    void clearColor()   override;
+    void clearDepthAndColor() override;
+
+    void enablePortalStencilWriting(VROFace face) override;
+    void enablePortalStencilRemoval(VROFace face) override;
+    void disablePortalStencilWriting(VROFace face) override;
+    void setPortalStencilPassFunction(VROFace face, VROStencilFunc func, int ref) override;
+
+    /*
+     Stencil state the portal passes asked for, read by VROGeometrySubstrateMetal
+     when it builds a depth-stencil state. Metal bakes stencil operations into
+     MTLDepthStencilState rather than setting them as encoder state, so the target
+     records what was requested and the substrate applies it at pipeline time.
+     */
+    struct StencilState {
+        bool writing        = false;   // write _stencilRef into the buffer
+        bool removal        = false;   // write 0 (portal removal pass)
+        MTLCompareFunction compareFunc = MTLCompareFunctionAlways;
+        int  reference      = 0;
+    };
+    const StencilState &getStencilState() const { return _stencil; }
 
 private:
+
+    MTLPixelFormat colorPixelFormatForType() const;
+    bool           typeHasColor() const;
+    bool           typeHasDepth() const;
+    MTLTextureType metalTextureType() const;
+    void           rebuildPassDescriptor();
+    void           releaseTextures();
+
+    VROMetalRenderPassHost *_host;
+    id <MTLDevice> _device;
+
+    // Display target only: encoder supplied from outside.
     id <MTLRenderCommandEncoder> _encoder;
-    MTLViewport _metalViewport = {};
-    bool _viewportSet = false;
-    int _width, _height;
+
+    // Offscreen targets.
+    std::vector<id <MTLTexture>> _colorTextures;
+    id <MTLTexture> _depthTexture;
+    std::vector<std::shared_ptr<VROTexture>> _textureWrappers;
+    MTLRenderPassDescriptor *_passDescriptor;
+
+    int  _numImages;
+    bool _enableMipmaps;
+    bool _needsDepthStencil;
+    bool _hydrated;
+
+    // Pending clears, consumed by the next bind().
+    bool _clearColorPending;
+    bool _clearDepthPending;
+    bool _clearStencilPending;
+
+    // Which slice / face / mip the next pass writes to.
+    int _imageIndex;
+    int _cubeFace;
+    int _mipLevel;
+
+    bool _invalidated;
+
+    // Display target: has this eye's pass been opened once already? A reopen after
+    // an offscreen detour must Load rather than Clear.
+    bool _displayPassStarted;
+
+    MTLViewport _metalViewport;
+    bool _viewportSet;
+    int  _width, _height;
+
+    StencilState _stencil;
 };
 
 #endif  // VRO_METAL

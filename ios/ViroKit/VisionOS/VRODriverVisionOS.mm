@@ -20,23 +20,87 @@ VRODriverVisionOS::VRODriverVisionOS(id <MTLDevice> device)
     setSampleCount(1);
 
     _displayTarget = std::make_shared<VRORenderTargetMetal>();
+    _displayTarget->setRenderPassHost(this);
 }
 
 // ── Active encoder ────────────────────────────────────────────────────────────
 
-void VRODriverVisionOS::setActiveEncoder(id <MTLRenderCommandEncoder> encoder) {
+void VRODriverVisionOS::setFrameCommandBuffer(id <MTLCommandBuffer> commandBuffer) {
+    _frameCommandBuffer = commandBuffer;
+}
+
+void VRODriverVisionOS::beginDisplayPass(MTLRenderPassDescriptor *descriptor) {
+    _displayTarget->setDisplayPass(descriptor);
+    // Nothing is bound until the base render pass binds its output target, so a
+    // stale binding from the previous eye must not suppress that bind().
+    _boundTarget = nullptr;
+}
+
+void VRODriverVisionOS::endDisplayPass() {
+    _displayTarget->endDisplayPass();
+    _boundTarget = nullptr;
+}
+
+// ── VROMetalRenderPassHost ────────────────────────────────────────────────────
+
+std::shared_ptr<VRODriver> VRODriverVisionOS::getRenderPassDriver() {
+    return std::static_pointer_cast<VRODriver>(shared_from_this());
+}
+
+void VRODriverVisionOS::setFallbackUniformBytes(int bufferIndex, const void *bytes, size_t length) {
+    if (!bytes || length == 0) {
+        _fallbackUniformIndex = -1;
+        _fallbackUniformBytes.clear();
+        return;
+    }
+    _fallbackUniformIndex = bufferIndex;
+    _fallbackUniformBytes.assign((const uint8_t *)bytes, (const uint8_t *)bytes + length);
+}
+
+void VRODriverVisionOS::onRenderTargetEncoderBegan(id <MTLRenderCommandEncoder> encoder) {
+    _openEncoder = encoder;
     VRODriverMetal::setActiveEncoder(encoder);
-    _displayTarget->setEncoder(encoder);
+
+    if (encoder && _fallbackUniformIndex >= 0 && !_fallbackUniformBytes.empty()) {
+        [encoder setVertexBytes:_fallbackUniformBytes.data()
+                         length:_fallbackUniformBytes.size()
+                        atIndex:_fallbackUniformIndex];
+        [encoder setFragmentBytes:_fallbackUniformBytes.data()
+                           length:_fallbackUniformBytes.size()
+                          atIndex:_fallbackUniformIndex];
+    }
+}
+
+void VRODriverVisionOS::endActiveEncoder() {
+    if (!_openEncoder) {
+        return;
+    }
+    [_openEncoder endEncoding];
+    _openEncoder = nil;
+    VRODriverMetal::setActiveEncoder(nil);
 }
 
 // ── Render target management ──────────────────────────────────────────────────
 
 bool VRODriverVisionOS::bindRenderTarget(std::shared_ptr<VRORenderTarget> target,
                                           VRORenderTargetUnbindOp unbindOp) {
-    // The encoder is created externally by the Swift render loop.
-    // We don't create new encoders here — just track the active target.
-    // Return false to indicate the target was already "bound" (no state change).
-    return false;
+    if (!target) {
+        return false;
+    }
+    if (unbindOp == VRORenderTargetUnbindOp::Invalidate && _boundTarget) {
+        _boundTarget->invalidate();
+    }
+    if (_boundTarget == target) {
+        return false;
+    }
+    target->bind();
+    _boundTarget = target;
+    return true;
+}
+
+void VRODriverVisionOS::unbindRenderTarget() {
+    endActiveEncoder();
+    _boundTarget = nullptr;
 }
 
 std::shared_ptr<VRORenderTarget> VRODriverVisionOS::newRenderTarget(
@@ -46,9 +110,9 @@ std::shared_ptr<VRORenderTarget> VRODriverVisionOS::newRenderTarget(
     bool enableMipmaps,
     bool needsDepthStencil)
 {
-    // Return a stub render target.  With HDR and MRT disabled, these targets
-    // are created by the choreographer but never used for actual rendering.
-    return std::make_shared<VRORenderTargetMetal>();
+    return std::make_shared<VRORenderTargetMetal>(type, numAttachments, numImages,
+                                                  enableMipmaps, needsDepthStencil,
+                                                  getDevice(), this);
 }
 
 // ── Cull mode ─────────────────────────────────────────────────────────────────

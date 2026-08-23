@@ -20,12 +20,15 @@
 #if VRO_METAL
 
 #include "VRODriverMetal.h"
+#include "VROMetalRenderPassHost.h"
 #include "VRORenderTargetMetal.h"
 #include "VROTextureSubstrateMetal.h"
 #include "VROMaterial.h"
 #include "VROVertexBuffer.h"
 #include "VROFrameScheduler.h"
 #include <memory>
+#include <vector>
+#include <cstdint>
 
 // CPU-only vertex buffer: holds VROData for CPU-side operations (e.g. processTangent).
 // hydrate() is a no-op because VROGeometrySubstrateMetal creates its own MTLBuffer.
@@ -36,17 +39,38 @@ public:
 };
 
 class VRODriverVisionOS : public VRODriverMetal,
+                          public VROMetalRenderPassHost,
                           public std::enable_shared_from_this<VRODriverVisionOS> {
 public:
 
     VRODriverVisionOS(id <MTLDevice> device);
     virtual ~VRODriverVisionOS() {}
 
-    // ── Active encoder ───────────────────────────────────────────────────────
-    // Must be called by the Swift render loop before every VRORenderer::renderEye()
-    // invocation.  The encoder is also forwarded to the display render target so
-    // that setViewport() takes effect immediately.
-    void setActiveEncoder(id <MTLRenderCommandEncoder> encoder);
+    // ── Frame plumbing ───────────────────────────────────────────────────────
+    // The render loop supplies the frame's command buffer before rendering any eye.
+    // Every render command encoder — the display pass included — is opened from it
+    // by the render target being bound, because Metal permits only one encoder per
+    // command buffer at a time and an offscreen pass has to interleave with the
+    // display pass.
+    void setFrameCommandBuffer(id <MTLCommandBuffer> commandBuffer);
+
+    // Hand the display target this eye's render pass, then end it once the eye is
+    // done. beginDisplayPass must precede VRORenderer::renderEye().
+    void beginDisplayPass(MTLRenderPassDescriptor *descriptor);
+    void endDisplayPass();
+
+    // Bytes bound at the given buffer index on every encoder this driver opens,
+    // as a fallback for shaders that read a slot before the material binds it
+    // (Constant shaders, early-exit paths). Re-applied per encoder because Metal
+    // buffer bindings do not survive the end of a render pass. Pass length 0 to
+    // clear.
+    void setFallbackUniformBytes(int bufferIndex, const void *bytes, size_t length);
+
+    // ── VROMetalRenderPassHost ───────────────────────────────────────────────
+    std::shared_ptr<VRODriver> getRenderPassDriver() override;
+    id <MTLCommandBuffer> getFrameCommandBuffer() override { return _frameCommandBuffer; }
+    void onRenderTargetEncoderBegan(id <MTLRenderCommandEncoder> encoder) override;
+    void endActiveEncoder() override;
 
     // ── VRODriver pure-virtual overrides ─────────────────────────────────────
 
@@ -87,8 +111,10 @@ public:
     // Render target management
     bool bindRenderTarget(std::shared_ptr<VRORenderTarget> target,
                           VRORenderTargetUnbindOp unbindOp) override;
-    void unbindRenderTarget() override {}
-    std::shared_ptr<VRORenderTarget> getRenderTarget() override { return _displayTarget; }
+    void unbindRenderTarget() override;
+    std::shared_ptr<VRORenderTarget> getRenderTarget() override {
+        return _boundTarget ? _boundTarget : _displayTarget;
+    }
 
     std::shared_ptr<VRORenderTarget> getDisplay() override { return _displayTarget; }
 
@@ -154,7 +180,19 @@ public:
 
 private:
     std::shared_ptr<VRORenderTargetMetal> _displayTarget;
+    std::shared_ptr<VRORenderTarget> _boundTarget;
     std::shared_ptr<VROFrameScheduler> _frameScheduler = std::make_shared<VROFrameScheduler>();
+
+    // The frame's command buffer, owned by the Swift render loop.
+    id <MTLCommandBuffer> _frameCommandBuffer = nil;
+
+    // The encoder currently open on _frameCommandBuffer, which must be ended
+    // before any target can open another.
+    id <MTLRenderCommandEncoder> _openEncoder = nil;
+
+    // Fallback uniform bytes re-bound on every new encoder.
+    std::vector<uint8_t> _fallbackUniformBytes;
+    int _fallbackUniformIndex = -1;
 };
 
 #endif  // VRO_METAL
