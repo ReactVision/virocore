@@ -32,6 +32,16 @@ VRODriverVisionOS::VRODriverVisionOS(id <MTLDevice> device)
 
 // ── Active encoder ────────────────────────────────────────────────────────────
 
+void VRODriverVisionOS::setFrameTimingEnabled(bool enabled) {
+    if (enabled && !_frameTimer) {
+        _frameTimer = std::unique_ptr<VROMetalFrameTimer>(new VROMetalFrameTimer(getDevice()));
+        pinfo("VRODriverVisionOS: frame timing enabled (per-pass GPU timing %s)",
+              _frameTimer->supportsPassTiming() ? "available" : "unavailable");
+    } else if (!enabled) {
+        _frameTimer.reset();
+    }
+}
+
 void VRODriverVisionOS::setFrameCommandBuffer(id <MTLCommandBuffer> commandBuffer) {
     _frameCommandBuffer = commandBuffer;
 }

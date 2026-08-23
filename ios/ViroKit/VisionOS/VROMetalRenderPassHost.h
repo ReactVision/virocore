@@ -26,6 +26,7 @@
 #include <memory>
 
 class VRODriver;
+class VROMetalFrameTimer;
 
 class VROMetalRenderPassHost {
 public:
@@ -57,6 +58,12 @@ public:
      so every target switch is an end-then-begin.
      */
     virtual void endActiveEncoder() = 0;
+
+    /*
+     The frame timer, or null when frame timing is off. Render targets register their pass
+     with it so the report can attribute GPU time per pass rather than only per frame.
+     */
+    virtual VROMetalFrameTimer *getFrameTimer() = 0;
 };
 
 #endif  // VRO_METAL

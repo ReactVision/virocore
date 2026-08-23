@@ -12,6 +12,7 @@
 #include "VROTextureSubstrateMetal.h"
 #include "VROLog.h"
 #include "VROMaterial.h"
+#include "VROMetalFrameTimer.h"
 
 //  Ownership: this target owns the MTLTextures it allocates. The VROTexture
 //  wrappers handed out by getTexture() only reference them — VROTextureSubstrateMetal
@@ -331,6 +332,27 @@ bool VRORenderTargetMetal::setViewport(VROViewport viewport) {
     return false;
 }
 
+// A label for the timing report. Types are named after their role in the choreographer so
+// a reader can map a line of the report onto a decision — "shadow map" means turn shadows
+// down, "hdr colour" means the scene pass itself.
+static const char *VROTargetTimingLabel(VRORenderTargetType type, int attachments) {
+    switch (type) {
+        case VRORenderTargetType::Display:           return "display";
+        case VRORenderTargetType::DepthTexture:
+        case VRORenderTargetType::DepthTextureArray: return "shadow map";
+        case VRORenderTargetType::DepthTextureRaw:   return "scene depth";
+        case VRORenderTargetType::ColorTextureHDR16:
+        case VRORenderTargetType::ColorTextureHDR32:
+            // The scene renders into the multi-attachment HDR target; the single-attachment
+            // ones are the post-process ping-pong and the blur.
+            return attachments > 1 ? "hdr scene" : "post-process";
+        case VRORenderTargetType::CubeTexture:
+        case VRORenderTargetType::CubeTextureHDR16:
+        case VRORenderTargetType::CubeTextureHDR32:  return "ibl cube";
+        default:                                     return "offscreen";
+    }
+}
+
 // ── Binding ──────────────────────────────────────────────────────────────────
 
 void VRORenderTargetMetal::setDisplayPass(MTLRenderPassDescriptor *descriptor) {
@@ -386,6 +408,12 @@ void VRORenderTargetMetal::bind() {
 
     // Metal allows one render command encoder per command buffer at a time.
     _host->endActiveEncoder();
+
+    // Timestamp sampling has to be attached to the descriptor before the encoder is created.
+    if (VROMetalFrameTimer *timer = _host->getFrameTimer()) {
+        timer->beginPass(_passDescriptor,
+                         VROTargetTimingLabel(_type, (int)_colorTextures.size()));
+    }
 
     id <MTLRenderCommandEncoder> encoder =
         [commandBuffer renderCommandEncoderWithDescriptor:_passDescriptor];

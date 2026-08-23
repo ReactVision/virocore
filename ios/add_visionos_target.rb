@@ -184,6 +184,7 @@ visionos_mm = [
   "#{IOS_DIR}/VisionOS/VRODriverVisionOS.mm",
   "#{IOS_DIR}/VisionOS/VRORenderTargetMetal.mm",
   "#{IOS_DIR}/VisionOS/VROMetalPostProcess.mm",
+  "#{IOS_DIR}/VisionOS/VROMetalFrameTimer.mm",
 ]
 
 # .cpp files under VisionOS/ that reach Metal / ObjC headers and so must be compiled as

@@ -21,6 +21,7 @@
 
 #include "VRODriverMetal.h"
 #include "VROMetalRenderPassHost.h"
+#include "VROMetalFrameTimer.h"
 #include "VRORenderTargetMetal.h"
 #include "VROTextureSubstrateMetal.h"
 #include "VROMaterial.h"
@@ -94,6 +95,14 @@ public:
     id <MTLCommandBuffer> getFrameCommandBuffer() override { return _frameCommandBuffer; }
     void onRenderTargetEncoderBegan(id <MTLRenderCommandEncoder> encoder) override;
     void endActiveEncoder() override;
+    VROMetalFrameTimer *getFrameTimer() override { return _frameTimer.get(); }
+
+    /*
+     Turn frame timing on. Off by default: it costs a counter sample buffer and a completion
+     handler per frame, which is not something to carry in a shipping build.
+     */
+    void setFrameTimingEnabled(bool enabled);
+    VROMetalFrameTimer *getFrameTimerForBridge() { return _frameTimer.get(); }
 
     // ── VRODriver pure-virtual overrides ─────────────────────────────────────
 
@@ -237,6 +246,8 @@ private:
     // The encoder currently open on _frameCommandBuffer, which must be ended
     // before any target can open another.
     id <MTLRenderCommandEncoder> _openEncoder = nil;
+
+    std::unique_ptr<VROMetalFrameTimer> _frameTimer;
 
     // freetype, initialised on first use and torn down with the driver.
     FT_Library _freetype = nullptr;

@@ -64,6 +64,7 @@ cp "$SCRIPT_DIR/ViroKit/VROVideoTextureCacheMetal.h"  "$HEADERS_STAGING/"
 cp "$SCRIPT_DIR/ViroKit/VisionOS/VRODriverVisionOS.h"      "$HEADERS_STAGING/"
 cp "$SCRIPT_DIR/ViroKit/VisionOS/VRORenderTargetMetal.h"   "$HEADERS_STAGING/"
 cp "$SCRIPT_DIR/ViroKit/VisionOS/VROMetalRenderPassHost.h" "$HEADERS_STAGING/"
+cp "$SCRIPT_DIR/ViroKit/VisionOS/VROMetalFrameTimer.h"     "$HEADERS_STAGING/"
 
 # Third-party headers that leak into public ViroKit headers: VROGlyph.h and VROTypeface.h
 # include <ft2build.h>, and the physics headers include btBulletDynamicsCommon.h. A consumer
