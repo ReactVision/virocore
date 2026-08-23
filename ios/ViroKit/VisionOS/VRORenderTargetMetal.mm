@@ -466,10 +466,22 @@ static void VROBlitMetalTexture(id <MTLCommandBuffer> commandBuffer,
         return;
     }
     if (source.pixelFormat != destination.pixelFormat) {
-        // A Metal blit cannot convert formats. This shows up for the scene-depth capture:
-        // the HDR target carries Depth32Float_Stencil8 while the depth target is plain
-        // Depth32Float. Losing that capture only costs shader modifiers the previous
-        // frame's depth, so it is reported once rather than every frame.
+        // A Metal blit cannot convert formats, and for the scene-depth capture it never will:
+        // the HDR target needs Depth32Float_Stencil8 (260) because portals stencil against it,
+        // while a DepthTextureRaw target is plain Depth32Float (252) so it can be sampled as a
+        // depth texture. The mismatch is structural, not a misconfiguration.
+        //
+        // It also costs nothing today. The only consumer of the captured texture is
+        // VROTextureReference::SceneDepth, which is resolved by VROMaterialShaderBinding — an
+        // OpenGL-only path. VROMaterialSubstrateMetal builds its texture list from material
+        // visuals plus the explicit shadow/IBL slots and never looks at a global texture
+        // reference, so nothing on Metal would sample the copy even if it succeeded. Making the
+        // formats match would buy a per-frame depth copy that no shader reads.
+        //
+        // The real gap is one level up and worth a ticket rather than a format change: a
+        // material declaring requiresSceneDepth (or requiresCameraTexture) is silently inert on
+        // Metal. Fixing that means teaching the Metal substrate to resolve global texture
+        // references; only then does this blit need to work.
         static bool sReported = false;
         if (!sReported) {
             sReported = true;
