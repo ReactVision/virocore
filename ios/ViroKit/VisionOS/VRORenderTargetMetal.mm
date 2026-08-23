@@ -266,12 +266,18 @@ void VRORenderTargetMetal::rebuildPassDescriptor() {
     // pool, so retain it.
     _passDescriptor = [[MTLRenderPassDescriptor renderPassDescriptor] retain];
 
+    // Binding clears. This matches VRORenderTargetOpenGL::bind(), which issues a
+    // glClear of colour, depth and stencil on every bind — "prevent logical buffer load by
+    // immediately clearing". The renderer relies on that: an offscreen target holds one
+    // frame's work and is fully redrawn the next, so preserving its contents leaves the
+    // previous frame underneath. It shows up as a trail behind anything that moves, and as
+    // a stale depth buffer that silently rejects fragments.
     for (size_t i = 0; i < _colorTextures.size(); i++) {
         MTLRenderPassColorAttachmentDescriptor *attachment = _passDescriptor.colorAttachments[i];
         attachment.texture = _colorTextures[i];
         attachment.level   = _mipLevel;
         attachment.slice   = (metalTextureType() == MTLTextureTypeCube) ? _cubeFace : _imageIndex;
-        attachment.loadAction  = _clearColorPending ? MTLLoadActionClear : MTLLoadActionLoad;
+        attachment.loadAction  = MTLLoadActionClear;
         attachment.storeAction = _invalidated ? MTLStoreActionDontCare : MTLStoreActionStore;
         attachment.clearColor  = MTLClearColorMake(_clearColor.x, _clearColor.y,
                                                   _clearColor.z, _clearColor.w);
@@ -281,7 +287,7 @@ void VRORenderTargetMetal::rebuildPassDescriptor() {
         MTLRenderPassDepthAttachmentDescriptor *depth = _passDescriptor.depthAttachment;
         depth.texture     = _depthTexture;
         depth.slice       = (_type == VRORenderTargetType::DepthTextureArray) ? _imageIndex : 0;
-        depth.loadAction  = _clearDepthPending ? MTLLoadActionClear : MTLLoadActionLoad;
+        depth.loadAction  = MTLLoadActionClear;
         depth.storeAction = MTLStoreActionStore;
         depth.clearDepth  = 1.0;
 
@@ -289,7 +295,7 @@ void VRORenderTargetMetal::rebuildPassDescriptor() {
             MTLRenderPassStencilAttachmentDescriptor *stencil = _passDescriptor.stencilAttachment;
             stencil.texture      = _depthTexture;
             stencil.slice        = depth.slice;
-            stencil.loadAction   = _clearStencilPending ? MTLLoadActionClear : MTLLoadActionLoad;
+            stencil.loadAction   = MTLLoadActionClear;
             stencil.storeAction  = MTLStoreActionStore;
             stencil.clearStencil = 0;
         }
@@ -391,12 +397,7 @@ void VRORenderTargetMetal::bind() {
     if (isDisplay()) {
         _displayPassStarted = true;
     } else {
-        // The clears were folded into this pass's load actions; a later bind in the
-        // same frame must preserve what this pass wrote.
-        _clearColorPending   = false;
-        _clearDepthPending   = false;
-        _clearStencilPending = false;
-        _invalidated         = false;
+        _invalidated              = false;
         _attachmentSelectionDirty = false;
     }
 
@@ -615,21 +616,21 @@ const std::shared_ptr<VROTexture> VRORenderTargetMetal::getTexture(int attachmen
 
 // ── Clears ───────────────────────────────────────────────────────────────────
 
+// No-ops by design. Binding an offscreen target already clears colour, depth and stencil,
+// which is what these calls are asking for — see rebuildPassDescriptor. Metal cannot clear
+// inside a pass anyway: a clear is a load action, decided when the encoder is created, so a
+// clear requested after bind() could only be honoured by ending the pass and discarding
+// whatever had been drawn into it.
 void VRORenderTargetMetal::clearColor() {
-    _clearColorPending = true;
 }
 
 void VRORenderTargetMetal::clearDepth() {
-    _clearDepthPending = true;
 }
 
 void VRORenderTargetMetal::clearStencil() {
-    _clearStencilPending = true;
 }
 
 void VRORenderTargetMetal::clearDepthAndColor() {
-    _clearColorPending = true;
-    _clearDepthPending = true;
 }
 
 // ── Stencil ──────────────────────────────────────────────────────────────────

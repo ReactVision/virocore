@@ -65,14 +65,17 @@ cp "$SCRIPT_DIR/ViroKit/VisionOS/VRODriverVisionOS.h"      "$HEADERS_STAGING/"
 cp "$SCRIPT_DIR/ViroKit/VisionOS/VRORenderTargetMetal.h"   "$HEADERS_STAGING/"
 cp "$SCRIPT_DIR/ViroKit/VisionOS/VROMetalRenderPassHost.h" "$HEADERS_STAGING/"
 
-# freetype headers. VROGlyph.h and VROTypeface.h are public and include <ft2build.h>, so a
-# consumer of this xcframework cannot compile without them. Staging them here keeps the
-# xcframework self-contained instead of making every consumer add a search path.
-if [ -d "$SCRIPT_DIR/Libraries/freetype/include-visionos" ]; then
-  cp -R "$SCRIPT_DIR/Libraries/freetype/include-visionos/"* "$HEADERS_STAGING/"
-else
-  echo "warning: freetype headers not staged — run ./build_freetype_visionos.sh first" >&2
-fi
+# Third-party headers that leak into public ViroKit headers: VROGlyph.h and VROTypeface.h
+# include <ft2build.h>, and the physics headers include btBulletDynamicsCommon.h. A consumer
+# of this xcframework cannot compile without them, so they are staged here instead of making
+# every consumer add search paths.
+for vendor in freetype bullet; do
+  if [ -d "$SCRIPT_DIR/Libraries/$vendor/include-visionos" ]; then
+    cp -R "$SCRIPT_DIR/Libraries/$vendor/include-visionos/"* "$HEADERS_STAGING/"
+  else
+    echo "warning: $vendor headers not staged — run ./build_${vendor}_visionos.sh first" >&2
+  fi
+done
 
 # Umbrella header (must match target name: ViroKitVisionOS.h)
 cp "$SCRIPT_DIR/ViroKit/ViroKitVisionOS.h" "$HEADERS_STAGING/"
@@ -93,27 +96,46 @@ echo "--- Creating xcframework ---"
 rm -rf "$XCFW_OUT"
 mkdir -p "$(dirname "$XCFW_OUT")"
 
-# Merge freetype into the archive rather than shipping it separately. The iOS build links
-# the two as separate vendored libraries through the podspec; here the xcframework is the
-# whole delivery, so folding freetype in means a consumer needs no extra link line and
-# cannot end up with ViroKit's text code and no freetype behind it.
+# Merge the third-party static libraries into the archive rather than shipping them
+# separately. The iOS build links them as separate vendored libraries through the podspec;
+# here the xcframework is the whole delivery, so folding them in means a consumer needs no
+# extra link lines and cannot end up with ViroKit's text or physics code and nothing behind
+# it — which surfaces as a wall of undefined symbols rather than a useful error.
 MERGED_DIR="$BUILD_DIR/merged"
 rm -rf "$MERGED_DIR" && mkdir -p "$MERGED_DIR/xros" "$MERGED_DIR/xrsimulator"
 
-merge_freetype() {
+# Built by build_freetype_visionos.sh and build_bullet_visionos.sh.
+VENDORED_LIBS=(
+  "freetype/%s/libfreetype.a"
+  "bullet/%s/libLinearMath.a"
+  "bullet/%s/libBulletCollision.a"
+  "bullet/%s/libBulletDynamics.a"
+)
+
+merge_vendored() {
   local slice="$1" sdkdir="$2"
-  local viro="$BUILD_DIR/$sdkdir/libViroKitVisionOS.a"
-  local freetype="$SCRIPT_DIR/Libraries/freetype/$slice/libfreetype.a"
-  if [ -f "$freetype" ]; then
-    xcrun libtool -static -o "$MERGED_DIR/$slice/libViroKitVisionOS.a" "$viro" "$freetype" 2>/dev/null
-    echo "    $slice: ViroKit + freetype merged"
-  else
-    cp "$viro" "$MERGED_DIR/$slice/libViroKitVisionOS.a"
-    echo "    $slice: freetype not found — text will fail to link. Run ./build_freetype_visionos.sh"
+  local inputs=( "$BUILD_DIR/$sdkdir/libViroKitVisionOS.a" )
+  local missing=()
+
+  for pattern in "${VENDORED_LIBS[@]}"; do
+    # shellcheck disable=SC2059
+    local lib
+    lib="$SCRIPT_DIR/Libraries/$(printf "$pattern" "$slice")"
+    if [ -f "$lib" ]; then
+      inputs+=( "$lib" )
+    else
+      missing+=( "$(basename "$lib")" )
+    fi
+  done
+
+  xcrun libtool -static -o "$MERGED_DIR/$slice/libViroKitVisionOS.a" "${inputs[@]}" 2>/dev/null
+  echo "    $slice: merged $(( ${#inputs[@]} - 1 )) vendored libraries"
+  if [ ${#missing[@]} -gt 0 ]; then
+    echo "    $slice: MISSING ${missing[*]} — run build_freetype_visionos.sh / build_bullet_visionos.sh" >&2
   fi
 }
-merge_freetype xros        "$CONFIGURATION-xros"
-merge_freetype xrsimulator "$CONFIGURATION-xrsimulator"
+merge_vendored xros        "$CONFIGURATION-xros"
+merge_vendored xrsimulator "$CONFIGURATION-xrsimulator"
 
 xcodebuild -create-xcframework \
   -library "$MERGED_DIR/xros/libViroKitVisionOS.a" \
@@ -142,7 +164,9 @@ lipo -info "$SIM_LIB"
 
 echo ""
 echo "--- otool LC_BUILD_VERSION (device) ---"
-otool -l "$DEVICE_LIB" | grep -A4 "LC_BUILD_VERSION" | head -20
+# `head` closes the pipe early, which makes otool exit non-zero; with pipefail that fails
+# the whole script over a diagnostic line. Run the check without it.
+( set +o pipefail; otool -l "$DEVICE_LIB" | grep -A4 "LC_BUILD_VERSION" | head -20 )
 
 echo ""
 echo "=== DONE ==="

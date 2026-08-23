@@ -15,25 +15,6 @@
 
 #if VRO_PLATFORM_VISION
 
-// ── Physics ───────────────────────────────────────────────────────────────────
-
-#include "VROPhysicsBody.h"
-#include "VROPhysicsWorld.h"
-
-VROPhysicsBody::VROPhysicsBody(std::shared_ptr<VRONode> node,
-                               VROPhysicsBody::VROPhysicsBodyType type,
-                               float mass,
-                               std::shared_ptr<VROPhysicsShape> shape) {}
-VROPhysicsBody::~VROPhysicsBody() {}
-void VROPhysicsBody::refreshBody() {}
-void VROPhysicsBody::setKinematicDrag(bool isDragging) {}
-
-VROPhysicsWorld::VROPhysicsWorld() {}
-VROPhysicsWorld::~VROPhysicsWorld() {}
-void VROPhysicsWorld::addPhysicsBody(std::shared_ptr<VROPhysicsBody> body) {}
-void VROPhysicsWorld::removePhysicsBody(std::shared_ptr<VROPhysicsBody> body) {}
-void VROPhysicsWorld::computePhysics(const VRORenderContext &context) {}
-
 // ── IBL / Shadow preprocesses ─────────────────────────────────────────────────
 
 #include "VROIBLPreprocess.h"

@@ -54,6 +54,8 @@ header_paths = [
   '"$(SRCROOT)/../ViroRenderer/ucdn"',
   # freetype, built from source for xros by ios/build_freetype_visionos.sh
   '"$(SRCROOT)/Libraries/freetype/include-visionos"',
+  # bullet, built from source for xros by ios/build_bullet_visionos.sh
+  '"$(SRCROOT)/Libraries/bullet/include-visionos"',
 ]
 target.build_configuration_list.set_setting('HEADER_SEARCH_PATHS', header_paths)
 
@@ -124,8 +126,9 @@ EXCLUDE_PATTERNS = [
   /Distortion/i,
   /Stereoscopic/i,
 
-  # Physics — bullet not yet compiled for xros (M5)
-  /VROPhysics/i,
+  # Physics — bullet is now built from source for xros
+  # (ios/build_bullet_visionos.sh). Only the test harness stays out.
+  /VROPhysicsTest/i,
 
   # Head tracking (Cardboard inertial)
   /VROHeadTracker/i,
