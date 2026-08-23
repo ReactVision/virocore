@@ -6,6 +6,7 @@
 
 #include "VRORenderTargetMetal.h"
 #include "VROMetalPostProcess.h"
+#include "VROShaderProgram.h"
 #include "VROTextureSubstrateMetal.h"
 #include "VROLog.h"
 #include "VROLight.h"
@@ -168,6 +169,16 @@ id <MTLLibrary> VRODriverVisionOS::postProcessLibrary() {
               error ? [[error localizedDescription] UTF8String] : "unknown");
     }
     return _postProcessLibrary;
+}
+
+std::shared_ptr<VROImagePostProcess> VRODriverVisionOS::newImagePostProcess(
+    std::shared_ptr<VROShaderProgram> program)
+{
+    if (!program || program->getName().empty()) {
+        pinfo("VRODriverVisionOS: newImagePostProcess called with no resolved MSL function");
+        return nullptr;
+    }
+    return newMetalPostProcess(program->getName());
 }
 
 std::shared_ptr<VROImagePostProcess> VRODriverVisionOS::newMetalPostProcess(

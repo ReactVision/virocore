@@ -147,10 +147,10 @@ public:
     void setHasSoftwareGammaPass(bool) override {}
     bool hasSoftwareGammaPass() const   override { return false; }
 
-    // Bloom needs a third colour attachment plus the additive-blend post-process that
-    // VROChoreographer builds through newImagePostProcess(VROShaderProgram), which has
-    // no Metal equivalent. Tone mapping (two attachments) works; bloom does not yet.
-    bool isBloomSupported()     override { return false; }
+    // Bloom: the lighting shaders write the bloom buffer to a third colour attachment,
+    // VROGaussianBlurRenderPass has a Metal implementation, and the additive blend the
+    // choreographer asks for is resolved to post_additive_blend by newImagePostProcess.
+    bool isBloomSupported()     override { return true; }
 
     // Blend mode — baked per-pipeline in VROGeometrySubstrateMetal; no-op here
     void setBlendingMode(VROBlendMode) override {}
@@ -175,11 +175,12 @@ public:
         return std::make_shared<VROVertexBufferCPU>(data);
     }
 
-    // The shared VROImagePostProcess factory takes a GLSL VROShaderProgram, which has
-    // no meaning on Metal. The visionOS render passes call newMetalPostProcess instead.
-    std::shared_ptr<VROImagePostProcess> newImagePostProcess(std::shared_ptr<VROShaderProgram>) override {
-        return nullptr;
-    }
+    /*
+     Shared render passes build a full-screen effect by handing over a GLSL
+     VROShaderProgram. On visionOS VROImageShaderProgram::create resolves the effect to a
+     named MSL function and stores it as the program's name, which this reads.
+     */
+    std::shared_ptr<VROImagePostProcess> newImagePostProcess(std::shared_ptr<VROShaderProgram> program) override;
 
     /*
      A full-screen post-process running the named fragment function from Shaders.metal.
