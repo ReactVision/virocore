@@ -120,8 +120,36 @@ private:
      state is determined by both the geometry (by way of the _vertexDescriptor) 
      and the material; this is why it's not a member of the VROMaterialSubstrate.
      */
-    std::vector<id <MTLRenderPipelineState>> _elementPipelineStates;
+    /*
+     Pipeline states per element, keyed by the attachment configuration of the target
+     being rendered into. A pipeline must declare exactly the attachments its pass has,
+     and the same geometry is drawn into the display (one attachment) and into the HDR
+     target (two to four), so a single pipeline per element is not enough — and the
+     configuration is not knowable when the substrate is constructed.
+     */
+    struct TargetConfig {
+        int colorAttachmentCount = 1;
+        MTLPixelFormat colorFormat   = MTLPixelFormatInvalid;
+        MTLPixelFormat depthFormat   = MTLPixelFormatInvalid;
+        MTLPixelFormat stencilFormat = MTLPixelFormatInvalid;
+
+        uint64_t key() const {
+            return (uint64_t)colorAttachmentCount
+                 | ((uint64_t)colorFormat   << 8)
+                 | ((uint64_t)depthFormat   << 24)
+                 | ((uint64_t)stencilFormat << 40);
+        }
+    };
+
+    static TargetConfig currentTargetConfig(VRODriverMetal &metal);
+
+    std::vector<std::map<uint64_t, id <MTLRenderPipelineState>>> _elementPipelineStates;
     std::vector<id <MTLDepthStencilState>> _elementDepthStates;
+
+    id <MTLRenderPipelineState> pipelineStateForElement(int elementIndex,
+                                                        const std::shared_ptr<VROMaterial> &material,
+                                                        VRODriverMetal &metal,
+                                                        const TargetConfig &config);
     
     /*
      Uniforms for the view.
@@ -167,6 +195,7 @@ private:
      Create a pipeline state from the given material, using the current _vertexDescriptor.
      */
     id <MTLRenderPipelineState> createRenderPipelineState(const std::shared_ptr<VROMaterial> &material,
+                                                          const TargetConfig &config,
                                                           VRODriverMetal &driver);
     
     /*

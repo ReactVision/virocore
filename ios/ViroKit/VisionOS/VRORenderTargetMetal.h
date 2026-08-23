@@ -96,6 +96,13 @@ public:
     id <MTLTexture> getMetalTexture(int attachment) const;
     id <MTLTexture> getMetalDepthTexture() const { return _depthTexture; }
 
+    /*
+     How many colour attachments this target actually has. A pipeline rendering into it
+     must declare exactly this many, and the lighting fragment functions are specialised
+     against it.
+     */
+    int getColorAttachmentCount() const { return (int)_colorTextures.size(); }
+
     bool isDisplay() const { return _type == VRORenderTargetType::Display; }
 
     // ── VRORenderTarget ──────────────────────────────────────────────────────

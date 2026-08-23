@@ -409,7 +409,14 @@ void VRORenderTargetMetal::bindRead() {
 }
 
 void VRORenderTargetMetal::invalidate() {
-    _invalidated = true;
+    // Deliberately a no-op on Metal.
+    //
+    // In OpenGL this says "you need not preserve these buffers", and the choreographer
+    // calls it on the target it is unbinding — after that pass has already been issued.
+    // Metal decides the store action when the encoder is created, so honouring the call
+    // at this point can only affect the *next* pass on this target, which is exactly
+    // wrong: it would discard the HDR colour that the tone-mapping pass is about to
+    // sample. Storing costs bandwidth; discarding costs the image.
 }
 
 // ── Blits ────────────────────────────────────────────────────────────────────
@@ -426,8 +433,16 @@ static void VROBlitMetalTexture(id <MTLCommandBuffer> commandBuffer,
         return;
     }
     if (source.pixelFormat != destination.pixelFormat) {
-        pinfo("VRORenderTargetMetal: blit skipped — pixel formats differ (%lu vs %lu)",
-              (unsigned long)source.pixelFormat, (unsigned long)destination.pixelFormat);
+        // A Metal blit cannot convert formats. This shows up for the scene-depth capture:
+        // the HDR target carries Depth32Float_Stencil8 while the depth target is plain
+        // Depth32Float. Losing that capture only costs shader modifiers the previous
+        // frame's depth, so it is reported once rather than every frame.
+        static bool sReported = false;
+        if (!sReported) {
+            sReported = true;
+            pinfo("VRORenderTargetMetal: blit skipped — pixel formats differ (%lu vs %lu)",
+                  (unsigned long)source.pixelFormat, (unsigned long)destination.pixelFormat);
+        }
         return;
     }
     const NSUInteger width  = source.width  < destination.width  ? source.width  : destination.width;

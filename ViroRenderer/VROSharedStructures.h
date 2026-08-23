@@ -70,6 +70,12 @@ typedef struct {
     float            roughness;
     float            metalness;
     float            ao;
+
+    // Written to the HDR target's extra colour attachments when the choreographer runs
+    // the HDR path. tone_mapping_mask is 1 for a material that should be tone-mapped and
+    // 0 otherwise; bloom_threshold is negative when the material contributes no bloom.
+    float            tone_mapping_mask;
+    float            bloom_threshold;
 } VROMaterialUniforms;
 
 typedef struct {

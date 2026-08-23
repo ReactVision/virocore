@@ -120,21 +120,103 @@ void VROPortalTreeRenderPass::render(std::shared_ptr<VROScene> scene,
 }
 
 // ── Tone mapping render pass ──────────────────────────────────────────────────
+//
+// The shared implementation assembles a GLSL fragment shader from string fragments, so
+// it cannot be reused on Metal. This is the Metal equivalent: each tone-mapping method
+// is a named MSL function in Shaders.metal and the parameters travel as one uniform
+// block. See the post_tone_map_* functions there.
 
 #include "VROToneMappingRenderPass.h"
+#include "VRODriverVisionOS.h"
+#include "VROMetalPostProcess.h"
+#include "VRORenderTarget.h"
+#include "VROTexture.h"
+
+// Must match VROToneMappingUniforms in Shaders.metal.
+struct VROMetalToneMappingUniforms {
+    float exposure;
+    float white_point;
+    float gamma_correct;
+};
 
 VROToneMappingRenderPass::VROToneMappingRenderPass(VROToneMappingMethod method,
                                                    bool gammaCorrectSoftware,
-                                                   std::shared_ptr<VRODriver> driver) {}
+                                                   std::shared_ptr<VRODriver> driver) :
+    _method(method),
+    _exposure(kToneMappingDefaultExposure),
+    _whitePoint(kToneMappingDefaultWhitePoint),
+    _gammaCorrectionEnabled(gammaCorrectSoftware) {
+}
+
 VROToneMappingRenderPass::~VROToneMappingRenderPass() {}
+
+std::shared_ptr<VROImagePostProcess> VROToneMappingRenderPass::createPostProcess(std::shared_ptr<VRODriver> driver,
+                                                                                VROToneMappingMethod method) {
+    std::shared_ptr<VRODriverVisionOS> metal = std::dynamic_pointer_cast<VRODriverVisionOS>(driver);
+    if (!metal) {
+        return nullptr;
+    }
+    const char *function = "post_tone_map_disabled";
+    switch (method) {
+        case VROToneMappingMethod::Disabled:            function = "post_tone_map_disabled";        break;
+        case VROToneMappingMethod::Reinhard:            function = "post_tone_map_reinhard";        break;
+        case VROToneMappingMethod::Hable:               function = "post_tone_map_hable";           break;
+        case VROToneMappingMethod::HableLuminanceOnly:  function = "post_tone_map_hable_luminance"; break;
+        default:                                        function = "post_tone_map_exposure";        break;
+    }
+    return metal->newMetalPostProcess(function);
+}
+
 void VROToneMappingRenderPass::render(std::shared_ptr<VROScene> scene,
                                       std::shared_ptr<VROScene> outgoingScene,
                                       VRORenderPassInputOutput &inputs,
                                       VRORenderContext *context,
-                                      std::shared_ptr<VRODriver> &driver) {}
-void VROToneMappingRenderPass::setExposure(float exposure) {}
-void VROToneMappingRenderPass::setWhitePoint(float whitePoint) {}
-void VROToneMappingRenderPass::setMethod(VROToneMappingMethod method) {}
+                                      std::shared_ptr<VRODriver> &driver) {
+    if (!_postProcess) {
+        _postProcess = createPostProcess(driver, _method);
+        if (!_postProcess) {
+            return;
+        }
+    }
+
+    std::shared_ptr<VROTexture> hdrInput = inputs.textures[kToneMappingHDRInput];
+    std::shared_ptr<VROTexture> mask     = inputs.textures[kToneMappingMaskInput];
+    std::shared_ptr<VRORenderTarget> target = inputs.outputTarget;
+    if (!hdrInput || !target) {
+        return;
+    }
+    // The mask is optional: without it every fragment is treated as fully tone-mapped,
+    // which is the sane default for a scene that never asked for per-material control.
+    if (!mask) {
+        mask = hdrInput;
+    }
+
+    VROMetalToneMappingUniforms uniforms;
+    uniforms.exposure      = _exposure;
+    uniforms.white_point   = _whitePoint;
+    uniforms.gamma_correct = _gammaCorrectionEnabled ? 1.0f : 0.0f;
+    std::static_pointer_cast<VROMetalPostProcess>(_postProcess)->setUniforms(&uniforms, sizeof(uniforms));
+
+    driver->bindRenderTarget(target, VRORenderTargetUnbindOp::Invalidate);
+    _postProcess->blit({ hdrInput, mask }, driver);
+}
+
+void VROToneMappingRenderPass::setExposure(float exposure) {
+    _exposure = exposure;
+}
+
+void VROToneMappingRenderPass::setWhitePoint(float whitePoint) {
+    _whitePoint = whitePoint;
+}
+
+void VROToneMappingRenderPass::setMethod(VROToneMappingMethod method) {
+    if (_method == method) {
+        return;
+    }
+    _method = method;
+    // Dropped so the next render rebuilds it against the new method's MSL function.
+    _postProcess = nullptr;
+}
 
 // ── Gaussian blur render pass ─────────────────────────────────────────────────
 // VROViewport must be fully defined (setViewPort takes it by value).

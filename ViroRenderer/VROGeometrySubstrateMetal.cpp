@@ -75,6 +75,12 @@ VROGeometrySubstrateMetal::VROGeometrySubstrateMetal(const VROGeometry &geometry
 
 VROGeometrySubstrateMetal::~VROGeometrySubstrateMetal() {
     delete (_viewUniformsBuffer);
+    for (auto &elementCache : _elementPipelineStates) {
+        for (auto &entry : elementCache) {
+            [entry.second release];
+        }
+    }
+    _elementPipelineStates.clear();
     [_vertexDescriptor release];
     [_silhouetteDepthState release];
     for (auto &entry : _silhouettePipelineStates) {
@@ -206,19 +212,63 @@ void VROGeometrySubstrateMetal::updatePipelineStates(const VROGeometry &geometry
     id <MTLDevice> device = driver.getDevice();
     const std::vector<std::shared_ptr<VROMaterial>> &materials = geometry.getMaterials();
     
+    // Pipelines are built on first draw, once the target being rendered into is known:
+    // its attachment configuration is part of the pipeline and is not knowable here.
     for (int i = 0; i < _elements.size(); i++) {
-        VROGeometryElementMetal element = _elements[i];
         const std::shared_ptr<VROMaterial> &material = materials[i % materials.size()];
-        
-        id <MTLRenderPipelineState> pipelineState = createRenderPipelineState(material, driver);
-        _elementPipelineStates.push_back(pipelineState);
-        
+
+        _elementPipelineStates.push_back({});
+
         id <MTLDepthStencilState> depthStencilState = createDepthStencilState(material, device);
         _elementDepthStates.push_back(depthStencilState);
     }
 }
 
+VROGeometrySubstrateMetal::TargetConfig
+VROGeometrySubstrateMetal::currentTargetConfig(VRODriverMetal &metal) {
+    TargetConfig config;
+    config.colorFormat   = metal.getColorPixelFormat();
+    config.depthFormat   = metal.getDepthPixelFormat();
+    config.stencilFormat = metal.getStencilPixelFormat();
+
+    std::shared_ptr<VRORenderTarget> bound = metal.getRenderTarget();
+    VRORenderTargetMetal *target = dynamic_cast<VRORenderTargetMetal *>(bound.get());
+    if (target && !target->isDisplay()) {
+        config.colorAttachmentCount = target->getColorAttachmentCount();
+        id <MTLTexture> color = target->getMetalTexture(0);
+        id <MTLTexture> depth = target->getMetalDepthTexture();
+        if (color) { config.colorFormat = color.pixelFormat; }
+        config.depthFormat = depth ? depth.pixelFormat : MTLPixelFormatInvalid;
+        config.stencilFormat = (depth && depth.pixelFormat == MTLPixelFormatDepth32Float_Stencil8)
+                                   ? depth.pixelFormat : MTLPixelFormatInvalid;
+    }
+    if (config.colorAttachmentCount < 1) {
+        config.colorAttachmentCount = 1;
+    }
+    return config;
+}
+
+id <MTLRenderPipelineState>
+VROGeometrySubstrateMetal::pipelineStateForElement(int elementIndex,
+                                                  const std::shared_ptr<VROMaterial> &material,
+                                                  VRODriverMetal &metal,
+                                                  const TargetConfig &config) {
+    if (elementIndex < 0 || elementIndex >= (int)_elementPipelineStates.size()) {
+        return nil;
+    }
+    auto &cache = _elementPipelineStates[elementIndex];
+    const uint64_t key = config.key();
+    auto it = cache.find(key);
+    if (it != cache.end()) {
+        return it->second;
+    }
+    id <MTLRenderPipelineState> state = createRenderPipelineState(material, config, metal);
+    cache[key] = state;
+    return state;
+}
+
 id <MTLRenderPipelineState> VROGeometrySubstrateMetal::createRenderPipelineState(const std::shared_ptr<VROMaterial> &material,
+                                                                                 const TargetConfig &config,
                                                                                  VRODriverMetal &driver) {
     
     id <MTLDevice> device = driver.getDevice();
@@ -231,9 +281,15 @@ id <MTLRenderPipelineState> VROGeometrySubstrateMetal::createRenderPipelineState
     pipelineStateDescriptor.label = @"VROLayerPipeline";
     pipelineStateDescriptor.sampleCount = driver.getSampleCount();
     pipelineStateDescriptor.vertexFunction = substrate->getVertexProgram();
-    pipelineStateDescriptor.fragmentFunction = substrate->getFragmentProgram();
+    id <MTLFunction> fragmentFunction =
+        substrate->getFragmentProgramForAttachments(config.colorAttachmentCount);
+    if (!fragmentFunction) {
+        [pipelineStateDescriptor release];
+        return nil;
+    }
+    pipelineStateDescriptor.fragmentFunction = fragmentFunction;
     pipelineStateDescriptor.vertexDescriptor = _vertexDescriptor;
-    pipelineStateDescriptor.colorAttachments[0].pixelFormat = driver.getColorPixelFormat();
+    pipelineStateDescriptor.colorAttachments[0].pixelFormat = config.colorFormat;
     {
         MTLRenderPipelineColorAttachmentDescriptor *ca = pipelineStateDescriptor.colorAttachments[0];
         switch (material->getBlendMode()) {
@@ -296,8 +352,25 @@ id <MTLRenderPipelineState> VROGeometrySubstrateMetal::createRenderPipelineState
                 break;
         }
     }
-    pipelineStateDescriptor.depthAttachmentPixelFormat = driver.getDepthPixelFormat();
-    pipelineStateDescriptor.stencilAttachmentPixelFormat = driver.getStencilPixelFormat();
+    // The mask / bloom attachments carry the same blend state as the colour attachment,
+    // so a tone-mapped transparent surface blends its mask the same way it blends its
+    // colour. That is what the OpenGL path relies on to fade between tone-mapped and
+    // untone-mapped regions.
+    for (int i = 1; i < config.colorAttachmentCount; i++) {
+        MTLRenderPipelineColorAttachmentDescriptor *extra = pipelineStateDescriptor.colorAttachments[i];
+        MTLRenderPipelineColorAttachmentDescriptor *base  = pipelineStateDescriptor.colorAttachments[0];
+        extra.pixelFormat                 = config.colorFormat;
+        extra.blendingEnabled             = base.blendingEnabled;
+        extra.rgbBlendOperation           = base.rgbBlendOperation;
+        extra.alphaBlendOperation         = base.alphaBlendOperation;
+        extra.sourceRGBBlendFactor        = base.sourceRGBBlendFactor;
+        extra.sourceAlphaBlendFactor      = base.sourceAlphaBlendFactor;
+        extra.destinationRGBBlendFactor   = base.destinationRGBBlendFactor;
+        extra.destinationAlphaBlendFactor = base.destinationAlphaBlendFactor;
+    }
+
+    pipelineStateDescriptor.depthAttachmentPixelFormat = config.depthFormat;
+    pipelineStateDescriptor.stencilAttachmentPixelFormat = config.stencilFormat;
     
     NSError *error = NULL;
     id <MTLRenderPipelineState> pipelineState = [device newRenderPipelineStateWithDescriptor:pipelineStateDescriptor
@@ -456,12 +529,16 @@ void VROGeometrySubstrateMetal::render(const VROGeometry &geometry,
      depth states.
      */
     if (material->isUpdated()) {
-        _elementPipelineStates[elementIndex] = createRenderPipelineState(material, metal);
+        for (auto &entry : _elementPipelineStates[elementIndex]) {
+            [entry.second release];
+        }
+        _elementPipelineStates[elementIndex].clear();
         _elementDepthStates[elementIndex] = createDepthStencilState(material, metal.getDevice());
     }
-    
+
     VROMaterialSubstrateMetal *substrate = static_cast<VROMaterialSubstrateMetal *>(material->getSubstrate(driver));
-    id <MTLRenderPipelineState> pipelineState = _elementPipelineStates[elementIndex];
+    const TargetConfig config = currentTargetConfig(metal);
+    id <MTLRenderPipelineState> pipelineState = pipelineStateForElement(elementIndex, material, metal, config);
     id <MTLDepthStencilState> depthState = _elementDepthStates[elementIndex];
     
     if (elementIndex < (int)_vars.size()) {

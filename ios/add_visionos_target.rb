@@ -183,6 +183,11 @@ visionos_mm = [
   "#{IOS_DIR}/VisionOS/VRODriverVisionOS.mm",
   "#{IOS_DIR}/VisionOS/VRORenderTargetMetal.mm",
   "#{IOS_DIR}/VisionOS/VROMetalPostProcess.mm",
+]
+
+# .cpp files under VisionOS/ that reach Metal / ObjC headers and so must be compiled as
+# ObjC++ despite the extension.
+visionos_objcpp = [
   "#{IOS_DIR}/VisionOS/VROVisionOSRenderStubs.cpp",
 ]
 
@@ -215,7 +220,7 @@ ios_visionos_cpps = [
 ].select { |f| File.exist?(f) }
 
 all_sources    = renderer_cpps + visionos_mm
-objcpp_sources = renderer_objcpp + ios_visionos_cpps
+objcpp_sources = renderer_objcpp + ios_visionos_cpps + visionos_objcpp
 
 # ── Add a group for the new target ───────────────────────────────────────────
 visionos_group = proj.main_group.find_subpath('ViroKitVisionOS', true)

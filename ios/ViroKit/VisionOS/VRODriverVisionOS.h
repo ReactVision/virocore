@@ -137,12 +137,19 @@ public:
                                                      bool enableMipmaps,
                                                      bool needsDepthStencil) override;
 
-    // Color rendering — NonLinear avoids the HDR / bloom paths in VROChoreographer
+    // CompositorServices hands us a linear float drawable and composites in linear
+    // space, so colour work happens in linear RGB with no software gamma pass. This is
+    // also what gates HDR: VROChoreographer disables it outright while the driver
+    // reports NonLinear.
     VROColorRenderingMode getColorRenderingMode() override {
-        return VROColorRenderingMode::NonLinear;
+        return VROColorRenderingMode::Linear;
     }
     void setHasSoftwareGammaPass(bool) override {}
     bool hasSoftwareGammaPass() const   override { return false; }
+
+    // Bloom needs a third colour attachment plus the additive-blend post-process that
+    // VROChoreographer builds through newImagePostProcess(VROShaderProgram), which has
+    // no Metal equivalent. Tone mapping (two attachments) works; bloom does not yet.
     bool isBloomSupported()     override { return false; }
 
     // Blend mode — baked per-pipeline in VROGeometrySubstrateMetal; no-op here

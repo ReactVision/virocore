@@ -68,6 +68,48 @@ std::shared_ptr<VROMetalShader> VROMaterialSubstrateMetal::getPooledShader(std::
     }
 }
 
+id <MTLFunction> VROMaterialSubstrateMetal::getFragmentProgramForAttachments(int colorAttachmentCount) {
+    if (colorAttachmentCount <= 1) {
+        return _program->getFragmentProgram();
+    }
+    auto it = _specializedFragmentPrograms.find(colorAttachmentCount);
+    if (it != _specializedFragmentPrograms.end()) {
+        return it->second;
+    }
+    if (!_programLibrary || _fragmentProgramName.empty()) {
+        return _program->getFragmentProgram();
+    }
+
+    // Function constant indices must match the declarations in Shaders.metal:
+    //   0 = tone-mapping mask (attachment 1)
+    //   1 = bloom             (attachment 2)
+    //   2 = post-process mask (attachment 3)
+    BOOL hasToneMappingMask = colorAttachmentCount > 1;
+    BOOL hasBloom           = colorAttachmentCount > 2;
+    BOOL hasPostProcessMask = colorAttachmentCount > 3;
+
+    MTLFunctionConstantValues *constants = [MTLFunctionConstantValues new];
+    [constants setConstantValue:&hasToneMappingMask type:MTLDataTypeBool atIndex:0];
+    [constants setConstantValue:&hasBloom           type:MTLDataTypeBool atIndex:1];
+    [constants setConstantValue:&hasPostProcessMask type:MTLDataTypeBool atIndex:2];
+
+    NSError *error = nil;
+    id <MTLFunction> specialized =
+        [_programLibrary newFunctionWithName:[NSString stringWithUTF8String:_fragmentProgramName.c_str()]
+                             constantValues:constants
+                                      error:&error];
+    [constants release];
+
+    if (!specialized) {
+        pinfo("VROMaterialSubstrateMetal: could not specialise '%s' for %d attachments: %s",
+              _fragmentProgramName.c_str(), colorAttachmentCount,
+              error ? [[error localizedDescription] UTF8String] : "unknown");
+        return nil;
+    }
+    _specializedFragmentPrograms[colorAttachmentCount] = specialized;
+    return specialized;
+}
+
 VROMaterialSubstrateMetal::VROMaterialSubstrateMetal(const VROMaterial &material,
                                                      VRODriverMetal &driver) :
     _material(material),
@@ -263,6 +305,10 @@ void VROMaterialSubstrateMetal::loadConstantLighting(const VROMaterial &material
         fragmentProgram = "constant_lighting_fragment_q";
     }
     
+    // Remembered so the fragment function can be respecialised for a multi-attachment
+    // target later (getFragmentProgramForAttachments); getPooledShader is static.
+    _fragmentProgramName = fragmentProgram;
+    _programLibrary = library;
     _program = getPooledShader(vertexProgram, fragmentProgram, library);
 }
 
@@ -297,6 +343,10 @@ void VROMaterialSubstrateMetal::loadLambertLighting(const VROMaterial &material,
         }
     }
     
+    // Remembered so the fragment function can be respecialised for a multi-attachment
+    // target later (getFragmentProgramForAttachments); getPooledShader is static.
+    _fragmentProgramName = fragmentProgram;
+    _programLibrary = library;
     _program = getPooledShader(vertexProgram, fragmentProgram, library);
 }
 
@@ -343,6 +393,10 @@ void VROMaterialSubstrateMetal::loadPhongLighting(const VROMaterial &material,
         }
     }
     
+    // Remembered so the fragment function can be respecialised for a multi-attachment
+    // target later (getFragmentProgramForAttachments); getPooledShader is static.
+    _fragmentProgramName = fragmentProgram;
+    _programLibrary = library;
     _program = getPooledShader(vertexProgram, fragmentProgram, library);
 }
 
@@ -389,6 +443,10 @@ void VROMaterialSubstrateMetal::loadBlinnLighting(const VROMaterial &material,
         }
     }
     
+    // Remembered so the fragment function can be respecialised for a multi-attachment
+    // target later (getFragmentProgramForAttachments); getPooledShader is static.
+    _fragmentProgramName = fragmentProgram;
+    _programLibrary = library;
     _program = getPooledShader(vertexProgram, fragmentProgram, library);
 }
 
@@ -402,6 +460,8 @@ VROConcurrentBuffer &VROMaterialSubstrateMetal::bindMaterialUniforms(float opaci
     uniforms->roughness = _material.getRoughness().getColor().x;
     uniforms->metalness = _material.getMetalness().getColor().x;
     uniforms->ao = _material.getAmbientOcclusion().getColor().x;
+    uniforms->tone_mapping_mask = _material.needsToneMapping() ? 1.0f : 0.0f;
+    uniforms->bloom_threshold = _material.getBloomThreshold();
 
     // Fill custom uniforms buffer based on the layout created during inflation
     if (!_material.getShaderModifiers().empty()) {

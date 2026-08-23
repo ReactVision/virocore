@@ -114,6 +114,55 @@ float4 compute_reflection(float3 surface_position, float3 camera_position, float
     return reflect_texture.sample(s, float3(reflect_ray.xy, -reflect_ray.z));
 }
 
+// ── Multiple render targets ───────────────────────────────────────────────────
+//
+// With HDR on, VROChoreographer renders the scene into a target with more than one
+// colour attachment: the HDR colour, a tone-mapping mask, and (with bloom) a bloom
+// buffer. Metal requires a pipeline to declare exactly the attachments its pass has and
+// a fragment function to write exactly what the pipeline declares, so a single float4
+// return cannot serve both the display pass and the HDR pass.
+//
+// Rather than duplicating all fifteen lighting fragment functions per attachment count,
+// the extra members are gated by function constants. VROMaterialSubstrateMetal
+// specialises the function at pipeline-creation time with the attachment count of the
+// target being rendered into, so one entry point covers every configuration.
+
+constant bool kVROHasToneMappingMask [[ function_constant(0) ]];
+constant bool kVROHasBloom           [[ function_constant(1) ]];
+constant bool kVROHasPostProcessMask [[ function_constant(2) ]];
+
+struct VROLightingFragmentOut {
+    float4 color     [[ color(0) ]];
+    float4 tone_mask [[ color(1), function_constant(kVROHasToneMappingMask) ]];
+    float4 bloom     [[ color(2), function_constant(kVROHasBloom) ]];
+    float4 post_mask [[ color(3), function_constant(kVROHasPostProcessMask) ]];
+};
+
+// Builds the fragment output from the shaded colour. The mask attachments are alpha
+// blended along with the colour, which is what lets a tone-mapped transparent surface
+// over a non-tone-mapped background fade smoothly between the two.
+static VROLightingFragmentOut VROMakeLightingOut(float4 color,
+                                                constant VROMaterialUniforms &material) {
+    VROLightingFragmentOut out;
+    out.color = color;
+    if (kVROHasToneMappingMask) {
+        out.tone_mask = float4(material.tone_mapping_mask);
+    }
+    if (kVROHasBloom) {
+        // A negative threshold means the material contributes no bloom. The bloom buffer
+        // is premultiplied, matching what VROGaussianBlurRenderPass expects.
+        const float luminance = dot(color.rgb, float3(0.2126, 0.7152, 0.0722));
+        const bool contributes = material.bloom_threshold >= 0.0 && luminance > material.bloom_threshold;
+        out.bloom = contributes ? float4(color.rgb * color.a, color.a) : float4(0.0);
+    }
+    if (kVROHasPostProcessMask) {
+        // Per-material post-process masking is not plumbed through on Metal yet; an empty
+        // mask means every fragment is treated as unmasked.
+        out.post_mask = float4(0.0);
+    }
+    return out;
+}
+
 // ── Shadow mapping ────────────────────────────────────────────────────────────
 //
 // Shadow maps are rendered by VROShadowMapRenderPass into one slice of a depth texture
@@ -233,7 +282,7 @@ vertex VROConstantLightingVertexOut constant_lighting_vertex(VRORendererAttribut
     return out;
 }
 
-fragment float4 constant_lighting_fragment_c(VROConstantLightingVertexOut in [[ stage_in ]],
+fragment VROLightingFragmentOut constant_lighting_fragment_c(VROConstantLightingVertexOut in [[ stage_in ]],
                                              constant VROMaterialUniforms &material [[ buffer(2) ]],
                                              constant VROCustomUniforms &_custom [[ buffer(3) ]],
                                              constant VROSceneLightingUniforms &lighting [[ buffer(4) ]],
@@ -263,10 +312,10 @@ fragment float4 constant_lighting_fragment_c(VROConstantLightingVertexOut in [[ 
 
 #pragma fragment_modifier_body
 
-    return _output_color;
+    return VROMakeLightingOut(_output_color, material);
 }
 
-fragment float4 constant_lighting_fragment_t(VROConstantLightingVertexOut in [[ stage_in ]],
+fragment VROLightingFragmentOut constant_lighting_fragment_t(VROConstantLightingVertexOut in [[ stage_in ]],
                                              texture2d<float> texture [[ texture(0) ]],
                                              constant VROMaterialUniforms &material [[ buffer(2) ]],
                                              constant VROCustomUniforms &_custom [[ buffer(3) ]],
@@ -294,10 +343,10 @@ fragment float4 constant_lighting_fragment_t(VROConstantLightingVertexOut in [[ 
 
 #pragma fragment_modifier_body
 
-    return _output_color;
+    return VROMakeLightingOut(_output_color, material);
 }
 
-fragment float4 constant_lighting_fragment_q(VROConstantLightingVertexOut in [[ stage_in ]],
+fragment VROLightingFragmentOut constant_lighting_fragment_q(VROConstantLightingVertexOut in [[ stage_in ]],
                                              texturecube<float> texture [[ texture(0) ]],
                                              constant VROMaterialUniforms &material [[ buffer(2) ]],
                                              constant VROCustomUniforms &_custom [[ buffer(3) ]],
@@ -325,7 +374,7 @@ fragment float4 constant_lighting_fragment_q(VROConstantLightingVertexOut in [[ 
 
 #pragma fragment_modifier_body
 
-    return _output_color;
+    return VROMakeLightingOut(_output_color, material);
 }
 
 /* ---------------------------------------
@@ -481,7 +530,7 @@ float4 lambert_lighting_diffuse_texture(VROLambertLightingVertexOut in,
                   in.material_alpha * diffuse_texture_color.a);
 }
 
-fragment float4 lambert_lighting_fragment_c(VROLambertLightingVertexOut in [[ stage_in ]],
+fragment VROLightingFragmentOut lambert_lighting_fragment_c(VROLambertLightingVertexOut in [[ stage_in ]],
                                             constant VROMaterialUniforms &material [[ buffer(2) ]],
                                             constant VROCustomUniforms &_custom [[ buffer(3) ]],
                                             constant VROSceneLightingUniforms &lighting [[ buffer(4) ]],
@@ -518,10 +567,10 @@ fragment float4 lambert_lighting_fragment_c(VROLambertLightingVertexOut in [[ st
 
 #pragma fragment_modifier_body
 
-    return _output_color;
+    return VROMakeLightingOut(_output_color, material);
 }
 
-fragment float4 lambert_lighting_fragment_c_reflect(VROLambertLightingVertexOut in [[ stage_in ]],
+fragment VROLightingFragmentOut lambert_lighting_fragment_c_reflect(VROLambertLightingVertexOut in [[ stage_in ]],
                                                     texturecube<float> reflect_texture [[ texture(0) ]],
                                                     constant VROMaterialUniforms &material [[ buffer(2) ]],
                                                     constant VROCustomUniforms &_custom [[ buffer(3) ]],
@@ -560,10 +609,10 @@ fragment float4 lambert_lighting_fragment_c_reflect(VROLambertLightingVertexOut 
 
 #pragma fragment_modifier_body
 
-    return _output_color;
+    return VROMakeLightingOut(_output_color, material);
 }
 
-fragment float4 lambert_lighting_fragment_t(VROLambertLightingVertexOut in [[ stage_in ]],
+fragment VROLightingFragmentOut lambert_lighting_fragment_t(VROLambertLightingVertexOut in [[ stage_in ]],
                                             texture2d<float> texture [[ texture(0) ]],
                                             constant VROMaterialUniforms &material [[ buffer(2) ]],
                                             constant VROCustomUniforms &_custom [[ buffer(3) ]],
@@ -603,10 +652,10 @@ fragment float4 lambert_lighting_fragment_t(VROLambertLightingVertexOut in [[ st
 
 #pragma fragment_modifier_body
 
-    return _output_color;
+    return VROMakeLightingOut(_output_color, material);
 }
 
-fragment float4 lambert_lighting_fragment_t_reflect(VROLambertLightingVertexOut in [[ stage_in ]],
+fragment VROLightingFragmentOut lambert_lighting_fragment_t_reflect(VROLambertLightingVertexOut in [[ stage_in ]],
                                                     texture2d<float> texture [[ texture(0) ]],
                                                     texturecube<float> reflect_texture [[ texture(1) ]],
                                                     constant VROMaterialUniforms &material [[ buffer(2) ]],
@@ -648,7 +697,7 @@ fragment float4 lambert_lighting_fragment_t_reflect(VROLambertLightingVertexOut 
 
 #pragma fragment_modifier_body
 
-    return _output_color;
+    return VROMakeLightingOut(_output_color, material);
 }
 
 /* ---------------------------------------
@@ -850,7 +899,7 @@ float4 phong_lighting_diffuse_texture(VROPhongLightingVertexOut in [[ stage_in ]
                   in.material_alpha * diffuse_texture_color.a);
 }
 
-fragment float4 phong_lighting_fragment_c(VROPhongLightingVertexOut in [[ stage_in ]],
+fragment VROLightingFragmentOut phong_lighting_fragment_c(VROPhongLightingVertexOut in [[ stage_in ]],
                                           texture2d<float> specular_texture [[ texture(0) ]],
                                           constant VROMaterialUniforms &material [[ buffer(2) ]],
                                           constant VROCustomUniforms &_custom [[ buffer(3) ]],
@@ -892,10 +941,10 @@ fragment float4 phong_lighting_fragment_c(VROPhongLightingVertexOut in [[ stage_
 
 #pragma fragment_modifier_body
 
-    return _output_color;
+    return VROMakeLightingOut(_output_color, material);
 }
 
-fragment float4 phong_lighting_fragment_c_reflect(VROPhongLightingVertexOut in [[ stage_in ]],
+fragment VROLightingFragmentOut phong_lighting_fragment_c_reflect(VROPhongLightingVertexOut in [[ stage_in ]],
                                                   texture2d<float> specular_texture [[ texture(0) ]],
                                                   texturecube<float> reflect_texture [[ texture(1) ]],
                                                   constant VROMaterialUniforms &material [[ buffer(2) ]],
@@ -938,10 +987,10 @@ fragment float4 phong_lighting_fragment_c_reflect(VROPhongLightingVertexOut in [
 
 #pragma fragment_modifier_body
 
-    return _output_color;
+    return VROMakeLightingOut(_output_color, material);
 }
 
-fragment float4 phong_lighting_fragment_t(VROPhongLightingVertexOut in [[ stage_in ]],
+fragment VROLightingFragmentOut phong_lighting_fragment_t(VROPhongLightingVertexOut in [[ stage_in ]],
                                           texture2d<float> diffuse_texture [[ texture(0) ]],
                                           texture2d<float> specular_texture [[ texture(1) ]],
                                           constant VROMaterialUniforms &material [[ buffer(2) ]],
@@ -986,10 +1035,10 @@ fragment float4 phong_lighting_fragment_t(VROPhongLightingVertexOut in [[ stage_
 
 #pragma fragment_modifier_body
 
-    return _output_color;
+    return VROMakeLightingOut(_output_color, material);
 }
 
-fragment float4 phong_lighting_fragment_t_reflect(VROPhongLightingVertexOut in [[ stage_in ]],
+fragment VROLightingFragmentOut phong_lighting_fragment_t_reflect(VROPhongLightingVertexOut in [[ stage_in ]],
                                           texture2d<float> diffuse_texture [[ texture(0) ]],
                                           texture2d<float> specular_texture [[ texture(1) ]],
                                           texturecube<float> reflect_texture [[ texture(2) ]],
@@ -1035,7 +1084,7 @@ fragment float4 phong_lighting_fragment_t_reflect(VROPhongLightingVertexOut in [
 
 #pragma fragment_modifier_body
 
-    return _output_color;
+    return VROMakeLightingOut(_output_color, material);
 }
 
 /* ---------------------------------------
@@ -1237,7 +1286,7 @@ float4 blinn_lighting_diffuse_texture(VROBlinnLightingVertexOut in,
                   in.material_alpha * diffuse_texture_color.a);
 }
 
-fragment float4 blinn_lighting_fragment_c(VROBlinnLightingVertexOut in [[ stage_in ]],
+fragment VROLightingFragmentOut blinn_lighting_fragment_c(VROBlinnLightingVertexOut in [[ stage_in ]],
                                           texture2d<float> specular_texture [[ texture(0) ]],
                                           constant VROMaterialUniforms &material [[ buffer(2) ]],
                                           constant VROCustomUniforms &_custom [[ buffer(3) ]],
@@ -1279,10 +1328,10 @@ fragment float4 blinn_lighting_fragment_c(VROBlinnLightingVertexOut in [[ stage_
 
 #pragma fragment_modifier_body
 
-    return _output_color;
+    return VROMakeLightingOut(_output_color, material);
 }
 
-fragment float4 blinn_lighting_fragment_c_reflect(VROBlinnLightingVertexOut in [[ stage_in ]],
+fragment VROLightingFragmentOut blinn_lighting_fragment_c_reflect(VROBlinnLightingVertexOut in [[ stage_in ]],
                                                   texture2d<float> specular_texture [[ texture(0) ]],
                                                   texturecube<float> reflect_texture [[ texture(1) ]],
                                                   constant VROMaterialUniforms &material [[ buffer(2) ]],
@@ -1325,10 +1374,10 @@ fragment float4 blinn_lighting_fragment_c_reflect(VROBlinnLightingVertexOut in [
 
 #pragma fragment_modifier_body
 
-    return _output_color;
+    return VROMakeLightingOut(_output_color, material);
 }
 
-fragment float4 blinn_lighting_fragment_t(VROBlinnLightingVertexOut in [[ stage_in ]],
+fragment VROLightingFragmentOut blinn_lighting_fragment_t(VROBlinnLightingVertexOut in [[ stage_in ]],
                                           texture2d<float> diffuse_texture [[ texture(0) ]],
                                           texture2d<float> specular_texture [[ texture(1) ]],
                                           constant VROMaterialUniforms &material [[ buffer(2) ]],
@@ -1373,10 +1422,10 @@ fragment float4 blinn_lighting_fragment_t(VROBlinnLightingVertexOut in [[ stage_
 
 #pragma fragment_modifier_body
 
-    return _output_color;
+    return VROMakeLightingOut(_output_color, material);
 }
 
-fragment float4 blinn_lighting_fragment_t_reflect(VROBlinnLightingVertexOut in [[ stage_in ]],
+fragment VROLightingFragmentOut blinn_lighting_fragment_t_reflect(VROBlinnLightingVertexOut in [[ stage_in ]],
                                                   texture2d<float> diffuse_texture [[ texture(0) ]],
                                                   texture2d<float> specular_texture [[ texture(1) ]],
                                                   texturecube<float> reflect_texture [[ texture(2) ]],
@@ -1422,7 +1471,7 @@ fragment float4 blinn_lighting_fragment_t_reflect(VROBlinnLightingVertexOut in [
 
 #pragma fragment_modifier_body
 
-    return _output_color;
+    return VROMakeLightingOut(_output_color, material);
 }
 
 /* ---------------------------------------
