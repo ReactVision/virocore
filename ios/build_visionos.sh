@@ -65,6 +65,15 @@ cp "$SCRIPT_DIR/ViroKit/VisionOS/VRODriverVisionOS.h"      "$HEADERS_STAGING/"
 cp "$SCRIPT_DIR/ViroKit/VisionOS/VRORenderTargetMetal.h"   "$HEADERS_STAGING/"
 cp "$SCRIPT_DIR/ViroKit/VisionOS/VROMetalRenderPassHost.h" "$HEADERS_STAGING/"
 
+# freetype headers. VROGlyph.h and VROTypeface.h are public and include <ft2build.h>, so a
+# consumer of this xcframework cannot compile without them. Staging them here keeps the
+# xcframework self-contained instead of making every consumer add a search path.
+if [ -d "$SCRIPT_DIR/Libraries/freetype/include-visionos" ]; then
+  cp -R "$SCRIPT_DIR/Libraries/freetype/include-visionos/"* "$HEADERS_STAGING/"
+else
+  echo "warning: freetype headers not staged — run ./build_freetype_visionos.sh first" >&2
+fi
+
 # Umbrella header (must match target name: ViroKitVisionOS.h)
 cp "$SCRIPT_DIR/ViroKit/ViroKitVisionOS.h" "$HEADERS_STAGING/"
 
@@ -84,10 +93,32 @@ echo "--- Creating xcframework ---"
 rm -rf "$XCFW_OUT"
 mkdir -p "$(dirname "$XCFW_OUT")"
 
+# Merge freetype into the archive rather than shipping it separately. The iOS build links
+# the two as separate vendored libraries through the podspec; here the xcframework is the
+# whole delivery, so folding freetype in means a consumer needs no extra link line and
+# cannot end up with ViroKit's text code and no freetype behind it.
+MERGED_DIR="$BUILD_DIR/merged"
+rm -rf "$MERGED_DIR" && mkdir -p "$MERGED_DIR/xros" "$MERGED_DIR/xrsimulator"
+
+merge_freetype() {
+  local slice="$1" sdkdir="$2"
+  local viro="$BUILD_DIR/$sdkdir/libViroKitVisionOS.a"
+  local freetype="$SCRIPT_DIR/Libraries/freetype/$slice/libfreetype.a"
+  if [ -f "$freetype" ]; then
+    xcrun libtool -static -o "$MERGED_DIR/$slice/libViroKitVisionOS.a" "$viro" "$freetype" 2>/dev/null
+    echo "    $slice: ViroKit + freetype merged"
+  else
+    cp "$viro" "$MERGED_DIR/$slice/libViroKitVisionOS.a"
+    echo "    $slice: freetype not found — text will fail to link. Run ./build_freetype_visionos.sh"
+  fi
+}
+merge_freetype xros        "$CONFIGURATION-xros"
+merge_freetype xrsimulator "$CONFIGURATION-xrsimulator"
+
 xcodebuild -create-xcframework \
-  -library "$BUILD_DIR/$CONFIGURATION-xros/libViroKitVisionOS.a" \
+  -library "$MERGED_DIR/xros/libViroKitVisionOS.a" \
   -headers "$HEADERS_STAGING" \
-  -library "$BUILD_DIR/$CONFIGURATION-xrsimulator/libViroKitVisionOS.a" \
+  -library "$MERGED_DIR/xrsimulator/libViroKitVisionOS.a" \
   -headers "$HEADERS_STAGING" \
   -output "$XCFW_OUT"
 

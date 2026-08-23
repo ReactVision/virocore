@@ -26,13 +26,18 @@
 #include "VROMaterial.h"
 #include "VROVertexBuffer.h"
 #include "VROFrameScheduler.h"
+#include <ft2build.h>
+#include FT_FREETYPE_H
 #include <memory>
 #include <vector>
+#include <map>
 #include <string>
 #include <cstdint>
 
 // CPU-only vertex buffer: holds VROData for CPU-side operations (e.g. processTangent).
 // hydrate() is a no-op because VROGeometrySubstrateMetal creates its own MTLBuffer.
+class VROTypeface;
+
 class VROVertexBufferCPU final : public VROVertexBuffer {
 public:
     explicit VROVertexBufferCPU(std::shared_ptr<VROData> data) : VROVertexBuffer(data) {}
@@ -45,7 +50,12 @@ class VRODriverVisionOS : public VRODriverMetal,
 public:
 
     VRODriverVisionOS(id <MTLDevice> device);
-    virtual ~VRODriverVisionOS() {}
+    virtual ~VRODriverVisionOS() {
+        if (_freetype != nullptr) {
+            FT_Done_FreeType(_freetype);
+            _freetype = nullptr;
+        }
+    }
 
     // ── Frame plumbing ───────────────────────────────────────────────────────
     // The render loop supplies the frame's command buffer before rendering any eye.
@@ -197,9 +207,19 @@ public:
     }
     void setSoundRoom(float, float, float, std::string, std::string, std::string) override {}
 
-    // Typeface — not yet ported; pabort for debugging
-    std::shared_ptr<VROTypefaceCollection> newTypefaceCollection(std::string, int,
-                                                                  VROFontStyle, VROFontWeight) override;
+    /*
+     Text. freetype is built from source for xros (ios/build_freetype_visionos.sh) and the
+     library handle lives here, mirroring VRODriverOpenGLiOS. VROTypefaceiOS is reused as
+     is: its CoreText font lookup works on visionOS, and only the glyph implementation and
+     this handle differ from the iOS path.
+     */
+    std::shared_ptr<VROTypefaceCollection> newTypefaceCollection(std::string typefaceNames, int size,
+                                                                  VROFontStyle style,
+                                                                  VROFontWeight weight) override;
+
+    FT_Library getFreetype() {
+        return _freetype;
+    }
 
     std::shared_ptr<VROFrameScheduler> getFrameScheduler() override { return _frameScheduler; }
 
@@ -217,6 +237,12 @@ private:
     // The encoder currently open on _frameCommandBuffer, which must be ended
     // before any target can open another.
     id <MTLRenderCommandEncoder> _openEncoder = nil;
+
+    // freetype, initialised on first use and torn down with the driver.
+    FT_Library _freetype = nullptr;
+
+    // Typefaces are cached by name+size+style+weight so repeated text nodes share a face.
+    std::map<std::string, std::weak_ptr<VROTypeface>> _typefaces;
 
     // Fallback uniform bytes re-bound on every new encoder.
     std::vector<uint8_t> _fallbackUniformBytes;

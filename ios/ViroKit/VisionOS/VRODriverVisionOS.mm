@@ -7,6 +7,9 @@
 #include "VRORenderTargetMetal.h"
 #include "VROMetalPostProcess.h"
 #include "VROShaderProgram.h"
+#include "VROTypefaceiOS.h"
+#include "VROTypefaceCollection.h"
+#include "VROStringUtil.h"
 #include "VROTextureSubstrateMetal.h"
 #include "VROLog.h"
 #include "VROLight.h"
@@ -241,10 +244,25 @@ VROTextureSubstrate *VRODriverVisionOS::newTextureSubstrate(
 // ── Typeface ──────────────────────────────────────────────────────────────────
 
 std::shared_ptr<VROTypefaceCollection> VRODriverVisionOS::newTypefaceCollection(
-    std::string typefaces, int size, VROFontStyle style, VROFontWeight weight)
+    std::string typefaceNames, int size, VROFontStyle style, VROFontWeight weight)
 {
-    // Text rendering is not yet ported to Metal — Week 3 task.
-    pabort("VRODriverVisionOS: newTypefaceCollection not yet implemented for visionOS");
+    if (_freetype == nullptr) {
+        if (FT_Init_FreeType(&_freetype)) {
+            pinfo("VRODriverVisionOS: could not initialise freetype — text will not render");
+            return nullptr;
+        }
+    }
+
+    std::shared_ptr<VRODriver> driver = std::static_pointer_cast<VRODriver>(shared_from_this());
+
+    std::vector<std::shared_ptr<VROTypeface>> typefaces;
+    for (const std::string &name : VROStringUtil::split(typefaceNames, ",", true)) {
+        std::shared_ptr<VROTypeface> typeface =
+            std::make_shared<VROTypefaceiOS>(VROStringUtil::trim(name), size, style, weight, driver);
+        typeface->loadFace();
+        typefaces.push_back(typeface);
+    }
+    return std::make_shared<VROTypefaceCollection>(typefaces);
 }
 
 #endif  // VRO_METAL

@@ -52,6 +52,8 @@ header_paths = [
   '"$(SRCROOT)/../ViroRenderer/giflib"',
   '"$(SRCROOT)/../ViroRenderer/poly2tri"',
   '"$(SRCROOT)/../ViroRenderer/ucdn"',
+  # freetype, built from source for xros by ios/build_freetype_visionos.sh
+  '"$(SRCROOT)/Libraries/freetype/include-visionos"',
 ]
 target.build_configuration_list.set_setting('HEADER_SEARCH_PATHS', header_paths)
 
@@ -85,18 +87,14 @@ EXCLUDE_PATTERNS = [
   /OpenGL/i,
   /VRODriverOpenGL/i,
 
-  # Text subsystem — freetype + harfbuzz not yet compiled for xros (M5)
-  /Glyph/i,
-  /Typeface/i,
-  /VROText[^u]/i,          # VROText.cpp, VROTextTest, VROTextFormatter, VROTextureRef is OK
-  /VROFont/i,
-  /Charmap/i,
-  /VROContour/i,
-  /VROUCDN/i,
-  /Vectorizer/i,           # VROVectorizer — glyph/contour tessellation
-  /KnuthPlass/i,           # VROKnuthPlassFormatter — text layout
-  /VRODebugHUD/i,          # uses text rendering
-  /VROReticle/i,           # uses text rendering for debug overlay
+  # Text subsystem — freetype is now built from source for xros
+  # (ios/build_freetype_visionos.sh), so the text pipeline is in. Only the OpenGL glyph
+  # implementation is excluded; VROGlyphMetal / VROGlyphAtlasMetal replace it.
+  /VROGlyphOpenGL/i,
+  /VROGlyphAtlasOpenGL/i,
+  /VROTextTest/i,          # test harness, not production
+  /VRODebugHUD/i,          # debug overlay, not needed on visionOS
+  /VROReticle/i,           # Cardboard-era reticle; visionOS input comes from hands
 
   # FBX loader + protobuf helpers — needs protobuf (M5)
   /FBX/i,
@@ -206,6 +204,8 @@ OBJCPP_NAMES = %w[
   VROFixedParticleEmitter.cpp
   VROGLTFLoader.cpp
   VROShadowMapRenderPass.cpp
+  VROGlyphAtlasMetal.cpp
+  VROGlyphMetal.cpp
 ].freeze
 
 # Collect .cpp files from ViroRenderer/, splitting into plain C++ vs forced ObjC++
@@ -213,13 +213,19 @@ all_renderer_cpps = Dir.glob("#{RENDERER_DIR}/*.cpp").select { |f| !excluded?(f)
 renderer_cpps  = all_renderer_cpps.reject { |f| OBJCPP_NAMES.include?(File.basename(f)) }
 renderer_objcpp = all_renderer_cpps.select { |f| OBJCPP_NAMES.include?(File.basename(f)) }
 
+# poly2tri lives in a subdirectory, so the ViroRenderer/*.cpp glob above misses it. It is
+# the constrained-Delaunay triangulator VROGlyphMetal::loadVector uses for vector text.
+poly2tri_sources = Dir.glob("#{RENDERER_DIR}/poly2tri/**/*.cc")
+
 # ios/ViroKit files available on visionOS (UIKit, CoreVideo, Accelerate)
 ios_visionos_cpps = [
   "#{IOS_DIR}/VROVideoTextureCacheMetal.cpp",
   "#{IOS_DIR}/VROImageiOS.cpp",
+  # CoreText font lookup, shared with the iOS build; needs ObjC++.
+  "#{IOS_DIR}/VROTypefaceiOS.cpp",
 ].select { |f| File.exist?(f) }
 
-all_sources    = renderer_cpps + visionos_mm
+all_sources    = renderer_cpps + poly2tri_sources + visionos_mm
 objcpp_sources = renderer_objcpp + ios_visionos_cpps + visionos_objcpp
 
 # ── Add a group for the new target ───────────────────────────────────────────
