@@ -162,8 +162,7 @@ VROMaterialSubstrateMetal::VROMaterialSubstrateMetal(const VROMaterial &material
             break;
             
         case VROLightingModel::PhysicallyBased:
-            // Fallback to Blinn/Phong for PBR on Metal until native PBR is implemented
-            loadBlinnLighting(material, library, device, driver);
+            loadPBRLighting(material, library, device, driver);
             break;
 
         default:
@@ -400,6 +399,25 @@ void VROMaterialSubstrateMetal::loadPhongLighting(const VROMaterial &material,
     _program = getPooledShader(vertexProgram, fragmentProgram, library);
 }
 
+void VROMaterialSubstrateMetal::loadPBRLighting(const VROMaterial &material,
+                                               id <MTLLibrary> library, id <MTLDevice> device,
+                                               VRODriverMetal &driver) {
+    std::string vertexProgram = "pbr_lighting_vertex";
+    std::string fragmentProgram;
+
+    VROMaterialVisual &diffuse = material.getDiffuse();
+    if (diffuse.getTextureType() == VROTextureType::None) {
+        fragmentProgram = "pbr_lighting_fragment_c";
+    } else {
+        fragmentProgram = "pbr_lighting_fragment_t";
+        _textures.push_back(diffuse.getTexture());
+    }
+
+    _fragmentProgramName = fragmentProgram;
+    _programLibrary = library;
+    _program = getPooledShader(vertexProgram, fragmentProgram, library);
+}
+
 void VROMaterialSubstrateMetal::loadBlinnLighting(const VROMaterial &material,
                                                   id <MTLLibrary> library, id <MTLDevice> device,
                                                   VRODriverMetal &driver) {
@@ -613,6 +631,7 @@ void VROMaterialSubstrateMetal::bindLights(int lightsHash,
             light_uniforms.attenuation_falloff_exp = light->getAttenuationFalloffExponent();
             light_uniforms.spot_inner_angle = degrees_to_radians(light->getSpotInnerAngle());
             light_uniforms.spot_outer_angle = degrees_to_radians(light->getSpotOuterAngle());
+            light_uniforms.intensity = light->getIntensity();
 
             // Shadowing. VROShadowPreprocess assigns each shadow-casting light a slice
             // of the shadow map array and leaves the index at -1 otherwise, which is what

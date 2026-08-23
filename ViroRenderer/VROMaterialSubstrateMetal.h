@@ -133,6 +133,9 @@ private:
     void loadPhongLighting(const VROMaterial &material,
                            id <MTLLibrary> library, id <MTLDevice> device,
                            VRODriverMetal &driver);
+    void loadPBRLighting(const VROMaterial &material,
+                         id <MTLLibrary> library, id <MTLDevice> device,
+                         VRODriverMetal &driver);
     void loadBlinnLighting(const VROMaterial &material,
                            id <MTLLibrary> library, id <MTLDevice> device,
                            VRODriverMetal &driver);

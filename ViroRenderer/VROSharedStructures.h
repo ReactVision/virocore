@@ -45,6 +45,10 @@ typedef struct {
     float spot_inner_angle;
     float spot_outer_angle;
 
+    // Photometric intensity, used by the physically based model to turn a colour into
+    // radiance. The Lambert/Phong/Blinn models ignore it.
+    float intensity;
+
     // Shadowing. shadow_map_index is the slice of the shadow map texture array this
     // light rendered into, or -1 when the light casts no shadow.
     int   shadow_map_index;

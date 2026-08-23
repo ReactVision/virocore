@@ -38,6 +38,10 @@ typedef struct {
     float spot_inner_angle;
     float spot_outer_angle;
 
+    // Photometric intensity, used by the physically based model to turn a colour into
+    // radiance. The Lambert/Phong/Blinn models ignore it.
+    float intensity;
+
     // Shadowing. shadow_map_index is the slice of the shadow map texture array this
     // light rendered into, or -1 when the light casts no shadow.
     int   shadow_map_index;
@@ -1583,6 +1587,245 @@ typedef struct {
     float2 texcoord;
     float  vignette;
 } VRODistortionVertexOut;
+
+/* ---------------------------------------
+   PHYSICALLY BASED LIGHTING MODEL
+   --------------------------------------- */
+//
+// Cook-Torrance specular BRDF with a Lambertian diffuse term — the same construction the
+// OpenGL path assembles from pbr_fsh.glsl, written out directly here because Metal has no
+// runtime shader assembly.
+//
+// Image-based lighting is not wired up yet: with no irradiance or prefiltered environment
+// map the ambient term falls back to the scene's ambient colour, which is why a PBR
+// material still needs an analytic light to be visible. That is the remaining gap versus
+// the OpenGL path, not a difference in the direct-lighting maths.
+
+constant float kVROPi = 3.14159265359;
+
+static float3 vro_fresnel_schlick(float cos_theta, float3 F0) {
+    return F0 + (1.0 - F0) * pow(clamp(1.0 - cos_theta, 0.0, 1.0), 5.0);
+}
+
+// Trowbridge-Reitz GGX: how much of the surface's microfacets align with the halfway
+// vector, driven by roughness.
+static float vro_distribution_ggx(float3 N, float3 H, float roughness) {
+    const float a  = roughness * roughness;
+    const float a2 = a * a;
+    const float NdotH  = max(dot(N, H), 0.0);
+    const float NdotH2 = NdotH * NdotH;
+    float denom = (NdotH2 * (a2 - 1.0) + 1.0);
+    denom = kVROPi * denom * denom;
+    return a2 / max(denom, 1e-7);
+}
+
+// Schlick-GGX: microfacet self-shadowing for one direction.
+static float vro_geometry_schlick_ggx(float NdotX, float roughness) {
+    const float r = roughness + 1.0;
+    const float k = (r * r) / 8.0;
+    return NdotX / max(NdotX * (1.0 - k) + k, 1e-7);
+}
+
+// Smith: combines view obstruction with light shadowing.
+static float vro_geometry_smith(float3 N, float3 V, float3 L, float roughness) {
+    return vro_geometry_schlick_ggx(max(dot(N, V), 0.0), roughness)
+         * vro_geometry_schlick_ggx(max(dot(N, L), 0.0), roughness);
+}
+
+static float vro_smooth_distance_attenuation(float squared_distance,
+                                             float inv_squared_attenuation_radius) {
+    const float factor = squared_distance * inv_squared_attenuation_radius;
+    const float smooth_factor = clamp(1.0 - factor * factor, 0.0, 1.0);
+    return smooth_factor * smooth_factor;
+}
+
+// Physically based attenuation: inverse-square falloff with a smooth cutoff at the
+// light's end distance, scaled by luminous intensity.
+static float vro_attenuation_pbr(constant VROLightUniforms &light, float3 surface_pos,
+                                 thread float3 *L) {
+    // Directional
+    if (light.type == 1) {
+        *L = -normalize(light.direction);
+        return light.intensity / 1000.0;
+    }
+
+    const float3 unnormalized = light.position - surface_pos;
+    *L = normalize(unnormalized);
+
+    const float end = max(light.attenuation_end_distance, 1e-3);
+    const float inv_radius_sq = 1.0 / (end * end);
+    const float squared_distance = dot(unnormalized, unnormalized);
+
+    float attenuation = 1.0 / max(squared_distance, 0.0001);
+    attenuation *= vro_smooth_distance_attenuation(squared_distance, inv_radius_sq);
+    attenuation *= light.intensity / kVROPi;
+
+    // Spot cone
+    if (light.type == 3) {
+        const float angle = acos(clamp(dot(-*L, normalize(light.direction)), -1.0, 1.0));
+        if (angle > light.spot_inner_angle) {
+            const float t = (angle - light.spot_inner_angle) / max(light.spot_outer_angle, 1e-3);
+            attenuation = mix(attenuation, 0.0, clamp(t, 0.0, 1.0));
+        }
+    }
+    return attenuation;
+}
+
+typedef struct {
+    float4 position [[ position ]];
+    float2 texcoord;
+    float4 color;
+
+    float3 surface_position;
+    float3 camera_position;
+    float3 normal;
+
+    float3 ambient_color;
+    // Particle instancing: which instance this vertex belongs to, so the fragment
+    // stage can index particle_colors. Flat — an instance index must not interpolate.
+    uint   instance_id [[ flat ]];
+} VROPBRLightingVertexOut;
+
+vertex VROPBRLightingVertexOut pbr_lighting_vertex(VRORendererAttributes attributes [[ stage_in ]],
+                                                  constant VROViewUniforms &view [[ buffer(1) ]],
+                                                  constant VROMaterialUniforms &material [[ buffer(2) ]],
+                                                  constant VROCustomUniforms &_custom [[ buffer(3) ]],
+                                                  constant VROSceneLightingUniforms &lighting [[ buffer(4) ]],
+                                                  constant float4x4 *bone_matrices [[ buffer(5) ]],
+                                                  constant float4x4 *particle_transforms [[ buffer(7) ]],
+                                                  uint v_instance_id [[ instance_id ]]) {
+
+#pragma geometry_modifier_uniforms
+#pragma vertex_modifier_uniforms
+
+    VROPBRLightingVertexOut out;
+
+    VROShaderGeometry _geometry;
+    _geometry.position = attributes.position;
+    _geometry.normal = attributes.normal;
+    _geometry.texcoord = attributes.texcoord;
+    _geometry.color = attributes.color;
+    _geometry.bone_weights = attributes.bone_weights;
+    _geometry.bone_indices = attributes.bone_indices;
+
+    VROTransforms _transforms;
+    _transforms.model_matrix = view.model_matrix;
+    _transforms.view_matrix = view.view_matrix;
+    _transforms.projection_matrix = view.projection_matrix;
+    _transforms.normal_matrix = view.normal_matrix;
+    _transforms.modelview_matrix = view.modelview_matrix;
+
+#pragma geometry_modifier_body
+
+    const float3 v_position = (_transforms.model_matrix * float4(_geometry.position, 1.0)).xyz;
+
+    VROShaderVertex _vertex;
+    _vertex.position = view.modelview_projection_matrix * float4(_geometry.position, 1.0);
+
+#pragma vertex_modifier_body
+
+    out.position = _vertex.position;
+    out.instance_id = v_instance_id;
+    out.texcoord = _geometry.texcoord;
+    out.color = _geometry.color;
+    out.surface_position = v_position;
+    out.camera_position = view.camera_position;
+    out.normal = normalize((_transforms.normal_matrix * float4(_geometry.normal, 0.0)).xyz);
+    out.ambient_color = lighting.ambient_light_color;
+
+    return out;
+}
+
+// Shared body: `albedo` already carries the material colour (from a uniform or a texture).
+static float4 vro_pbr_shade(VROPBRLightingVertexOut in,
+                            float4 albedo,
+                            constant VROMaterialUniforms &material,
+                            constant VROSceneLightingUniforms &lighting,
+                            depth2d_array<float> shadow_map) {
+    VROSurface _surface;
+    _surface.diffuse_color = albedo;
+    _surface.diffuse_texcoord = in.texcoord;
+    _surface.specular_color = float4(0.0);
+    _surface.specular_texcoord = in.texcoord;
+    _surface.shininess = material.shininess;
+    // Clamped: a roughness of zero makes the GGX denominator collapse.
+    _surface.roughness = max(material.roughness, 0.06);
+    _surface.metalness = material.metalness;
+    _surface.ao = material.ao;
+    _surface.alpha = material.alpha;
+    _surface.normal = normalize(in.normal);
+    _surface.position = in.surface_position;
+    _surface.view = normalize(in.camera_position - in.surface_position);
+
+    // Shader modifiers are not injected on the PBR path yet. The surface/fragment
+    // modifier directives cannot live in this helper — it has no access to the injected
+    // uniforms or to _custom — and putting them here made every material that carries a
+    // modifier fail the runtime library compile, which takes the whole scene down with it.
+    // Supporting them means inlining this shading into each entry point.
+
+    const float3 N = normalize(_surface.normal);
+    const float3 V = _surface.view;
+    const float3 base_color = _surface.diffuse_color.rgb;
+
+    // Dielectrics reflect ~4% at normal incidence; metals reflect their own colour.
+    const float3 F0 = mix(float3(0.04), base_color, _surface.metalness);
+
+    float3 radiance_out = float3(0.0);
+    for (int i = 0; i < lighting.num_lights; i++) {
+        thread float3 L;
+        const float attenuation = vro_attenuation_pbr(lighting.lights[i], _surface.position, &L);
+        const float shadow = compute_shadow(lighting, i, _surface.position, shadow_map);
+        const float NdotL = max(dot(N, L), 0.0);
+        if (NdotL <= 0.0 || attenuation <= 0.0) {
+            continue;
+        }
+        const float3 H = normalize(V + L);
+        const float3 radiance = lighting.lights[i].color * attenuation * shadow;
+
+        const float  NDF = vro_distribution_ggx(N, H, _surface.roughness);
+        const float  G   = vro_geometry_smith(N, V, L, _surface.roughness);
+        const float3 F   = vro_fresnel_schlick(max(dot(H, V), 0.0), F0);
+
+        const float3 numerator = NDF * G * F;
+        const float denominator = 4.0 * max(dot(N, V), 0.0) * NdotL + 1e-4;
+        const float3 specular = numerator / denominator;
+
+        // Metals have no diffuse response, and energy taken by the specular lobe is not
+        // available to the diffuse one.
+        const float3 kD = (float3(1.0) - F) * (1.0 - _surface.metalness);
+
+        radiance_out += (kD * base_color / kVROPi + specular) * radiance * NdotL;
+    }
+
+    // Ambient stands in for image-based lighting until VROIBLPreprocess has a Metal
+    // implementation; with an irradiance map this term becomes the diffuse and specular
+    // environment contributions.
+    const float3 ambient = in.ambient_color * base_color * _surface.ao;
+
+    return float4(ambient + radiance_out, _surface.alpha * _surface.diffuse_color.a);
+}
+
+fragment VROLightingFragmentOut pbr_lighting_fragment_c(VROPBRLightingVertexOut in [[ stage_in ]],
+                                             constant VROMaterialUniforms &material [[ buffer(2) ]],
+                                             constant VROCustomUniforms &_custom [[ buffer(3) ]],
+                                             constant VROSceneLightingUniforms &lighting [[ buffer(4) ]],
+                                             constant float4 *particle_colors [[ buffer(7) ]],
+                                             depth2d_array<float> shadow_map [[ texture(4) ]]) {
+    const float4 color = vro_pbr_shade(in, material.diffuse_surface_color, material, lighting, shadow_map);
+    return VROMakeLightingOut(color, material);
+}
+
+fragment VROLightingFragmentOut pbr_lighting_fragment_t(VROPBRLightingVertexOut in [[ stage_in ]],
+                                             texture2d<float> diffuse_texture [[ texture(0) ]],
+                                             constant VROMaterialUniforms &material [[ buffer(2) ]],
+                                             constant VROCustomUniforms &_custom [[ buffer(3) ]],
+                                             constant VROSceneLightingUniforms &lighting [[ buffer(4) ]],
+                                             constant float4 *particle_colors [[ buffer(7) ]],
+                                             depth2d_array<float> shadow_map [[ texture(4) ]]) {
+    const float4 albedo = diffuse_texture.sample(s, in.texcoord) * material.diffuse_surface_color;
+    const float4 color = vro_pbr_shade(in, albedo, material, lighting, shadow_map);
+    return VROMakeLightingOut(color, material);
+}
 
 vertex VRODistortionVertexOut distortion_vertex(VRODistortionAttributes attributes [[ stage_in ]],
                                                 constant VRODistortionUniforms &uniforms [[ buffer(1) ]]) {
