@@ -43,6 +43,7 @@
 package com.viro.core;
 
 import android.Manifest;
+import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.graphics.ImageFormat;
@@ -335,6 +336,11 @@ public class CameraTexture extends Texture {
         stopBackgroundThread();
     }
 
+    // Lint can't see that the CAMERA permission is verified below via
+    // ContextCompat.checkSelfPermission (early-return guard), so it false-positives
+    // MissingPermission on openCamera() and fails :viroreact:lintDebug. The runtime check
+    // is real — suppress the false positive.
+    @SuppressLint("MissingPermission")
     private void openCamera() {
         Context ctx = mAppContext;
         if (ctx == null) { Log.e(TAG, "openCamera: no application context"); return; }

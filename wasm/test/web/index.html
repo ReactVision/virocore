@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en-us">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <title>Viro Web — Phase 0 cube</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #1a1a1f; }
+      #wrap { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 16px; }
+      #viroCanvas { width: 90vw; max-width: 800px; aspect-ratio: 4 / 3; display: block; background: #000; touch-action: none; }
+      #status { font: 13px/1.4 -apple-system, system-ui, sans-serif; color: #9aa; }
+    </style>
+  </head>
+  <body>
+    <div id="wrap">
+      <canvas id="viroCanvas"></canvas>
+      <div id="status">loading WASM module…</div>
+    </div>
+
+    <!-- viro-web.js is the MODULARIZE + EXPORT_ES6 glue emitted next to
+         viro-web.wasm and viro-web.data. All three must be served together. -->
+    <script type="module">
+      import ViroWeb from "./viro-web.js";
+
+      const canvas = document.getElementById("viroCanvas");
+      const status = document.getElementById("status");
+
+      // Size the canvas backing store to its displayed size × devicePixelRatio.
+      function sizeCanvas() {
+        const dpr = window.devicePixelRatio || 1;
+        const rect = canvas.getBoundingClientRect();
+        canvas.width = Math.max(1, Math.round(rect.width * dpr));
+        canvas.height = Math.max(1, Math.round(rect.height * dpr));
+        return { w: canvas.width, h: canvas.height };
+      }
+
+      async function main() {
+        const { w, h } = sizeCanvas();
+        try {
+          // Passing `canvas` sets Module.canvas so emscripten's GL layer can
+          // find the target; we also pass the selector to initViroScene.
+          const mod = await ViroWeb({ canvas });
+          status.textContent = "module ready — starting render loop";
+          mod.initViroScene("#viroCanvas", w, h);
+          status.textContent = "rendering (spinning cube)";
+
+          window.addEventListener("resize", () => {
+            const s = sizeCanvas();
+            mod.setViroSceneSize(s.w, s.h);
+          });
+        } catch (err) {
+          status.textContent = "failed to init: " + err;
+          console.error(err);
+        }
+      }
+
+      main();
+    </script>
+  </body>
+</html>

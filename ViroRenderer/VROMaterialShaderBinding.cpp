@@ -28,6 +28,7 @@
 #include "VROShaderProgram.h"
 #include "VROShaderModifier.h"
 #include "VROUniform.h"
+#include "VROVector2f.h"
 #include "VROVector3f.h"
 #include "VROMatrix4f.h"
 #include "VROMaterial.h"
@@ -317,7 +318,7 @@ void VROMaterialShaderBinding::bindMaterialUniforms(const VROMaterial &material,
         _emissiveColorUniform->setVec3({ emissiveColor.x, emissiveColor.y, emissiveColor.z });
     }
 
-    // Bind custom shader uniforms (floats, vec3s, vec4s, mat4s)
+    // Bind custom shader uniforms (floats, vec2s, vec3s, vec4s, mat4s)
 
     // Bind float uniforms
     std::map<std::string, float> floats = material.getShaderUniformFloats();
@@ -325,6 +326,15 @@ void VROMaterialShaderBinding::bindMaterialUniforms(const VROMaterial &material,
         VROUniform *uniform = _program->getUniform(uniformPair.first);
         if (uniform != nullptr) {
             uniform->setFloat(uniformPair.second);
+        }
+    }
+
+    // Bind vec2 uniforms
+    std::map<std::string, VROVector2f> vec2s = material.getShaderUniformVec2s();
+    for (const auto &uniformPair : vec2s) {
+        VROUniform *uniform = _program->getUniform(uniformPair.first);
+        if (uniform != nullptr) {
+            uniform->setVec2(uniformPair.second);
         }
     }
 

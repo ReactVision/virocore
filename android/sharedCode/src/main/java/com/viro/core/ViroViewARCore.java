@@ -1077,6 +1077,13 @@ public class ViroViewARCore extends ViroView {
      */
     public void setCameraImageListener(ViroContext context, CameraImageListener listener) {
         mCameraImageListener = listener;
+        // Guard against teardown races: if this view or its native renderer/context has
+        // already been destroyed (e.g. the AR scene unmounted, or the app was backgrounded,
+        // while a consumer detaches its listener), skip the native call. Passing a freed
+        // renderer/context ref to nativeSetCameraImageListener crashes natively (SIGSEGV).
+        if (mDestroyed || mNativeRenderer == null || context == null || context.getNativeRef() == 0) {
+            return;
+        }
         ((RendererARCore) mNativeRenderer).setCameraImageListener(context, listener);
     }
 

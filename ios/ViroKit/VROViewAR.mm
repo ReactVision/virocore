@@ -414,6 +414,14 @@ static inline VROMatrix4f viroGLConvTransform(VROMatrix4f t) {
 }
 
 - (void)deleteGL {
+    // Stop receiving UIApplication lifecycle notifications as soon as teardown begins.
+    // Otherwise a background/foreground transition after the AR scene is navigated away
+    // (but before this view is fully deallocated) delivers applicationWillResignActive: to
+    // a torn-down view — touching a freed display link / AR session, or crashing with
+    // "unrecognized selector sent to deallocated instance" (GitHub #399). dealloc also
+    // removes observers; removeObserver:self is idempotent so the double-remove is safe.
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+
     // Clean up view recorder first
     [self.viewRecorder deleteGL];
 
@@ -798,6 +806,14 @@ static inline VROMatrix4f viroGLConvTransform(VROMatrix4f t) {
      */
     std::shared_ptr<VROARScene> scene = std::dynamic_pointer_cast<VROARScene>(_arSession->getScene());
     scene->updateAmbientLight(frame->getAmbientLightIntensity(), frame->getAmbientLightColor());
+
+    /*
+     Notify the scene once depth (LiDAR or monocular) first becomes available, so the
+     app knows hit tests can now return DepthPoints. notifyDepthReady() is one-shot.
+     */
+    if (frame->hasDepthData()) {
+        scene->notifyDepthReady();
+    }
 }
 
 - (void)renderWithTracking:(const std::shared_ptr<VROARCamera>) camera
@@ -865,22 +881,6 @@ static inline VROMatrix4f viroGLConvTransform(VROMatrix4f t) {
 
     _pointOfView->getCamera()->setPosition(position);
     _renderer->prepareFrame(_frame, viewport, fov, rotation, projection, _driver);
-
-    // Occlusion debug logging (every 90 frames ≈ every 3 sec)
-    static int occDebugCounter = 0;
-    if (occDebugCounter++ % 90 == 0) {
-        NSLog(@"[ViroOcclusion] mode=%d tex=%p hydrated=%d occEnabled=%d",
-              (int)occlusionMode, depthTexture.get(),
-              depthTexture ? depthTexture->isHydrated() : -1,
-              depthTexture && occlusionMode == VROOcclusionMode::DepthBased ? 1 : 0);
-        if (depthTexture) {
-            NSLog(@"[ViroOcclusion] depthTex=%dx%d  scaleFillTransform=[%.3f %.3f | %.3f %.3f | tx=%.3f ty=%.3f]",
-                  depthTexture->getWidth(), depthTexture->getHeight(),
-                  depthTextureTransform[0], depthTextureTransform[4],
-                  depthTextureTransform[1], depthTextureTransform[5],
-                  depthTextureTransform[12], depthTextureTransform[13]);
-        }
-    }
 
     _renderer->renderEye(VROEyeType::Monocular, _renderer->getLookAtMatrix(), projection, viewport, _driver);
     _renderer->renderHUD(VROEyeType::Monocular, VROMatrix4f::identity(), projection, _driver);

@@ -45,7 +45,7 @@ public:
      * xrAttachSessionActionSets. Must be called before the session enters
      * XR_SESSION_STATE_READY.
      */
-    bool createActionSet(XrInstance instance, XrSession session);
+    bool createActionSet(XrInstance instance, XrSession session, bool eyeGazeSupported = false);
 
     /*
      * Destroy controller action spaces. Call before xrDestroySession.
@@ -137,6 +137,14 @@ private:
     // ── Action spaces for aim poses ───────────────────────────────────────────
     XrSpace _leftSpace  = XR_NULL_HANDLE;
     XrSpace _rightSpace = XR_NULL_HANDLE;
+
+    // ── Eye gaze (XR_EXT_eye_gaze_interaction; Quest Pro only) ────────────────
+    // Additive input source: when the device reports eye-tracking support, the
+    // gaze pose drives an extra ViroOculus::EyeGaze ray that feeds the same
+    // hit-test / onHover path as the controllers. Disabled (no-op) otherwise.
+    XrAction _eyeGazePoseAction = XR_NULL_HANDLE;
+    XrSpace  _eyeGazeSpace      = XR_NULL_HANDLE;
+    bool     _eyeGazeEnabled    = false;
 
     // ── Back button callback ──────────────────────────────────────────────────
     std::function<void()> _backButtonCallback;

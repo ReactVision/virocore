@@ -1,5 +1,122 @@
 # CHANGELOG
 
+## v2.58.1 — 17 August 2026
+
+### Fixed
+
+- **Recorded AR session video had scrambled colour (Android).** `ARSessionRecorder` configures its encoder with `COLOR_FormatYUV420Flexible` and then wrote a tightly-packed planar I420 blob straight into `getInputBuffer()`. Flexible is an *abstract* format — it promises 8-bit 4:2:0, not a byte layout — and the concrete layout is device-specific, commonly NV12 semi-planar (chroma interleaved, `pixelStride` 2) with a row stride wider than the frame. Luma survived, because its stride usually does match the width, so the recording looked sharp and correctly framed; chroma landed in the wrong bytes, painting large green/magenta blocks whose edges fall on the chroma-plane boundaries (at width/2 and height/2). Frames are now written through `MediaCodec.getInputImage()`, copying each plane with the encoder's real `rowStride`/`pixelStride`, which is correct on planar and semi-planar devices alike. The old packed write is kept only as a fallback for codecs that expose no input `Image`, and logs once when it is used.
+- **iOS wrote the IMU in G, Android in m/s².** `session.jsonl` has one schema for both platforms, but CoreMotion reports acceleration in units of gravity while Android's `TYPE_ACCELEROMETER`/`TYPE_GRAVITY` report m/s² — so the same field meant two different things, off by a factor of 9.81, on every `imu.accel` and `pose.gravity` value iOS ever wrote. A consumer integrating acceleration was wrong by exactly that factor. iOS now scales both to m/s², which is the side the gyro already agreed with (rad/s on both) and the convention the SLAM engine expects. Measured against tinyvio on a real recording, this took tracking from **0% of frames to 96%**.
+- **iOS emitted more pose lines than the video had frames.** ARKit can deliver the same frame twice; both copies got a `pose` line and an `appendPixelBuffer` at an identical presentation time, the muxer rejected the repeated timestamp and dropped that frame, and the sidecar was left one pose long. Since the format pairs poses to frames by array position, every pose after the duplicate described the wrong frame. Duplicate frames are now dropped whole, pose included — matching what the Android recorder already did implicitly. A pose line is likewise only written once its frame has actually reached the encoder, so the pairing also survives a frame the encoder refuses; a session that loses video entirely still keeps its full IMU/pose sidecar.
+- **Recorded AR session video played sideways (iOS and Android).** `video.mp4` carried no rotation at all on either platform, so players showed the sensor-native landscape frame however the device was held — ARKit's `capturedImage` and ARCore's camera image are both delivered in the sensor's landscape orientation regardless of how the phone is held. Both recorders now write a display matrix for a quarter turn clockwise on playback: Android via `MediaMuxer.setOrientationHint()` using the rear camera's `SENSOR_ORIENTATION` (falling back to 90°), iOS via `AVAssetWriterInput.transform`. This is deliberately **container-level only**: the encoded frames stay sensor-native and therefore still match the `fx`/`fy`/`cx`/`cy` and `width`/`height` recorded in `session.jsonl`. Rotating the pixels instead would have invalidated those intrinsics for every consumer of the dataset.
+
+### Migration
+
+- **Consumers that decode `video.mp4` for tracking must opt out of the rotation.** ffmpeg applies a display matrix on decode by default, which would hand a tracker portrait frames while `ffprobe` (which ignores the matrix) still reports the landscape width/height that `session.jsonl`'s intrinsics describe — geometry silently wrong, no error raised. Pass `-noautorotate`. Recordings made before this release carry no matrix, so the flag is a no-op on them and the change is safe to adopt in any order. Playback and preview paths, where upright is what you want, need no change.
+- **`imu.accel` and `pose.gravity` from iOS are now m/s², where they used to be G.** Android was always m/s² and is unchanged. The recording format only shipped in 2.58.0, so in practice there is no earlier iOS data to reconcile.
+- Pairs with `@reactvision/react-viro` 2.58.1.
+
+## v2.58.0 — 16 August 2026
+
+### Added
+
+- **AR Session Recording.** `VROARSession` gains an optional recording surface (`startRecording`/`stopRecording`/`getRecordingStatus`, defaulting to unsupported) that captures a session to local storage — `video.mp4` (H.264, muxed directly from the same camera frames already flowing to the AR background) plus `session.jsonl` (camera intrinsics, raw IMU sampled independently of the AR session, and the platform's own fused pose kept only as ground truth) — for **offline** analysis/replay via `tinyvio`, not in-app playback. Implemented on iOS (`VROARSessionRecorderIOS`: `AVAssetWriter` + a dedicated `CMMotionManager` tap) and Android (`ARSessionRecorder`: `MediaCodec`/`MediaMuxer` in buffer mode + a `SensorManager` tap, muxing/sidecar entirely in Java — the native side only pulls a YUV image + pose + intrinsics out of the ARCore frame per frame). Both platforms buffer `imu`/`pose` sidecar lines and flush them sorted by timestamp at `stop()`, so the merged file holds the documented monotonic order even though IMU and pose are captured on different threads/queues at different rates; on iOS, `stop()` and the per-frame capture callback now share a lock so the video file can't be finalized while a frame is mid-append, closing a race that could otherwise leave `video.mp4` without its `moov` atom (unplayable).
+
+### Fixed
+
+- **glTF: sparse accessors and non-indexed (draw-arrays) primitives.** A sparse-only accessor can legally leave `bufferView` unset (implicit all-zero base) — `materializeAccessorData` now densifies it into a tightly-packed buffer instead of failing on the missing byteOffset/byteLength window. Primitives with no `indices` (legal per spec, draw-arrays style) are no longer rejected; `processVertexElement` synthesizes sequential indices (VIRO-3664).
+
+## v2.57.5 — 26 July 2026
+
+### Added
+
+- **Eye-gaze input source on Meta Quest via `XR_EXT_eye_gaze_interaction`.** When the OpenXR runtime reports eye-tracking support (Quest Pro only), `VROSceneRendererOpenXR` enables the extension and probes `supportsEyeGazeInteraction`; `VROInputControllerOpenXR` then creates an eye-gaze pose action/space (interaction profile `/interaction_profiles/ext/eye_gaze_interaction`, `/user/eyes_ext/input/gaze_ext/pose`) and dispatches it as an additional input source (`ViroOculus::EyeGaze`) feeding the existing hit-test / hover pipeline — surfaced in React as the new `onGaze` prop (see `@reactvision/react-viro` 2.57.5). The `com.oculus.permission.EYE_TRACKING` permission is declared in the manifests. Degrades to a no-op on headsets without eye-tracking hardware (Quest 2 / 3 / 3S).
+- **Per-frame video watermark support (Android).** New `ViroMediaRecorder.setWatermark(bitmap, widthFraction, bottomMarginFraction)` / `clearWatermark()`: the native record pass composites the watermark as an alpha-blended GL quad into each recorded frame before the encoder swap (aspect-preserved, bottom-center). This gives the react-viro bridge a way to burn the free-tier watermark into video, at parity with iOS's CoreImage compositing.
+
+### Fixed
+
+- **Crash loading animated glTF models with a zero-duration animation channel.** A skeletal channel whose keyframes span zero duration (e.g. a single keyframe at t=0 — legal glTF, a common export artifact for a statically-posed bone) caused a divide-by-zero in `VROGLTFLoader::convertChannelToKeyFrameAnimation`, producing `NaN`/`inf` keyframe times. Those then violated strict-weak-ordering inside `std::sort` in `resampleSkeletalChannelsToCommonGrid`, corrupting the heap → `SIGSEGV` on load. The time normalizer now guards against a zero/negative duration (leaving times at 0), and the resample skips non-finite values before sorting.
+- **Media recording writes to app-specific storage (Android).** `ViroMediaRecorder`'s `getMediaStorageDirectory` now targets app-specific external storage — writable on every API level without a runtime storage permission — instead of the public directory that throws `EACCES` under scoped storage on API 29+, so recordings/screenshots are always produced. Gallery publishing is handled scoped-safely by the bridge (`@reactvision/react-viro` 2.57.5). The recording permission check no longer requires `WRITE_EXTERNAL_STORAGE` above API 28.
+- **AR anchor use-after-free hardening.** `nativeCreateAnchoredNode` now null-checks the `VROARSceneController` ref (`VRO_REF_NULL`) and the resolved scene before dereferencing, so a stale/zeroed ref — e.g. an anchor retry racing scene teardown — returns null (an already-handled "anchoring failed" path) instead of crashing. The primary fix lives in `@reactvision/react-viro` 2.57.5's `VRTNode` guard.
+
+## v2.57.3 — 2 July 2026
+
+### Changed
+
+- **Front-camera AR no longer references the ARKit face-tracking / TrueDepth API in core (iOS).** `VROARSessioniOS` previously instantiated `ARFaceTrackingConfiguration` directly whenever `frontCameraEnabled` was set — so the TrueDepth symbol was compiled into every ViroKit binary and Apple's static App Store scan (Guideline 2.5.1) flagged *all* apps, even rear-camera-only ones that never touch the front camera. The front-camera path now consults a process-wide configuration provider (`VROARSessioniOS::setFrontCameraConfigProvider`) and runs whatever `ARConfiguration` it returns via `-runWithConfiguration:` (config was already stored/run as the base class, so nothing downstream changed); when no provider is registered it falls through to world tracking. A new Objective-C registration host, `VROFrontCameraProvider`, forwards to that setter and is discovered at runtime via `NSClassFromString` by the optional [`@reactvision/react-viro-face-tracking`](https://www.npmjs.com/package/@reactvision/react-viro-face-tracking) package, which is now the *only* place that references `ARFaceTrackingConfiguration`. Result: the core ViroKit binary is free of the TrueDepth API, and only apps that opt into front-camera face tracking carry (and declare) it.
+
+### Fixed
+
+- **ViroVideo Android lifecycle crash & ANR fixed (viro#478).** (1) `AVPlayer` guards its ExoPlayer listener callbacks with a `mDestroyed` flag set before release, so callbacks arriving after the native `VROAVPlayer` is deleted no longer reach freed memory (the background/foreground crash). (2) The GL render thread no longer blocks on the main thread calling ExoPlayer: `getCurrentTimeInSeconds()`/`getVideoDurationInSeconds()` read a main-thread-refreshed `volatile` cache, and `play()`/`pause()` are fire-and-forget — removing a deadlock against `GLSurfaceView.surfaceDestroyed()` that froze/ANR'd the app when leaving a ViroVideo screen (also per-frame playback jank). `nativeDeleteVideoTexture` no longer pauses on the GL thread before delete, and `destroy()` posts `ExoPlayer.release()` off the teardown call.
+- **AR hit-test results derived from depth data can now be anchored (iOS).** `createAnchoredNodeAtHitLocation()` returned null when a hit result had no underlying `ARHitTestResult` — e.g. a depth-synthesized `DepthPoint` — so `createAnchoredNode` failed with "hit result type does not support anchors". It now builds the `ARAnchor` from the result's own world transform in that case.
+- **iOS LiDAR `depthConfidence` now reports real confidence instead of the depth value.** In AR hit-test results the LiDAR confidence was sampled with `sampleDepthTextureAtUV()`, which always reads `ARFrame.sceneDepth.depthMap` regardless of the texture passed — so `depthConfidence` returned the depth (in metres) rather than a confidence. A dedicated `sampleConfidenceAtUV()` now reads ARKit's `sceneDepth.confidenceMap` (`ARConfidenceLevel`) and normalises it to `[0,1]` (low=0.0, medium=0.5, high=1.0; `-1.0` when unavailable). The existing LiDAR confidence gate (`> 0.3`) now works as intended, discarding low-confidence depth hits. The monocular path was unaffected.
+- **Android 15+ 16 KB launch crash — removed the non-compliant `libvrapi.so` (viro#491).** v2.57.2 aligned every `PT_LOAD` segment to ≥ 16 KB, but the prebuilt `libvrapi.so` (Meta VrApi / Oculus Mobile SDK) still had a `PT_GNU_RELRO` segment ending at `0x19000` — a 4 KB boundary, not a 16 KB one — leaving ~680 bytes of non-RELRO data sharing the tail page. Android 15+ rejects this (`program alignment (4096) cannot be smaller than system page size (16384)`; APK Analyzer: "RELRO is not a suffix and its end is not 16 KB aligned"). A field-level `p_align` patch on a stripped prebuilt cannot re-pad RELRO — only a real relink can — and `libviro_renderer.so` listed `libvrapi.so` as `NEEDED`, so it was force-loaded on **every** launch, crashing all apps (AR / GVR / Quest) on 16 KB-page devices.
+
+### Removed
+
+- **Deprecated and removed the Oculus Mobile SDK (VrApi) renderer path.** `VROSceneRendererOVR` / `VROInputControllerOVR` are no longer compiled, `lib-ovr` is unlinked, and `libvrapi.so` is dropped from `jniLibs` (both ABIs), so `libviro_renderer.so` no longer depends on it. VrApi targets EOL hardware (GearVR / Oculus Go); all current Meta headsets use the OpenXR path (`VROSceneRendererOpenXR`, added in 2.55.0–2.57.1). `nativeCreateRendererOVR` now returns 0 and `ViroViewOVR` is `@Deprecated`.
+
+---
+
+## v2.57.2 — 29 June 2026
+
+### Fixed
+
+- **16 KB page-size alignment completed for all bundled native libraries (Android).** v2.57.0 aligned `libopenxr_loader.so`, but `libc++_shared.so` was still 4 KB-aligned (`2**12`) and continued to fail the 16 KB memory-page requirement for Android 15+ / Google Play. Unlike the libraries Viro compiles — which already honour `-Wl,-z,max-page-size=16384` — `libc++_shared.so` is a prebuilt copied verbatim from the NDK sysroot, so the linker flag can't re-align it, and NDK r21–r26 ship it at 4 KB. The Android NDK was bumped from r25 (`25.2.9519653`) to r27 (`27.1.12297006`), whose `libc++_shared.so` is 16 KB-aligned, across all native modules (`sharedCode`, `viroreact`, `viroar`, `virocore`, and `reactvisioncca`). Every 64-bit (`arm64-v8a`) library now reports ≥ 16 KB segment alignment — `libc++_shared.so` plus the Viro / Bullet / freetype / ARCore / OpenXR libraries at 16 KB (`2**14`), and `libvrapi.so` / `libgvr*.so` at 64 KB (`2**16`) — verified with Google's `check_elf_alignment.sh` (0 unaligned). Apps bundling ViroCore can now pass Google Play's 16 KB device requirement.
+
+---
+
+## v2.57.1 — 27 June 2026
+
+### Added
+
+- **Mixed Reality on Meta Quest — `VROARSessionOpenXR`.** A new `VROARSession` subclass brings the AR component API (`VROARScene` / `VROARPlaneAnchor` / the anchor delegate) to the OpenXR backend, mirroring `VROARSessionARCore` so the entire anchor → delegate → JNI → `ARScene.Listener` → JS chain is reused unchanged. Plane detection is sourced from the Quest **room model** via `XR_FB_scene` / `XR_FB_spatial_entity` / `XR_FB_spatial_entity_query`: an async `xrQuerySpacesFB` finds room spaces, `xrSetSpaceComponentStatusFB` enables the `LOCATABLE` component, and each `BOUNDED_2D` space is turned into a `VROARPlaneAnchor` via `xrGetSpaceBoundingBox2DFB` + `xrGetSpaceSemanticLabelsFB` + `xrGetSpaceBoundary2DFB` + `xrLocateSpace`. `VROSceneRendererOpenXR` owns the session, drives it each frame after `xrLocateViews`, and wires it to the scene's AR delegate when a `VROARScene` is set (auto-enabling passthrough). Requires the `horizonos.permission.USE_ANCHOR_API` Spatial Data permission and a completed Space Setup; `XR_EXT_plane_detection` is also wired as a graceful fallback for runtimes that expose it. Semantic labels map to Viro classifications (`FLOOR`→Floor, `WALL_FACE`→Wall, `CEILING`→Ceiling, `DESK`/`TABLE`→Table, …).
+
+- **Passthrough layer styling.** `VROSceneRendererOpenXR::setPassthroughStyle(opacity, edgeRGBA)` loads `xrPassthroughLayerSetStyleFB` and applies an `XrPassthroughStyleFB` (texture opacity factor + edge colour) to the passthrough layer. Surfaced through `Renderer.nativeSetPassthroughStyle` and `ViroViewOpenXR.setPassthroughStyle`.
+
+### Fixed
+
+- **Passthrough black background on Quest.** A mixed-reality `VROARScene` has neither a skybox nor an ARCore camera quad to fill the view, so the swapchain kept stale opaque content and the projection layer hid the passthrough layer beneath it. `VRODisplayOpenGLOpenXR::bind()` now clears with a configurable `_clearAlpha` (0 for passthrough, 1 for opaque VR), set from `setPassthroughEnabled`; the projection composition layer is submitted with `XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT` (+ unpremultiplied) over an OPAQUE environment blend mode with the passthrough layer as an underlay. Empty regions now reveal the room.
+
+- **Passthrough / hand-tracking state lost before renderer init (`ViroViewOpenXR`).** The native `Renderer` is created lazily (deferred to the host Activity's first resume), so `setPassthroughEnabled` / `setHandTrackingEnabled` / `setPassthroughStyle` calls that arrived during view mount were silently dropped. The desired values are now cached and re-applied inside `initRenderer()`, mirroring how the pending scene is deferred.
+
+### Improved
+
+- **OpenXR renderer diagnostics cleanup.** Removed the bring-up-era diagnostics from `VROSceneRendererOpenXR` (per-frame alpha read-back probe, environment-blend-mode enumeration log, passthrough-only debug flag, redundant per-frame clear-colour re-assert) now that the passthrough composite path is validated.
+
+---
+
+## v2.57.0 — 19 June 2026
+
+### Added
+
+- **`ViroObjectDetector` — on-device object detection.** A new component that runs open-vocabulary [YOLOE](https://docs.ultralytics.com/models/yoloe/) detection through ONNX Runtime, on-device and offline. It runs inside an AR session — sharing the enclosing `ViroARSceneNavigator`'s camera feed — and fires `onDetection` with labels, confidences, and bounding boxes. Each detection also carries a `screenBoundingBox` in density-independent points (dp), aligned to the on-screen camera preview, so boxes drop straight into an absolutely-positioned overlay. iOS and Android reach parity for detection and the 2D overlay (`worldPosition` 3D raycast remains iOS-only for now). Inference is delegated to the companion package **`@reactvision/react-viro-onnx`** (Android uses the NNAPI execution provider with FP16); there is no built-in fallback — without the provider the detector emits no detections and fires `onError`. See `docs/ViroObjectDetector.md`.
+
+- **`onDepthReady` event on `ViroARScene`.** Fires once, when AR depth first becomes available, on both iOS and Android. Use it to gate depth-dependent features (occlusion, hit-testing) until the depth subsystem is actually producing data.
+
+- **Expo SDK 56 support.** The config plugin and prebuilt artifacts now build against Expo 56 / React Native's new architecture.
+
+### Improved
+
+- **iOS depth precision.** Depth points are now derived directly from the AR depth map rather than approximated, and the monocular depth model is warmed up ahead of first use — eliminating inaccurate/late depth on the first frames and tightening occlusion and hit-test accuracy on non-LiDAR devices.
+
+### Fixed
+
+- **Layered / stacked GLB animations freezing instead of playing (VIRO-5741).** glTF skeletal clips whose channels mixed STEP and LINEAR interpolation or sat on multiple independent time-grids (common in Blender exports with layered animations) were being dropped or flattened, causing the animation to freeze. Channels are now resampled onto a single common time-grid and merged per joint into one index-aligned keyframe animation, with a per-frame density cap to bound skinning cost on pathological assets. Affected clips now play through fully.
+
+- **16 KB page-size alignment for `libopenxr_loader.so` (Android).** The bundled OpenXR loader library, `libopenxr_loader.so`, previously used 4 KB alignment and failed the 16 KB memory-page requirement for Android 15+ devices, blocking Google Play / Meta Quest Store submission. The loader was updated from 1.1.38 to 1.1.49, which is 16 KB-page aligned. Apps that don't use XR are unaffected.
+
+- **VR controller input** — upgraded the VR event listener path to the new architecture, restoring controller controls in VR.
+
+- **`onDrag` in `StudioSceneNavigator`** — drag events now fire correctly.
+
+- **iOS pod build** — visionOS-only sources are now excluded from the iOS CocoaPods build, fixing compile errors in iOS-only targets.
+
+### Experimental / Preview
+
+- **visionOS renderer.** Initial visionOS support landed: a Metal-based renderer/driver, the React Native bindings, and the renderer bridge. This is a work-in-progress foundation and not yet production-ready.
+
+---
+
 ## v2.56.0 — 04 June 2026
 
 ### Added

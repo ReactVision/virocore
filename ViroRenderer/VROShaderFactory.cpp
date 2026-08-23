@@ -271,8 +271,13 @@ std::shared_ptr<VROShaderProgram> VROShaderFactory::buildShader(VROShaderCapabil
         samplers.push_back("shadow_map");
     }
 
-    // Bloom
-    if (lightingCapabilities.hdr && materialCapabilities.bloom && driver->isBloomSupported()) {
+    // Bloom. Gate on the pipeline-level bloom flag (not the per-material one):
+    // when the HDR target has a bloom color attachment, EVERY shader drawn into
+    // it must write that output, or strict backends (WebGL2) raise
+    // INVALID_OPERATION ("missing fragment shader outputs"). The modifier writes
+    // vec4(0) for materials without a bloom threshold. (Native GL tolerates the
+    // mismatch, so this is a no-op there beyond an extra cleared output.)
+    if (lightingCapabilities.hdr && lightingCapabilities.bloom && driver->isBloomSupported()) {
         modifiers.push_back(createBloomModifier());
     }
 
@@ -1013,9 +1018,15 @@ std::shared_ptr<VROShaderModifier> VROShaderFactory::createBloomModifier() {
                 "layout (location = 2) out highp vec4 _bright_color;",
                 "uniform highp float bloom_threshold;",
 
-                "highp float brightness = dot(_output_color.rgb, vec3(0.2126, 0.7152, 0.0722));",
-                "if (brightness > bloom_threshold) {",
-                "   _bright_color = vec4(_output_color.rgb, _output_color.a);",
+                // Always write the bloom output so strict backends (WebGL2) don't
+                // fault on a missing draw-buffer output. Materials without a bloom
+                // threshold (< 0) contribute nothing.
+                "_bright_color = vec4(0.0);",
+                "if (bloom_threshold >= 0.0) {",
+                "   highp float brightness = dot(_output_color.rgb, vec3(0.2126, 0.7152, 0.0722));",
+                "   if (brightness > bloom_threshold) {",
+                "       _bright_color = vec4(_output_color.rgb, _output_color.a);",
+                "   }",
                 "}",
         };
         sBloomModifier = std::make_shared<VROShaderModifier>(VROShaderEntryPoint::Fragment, modifierCode);

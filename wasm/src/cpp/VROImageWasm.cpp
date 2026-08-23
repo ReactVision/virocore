@@ -15,26 +15,49 @@
 VROImageWasm::VROImageWasm(std::string file, VROTextureInternalFormat internalFormat) {
     int length;
     void *data = VROPlatformLoadFile(file, &length);
-    
+
     char *ext = (char *)strrchr(file.c_str(), '.');
     if (ext) {
         ext++;
     }
 
+    initFromData(data, length, ext);
+    free (data);
+
+    if (_surface == NULL) {
+        pinfo("Failed to load image at path [%s], error [%s]", file.c_str(), SDL_GetError());
+    }
+}
+
+VROImageWasm::VROImageWasm(void *data, int length, VROTextureInternalFormat internalFormat) {
+    // In-memory encoded image (e.g. embedded in a GLB/VRX). Format auto-detected.
+    initFromData(data, length, NULL);
+    if (_surface == NULL) {
+        pinfo("Failed to load image from buffer, error [%s]", SDL_GetError());
+    }
+}
+
+void VROImageWasm::initFromData(void *data, int length, const char *ext) {
     _surface = NULL;
-    if (VROJpegReader::isJPG(data, length)) {
+
+    // Detect JPEG by magic bytes (FF D8 FF) and decode with libjpeg via
+    // VROJpegReader — the emscripten SDL_image port is built PNG-only, so JPEGs
+    // (common in GLB/VRX textures) must go through our own decoder.
+    const unsigned char *bytes = (const unsigned char *) data;
+    bool isJpeg = (length >= 3 && bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF);
+
+    if (isJpeg) {
         _surface = VROJpegReader::loadJPG(data, length);
     } else {
         SDL_RWops *src = SDL_RWFromMem(data, length);
-        _surface = IMG_LoadTyped_RW(src, 1, ext);
+        // With an extension hint use the typed loader; otherwise auto-detect.
+        _surface = ext ? IMG_LoadTyped_RW(src, 1, (char *) ext) : IMG_Load_RW(src, 1);
     }
-    free (data);
-    
+
     if (_surface == NULL) {
-        pinfo("Failed to load image at path [%s], error [%s]", file.c_str(), SDL_GetError());
         return;
     }
- 
+
     // We always convert to RGBA8 because sRGB8 is not compatible with automatic mipmap
     // generation in OpenGL 3.0).
     int bytesPerPixel = _surface->format->BytesPerPixel;
@@ -42,12 +65,12 @@ VROImageWasm::VROImageWasm(std::string file, VROTextureInternalFormat internalFo
         SDL_Surface *rgbaSurface = convertToRGBA8(_surface);
         SDL_FreeSurface(_surface);
         _surface = rgbaSurface;
-        
+
         if (_surface == NULL) {
             pinfo("Failed to convert surface to RGBA8 [%s]", SDL_GetError());
         }
     }
-    
+
     _format = bytesPerPixel <= 3 ? VROTextureFormat::RGB8 : VROTextureFormat::RGBA8;
     _internalFormat = VROTextureInternalFormat::RGBA8;
 }

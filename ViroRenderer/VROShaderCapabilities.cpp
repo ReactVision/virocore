@@ -171,6 +171,7 @@ VROLightingShaderCapabilities VROShaderCapabilities::deriveLightingCapabilitiesK
     cap.shadows = false;
     cap.hdr = context.isHDREnabled();
     cap.pbr = context.isPBREnabled();
+    cap.bloom = context.isBloomEnabled();
     cap.diffuseIrradiance = false;
     cap.specularIrradiance = false;
     cap.arOcclusion = context.isOcclusionEnabled();

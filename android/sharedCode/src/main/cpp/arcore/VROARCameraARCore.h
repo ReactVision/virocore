@@ -63,7 +63,23 @@ public:
     void getImageData(uint8_t *outImageData);
     VROVector3f getImageSize();
     void getImageIntrinsics(float *outFx, float *outFy, float *outCx, float *outCy);
-    
+
+    /*
+     Retrieve the rotated camera image data in RGBA, rotated to display orientation but NOT cropped
+     to the viewport (i.e. the full field of view). Use getRotatedImageSize() to size the buffer.
+     This is what on-device ML (e.g. the object detector) should consume: cropping to the viewport
+     first throws away most of the frame and breaks detection coverage.
+     */
+    void getRotatedImageData(uint8_t *outImageData);
+    VROVector3f getRotatedImageSize();
+
+    /*
+     Viewport crop rectangle, in rotated-image (getRotatedImageSize) pixel space: the region of the
+     rotated image that the AR background actually shows on screen. Consumers map detections from
+     the full rotated image onto the view with this (the Android analog of iOS displayTransform).
+     */
+    void getViewportCropRectangle(int *outLeft, int *outTop, int *outWidth, int *outHeight);
+
 private:
 
     arcore::Frame *_frame;
@@ -77,13 +93,6 @@ private:
      Load the image data from ARCore, and stores it in _image.
      */
     bool loadImageData();
-
-    /*
-     Retrieve the rotated camera image data in RGBA. The ARCore _image is converted from YCbCr to
-     RGBA and rotated to fit the current viewport. It is not cropped to fit the current viewport size.
-     */
-    void getRotatedImageData(uint8_t *outImageData);
-    VROVector3f getRotatedImageSize();
 
     /*
     Retrieve the cropping rectangle to use on the rotated image data to get the cropped image

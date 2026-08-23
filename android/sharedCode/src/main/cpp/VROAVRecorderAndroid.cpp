@@ -31,6 +31,7 @@
 #include "VROImagePostProcess.h"
 #include "VRORecorderEglSurfaceDisplay.h"
 #include "VRORenderToTextureDelegateAndroid.h"
+#include "VROTexture.h"
 #include "jni/MediaRecorder_JNI.h"
 
 VROAVRecorderAndroid::VROAVRecorderAndroid(std::shared_ptr<MediaRecorder_JNI> jRecorder) {
@@ -38,6 +39,11 @@ VROAVRecorderAndroid::VROAVRecorderAndroid(std::shared_ptr<MediaRecorder_JNI> jR
     _w_mediaRecorderJNI = jRecorder;
     _isRecording = false;
     _scheduledScreenShot = false;
+    _hasWatermark = false;
+    _watermarkImageWidth = 0;
+    _watermarkImageHeight = 0;
+    _watermarkWidthFraction = 0;
+    _watermarkBottomMarginFraction = 0;
 }
 
 VROAVRecorderAndroid::~VROAVRecorderAndroid() {
@@ -53,6 +59,39 @@ void VROAVRecorderAndroid::init(std::shared_ptr<VRODriver> driver) {
     std::shared_ptr<VROShaderProgram> blitShader
             = VROImageShaderProgram::create(blitSamplers, blitCode, driver);
     _recordingPostProcess = driver->newImagePostProcess(blitShader);
+}
+
+std::shared_ptr<VROImagePostProcess> VROAVRecorderAndroid::getWatermarkPostProcess(std::shared_ptr<VRODriver> driver) {
+    if (_watermarkPostProcess == nullptr) {
+        std::vector<std::string> blitSamplers = { "source_texture" };
+        std::vector<std::string> blitCode = {
+                "uniform sampler2D source_texture;",
+                "frag_color = texture(source_texture, v_texcoord);"
+        };
+        std::shared_ptr<VROShaderProgram> blitShader
+                = VROImageShaderProgram::create(blitSamplers, blitCode, driver);
+        _watermarkPostProcess = driver->newImagePostProcess(blitShader);
+        // The watermark comes from an android.graphics.Bitmap whose rows run top-to-bottom,
+        // opposite GL's bottom-up texture convention; flip vertically so it isn't upside down.
+        _watermarkPostProcess->setVerticalFlip(true);
+    }
+    return _watermarkPostProcess;
+}
+
+void VROAVRecorderAndroid::setWatermark(std::shared_ptr<VROTexture> texture, int imageWidth,
+                                        int imageHeight, float widthFraction,
+                                        float bottomMarginFraction) {
+    _watermarkTexture = texture;
+    _watermarkImageWidth = imageWidth;
+    _watermarkImageHeight = imageHeight;
+    _watermarkWidthFraction = widthFraction;
+    _watermarkBottomMarginFraction = bottomMarginFraction;
+    _hasWatermark = (texture != nullptr && imageWidth > 0 && imageHeight > 0);
+}
+
+void VROAVRecorderAndroid::clearWatermark() {
+    _hasWatermark = false;
+    _watermarkTexture = nullptr;
 }
 
 std::shared_ptr<VRORenderToTextureDelegateAndroid> VROAVRecorderAndroid::getRenderToTextureDelegate() {
@@ -95,6 +134,28 @@ bool VROAVRecorderAndroid::onRenderedFrameTexture(std::shared_ptr<VRORenderTarge
             getGammaPostProcess(driver)->blit({ input->getTexture(0) }, driver);
         } else {
             _recordingPostProcess->blit({ input->getTexture(0) }, driver);
+        }
+
+        // Composite the free-tier watermark on top of the just-blitted scene, into the
+        // same recorder surface. We reduce the GL viewport to the watermark's rect and
+        // blit the watermark texture through a passthrough shader; prepareForBlit()
+        // (inside blit) enables alpha blending, so the watermark's alpha composites it
+        // over the scene. The rect preserves the watermark's aspect ratio and is placed
+        // bottom-center. GL's viewport origin is bottom-left, so the bottom margin maps
+        // directly to the y offset. The watermark texture is vertically flipped (its
+        // bitmap rows are top-to-bottom) via getWatermarkPostProcess()'s setVerticalFlip.
+        if (_hasWatermark && _watermarkTexture && _watermarkImageWidth > 0) {
+            int frameW = input->getWidth();
+            int frameH = input->getHeight();
+
+            int quadW = (int) (_watermarkWidthFraction * frameW);
+            int quadH = (int) (quadW * ((float) _watermarkImageHeight / (float) _watermarkImageWidth));
+            int quadX = (frameW - quadW) / 2;
+            int quadY = (int) (_watermarkBottomMarginFraction * frameH);
+
+            GL( glViewport(quadX, quadY, quadW, quadH) );
+            getWatermarkPostProcess(driver)->blit({ _watermarkTexture }, driver);
+            GL( glViewport(0, 0, frameW, frameH) );
         }
     }
 

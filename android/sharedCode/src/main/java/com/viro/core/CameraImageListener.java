@@ -53,7 +53,13 @@ public interface CameraImageListener {
      * @param height The height of the image.
      * @param intrinsics The {@link CameraIntrinsics} of the device's camera, which describe the camera's
      *                   physical characteristics.
+     * @param cropLeft   Left edge (px, in this image's space) of the region the AR background shows on screen.
+     * @param cropTop    Top edge (px) of the on-screen region.
+     * @param cropWidth  Width (px) of the on-screen region.
+     * @param cropHeight Height (px) of the on-screen region. Together cropLeft/Top/Width/Height map a
+     *                   point in this (full, uncropped) image to the view, accounting for the viewport crop.
      */
-    public void onCameraImageUpdated(ByteBuffer buffer, int width, int height, CameraIntrinsics intrinsics);
+    public void onCameraImageUpdated(ByteBuffer buffer, int width, int height, CameraIntrinsics intrinsics,
+                                     int cropLeft, int cropTop, int cropWidth, int cropHeight);
 
 }

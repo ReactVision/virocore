@@ -52,7 +52,14 @@ import java.util.concurrent.CopyOnWriteArrayList;
 /**
  * ViroViewOVR is a {@link ViroView} for rendering content in stereo for VR headsets using
  * the Oculus Mobile SDK.
+ *
+ * @deprecated Deprecated in 2.57.3. The Oculus Mobile SDK (VrApi) targets EOL hardware
+ * (GearVR / Oculus Go) and its native library ({@code libvrapi.so}) is not 16 KB page-size
+ * compliant, crashing Android 15+ 16 KB devices on launch (viro#491). Use {@link ViroViewOpenXR}
+ * with the {@code QUEST} platform for all current Meta headsets. This class no longer creates a
+ * native renderer.
  */
+@Deprecated
 public class ViroViewOVR extends ViroView implements SurfaceHolder.Callback {
 
     static {

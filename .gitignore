@@ -122,3 +122,6 @@ ios/fastlane/README.md
 
 /.vscode
 /android/scripts
+
+# Local WASM migration notes (not tracked)
+wasm/MIGRATION.md

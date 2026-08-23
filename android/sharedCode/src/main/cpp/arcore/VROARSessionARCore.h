@@ -26,6 +26,7 @@
 #ifndef VROARSessionARCore_h
 #define VROARSessionARCore_h
 
+#include <jni.h>
 #include "VROARSession.h"
 #include "VROARFrameARCore.h"
 #include "VROARAnchorARCore.h"
@@ -215,6 +216,9 @@ public:
         std::function<void(bool, std::string, std::string)> callback) override;
 
     // Cloud anchor management
+    void rvStartScan() override;
+    void rvFinishScan(int ttlDays,
+        std::function<void(bool, std::string, std::string, std::string)> callback) override;
     void rvGetCloudAnchor(const std::string& anchorId,
         std::function<void(bool, std::string, std::string)> callback) override;
     void rvListCloudAnchors(int limit, int offset,
@@ -248,6 +252,37 @@ public:
      */
     bool isSemanticModeSupported() const override;
     void setSemanticModeEnabled(bool enabled) override;
+
+    /*
+     AR Session Recording API. MediaCodec/MediaMuxer/SensorManager/file I/O
+     all live in Java (com.viro.core.internal.ARSessionRecorder, owned by the
+     ARScene Java object) — there is no NDK media pipeline here. This class's
+     role is just to pull a YUV camera image + pose + intrinsics out of the
+     ARCore frame each frame and hand them across the JNI boundary; see
+     recordFrameForRecording() and setRecordingJavaCallback() below.
+     */
+    bool isRecordingSupported() const override { return true; }
+    void startRecording(const VROARRecordingConfig &config,
+                         std::function<void()> onSuccess,
+                         std::function<void(std::string error)> onFailure) override;
+    void stopRecording() override;
+    VROARRecordingStatus getRecordingStatus() const override;
+
+    /*
+     Android-only, not part of VROARSession's shared interface: the JNI layer
+     (ARSceneController_JNI.cpp) calls this with a global ref to the Java
+     ARScene object before calling startRecording(), so recordFrameForRecording()
+     has something to call back into. Pass nullptr to release the held ref
+     (done automatically by stopRecording()).
+     */
+    void setRecordingJavaCallback(jobject javaARScene);
+
+    /*
+     Called by the JNI layer if Java's ARSessionRecorder hits an IOException
+     mid-recording (e.g. MediaCodec/MediaMuxer failure) — flips getRecordingStatus()
+     to IOError so the JS layer can surface it instead of silently losing frames.
+     */
+    void reportRecordingError(std::string error);
 
 #pragma mark - [Internal] Configuration
 
@@ -297,6 +332,15 @@ public:
     std::shared_ptr<VROARAnchorARCore> getAnchorForTrackable(arcore::Trackable *trackable);
 
 private:
+
+    /*
+     AR session recording (see the public API above). Global ref to the Java
+     ARScene object recordFrameForRecording() calls back into; released in
+     stopRecording()/setRecordingJavaCallback(nullptr).
+     */
+    jobject _recordingJavaCallback = nullptr;
+    VROARRecordingStatus _recordingStatus = VROARRecordingStatus::None;
+    void recordFrameForRecording(VROARFrameARCore *arFrame);
 
     /*
      The ARCore session.

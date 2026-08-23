@@ -96,7 +96,8 @@ public class Renderer {
     }
     public void setVRModeEnabled(boolean enabled) { nativeSetVRModeEnabled(mNativeRef, enabled); }
 
-    /* ----------     OVR only methods    ---------- */
+    /* ----------     OVR only methods (deprecated 2.57.3 — VrApi removed, see viro#491)    ---------- */
+    @Deprecated
     public Renderer(ClassLoader appClassLoader, Context context,
                     ViroViewOVR view, Activity activity, AssetManager assets, PlatformUtil platformUtil,
                     RendererConfiguration config) {
@@ -119,6 +120,15 @@ public class Renderer {
     /** Enable or disable XR_FB_passthrough mixed-reality mode (Quest 3 / Quest Pro only). */
     public void setPassthroughEnabled(boolean enabled) {
         nativeSetPassthroughEnabled(mNativeRef, enabled);
+    }
+
+    /**
+     * Style the XR_FB_passthrough layer. opacity is the texture opacity factor
+     * [0,1]; edge[RGBA] is the edge-highlight colour (alpha 0 disables the edge).
+     */
+    public void setPassthroughStyle(float opacity, float edgeR, float edgeG,
+                                    float edgeB, float edgeA) {
+        nativeSetPassthroughStyle(mNativeRef, opacity, edgeR, edgeG, edgeB, edgeA);
     }
 
     /** Enable or disable XR_EXT_hand_tracking gesture processing (Quest only). */
@@ -345,6 +355,8 @@ public class Renderer {
     private native void nativeSetDebugHUDEnabled(long nativeRenderer, boolean enabled);
     private native void nativeRecenterTracking(long nativeRenderer);
     private native void nativeSetPassthroughEnabled(long nativeRenderer, boolean enabled);
+    private native void nativeSetPassthroughStyle(long nativeRenderer, float opacity,
+                                                  float edgeR, float edgeG, float edgeB, float edgeA);
     private native void nativeSetHandTrackingEnabled(long nativeRenderer, boolean enabled);
     private native void nativeSetClearColor(long sceneRef, int color);
     private native void nativeSetShadowsEnabled(long nativeRef, boolean enabled);

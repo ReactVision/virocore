@@ -66,7 +66,9 @@ void VROCameraImageFrameListener::onFrameWillRender(const VRORenderContext &cont
     int bufferIndex = _bufferIndex;
     _bufferIndex = (_bufferIndex + 1) % 3;
 
-    VROVector3f size = camera->getImageSize();
+    // Deliver the full rotated frame (uncropped) so on-device ML sees the whole field of view,
+    // plus the viewport crop rectangle so consumers can map detections back onto the view.
+    VROVector3f size = camera->getRotatedImageSize();
     int width = (int) size.x;
     int height = (int) size.y;
     if (width <= 0 || height <= 0) {
@@ -80,8 +82,10 @@ void VROCameraImageFrameListener::onFrameWillRender(const VRORenderContext &cont
         _buffers[bufferIndex] = VRO_NEW_GLOBAL_REF(env->NewDirectByteBuffer(data, dataLength));
     }
 
-    camera->getImageData((uint8_t *) _data[bufferIndex]->getData());
+    camera->getRotatedImageData((uint8_t *) _data[bufferIndex]->getData());
 
+    int cropLeft, cropTop, cropWidth, cropHeight;
+    camera->getViewportCropRectangle(&cropLeft, &cropTop, &cropWidth, &cropHeight);
 
     float outFx, outFy, outCx, outCy;
     camera->getImageIntrinsics(&outFx, &outFy, &outCx, &outCy);
@@ -92,7 +96,8 @@ void VROCameraImageFrameListener::onFrameWillRender(const VRORenderContext &cont
     VRO_WEAK listener_w = VRO_NEW_WEAK_GLOBAL_REF(_listener_j);
     jobject buffer_w = VRO_NEW_WEAK_GLOBAL_REF(_buffers[bufferIndex]);
     jobject intrinsics_g = VRO_NEW_GLOBAL_REF(intrinsics);
-    VROPlatformDispatchAsyncApplication([listener_w, width, height, buffer_w, intrinsics_g] {
+    VROPlatformDispatchAsyncApplication([listener_w, width, height, buffer_w, intrinsics_g,
+                                         cropLeft, cropTop, cropWidth, cropHeight] {
         VRO_ENV env = VROPlatformGetJNIEnv();
         VRO_OBJECT listener = VRO_NEW_LOCAL_REF(listener_w);
         if (VRO_IS_OBJECT_NULL(listener)) {
@@ -119,7 +124,7 @@ void VROCameraImageFrameListener::onFrameWillRender(const VRORenderContext &cont
         }
         VROPlatformCallHostObjectFunction(buffer, "rewind", "()Ljava/nio/Buffer;");
         VROPlatformCallHostObjectFunction(buffer, "limit", "(I)Ljava/nio/Buffer;", width * height * 4);
-        VROPlatformCallHostFunction(listener, "onCameraImageUpdated", "(Ljava/nio/ByteBuffer;IILcom/viro/core/CameraIntrinsics;)V", buffer, width, height, intrinsics);
+        VROPlatformCallHostFunction(listener, "onCameraImageUpdated", "(Ljava/nio/ByteBuffer;IILcom/viro/core/CameraIntrinsics;IIII)V", buffer, width, height, intrinsics, cropLeft, cropTop, cropWidth, cropHeight);
         VRO_DELETE_LOCAL_REF(listener);
         VRO_DELETE_WEAK_GLOBAL_REF(listener_w);
         VRO_DELETE_LOCAL_REF(intrinsics);

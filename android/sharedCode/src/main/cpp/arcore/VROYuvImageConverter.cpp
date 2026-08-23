@@ -30,6 +30,9 @@
 #include <algorithm>
 
 static const int kMaxChannelValue = 262143;
+// Per-frame diagnostic logging on the camera-image conversion path. Off in release —
+// fires on every malformed camera frame and floods logcat.
+static const bool kDebugYuvConvert = false;
 
 static inline uint32_t YUV2RGB(int nY, int nU, int nV) {
     nY -= 16;
@@ -64,7 +67,7 @@ void VROYuvImageConverter::convertImage(arcore::Image *image, uint8_t *data) {
 
     int numPlanes = image->getNumberOfPlanes();
     if (numPlanes != 3) {
-        pwarn("Cannot convert YCbCr image data to RGBA: detected %d planes instead of 3", numPlanes);
+        if (kDebugYuvConvert) pwarn("Cannot convert YCbCr image data to RGBA: detected %d planes instead of 3", numPlanes);
         return;
     }
     int32_t yStride  = image->getPlaneRowStride(0);
@@ -108,7 +111,7 @@ void VROYuvImageConverter::convertImage90(arcore::Image *image, uint8_t *data) {
 
     int numPlanes = image->getNumberOfPlanes();
     if (numPlanes != 3) {
-        pwarn("Cannot convert YCbCr image data to RGBA: detected %d planes instead of 3", numPlanes);
+        if (kDebugYuvConvert) pwarn("Cannot convert YCbCr image data to RGBA: detected %d planes instead of 3", numPlanes);
         return;
     }
     int32_t yStride  = image->getPlaneRowStride(0);
@@ -157,7 +160,7 @@ void VROYuvImageConverter::convertImage180(arcore::Image *image, uint8_t *data) 
 
     int numPlanes = image->getNumberOfPlanes();
     if (numPlanes != 3) {
-        pwarn("Cannot convert YCbCr image data to RGBA: detected %d planes instead of 3", numPlanes);
+        if (kDebugYuvConvert) pwarn("Cannot convert YCbCr image data to RGBA: detected %d planes instead of 3", numPlanes);
         return;
     }
     int32_t yStride  = image->getPlaneRowStride(0);
@@ -204,7 +207,7 @@ void VROYuvImageConverter::convertImage270(arcore::Image *image, uint8_t *data) 
 
     int numPlanes = image->getNumberOfPlanes();
     if (numPlanes != 3) {
-        pwarn("Cannot convert YCbCr image data to RGBA: detected %d planes instead of 3", numPlanes);
+        if (kDebugYuvConvert) pwarn("Cannot convert YCbCr image data to RGBA: detected %d planes instead of 3", numPlanes);
         return;
     }
     int32_t yStride  = image->getPlaneRowStride(0);
