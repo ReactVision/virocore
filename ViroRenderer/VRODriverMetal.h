@@ -86,6 +86,24 @@ public:
         } else {
             NSLog(@"VRODriverMetal: Warning! Could not find Shaders.metal in ViroKit bundle or main bundle");
         }
+
+        // Last resort: build the library from that source.
+        //
+        // This is the normal path when ViroKit is consumed as a static-library pod, which is how
+        // visionOS ships it. There is no ViroKit bundle to hold a .metallib, and the app's own
+        // default.metallib is built only from .metal files in the app target — a pod contributes
+        // none. Both lookups above therefore come back nil, and without a library every pipeline
+        // state is nil and the renderer silently skips every draw call.
+        //
+        // Compiling here costs one shader compile at startup and, unlike a prebuilt .metallib,
+        // needs no separate artifact per SDK for device and simulator.
+        if (!_library && !_librarySource.empty()) {
+            NSLog(@"VRODriverMetal: No prebuilt library found, compiling from source");
+            _library = newLibraryWithSource(_librarySource);
+            if (!_library) {
+                NSLog(@"VRODriverMetal: Error! Failed to compile the shader library from source — nothing will render");
+            }
+        }
     }
 
     void willRenderFrame(const VRORenderContext &context) override {}

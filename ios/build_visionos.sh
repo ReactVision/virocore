@@ -157,6 +157,15 @@ echo "--- Generating ViroShadersSource.txt ---"
 ruby "$SCRIPT_DIR/generate_shader_source.rb" \
   "$SCRIPT_DIR/ViroKitVisionOSTest/App/ViroShadersSource.txt"
 
+# The same resource has to reach apps that consume the pod, not just the standalone test app.
+# Without it VRODriverMetal has no shader library at all: the pod path has no default.metallib
+# either, since a static-library pod contributes nothing to the app's own. Every pipeline state
+# then comes back nil and the renderer skips every draw call — an immersive space that opens,
+# runs its frame loop, and shows nothing.
+ruby "$SCRIPT_DIR/generate_shader_source.rb" \
+  "$(dirname "$XCFW_OUT")/ViroShadersSource.txt"
+echo "    ViroShadersSource.txt -> $(dirname "$XCFW_OUT")"
+
 echo "Staged $(ls "$HEADERS_STAGING" | wc -l | tr -d ' ') header entries."
 
 # ── 4. Create xcframework ─────────────────────────────────────────────────────
