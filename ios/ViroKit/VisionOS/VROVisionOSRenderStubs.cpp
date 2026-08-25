@@ -967,4 +967,12 @@ void VROReticle::renderEye(VROEyeType eye,
                            std::shared_ptr<VRODriver> &driver) {}
 bool VROReticle::isHeadlocked() { return false; }
 
+// Fuse is a gaze-dwell affordance: hold the pointer on a node and the reticle fills to
+// confirm. visionOS has no reticle to fill — the system draws its own pointer — so these are
+// no-ops. They exist because VROInputPresenter::onFuse calls them unconditionally, and the
+// presenter is what attaches the scene to the input controller: without it there is no hit
+// testing at all.
+void VROReticle::animateFuse(float duration) {}
+void VROReticle::stopFuseAnimation() {}
+
 #endif  // VRO_PLATFORM_VISION

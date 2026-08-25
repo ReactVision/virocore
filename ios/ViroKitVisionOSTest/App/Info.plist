@@ -19,6 +19,8 @@
     <string>1.0</string>
     <key>CFBundleVersion</key>
     <string>1</string>
+    <key>NSHandsTrackingUsageDescription</key>
+    <string>Hand tracking provides the pointing ray and pinch gesture used to interact with the scene.</string>
     <key>NSWorldSensingUsageDescription</key>
     <string>Viro uses world tracking to anchor 3D content in physical space.</string>
     <key>UILaunchScreen</key>
