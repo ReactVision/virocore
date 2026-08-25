@@ -377,6 +377,11 @@ void VRORenderTargetMetal::endDisplayPass() {
 }
 
 void VRORenderTargetMetal::bind() {
+    // TEMP diagnostic (device crash triage 2026-08-24): the first device run segfaults right
+    // after the base pass. Printing the label on every bind identifies the last pass entered.
+    // Remove once the crash is located.
+    pinfo("VRORenderTargetMetal: bind() → %s [%dx%d]", VROTargetTimingLabel(_type, (int)_colorTextures.size()), _width, _height);
+
     if (!_host) {
         pinfo("VRORenderTargetMetal: cannot bind — no render-pass host");
         return;
