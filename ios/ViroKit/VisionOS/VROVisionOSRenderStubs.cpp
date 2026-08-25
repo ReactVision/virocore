@@ -896,6 +896,11 @@ void VROPortal::setSkyEffectBackground(std::shared_ptr<VROTexture> texture) {
     setBackgroundSphere(texture);
 }
 
+// A portal entrance is the framed surface you look through to reach the portal's scene. The
+// visionOS renderer does not draw portal geometry yet, so the frame is accepted and dropped —
+// VRTPortalScene sets and clears it as React children come and go, and must link.
+void VROPortal::setPortalEntrance(std::shared_ptr<VROPortalFrame> entrance) {}
+
 void VROPortal::removeSkyEffectBackground() {
     if (_skyEffectNode) {
         _skyEffectNode->removeFromParentNode();
@@ -974,5 +979,9 @@ bool VROReticle::isHeadlocked() { return false; }
 // testing at all.
 void VROReticle::animateFuse(float duration) {}
 void VROReticle::stopFuseAnimation() {}
+
+// Same reason: VRTController toggles reticle visibility as the pointer comes and goes. There is
+// no reticle here, so there is nothing to enable, but the call has to resolve.
+void VROReticle::setEnabled(bool enabled) {}
 
 #endif  // VRO_PLATFORM_VISION
