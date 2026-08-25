@@ -128,12 +128,21 @@ void VROMetalFrameTimer::calibrateTimestampDomain() {
         _gpuTicksToMs = 0.0;
         return;
     }
-    static mach_timebase_info_data_t timebase = {0, 0};
-    if (timebase.denom == 0) {
-        mach_timebase_info(&timebase);
-    }
-    const double cpuNanos = (double)(cpuB - cpuA) * (double)timebase.numer / (double)timebase.denom;
-    _gpuTicksToMs = (cpuNanos / 1.0e6) / (double)(gpuB - gpuA);
+    // Both timestamps come back in NANOSECONDS — measured on an Apple Vision Pro, where a
+    // 2 ms window gave cpuDelta = gpuDelta = 2,000,041 while mach_absolute_time advanced by
+    // 48,001 ticks over the same window (timebase 125/3, i.e. 41.667 ns per tick).
+    //
+    // The previous version treated the CPU value as mach ticks and converted it with the
+    // timebase, which multiplied every per-pass duration by 41.667. That is how the report
+    // came to claim a 131 ms display pass inside a 7.64 ms frame: precise, well-formatted,
+    // and wrong by a factor no one would guess from looking at it. It only surfaced when the
+    // per-pass figures were checked against the frame total, which comes from a different
+    // source (GPUStartTime/GPUEndTime) and was correct all along.
+    //
+    // The ratio is kept rather than hardcoding 1e-6: if a device ever reports the GPU clock
+    // in a domain of its own, this still resolves it, and cpuDelta stays in the units the
+    // API documents.
+    _gpuTicksToMs = ((double)(cpuB - cpuA) / (double)(gpuB - gpuA)) / 1.0e6;
 }
 
 // ── Frame lifecycle ──────────────────────────────────────────────────────────
