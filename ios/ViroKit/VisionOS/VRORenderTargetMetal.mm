@@ -319,9 +319,25 @@ bool VRORenderTargetMetal::setViewport(VROViewport viewport) {
                        (double)_width, (double)_height, 0.0, 1.0 };
     _viewportSet = true;
 
-    if (_encoder) {
-        [_encoder setViewport:_metalViewport];
-    }
+    // Deliberately does NOT touch _encoder.
+    //
+    // _encoder is a raw id with no ownership — ARC is off in this target, and the encoder
+    // belongs to the frame's command buffer, not to us. It is ended by the host
+    // (endActiveEncoder) as soon as another target binds, and the host has no way to tell
+    // us when that happens. So between the end of our pass and the end of the frame, this
+    // pointer is dangling, and anything that dereferences it is a use-after-free.
+    //
+    // That is exactly what happened on device: the choreographer calls setViewport at the
+    // top of every renderEye, and on a stereo display renderEye runs twice per frame. On
+    // the second eye it walked every target that had rendered during the first eye and sent
+    // setViewport: to each of their dead encoders. The Simulator renders a single view, so
+    // setViewport ran once per frame and never touched a stale pointer — the crash could
+    // not reproduce there.
+    //
+    // Nothing is lost by dropping it: bind() applies _metalViewport to every encoder it
+    // creates, so a viewport set before a pass is always honoured. Changing the viewport
+    // *during* an open pass is the only case this served, and the choreographer never does
+    // that — it sets the viewport before any pass of the eye opens.
 
     // A resize invalidates the attachments, exactly as in OpenGL: the caller is
     // expected to re-hydrate.
