@@ -139,11 +139,20 @@ void VROGeometrySubstrateMetal::readGeometrySources(id <MTLDevice> device,
         // Each source is copied independently so that sources sharing a VROData
         // but at different byte offsets (packed-sequential non-interleaved GLTF)
         // are handled correctly.
+        // The slot is the attribute's own size, not the source stride. getDataStride() is the
+        // step between consecutive vertices in the source buffer — for interleaved data that is
+        // the whole vertex, so using it here reserved (and copied) one full vertex per attribute:
+        // four times the memory, and a read past the end of the source on the last vertex, since
+        // an attribute at offset N still asked for a full stride from N. ASan caught that as a
+        // 48-byte read starting at the end of the skybox's 1152-byte buffer.
         std::vector<int> srcOffset;
+        std::vector<int> srcSize;
         int totalStride = 0;
         for (const std::shared_ptr<VROGeometrySource> &src : elemSrcs) {
+            const int size = src->getComponentsPerVertex() * src->getBytesPerComponent();
             srcOffset.push_back(totalStride);
-            totalStride += src->getDataStride();
+            srcSize.push_back(size);
+            totalStride += size;
         }
 
         std::vector<uint8_t> buf(vertexCount * totalStride, 0);
@@ -156,7 +165,7 @@ void VROGeometrySubstrateMetal::readGeometrySources(id <MTLDevice> device,
             const uint8_t *pSrc = (const uint8_t *)gData->getData() + gDataOffset;
             for (int v = 0; v < vertexCount; v++) {
                 memcpy(buf.data() + v * totalStride + srcOffset[si],
-                       pSrc + v * gStride, gStride);
+                       pSrc + v * gStride, srcSize[si]);
             }
         }
 
