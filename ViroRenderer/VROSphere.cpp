@@ -112,7 +112,10 @@ void VROSphere::updateSphere() {
             var[index].x = px;
             var[index].y = py;
             var[index].z = pz;
-            var[index].u = 1 - u;
+            // Seen from inside (facesOutward == false, e.g. 360 backgrounds) the surface is
+            // traversed right-to-left, so u must be reversed to keep the texture unmirrored.
+            // Seen from outside it must not be.
+            var[index].u = _facesOutward ? u : 1 - u;
             var[index].v = v;
             var[index].nx = normal.x;
             var[index].ny = normal.y;
