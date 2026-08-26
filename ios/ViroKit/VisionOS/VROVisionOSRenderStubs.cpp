@@ -686,7 +686,16 @@ void VROIKRig::processRig() {}
 
 // ── Portal ────────────────────────────────────────────────────────────────────
 
-VROPortal::VROPortal() {}
+VROPortal::VROPortal() :
+    VRONode(),
+    _passable(false) {
+    // _type is not decoration: VRONode::getParentPortal() finds the enclosing portal by comparing
+    // getType() against VRONodeType::Portal. Leaving it as the default made the scene's own root
+    // portal report itself as a plain node, so getParentPortal() walked past it and returned
+    // nullptr — and VRTSkybox calls setBackgroundCube() straight on that result, which is a null
+    // dereference the moment a scene contains a <ViroSkyBox>. Mirrors VROPortal.cpp exactly.
+    _type = VRONodeType::Portal;
+}
 VROPortal::~VROPortal() {}
 void VROPortal::deleteGL() {}
 
