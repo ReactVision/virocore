@@ -69,9 +69,13 @@ std::shared_ptr<VROMetalShader> VROMaterialSubstrateMetal::getPooledShader(std::
 }
 
 id <MTLFunction> VROMaterialSubstrateMetal::getFragmentProgramForAttachments(int colorAttachmentCount) {
-    if (colorAttachmentCount <= 1) {
-        return _program->getFragmentProgram();
-    }
+    // Single-attachment targets are specialised too, with every constant false. They used to
+    // short-circuit to the unspecialised function, but VROLightingFragmentOut declares its extra
+    // attachments with `function_constant`, so that function can never build a pipeline state —
+    // Metal rejects it with "cannot be used to build a pipeline state. Use
+    // newFunctionWithName:constantValues:", which is an assertion failure, not an error return.
+    // The scene never hit it because the choreographer renders into MRT targets; anything drawn
+    // straight into the display pass did, and aborted the process.
     auto it = _specializedFragmentPrograms.find(colorAttachmentCount);
     if (it != _specializedFragmentPrograms.end()) {
         return it->second;
