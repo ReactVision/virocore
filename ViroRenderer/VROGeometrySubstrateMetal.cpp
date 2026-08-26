@@ -707,6 +707,129 @@ id <MTLRenderPipelineState> VROGeometrySubstrateMetal::silhouettePipelineState(V
     return state;
 }
 
+id <MTLRenderPipelineState> VROGeometrySubstrateMetal::trackingAreaPipelineState(VRODriverMetal &metal,
+                                                                                bool skinned,
+                                                                                MTLPixelFormat colorFormat,
+                                                                                MTLPixelFormat depthFormat) {
+    const uint64_t key = (uint64_t)(skinned ? 1 : 0)
+                       | ((uint64_t)colorFormat << 8)
+                       | ((uint64_t)depthFormat << 32);
+    auto it = _trackingAreaPipelineStates.find(key);
+    if (it != _trackingAreaPipelineStates.end()) {
+        return it->second;
+    }
+
+    id <MTLLibrary> library = metal.getLibrary();
+    if (!library) {
+        return nil;
+    }
+    id <MTLFunction> vertexProgram = [library newFunctionWithName:
+        skinned ? @"tracking_area_skinned_vertex" : @"tracking_area_vertex"];
+    id <MTLFunction> fragmentProgram = [library newFunctionWithName:@"tracking_area_fragment"];
+    if (!vertexProgram || !fragmentProgram) {
+        pinfo("VROGeometrySubstrateMetal: tracking area shaders missing from the library");
+        return nil;
+    }
+
+    MTLRenderPipelineDescriptor *descriptor = [[MTLRenderPipelineDescriptor alloc] init];
+    descriptor.label = @"VROTrackingArea";
+    descriptor.vertexFunction = vertexProgram;
+    descriptor.fragmentFunction = fragmentProgram;
+    descriptor.vertexDescriptor = _vertexDescriptor;
+    descriptor.colorAttachments[0].pixelFormat = colorFormat;
+    descriptor.depthAttachmentPixelFormat = depthFormat;
+    // No blending: this is an id, not a colour. Blending two ids would produce a third that
+    // belongs to nothing.
+    descriptor.colorAttachments[0].blendingEnabled = NO;
+
+    NSError *error = nil;
+    id <MTLRenderPipelineState> pipelineState =
+        [metal.getDevice() newRenderPipelineStateWithDescriptor:descriptor error:&error];
+    if (!pipelineState) {
+        pinfo("VROGeometrySubstrateMetal: tracking area pipeline failed: %s",
+              error.localizedDescription.UTF8String);
+        return nil;
+    }
+    _trackingAreaPipelineStates[key] = pipelineState;
+    return pipelineState;
+}
+
+void VROGeometrySubstrateMetal::renderTrackingArea(const VROGeometry &geometry,
+                                                   const VROMatrix4f &transform,
+                                                   uint32_t renderValue,
+                                                   const VRORenderContext &context,
+                                                   std::shared_ptr<VRODriver> &driver) {
+    VRODriverMetal &metal = (VRODriverMetal &)(*driver);
+    id <MTLRenderCommandEncoder> renderEncoder = metal.getActiveEncoder();
+    if (!renderEncoder) {
+        return;
+    }
+
+    std::shared_ptr<VRORenderTarget> boundTarget = metal.getRenderTarget();
+    VRORenderTargetMetal *target = dynamic_cast<VRORenderTargetMetal *>(boundTarget.get());
+    if (!target) {
+        return;
+    }
+    id <MTLTexture> color = target->getMetalTexture(0);
+    id <MTLTexture> depth = target->getMetalDepthTexture();
+    if (!color) {
+        return;
+    }
+
+    const bool skinned = geometry.getSkinner() != nullptr;
+    id <MTLRenderPipelineState> pipelineState =
+        trackingAreaPipelineState(metal, skinned, color.pixelFormat,
+                                  depth ? depth.pixelFormat : MTLPixelFormatInvalid);
+    if (!pipelineState) {
+        return;
+    }
+
+    VROMatrix4f viewMatrix = context.getViewMatrix();
+    const VROMatrix4f projectionMatrix = context.getProjectionMatrix();
+    if (geometry.isCameraEnclosure()) {
+        viewMatrix = context.getEnclosureViewMatrix();
+    }
+    const VROMatrix4f modelview = viewMatrix.multiply(transform);
+
+    // setVertexBytes rather than the shared uniforms buffer, for the reason documented on the
+    // silhouette path: this is a second draw of the same geometry within one frame, and a shared
+    // slot would be overwritten before the command buffer executes.
+    VROViewUniforms viewUniforms = {};
+    viewUniforms.normal_matrix = toMatrixFloat4x4(transform.invert().transpose());
+    viewUniforms.model_matrix = toMatrixFloat4x4(transform);
+    viewUniforms.modelview_matrix = toMatrixFloat4x4(modelview);
+    viewUniforms.modelview_projection_matrix = toMatrixFloat4x4(projectionMatrix.multiply(modelview));
+    viewUniforms.view_matrix = toMatrixFloat4x4(viewMatrix);
+    viewUniforms.projection_matrix = toMatrixFloat4x4(projectionMatrix);
+    viewUniforms.camera_position = toVectorFloat3(context.getCamera().getPosition());
+
+    [renderEncoder pushDebugGroup:@"VROTrackingArea"];
+    [renderEncoder setRenderPipelineState:pipelineState];
+    [renderEncoder setDepthStencilState:silhouetteDepthState(metal)];
+    [renderEncoder setVertexBytes:&viewUniforms length:sizeof(viewUniforms) atIndex:1];
+
+    const uint32_t value = renderValue;
+    [renderEncoder setFragmentBytes:&value length:sizeof(value) atIndex:2];
+
+    if (skinned && _boneUBO) {
+        _boneUBO->update(geometry.getSkinner());
+        [renderEncoder setVertexBuffer:_boneUBO->getBuffer() offset:0 atIndex:5];
+    }
+
+    for (int i = 0; i < (int)_elements.size(); i++) {
+        if (i < (int)_vars.size()) {
+            [renderEncoder setVertexBuffer:_vars[i].buffer offset:0 atIndex:0];
+        }
+        VROGeometryElementMetal &metalElement = _elements[i];
+        [renderEncoder drawIndexedPrimitives:metalElement.primitiveType
+                                  indexCount:metalElement.indexCount
+                                   indexType:metalElement.indexType
+                                 indexBuffer:metalElement.buffer
+                           indexBufferOffset:0];
+    }
+    [renderEncoder popDebugGroup];
+}
+
 void VROGeometrySubstrateMetal::drawSilhouette(const VROGeometry &geometry,
                                                int element,
                                                VROMatrix4f transform,

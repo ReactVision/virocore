@@ -67,6 +67,16 @@ void VROGeometry::render(int elementIndex,
     }
 }
 
+void VROGeometry::renderTrackingArea(VROMatrix4f transform,
+                                    uint32_t renderValue,
+                                    const VRORenderContext &context,
+                                    std::shared_ptr<VRODriver> &driver) {
+    prewarm(driver);
+    if (_substrate) {
+        _substrate->renderTrackingArea(*this, transform, renderValue, context, driver);
+    }
+}
+
 void VROGeometry::renderSilhouette(VROMatrix4f transform,
                                    std::shared_ptr<VROMaterial> &material,
                                    const VRORenderContext &context,

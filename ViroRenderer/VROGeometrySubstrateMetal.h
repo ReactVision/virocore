@@ -96,6 +96,12 @@ public:
                 const VRORenderContext &context,
                 std::shared_ptr<VRODriver> &driver) override;
 
+    void renderTrackingArea(const VROGeometry &geometry,
+                            const VROMatrix4f &transform,
+                            uint32_t renderValue,
+                            const VRORenderContext &context,
+                            std::shared_ptr<VRODriver> &driver) override;
+
     void renderSilhouette(const VROGeometry &geometry,
                           VROMatrix4f transform,
                           std::shared_ptr<VROMaterial> &material,
@@ -223,7 +229,13 @@ private:
      variant has no fragment stage and the textured variant writes nothing.
      */
     std::map<uint64_t, id <MTLRenderPipelineState>> _silhouettePipelineStates;
+    std::map<uint64_t, id <MTLRenderPipelineState>> _trackingAreaPipelineStates;
     id <MTLDepthStencilState> _silhouetteDepthState;
+
+    id <MTLRenderPipelineState> trackingAreaPipelineState(VRODriverMetal &metal,
+                                                          bool skinned,
+                                                          MTLPixelFormat colorFormat,
+                                                          MTLPixelFormat depthFormat);
 
     id <MTLRenderPipelineState> silhouettePipelineState(VRODriverMetal &metal,
                                                         bool skinned, bool textured);
