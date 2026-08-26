@@ -271,7 +271,13 @@ private:
 
     id <MTLDevice> _device;
     id <MTLCommandQueue> _commandQueue;
-    id <MTLLibrary> _library;
+    // Initialised here, not just in the constructor body: the constructor only assigns it inside
+    // `if (shadersURL)`, and on visionOS there is no ViroKit bundle, so that branch never runs.
+    // The `if (!_library)` fallback then read uninitialised memory. When that memory happened to
+    // have the high bit set the runtime took it for a tagged pointer — retain is a no-op on
+    // those, so it survived until the first real message and died as
+    // "-[NSTaggedPointerString newFunctionWithName:]".
+    id <MTLLibrary> _library = nil;
     std::string _librarySource;
     std::shared_ptr<VROFrameScheduler> _scheduler;
 
