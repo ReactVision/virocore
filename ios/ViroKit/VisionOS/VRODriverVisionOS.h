@@ -95,6 +95,13 @@ public:
     id <MTLCommandBuffer> getFrameCommandBuffer() override { return _frameCommandBuffer; }
     void onRenderTargetEncoderBegan(id <MTLRenderCommandEncoder> encoder) override;
     void endActiveEncoder() override;
+
+    /// True while a render command encoder is open on the frame's command buffer.
+    ///
+    /// CompositorServices aborts the process from cp_drawable_encode_present if the command
+    /// buffer it is handed still has one, so the immersive render loop checks this before
+    /// presenting rather than finding out as __BUG_IN_CLIENT__.
+    bool hasOpenEncoder() const { return _openEncoder != nil; }
     VROMetalFrameTimer *getFrameTimer() override { return _frameTimer.get(); }
 
     /*
