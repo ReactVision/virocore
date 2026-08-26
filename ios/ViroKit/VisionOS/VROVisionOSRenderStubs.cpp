@@ -970,27 +970,9 @@ void VROFBXLoader::loadFBXFromResources(std::string resource, VROResourceType ty
 void VROARShadow::apply(std::shared_ptr<VROMaterial> material) {}
 void VROARShadow::remove(std::shared_ptr<VROMaterial> material) {}
 
-// ── Reticle ───────────────────────────────────────────────────────────────────
-
-#include "VROReticle.h"
-
-VROReticle::VROReticle(std::shared_ptr<VROTexture> icon) {}
-VROReticle::~VROReticle() {}
-void VROReticle::renderEye(VROEyeType eye,
-                           const VRORenderContext &renderContext,
-                           std::shared_ptr<VRODriver> &driver) {}
-bool VROReticle::isHeadlocked() { return false; }
-
-// Fuse is a gaze-dwell affordance: hold the pointer on a node and the reticle fills to
-// confirm. visionOS has no reticle to fill — the system draws its own pointer — so these are
-// no-ops. They exist because VROInputPresenter::onFuse calls them unconditionally, and the
-// presenter is what attaches the scene to the input controller: without it there is no hit
-// testing at all.
-void VROReticle::animateFuse(float duration) {}
-void VROReticle::stopFuseAnimation() {}
-
-// Same reason: VRTController toggles reticle visibility as the pointer comes and goes. There is
-// no reticle here, so there is nothing to enable, but the call has to resolve.
-void VROReticle::setEnabled(bool enabled) {}
+// The reticle is no longer stubbed: VROReticle.cpp is compiled into this target. It has no
+// OpenGL dependency — it builds a polyline circle from VROPolyline and draws it in renderEye —
+// and stubbing it left visionOS with no aim indicator at all, which made the head-through-hand
+// ray impossible to use because nothing showed where it pointed.
 
 #endif  // VRO_PLATFORM_VISION

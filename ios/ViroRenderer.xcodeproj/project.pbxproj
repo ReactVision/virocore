@@ -69,6 +69,7 @@
 		2DBF25C24DFAF9B93084203B /* VROMetalFrameTimer.mm in Sources */ = {isa = PBXBuildFile; fileRef = C2E065EE9226DC31FB639766 /* VROMetalFrameTimer.mm */; };
 		2E7B74086F2B4EF9BB2D4218 /* VROOBJLoader.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 2A37B3B1D9815D269E38ACA8 /* VROOBJLoader.cpp */; };
 		D1D5936E7A1CB0BE7A1CB0BE /* tiny_obj_loader.cc in Sources */ = {isa = PBXBuildFile; fileRef = 8F53C8F61E00F03E008314B4 /* tiny_obj_loader.cc */; };
+		D1D5937A7A1CB0BE7A1CB0BE /* VROReticle.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 8FA2E15E1C45DD270070DB26 /* VROReticle.cpp */; };
 		2F65E638E3C5A95BD6670057 /* VROTexture.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 8E78C5881BF8BC3152015754 /* VROTexture.cpp */; };
 		2FFD60B915B15D2146C70832 /* VROJenkinsHash.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D90851F1F773C1B5228C198E /* VROJenkinsHash.cpp */; };
 		30718C32A810E8BD5023D72F /* VROGeometryUtil.cpp in Sources */ = {isa = PBXBuildFile; fileRef = F64DF9BC2B66B85CB075796A /* VROGeometryUtil.cpp */; };
@@ -5392,6 +5393,7 @@
 				A73B6251E022A59E900A9AF8 /* VRONodeCamera.cpp in Sources */,
 				2E7B74086F2B4EF9BB2D4218 /* VROOBJLoader.cpp in Sources */,
 				D1D5936E7A1CB0BE7A1CB0BE /* tiny_obj_loader.cc in Sources */,
+				D1D5937A7A1CB0BE7A1CB0BE /* VROReticle.cpp in Sources */,
 				CF0740D129513A224F12ED40 /* VROPencil.cpp in Sources */,
 				FB78AB4A35311B77FBA1FC75 /* VROPhysicsBody.cpp in Sources */,
 				52CD13D56DF3652F1A368E21 /* VROPhysicsShape.cpp in Sources */,
