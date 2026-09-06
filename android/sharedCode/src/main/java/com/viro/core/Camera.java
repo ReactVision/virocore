@@ -235,6 +235,23 @@ public class Camera {
     }
 
     /**
+     * Set whether this camera projects orthographically. Orthographic keeps parallel lines
+     * parallel, which is what a floor plan or isometric view needs; perspective is the default.
+     * AR and VR scenes ignore this, since there the projection comes from the device.
+     */
+    public void setOrthographic(boolean orthographic) {
+        nativeSetProjectionType(mNativeRef, orthographic);
+    }
+
+    /**
+     * Height of the orthographic view in world units — the full height, not the half-height. The
+     * width follows from the viewport's aspect ratio. Only meaningful when orthographic.
+     */
+    public void setOrthographicScale(float scale) {
+        nativeSetOrthographicScale(mNativeRef, scale);
+    }
+
+    /**
      * @hide
      */
     //#IFDEF 'viro_react'
@@ -263,5 +280,7 @@ public class Camera {
     private native void nativeSetRotationType(long nativeRef, String rotationType);
     private native void nativeSetOrbitFocalPoint(long nativeRef, float x, float y, float z);
     private native void nativeSetFieldOfView(long nativeRef, float fov);
+    private native void nativeSetProjectionType(long nativeRef, boolean orthographic);
+    private native void nativeSetOrthographicScale(long nativeRef, float scale);
     private native void nativeSetRefNodeToCopyRotation(long nativeRef, long nodeReference);
 }

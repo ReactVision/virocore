@@ -270,7 +270,8 @@ void VROSceneWeb::drawFrame() {
     }
 
     VROFieldOfView fov = _renderer->computeUserFieldOfView(viewport.getWidth(), viewport.getHeight());
-    VROMatrix4f projection = fov.toPerspectiveProjection(kZNear, _renderer->getFarClippingPlane());
+    VROMatrix4f projection = _renderer->computeProjection(viewport.getWidth(), viewport.getHeight(),
+                                                         kZNear, _renderer->getFarClippingPlane());
 
     // Give the input controller the same view/projection/viewport used to render
     // this frame, so screen touches unproject into matching world rays.
@@ -1163,6 +1164,27 @@ static void viroSetActiveCameraNode(int node) {
     if (sScene) sScene->setActiveCameraNode(getNode(node));
 }
 
+// type: 0=perspective, 1=orthographic. VRORenderer::computeProjection reads these
+// off the point-of-view camera, so the whole effect is in the two setters below.
+static void viroSetCameraProjection(int node, int type) {
+    auto n = getNode(node);
+    if (!n || !n->getCamera()) {
+        return;
+    }
+    n->getCamera()->setProjectionType(type == 1 ? VROCameraProjectionType::Orthographic
+                                               : VROCameraProjectionType::Perspective);
+}
+
+// The full vertical height in world units; the width follows from the viewport
+// aspect ratio, so only the height is set here.
+static void viroSetCameraOrthographicScale(int node, float scale) {
+    auto n = getNode(node);
+    if (!n || !n->getCamera()) {
+        return;
+    }
+    n->getCamera()->setOrthographicHeight(scale);
+}
+
 // --- Model loading (GLB / glTF / VRX) ---
 
 // cb(nodeHandle, success). Registered by the bridge to know when a load finishes.
@@ -1446,6 +1468,8 @@ EMSCRIPTEN_BINDINGS(viro_web) {
 
     emscripten::function("viroSetNodeCamera", &viroSetNodeCamera);
     emscripten::function("viroSetActiveCameraNode", &viroSetActiveCameraNode);
+    emscripten::function("viroSetCameraProjection", &viroSetCameraProjection);
+    emscripten::function("viroSetCameraOrthographicScale", &viroSetCameraOrthographicScale);
 
     emscripten::function("viroSetModelLoadCallback", &viroSetModelLoadCallback);
     emscripten::function("viroLoadModel", &viroLoadModel);
