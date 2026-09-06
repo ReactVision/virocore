@@ -29,6 +29,7 @@
 
 #include "VROSharedStructures.h"
 #include "VROMetalUtils.h"
+#include "VROShaderModifier.h"
 #include "VRODriverMetal.h"
 #include "VROMatrix4f.h"
 #include "VROLight.h"
@@ -46,8 +47,12 @@ static std::map<std::string, std::shared_ptr<VROMetalShader>> _sharedPrograms;
 std::shared_ptr<VROMetalShader> VROMaterialSubstrateMetal::getPooledShader(std::string vertexShader,
                                                                            std::string fragmentShader,
                                                                            id <MTLLibrary> library) {
-    std::string name = vertexShader + "_" + fragmentShader;
-    
+    // Include the library address in the key so static-library and dynamic-library variants
+    // (which have different function objects despite the same name) never share a cache entry.
+    // Without this, skinned materials would get the cached static-library vertex function
+    // that lacks the #pragma geometry_modifier_body injection.
+    std::string name = vertexShader + "_" + fragmentShader + "_" + std::to_string((uintptr_t)(void*)library);
+
     std::map<std::string, std::shared_ptr<VROMetalShader>>::iterator it = _sharedPrograms.find(name);
     if (it == _sharedPrograms.end()) {
         id <MTLFunction> vertexProgram = [library newFunctionWithName:[NSString stringWithUTF8String:vertexShader.c_str()]];
@@ -61,6 +66,52 @@ std::shared_ptr<VROMetalShader> VROMaterialSubstrateMetal::getPooledShader(std::
     else {
         return it->second;
     }
+}
+
+id <MTLFunction> VROMaterialSubstrateMetal::getFragmentProgramForAttachments(int colorAttachmentCount) {
+    // Single-attachment targets are specialised too, with every constant false. They used to
+    // short-circuit to the unspecialised function, but VROLightingFragmentOut declares its extra
+    // attachments with `function_constant`, so that function can never build a pipeline state —
+    // Metal rejects it with "cannot be used to build a pipeline state. Use
+    // newFunctionWithName:constantValues:", which is an assertion failure, not an error return.
+    // The scene never hit it because the choreographer renders into MRT targets; anything drawn
+    // straight into the display pass did, and aborted the process.
+    auto it = _specializedFragmentPrograms.find(colorAttachmentCount);
+    if (it != _specializedFragmentPrograms.end()) {
+        return it->second;
+    }
+    if (!_programLibrary || _fragmentProgramName.empty()) {
+        return _program->getFragmentProgram();
+    }
+
+    // Function constant indices must match the declarations in Shaders.metal:
+    //   0 = tone-mapping mask (attachment 1)
+    //   1 = bloom             (attachment 2)
+    //   2 = post-process mask (attachment 3)
+    BOOL hasToneMappingMask = colorAttachmentCount > 1;
+    BOOL hasBloom           = colorAttachmentCount > 2;
+    BOOL hasPostProcessMask = colorAttachmentCount > 3;
+
+    MTLFunctionConstantValues *constants = [MTLFunctionConstantValues new];
+    [constants setConstantValue:&hasToneMappingMask type:MTLDataTypeBool atIndex:0];
+    [constants setConstantValue:&hasBloom           type:MTLDataTypeBool atIndex:1];
+    [constants setConstantValue:&hasPostProcessMask type:MTLDataTypeBool atIndex:2];
+
+    NSError *error = nil;
+    id <MTLFunction> specialized =
+        [_programLibrary newFunctionWithName:[NSString stringWithUTF8String:_fragmentProgramName.c_str()]
+                             constantValues:constants
+                                      error:&error];
+    [constants release];
+
+    if (!specialized) {
+        pinfo("VROMaterialSubstrateMetal: could not specialise '%s' for %d attachments: %s",
+              _fragmentProgramName.c_str(), colorAttachmentCount,
+              error ? [[error localizedDescription] UTF8String] : "unknown");
+        return nil;
+    }
+    _specializedFragmentPrograms[colorAttachmentCount] = specialized;
+    return specialized;
 }
 
 VROMaterialSubstrateMetal::VROMaterialSubstrateMetal(const VROMaterial &material,
@@ -78,27 +129,19 @@ VROMaterialSubstrateMetal::VROMaterialSubstrateMetal(const VROMaterial &material
     if (modifierCount > 0) {
         std::string source = driver.getLibrarySource();
         if (!source.empty()) {
-            NSLog(@"VROMaterialSubstrateMetal: Inflating %lu modifiers", material.getShaderModifiers().size());
-            // Log a bit of the source to verify pragmas exist
-            NSLog(@"VROMaterialSubstrateMetal: Source prefix: %s", source.substr(0, 100).c_str());
             if (source.find("#pragma surface_modifier_body") == std::string::npos) {
                 NSLog(@"VROMaterialSubstrateMetal: Warning: Pragmas not found in source!");
             }
-            
             inflateModifiers(source, material.getShaderModifiers());
             _dynamicLibrary = driver.newLibraryWithSource(source);
             if (_dynamicLibrary) {
-                NSLog(@"VROMaterialSubstrateMetal: Successfully compiled dynamic shader library");
                 library = _dynamicLibrary;
             } else {
                 NSLog(@"VROMaterialSubstrateMetal: Failed to compile dynamic shader library. Source length: %lu", source.length());
-                // The error is already logged in VRODriverMetal::newLibraryWithSource
             }
         } else {
             NSLog(@"VROMaterialSubstrateMetal: Warning: Driver library source is empty");
         }
-    } else {
-        NSLog(@"VROMaterialSubstrateMetal: Material has NO modifiers");
     }
 
     _lightingUniformsBuffer = new VROConcurrentBuffer(sizeof(VROSceneLightingUniforms), @"VROSceneLightingUniformBuffer", device);
@@ -123,8 +166,7 @@ VROMaterialSubstrateMetal::VROMaterialSubstrateMetal(const VROMaterial &material
             break;
             
         case VROLightingModel::PhysicallyBased:
-            // Fallback to Blinn/Phong for PBR on Metal until native PBR is implemented
-            loadBlinnLighting(material, library, device, driver);
+            loadPBRLighting(material, library, device, driver);
             break;
 
         default:
@@ -153,7 +195,7 @@ void VROMaterialSubstrateMetal::inflateModifiers(std::string &source, const std:
             if (line.empty() || line.find("uniform") == std::string::npos) continue;
             
             // Extract type and name: uniform type name;
-            std::vector<std::string> parts = VROStringUtil::split(line, " \t;");
+            std::vector<std::string> parts = VROStringUtil::split(line, " \t;", false);
             if (parts.size() < 3) continue;
             
             std::string type = parts[1];
@@ -266,6 +308,10 @@ void VROMaterialSubstrateMetal::loadConstantLighting(const VROMaterial &material
         fragmentProgram = "constant_lighting_fragment_q";
     }
     
+    // Remembered so the fragment function can be respecialised for a multi-attachment
+    // target later (getFragmentProgramForAttachments); getPooledShader is static.
+    _fragmentProgramName = fragmentProgram;
+    _programLibrary = library;
     _program = getPooledShader(vertexProgram, fragmentProgram, library);
 }
 
@@ -300,6 +346,10 @@ void VROMaterialSubstrateMetal::loadLambertLighting(const VROMaterial &material,
         }
     }
     
+    // Remembered so the fragment function can be respecialised for a multi-attachment
+    // target later (getFragmentProgramForAttachments); getPooledShader is static.
+    _fragmentProgramName = fragmentProgram;
+    _programLibrary = library;
     _program = getPooledShader(vertexProgram, fragmentProgram, library);
 }
 
@@ -346,6 +396,29 @@ void VROMaterialSubstrateMetal::loadPhongLighting(const VROMaterial &material,
         }
     }
     
+    // Remembered so the fragment function can be respecialised for a multi-attachment
+    // target later (getFragmentProgramForAttachments); getPooledShader is static.
+    _fragmentProgramName = fragmentProgram;
+    _programLibrary = library;
+    _program = getPooledShader(vertexProgram, fragmentProgram, library);
+}
+
+void VROMaterialSubstrateMetal::loadPBRLighting(const VROMaterial &material,
+                                               id <MTLLibrary> library, id <MTLDevice> device,
+                                               VRODriverMetal &driver) {
+    std::string vertexProgram = "pbr_lighting_vertex";
+    std::string fragmentProgram;
+
+    VROMaterialVisual &diffuse = material.getDiffuse();
+    if (diffuse.getTextureType() == VROTextureType::None) {
+        fragmentProgram = "pbr_lighting_fragment_c";
+    } else {
+        fragmentProgram = "pbr_lighting_fragment_t";
+        _textures.push_back(diffuse.getTexture());
+    }
+
+    _fragmentProgramName = fragmentProgram;
+    _programLibrary = library;
     _program = getPooledShader(vertexProgram, fragmentProgram, library);
 }
 
@@ -392,6 +465,10 @@ void VROMaterialSubstrateMetal::loadBlinnLighting(const VROMaterial &material,
         }
     }
     
+    // Remembered so the fragment function can be respecialised for a multi-attachment
+    // target later (getFragmentProgramForAttachments); getPooledShader is static.
+    _fragmentProgramName = fragmentProgram;
+    _programLibrary = library;
     _program = getPooledShader(vertexProgram, fragmentProgram, library);
 }
 
@@ -405,6 +482,8 @@ VROConcurrentBuffer &VROMaterialSubstrateMetal::bindMaterialUniforms(float opaci
     uniforms->roughness = _material.getRoughness().getColor().x;
     uniforms->metalness = _material.getMetalness().getColor().x;
     uniforms->ao = _material.getAmbientOcclusion().getColor().x;
+    uniforms->tone_mapping_mask = _material.needsToneMapping() ? 1.0f : 0.0f;
+    uniforms->bloom_threshold = _material.getBloomThreshold();
 
     // Fill custom uniforms buffer based on the layout created during inflation
     if (!_material.getShaderModifiers().empty()) {
@@ -474,9 +553,7 @@ bool VROMaterialSubstrateMetal::bindShader(int lightsHash,
     // In Metal, pipeline state is bound by the geometry substrate, not the material substrate.
     // However, we need to bind the lighting uniforms here, similar to OpenGL.
     // This is the CRITICAL FIX: bindLights was defined but never called!
-    NSLog(@"[METAL LIGHTING] bindShader() called with %zu lights, hash=%d", lights.size(), lightsHash);
     bindLights(lightsHash, lights, context, driver);
-    NSLog(@"[METAL LIGHTING] bindLights() completed");
     return true;
 }
 
@@ -505,15 +582,74 @@ void VROMaterialSubstrateMetal::bindShader() {
     // The virtual bindShader(int lightsHash, ...) should be used instead
 }
 
+// 1x1 placeholders for the IBL slots, bound whenever the scene has no lighting
+// environment. Metal requires every declared fragment texture argument to be bound; the
+// shader gates on VROSceneLightingUniforms::has_ibl rather than sampling these.
+static id <MTLTexture> getBlankCubeTexture(id <MTLDevice> device) {
+    static id <MTLTexture> sBlankCube = nil;
+    if (sBlankCube) {
+        return sBlankCube;
+    }
+    MTLTextureDescriptor *descriptor = [MTLTextureDescriptor new];
+    descriptor.textureType = MTLTextureTypeCube;
+    descriptor.pixelFormat = MTLPixelFormatRGBA16Float;
+    descriptor.width  = 1;
+    descriptor.height = 1;
+    descriptor.mipmapLevelCount = 1;
+    descriptor.usage = MTLTextureUsageShaderRead;
+    descriptor.storageMode = MTLStorageModePrivate;
+    sBlankCube = [device newTextureWithDescriptor:descriptor];
+    [descriptor release];
+    return sBlankCube;
+}
+
+static id <MTLTexture> getBlankLUTTexture(id <MTLDevice> device) {
+    static id <MTLTexture> sBlankLUT = nil;
+    if (sBlankLUT) {
+        return sBlankLUT;
+    }
+    MTLTextureDescriptor *descriptor = [MTLTextureDescriptor new];
+    descriptor.textureType = MTLTextureType2D;
+    descriptor.pixelFormat = MTLPixelFormatRGBA16Float;
+    descriptor.width  = 1;
+    descriptor.height = 1;
+    descriptor.mipmapLevelCount = 1;
+    descriptor.usage = MTLTextureUsageShaderRead;
+    descriptor.storageMode = MTLStorageModePrivate;
+    sBlankLUT = [device newTextureWithDescriptor:descriptor];
+    [descriptor release];
+    return sBlankLUT;
+}
+
+// A 1x1 depth texture array, bound when the scene has no shadow map. Metal requires
+// every declared fragment texture argument to be bound, even when the shader never
+// samples it.
+static id <MTLTexture> getBlankShadowMap(id <MTLDevice> device) {
+    static id <MTLTexture> sBlankShadowMap = nil;
+    if (sBlankShadowMap) {
+        return sBlankShadowMap;
+    }
+    MTLTextureDescriptor *descriptor = [MTLTextureDescriptor new];
+    descriptor.textureType = MTLTextureType2DArray;
+    descriptor.pixelFormat = MTLPixelFormatDepth32Float;
+    descriptor.width  = 1;
+    descriptor.height = 1;
+    descriptor.arrayLength = 1;
+    descriptor.mipmapLevelCount = 1;
+    descriptor.usage = MTLTextureUsageShaderRead;
+    descriptor.storageMode = MTLStorageModePrivate;
+    sBlankShadowMap = [device newTextureWithDescriptor:descriptor];
+    [descriptor release];
+    return sBlankShadowMap;
+}
+
 void VROMaterialSubstrateMetal::bindLights(int lightsHash,
                                            const std::vector<std::shared_ptr<VROLight>> &lights,
                                            const VRORenderContext &context,
                                            std::shared_ptr<VRODriver> &driver) {
 
-    NSLog(@"[METAL LIGHTING] bindLights() starting - received %zu lights", lights.size());
-
     VRODriverMetal &metal = (VRODriverMetal &)(*driver.get());
-    id <MTLRenderCommandEncoder> renderEncoder = metal.getRenderTarget()->getRenderEncoder();
+    id <MTLRenderCommandEncoder> renderEncoder = metal.getActiveEncoder();
 
     VROEyeType eyeType = context.getEyeType();
     int frame = context.getFrame();
@@ -538,18 +674,76 @@ void VROMaterialSubstrateMetal::bindLights(int lightsHash,
             light_uniforms.attenuation_falloff_exp = light->getAttenuationFalloffExponent();
             light_uniforms.spot_inner_angle = degrees_to_radians(light->getSpotInnerAngle());
             light_uniforms.spot_outer_angle = degrees_to_radians(light->getSpotOuterAngle());
-            
+            light_uniforms.intensity = light->getIntensity();
+
+            // Shadowing. VROShadowPreprocess assigns each shadow-casting light a slice
+            // of the shadow map array and leaves the index at -1 otherwise, which is what
+            // the shader tests before sampling.
+            light_uniforms.shadow_map_index = light->getShadowMapIndex();
+            light_uniforms.shadow_bias      = light->getShadowBias();
+            light_uniforms.shadow_opacity   = light->getShadowOpacity();
+            uniforms->shadow_view_matrices[uniforms->num_lights] =
+                toMatrixFloat4x4(light->getShadowViewMatrix());
+            uniforms->shadow_projection_matrices[uniforms->num_lights] =
+                toMatrixFloat4x4(light->getShadowProjectionMatrix());
+
             uniforms->num_lights++;
         }
     }
     
     uniforms->ambient_light_color = toVectorFloat3(ambientLight);
 
-    NSLog(@"[METAL LIGHTING] Final values - num_lights=%d, ambient=(%f,%f,%f)",
-          uniforms->num_lights,
-          uniforms->ambient_light_color.x,
-          uniforms->ambient_light_color.y,
-          uniforms->ambient_light_color.z);
+    // Shadow map at the reserved texture slot 4 (material textures use 0..2). Every
+    // lit fragment function declares the argument, and Metal requires a bound texture
+    // for each declared argument, so a 1x1 dummy stands in when no light casts a
+    // shadow. compute_shadow never samples it: shadow_map_index is -1 in that case.
+    {
+        id <MTLTexture> shadowTexture = nil;
+        std::shared_ptr<VROTexture> shadowMap = context.getShadowMap();
+        if (shadowMap) {
+            VROTextureSubstrateMetal *substrate =
+                (VROTextureSubstrateMetal *) shadowMap->getSubstrate(0, driver, true);
+            if (substrate) {
+                shadowTexture = substrate->getTexture();
+            }
+        }
+        if (!shadowTexture) {
+            shadowTexture = getBlankShadowMap(metal.getDevice());
+        }
+        [renderEncoder setFragmentTexture:shadowTexture atIndex:4];
+    }
+
+    // IBL maps at the reserved slots 5..7. All three are produced together by
+    // VROIBLPreprocess, so one flag covers them.
+    {
+        std::shared_ptr<VROTexture> irradiance = context.getIrradianceMap();
+        std::shared_ptr<VROTexture> prefiltered = context.getPrefilteredMap();
+        std::shared_ptr<VROTexture> brdf = context.getBRDFMap();
+        const bool hasIBL = irradiance && prefiltered && brdf;
+        uniforms->has_ibl = hasIBL ? 1 : 0;
+
+        id <MTLTexture> irradianceTexture = nil;
+        id <MTLTexture> prefilteredTexture = nil;
+        id <MTLTexture> brdfTexture = nil;
+        if (hasIBL) {
+            VROTextureSubstrateMetal *a = (VROTextureSubstrateMetal *) irradiance->getSubstrate(0, driver, true);
+            VROTextureSubstrateMetal *b = (VROTextureSubstrateMetal *) prefiltered->getSubstrate(0, driver, true);
+            VROTextureSubstrateMetal *c = (VROTextureSubstrateMetal *) brdf->getSubstrate(0, driver, true);
+            if (a) { irradianceTexture = a->getTexture(); }
+            if (b) { prefilteredTexture = b->getTexture(); }
+            if (c) { brdfTexture = c->getTexture(); }
+            if (!irradianceTexture || !prefilteredTexture || !brdfTexture) {
+                uniforms->has_ibl = 0;
+            }
+        }
+        if (!irradianceTexture)  { irradianceTexture  = getBlankCubeTexture(metal.getDevice()); }
+        if (!prefilteredTexture) { prefilteredTexture = getBlankCubeTexture(metal.getDevice()); }
+        if (!brdfTexture)        { brdfTexture        = getBlankLUTTexture(metal.getDevice()); }
+
+        [renderEncoder setFragmentTexture:irradianceTexture  atIndex:5];
+        [renderEncoder setFragmentTexture:prefilteredTexture atIndex:6];
+        [renderEncoder setFragmentTexture:brdfTexture        atIndex:7];
+    }
 
     [renderEncoder setVertexBuffer:_lightingUniformsBuffer->getMTLBuffer(eyeType)
                             offset:_lightingUniformsBuffer->getWriteOffset(frame)
@@ -557,8 +751,6 @@ void VROMaterialSubstrateMetal::bindLights(int lightsHash,
     [renderEncoder setFragmentBuffer:_lightingUniformsBuffer->getMTLBuffer(eyeType)
                               offset:_lightingUniformsBuffer->getWriteOffset(frame)
                              atIndex:4];
-
-    NSLog(@"[METAL LIGHTING] Lighting buffer bound at index 4 for vertex and fragment shaders");
 }
 
 uint32_t VROMaterialSubstrateMetal::hashTextures(const std::vector<std::shared_ptr<VROTexture>> &textures) const {

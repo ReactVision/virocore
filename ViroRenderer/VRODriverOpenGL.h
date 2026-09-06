@@ -27,8 +27,10 @@
 #ifndef VRODriverOpenGL_h
 #define VRODriverOpenGL_h
 
-#include "VRODriver.h"
 #include "VRODefines.h"
+#if !VRO_METAL
+
+#include "VRODriver.h"
 #include "VROStringUtil.h"
 #include "VROVertexBufferOpenGL.h"
 #include "VROGeometrySubstrateOpenGL.h"
@@ -712,4 +714,5 @@ private:
     
 };
 
+#endif  // !VRO_METAL
 #endif /* VRODriverOpenGL_h */

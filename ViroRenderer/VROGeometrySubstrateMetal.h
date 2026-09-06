@@ -39,6 +39,8 @@
 #include <Metal/Metal.h>
 #include <MetalKit/MetalKit.h>
 
+#include "VROBoneUBOMetal.h"
+
 class VROGeometry;
 class VROMaterial;
 class VROGeometrySource;
@@ -82,19 +84,41 @@ public:
                               VRODriverMetal &driver);
     virtual ~VROGeometrySubstrateMetal();
     
+    void update(const VROGeometry &geometry,
+                std::shared_ptr<VRODriver> &driver) override {}
+
     void render(const VROGeometry &geometry,
                 int elementIndex,
                 VROMatrix4f transform,
                 VROMatrix4f normalMatrix,
                 float opacity,
-                std::shared_ptr<VROMaterial> &material,
+                const std::shared_ptr<VROMaterial> &material,
                 const VRORenderContext &context,
-                std::shared_ptr<VRODriver> &driver);
-    
+                std::shared_ptr<VRODriver> &driver) override;
+
+    void renderTrackingArea(const VROGeometry &geometry,
+                            const VROMatrix4f &transform,
+                            uint32_t renderValue,
+                            const VRORenderContext &context,
+                            std::shared_ptr<VRODriver> &driver) override;
+
+    void renderSilhouette(const VROGeometry &geometry,
+                          VROMatrix4f transform,
+                          std::shared_ptr<VROMaterial> &material,
+                          const VRORenderContext &context,
+                          std::shared_ptr<VRODriver> &driver) override;
+
+    void renderSilhouetteTextured(const VROGeometry &geometry,
+                                  int element,
+                                  VROMatrix4f transform,
+                                  std::shared_ptr<VROMaterial> &material,
+                                  const VRORenderContext &context,
+                                  std::shared_ptr<VRODriver> &driver) override;
+
 private:
     
     MTLVertexDescriptor *_vertexDescriptor;
-    VROVertexArrayMetal _var;
+    std::vector<VROVertexArrayMetal> _vars;
     std::vector<VROGeometryElementMetal> _elements;
     
     /*
@@ -102,13 +126,55 @@ private:
      state is determined by both the geometry (by way of the _vertexDescriptor) 
      and the material; this is why it's not a member of the VROMaterialSubstrate.
      */
-    std::vector<id <MTLRenderPipelineState>> _elementPipelineStates;
+    /*
+     Pipeline states per element, keyed by the attachment configuration of the target
+     being rendered into. A pipeline must declare exactly the attachments its pass has,
+     and the same geometry is drawn into the display (one attachment) and into the HDR
+     target (two to four), so a single pipeline per element is not enough — and the
+     configuration is not knowable when the substrate is constructed.
+     */
+    struct TargetConfig {
+        int colorAttachmentCount = 1;
+        MTLPixelFormat colorFormat   = MTLPixelFormatInvalid;
+        MTLPixelFormat depthFormat   = MTLPixelFormatInvalid;
+        MTLPixelFormat stencilFormat = MTLPixelFormatInvalid;
+
+        uint64_t key() const {
+            return (uint64_t)colorAttachmentCount
+                 | ((uint64_t)colorFormat   << 8)
+                 | ((uint64_t)depthFormat   << 24)
+                 | ((uint64_t)stencilFormat << 40);
+        }
+    };
+
+    static TargetConfig currentTargetConfig(VRODriverMetal &metal);
+
+    std::vector<std::map<uint64_t, id <MTLRenderPipelineState>>> _elementPipelineStates;
     std::vector<id <MTLDepthStencilState>> _elementDepthStates;
+
+    id <MTLRenderPipelineState> pipelineStateForElement(int elementIndex,
+                                                        const std::shared_ptr<VROMaterial> &material,
+                                                        VRODriverMetal &metal,
+                                                        const TargetConfig &config);
     
     /*
      Uniforms for the view.
      */
     VROConcurrentBuffer *_viewUniformsBuffer;
+
+    /*
+     Bone transform buffer — non-null when the geometry has a VROSkinner.
+     Updated every draw call before binding at vertex-buffer index 5.
+     */
+    std::unique_ptr<VROBoneUBOMetal> _boneUBO;
+
+    /*
+     Phong shaders require a per-vertex float4 color at attribute(2).
+     Geometries that lack a Color source (VROBox, VROSphere, VROSurface) get a
+     constant white value injected via a 1-element buffer at vertex slot 1.
+     */
+    bool _needsFakeColorBuffer;
+    id <MTLBuffer> _fakeColorBuffer;
     
     /*
      Parse the given geometry elements and populate the _elements vector with the
@@ -135,6 +201,7 @@ private:
      Create a pipeline state from the given material, using the current _vertexDescriptor.
      */
     id <MTLRenderPipelineState> createRenderPipelineState(const std::shared_ptr<VROMaterial> &material,
+                                                          const TargetConfig &config,
                                                           VRODriverMetal &driver);
     
     /*
@@ -156,6 +223,36 @@ private:
     /*
      Rendering helper function.
      */
+    /*
+     Silhouette pipelines, keyed by (skinned, textured, colour format, depth format).
+     A silhouette pass writes depth (and, for portals, stencil) only, so the plain
+     variant has no fragment stage and the textured variant writes nothing.
+     */
+    std::map<uint64_t, id <MTLRenderPipelineState>> _silhouettePipelineStates;
+    std::map<uint64_t, id <MTLRenderPipelineState>> _trackingAreaPipelineStates;
+    id <MTLDepthStencilState> _silhouetteDepthState;
+
+    id <MTLRenderPipelineState> trackingAreaPipelineState(VRODriverMetal &metal,
+                                                          bool skinned,
+                                                          MTLPixelFormat colorFormat,
+                                                          MTLPixelFormat depthFormat);
+
+    id <MTLRenderPipelineState> silhouettePipelineState(VRODriverMetal &metal,
+                                                        bool skinned, bool textured);
+    id <MTLDepthStencilState> silhouetteDepthState(VRODriverMetal &metal);
+
+    /*
+     Shared body of renderSilhouette / renderSilhouetteTextured. Passing element < 0
+     draws every element.
+     */
+    void drawSilhouette(const VROGeometry &geometry,
+                        int element,
+                        VROMatrix4f transform,
+                        std::shared_ptr<VROMaterial> &material,
+                        bool textured,
+                        const VRORenderContext &context,
+                        std::shared_ptr<VRODriver> &driver);
+
     void renderMaterial(VROMaterialSubstrateMetal *material,
                         VROGeometryElementMetal &element,
                         id <MTLRenderPipelineState> pipelineState,
@@ -163,7 +260,8 @@ private:
                         id <MTLRenderCommandEncoder> renderEncoder,
                         float opacity,
                         const VRORenderContext &renderContext,
-                        std::shared_ptr<VRODriver> &driver);
+                        std::shared_ptr<VRODriver> &driver,
+                        int instanceCount = 1);
     
 };
 

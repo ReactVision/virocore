@@ -76,6 +76,17 @@ public:
      texturing and lighting. Typically this is used for rendering to a stencil
      buffer or shadow map.
      */
+    /*
+     Renders the geometry into a tracking-areas texture as a flat integer id, for the visionOS
+     hover effect. Default is a no-op: only the Metal substrate on visionOS has anywhere to
+     write it.
+     */
+    virtual void renderTrackingArea(const VROGeometry &geometry,
+                                    const VROMatrix4f &transform,
+                                    uint32_t renderValue,
+                                    const VRORenderContext &context,
+                                    std::shared_ptr<VRODriver> &driver) {}
+
     virtual void renderSilhouette(const VROGeometry &geometry,
                                   VROMatrix4f transform,
                                   std::shared_ptr<VROMaterial> &material,

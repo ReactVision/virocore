@@ -27,10 +27,12 @@
 #ifndef VROBoneUBO_h
 #define VROBoneUBO_h
 
-#include "VROOpenGL.h"
+#include "VRODefines.h"
 #include <vector>
 #include <memory>
-#include "VRODefines.h"
+#if !VRO_METAL
+#include "VROOpenGL.h"
+#endif
 
 // True to use dual-quaternion skinning, which has more realistic movement and uses less memory
 // TODO VIRO-1472: DQS skinning is malforming meshes during animation
@@ -47,6 +49,7 @@ typedef struct {
     float bone_transforms[kMaxBones * kFloatsPerBone];
 } VROBonesData;
 
+#if !VRO_METAL
 class VROShaderProgram;
 class VRODriverOpenGL;
 class VROSkinner;
@@ -95,7 +98,8 @@ private:
      The driver that created this UBO.
      */
     std::weak_ptr<VRODriverOpenGL> _driver;
-    
+
 };
+#endif  // !VRO_METAL
 
 #endif /* VROBoneUBO_h */

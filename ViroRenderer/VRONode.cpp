@@ -142,7 +142,7 @@ VRONode::VRONode(const VRONode &node) : VROThreadRestricted(VROThreadName::Rende
     _dragPlanePoint(node._dragPlanePoint),
     _dragPlaneNormal(node._dragPlaneNormal),
     _dragMaxDistance(node._dragMaxDistance),
-#if VRO_PLATFORM_IOS || VRO_PLATFORM_MACOS || VRO_PLATFORM_ANDROID
+#if VRO_PLATFORM_IOS || VRO_PLATFORM_MACOS || VRO_PLATFORM_ANDROID || VRO_PLATFORM_VISION
     // Atomics need to be explicitly loaded if in initializer lists
     // (normally the assignment operator will automatically load the
     // atomic)
@@ -474,7 +474,7 @@ void VRONode::updateSortKeys(uint32_t depth,
 
 void VRONode::getSortKeysForVisibleNodes(std::vector<VROSortKey> *outKeys) {
     passert_thread(__func__);
-    
+
     // Add the geometry of this node, if available
     if (_visible && _geometry && getType() == VRONodeType::Normal) {
         _geometry->getSortKeys(outKeys);

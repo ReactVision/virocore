@@ -47,6 +47,9 @@
 #include "VROSkeletalAnimation.h"
 #include "VROSkeleton.h"
 #include "VROBoneUBO.h"
+#if VRO_METAL
+#include "VROBoneUBOMetal.h"
+#endif
 #include "VROLog.h"
 #include "VROShaderFactory.h"
 #include "VROShaderModifier.h"
@@ -1857,7 +1860,11 @@ bool VROGLTFLoader::processNode(const tinygltf::Model &gModel, std::shared_ptr<V
         skinner->setSkinnerNode(node);
         geom->setSkinner(skinner);
         for (const std::shared_ptr<VROMaterial> &material : geom->getMaterials()) {
+#if VRO_METAL
+            material->addShaderModifier(VROBoneUBOMetal::createSkinningShaderModifier(false));
+#else
             material->addShaderModifier(VROBoneUBO::createSkinningShaderModifier(false));
+#endif
         }
 
         // The bone UBO already encodes world-space vertex positions including all ancestor

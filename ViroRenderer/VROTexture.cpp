@@ -27,7 +27,6 @@
 #include "VROTexture.h"
 #include "VROTextureSubstrate.h"
 #include "VRODriver.h"
-#include "VROTextureSubstrateMetal.h"
 #include "VROLog.h"
 #include "VROAllocationTracker.h"
 #include "VROData.h"

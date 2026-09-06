@@ -25,6 +25,7 @@
 //  SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #include "VROLog.h"
+#include <cstdarg>
 
 #define DECAF_BAD 0xdecafbad
 #define LOG_BUFFER_SIZE 1024

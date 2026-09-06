@@ -451,6 +451,78 @@ std::shared_ptr<VROImage> VROPlatformLoadImageWithBufferedData(std::vector<unsig
 
 #endif
 
+#pragma mark - VisionOS
+#elif VRO_PLATFORM_VISION
+#import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
+#import <Accelerate/Accelerate.h>
+#include "VROImageiOS.h"
+
+void VROPlatformDispatchAsyncRenderer(std::function<void()> fcn) {
+    dispatch_async(dispatch_get_main_queue(), ^{ fcn(); });
+}
+
+void VROPlatformDispatchAsyncApplication(std::function<void()> fcn) {
+    dispatch_async(dispatch_get_main_queue(), ^{ fcn(); });
+}
+
+void VROPlatformDispatchAsyncBackground(std::function<void()> fcn) {
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{ fcn(); });
+}
+
+std::string VROPlatformDownloadURLToFile(std::string url, bool *temp, bool *success) {
+    *temp = false;
+    *success = false;
+    return "";
+}
+
+void VROPlatformDownloadURLToFileAsync(std::string url,
+                                       std::function<void(std::string, bool)> onSuccess,
+                                       std::function<void()> onFailure) {
+    onFailure();
+}
+
+std::string VROPlatformCopyResourceToFile(std::string asset, bool *isTemp) {
+    *isTemp = false;
+    return asset;
+}
+
+void VROPlatformDeleteFile(std::string filename) {
+    NSError *deleteError = nil;
+    [[NSFileManager defaultManager] removeItemAtPath:[NSString stringWithUTF8String:filename.c_str()]
+                                               error:&deleteError];
+}
+
+std::string VROPlatformFindValueInResourceMap(std::string key, std::map<std::string, std::string> resourceMap) {
+    auto it = resourceMap.find(key);
+    if (it != resourceMap.end()) {
+        return it->second;
+    }
+    return "";
+}
+
+std::shared_ptr<VROImage> VROPlatformLoadImageFromFile(std::string filename,
+                                                       VROTextureInternalFormat format) {
+    UIImage *image = [UIImage imageWithContentsOfFile:[NSString stringWithUTF8String:filename.c_str()]];
+    if (!image) {
+        return nullptr;
+    }
+    return std::make_shared<VROImageiOS>(image, format);
+}
+
+std::shared_ptr<VROImage> VROPlatformLoadImageWithBufferedData(std::vector<unsigned char> rawData,
+                                                               VROTextureInternalFormat format) {
+    NSData *data = [NSData dataWithBytes:rawData.data() length:rawData.size()];
+    if (!data) {
+        return nullptr;
+    }
+    UIImage *image = [UIImage imageWithData:data];
+    if (!image) {
+        return nullptr;
+    }
+    return std::make_shared<VROImageiOS>(image, format);
+}
+
 #pragma mark - Android
 #elif VRO_PLATFORM_ANDROID
 

@@ -26,8 +26,29 @@
 
 #include "VROTypefaceiOS.h"
 #include "VROLog.h"
+#if VRO_METAL
+// visionOS reuses this class wholesale: the substantial part is the CoreText font lookup
+// and table copy, which is identical. Only the FT_Library owner and the glyph
+// implementation differ.
+#include "VROGlyphMetal.h"
+#include "VRODriverVisionOS.h"
+#else
 #include "VROGlyphOpenGL.h"
 #include "VRODriverOpenGLiOS.h"
+#endif
+
+// The FT_Library lives on the driver, and which driver depends on the platform. Keeping the
+// cast in one place avoids putting freetype into the shared VRODriver header, which is the
+// include cascade that sank the original visionOS approach.
+static FT_Library VROTypefaceGetFreetype(std::shared_ptr<VRODriver> driver) {
+#if VRO_METAL
+    std::shared_ptr<VRODriverVisionOS> metal = std::dynamic_pointer_cast<VRODriverVisionOS>(driver);
+    return metal ? metal->getFreetype() : nullptr;
+#else
+    std::shared_ptr<VRODriverOpenGLiOS> gl = std::dynamic_pointer_cast<VRODriverOpenGLiOS>(driver);
+    return gl ? gl->getFreetype() : nullptr;
+#endif
+}
 
 #include <TargetConditionals.h>
 #if TARGET_RT_BIG_ENDIAN
@@ -62,7 +83,7 @@ VROTypefaceiOS::~VROTypefaceiOS() {
     std::shared_ptr<VRODriver> driver = _driver.lock();
     if (driver && _face != nullptr) {
         // FT crashes if we delete a face after the freetype library has been deleted
-        if (std::dynamic_pointer_cast<VRODriverOpenGLiOS>(driver)->getFreetype() != nullptr) {
+        if (VROTypefaceGetFreetype(driver) != nullptr) {
             FT_Done_Face(_face);
         }
     }
@@ -113,7 +134,7 @@ FT_FaceRec_ *VROTypefaceiOS::loadFTFace() {
     _fontData = getFontData(font);
     
     // Create the FT font from the font data
-    FT_Library ft = std::dynamic_pointer_cast<VRODriverOpenGLiOS>(driver)->getFreetype();
+    FT_Library ft = VROTypefaceGetFreetype(driver);
     if (FT_New_Memory_Face(ft, (const FT_Byte *)[_fontData bytes], [_fontData length], 0, &_face)) {
         pabort("Failed to load font");
     }
@@ -152,8 +173,13 @@ CTFontRef VROTypefaceiOS::createFont(NSString *family, int size, VROFontStyle st
 
 std::shared_ptr<VROGlyph> VROTypefaceiOS::loadGlyph(uint32_t charCode, uint32_t variantSelector,
                                                     uint32_t outlineWidth, VROGlyphRenderMode renderMode) {
+#if VRO_METAL
+    std::shared_ptr<VROGlyph> glyph = std::make_shared<VROGlyphMetal>();
+    std::shared_ptr<VRODriver> driver = _driver.lock();
+#else
     std::shared_ptr<VROGlyph> glyph = std::make_shared<VROGlyphOpenGL>();
     std::shared_ptr<VRODriverOpenGLiOS> driver = std::dynamic_pointer_cast<VRODriverOpenGLiOS>(_driver.lock());
+#endif
     if (!driver) {
         return glyph;
     }
@@ -163,8 +189,8 @@ std::shared_ptr<VROGlyph> VROTypefaceiOS::loadGlyph(uint32_t charCode, uint32_t 
     } else if (renderMode == VROGlyphRenderMode::Bitmap) {
         glyph->loadBitmap(_face, charCode, variantSelector, &_glyphAtlases, driver);
         if (outlineWidth > 0) {
-            glyph->loadOutlineBitmap(driver->getFreetype(), _face, charCode, variantSelector, outlineWidth,
-                                     &_outlineAtlases[outlineWidth], driver);
+            glyph->loadOutlineBitmap(VROTypefaceGetFreetype(driver), _face, charCode, variantSelector,
+                                     outlineWidth, &_outlineAtlases[outlineWidth], driver);
         }
     } else {
         glyph->loadVector(_face, charCode, variantSelector);

@@ -27,6 +27,13 @@
 #include "VROUniform.h"
 #include "VROShaderModifier.h"
 
+#if VRO_METAL
+VROUniform *VROUniform::newUniformForType(const std::string &name, VROShaderProperty type, int arraySize) {
+    (void)name; (void)type; (void)arraySize;
+    pabort("newUniformForType called on Metal path — Metal uses constant buffers, not GL uniforms");
+    return nullptr;
+}
+#else
 VROUniform *VROUniform::newUniformForType(const std::string &name, VROShaderProperty type, int arraySize) {
     VROUniform *uniform = nullptr;
     
@@ -82,6 +89,7 @@ VROUniform *VROUniform::newUniformForType(const std::string &name, VROShaderProp
     
     return uniform;
 }
+#endif  // !VRO_METAL
 
 void VROUniformBinder::setForMaterial(VROUniform *uniform, const VROGeometry *geometry, const VROMaterial *material) {
     if (uniform->getLocation() == -1) {
