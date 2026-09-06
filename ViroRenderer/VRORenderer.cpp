@@ -226,6 +226,29 @@ VROFieldOfView VRORenderer::computeUserFieldOfView(float viewportWidth, float vi
     return computeFOVFromMajorAxis(fovY, viewportWidth, viewportHeight);
 }
 
+VROMatrix4f VRORenderer::computeProjection(float viewportWidth, float viewportHeight,
+                                           float near, float far) const {
+    const std::shared_ptr<VRONodeCamera> camera =
+        _pointOfView ? _pointOfView->getCamera() : nullptr;
+
+    if (camera && camera->getProjectionType() == VROCameraProjectionType::Orthographic) {
+        // glTF stores xmag and ymag independently, so both are kept on the camera. The public
+        // prop sets the height alone and lets the aspect ratio give the width, which is what
+        // keeps a scene's proportions stable across viewport sizes.
+        float halfHeight = camera->getOrthographicHeight() / 2.0f;
+        if (halfHeight > 0) {
+            float aspect = (viewportHeight > 0) ? (viewportWidth / viewportHeight) : 1.0f;
+            float halfWidth = halfHeight * aspect;
+            return VROMathComputeOrthographicProjection(-halfWidth, halfWidth,
+                                                        -halfHeight, halfHeight, near, far);
+        }
+        // A height of zero would collapse the frustum; perspective is the safer answer.
+    }
+
+    VROFieldOfView fov = computeUserFieldOfView(viewportWidth, viewportHeight);
+    return fov.toPerspectiveProjection(near, far);
+}
+
 float VRORenderer::getActiveFieldOfView() const {
     const VROCamera &camera = getCamera();
     if (camera.getViewport().getWidth() > camera.getViewport().getHeight()) {

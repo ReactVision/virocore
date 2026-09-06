@@ -328,7 +328,8 @@ static CVReturn VRODisplayLinkCallback(CVDisplayLinkRef displayLink, const CVTim
     }
     
     VROFieldOfView fov = _renderer->computeUserFieldOfView(viewport.getWidth(), viewport.getHeight());
-    VROMatrix4f projection = fov.toPerspectiveProjection(kZNear, _renderer->getFarClippingPlane());
+    VROMatrix4f projection = _renderer->computeProjection(viewport.getWidth(), viewport.getHeight(),
+                                                         kZNear, _renderer->getFarClippingPlane());
     
     _renderer->prepareFrame(_frame, viewport, fov, VROMatrix4f::identity(), projection, _driver);
     glViewport(viewport.getX(), viewport.getY(), viewport.getWidth(), viewport.getHeight());

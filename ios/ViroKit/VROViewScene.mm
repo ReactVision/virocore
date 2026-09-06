@@ -434,7 +434,10 @@ static VROVector3f const kZeroVector = VROVector3f();
     }
     
     VROFieldOfView fov = _renderer->computeUserFieldOfView(viewport.getWidth(), viewport.getHeight());
-    VROMatrix4f projection = fov.toPerspectiveProjection(kZNear, _renderer->getFarClippingPlane());
+    // Not fov.toPerspectiveProjection: the active camera decides. prepareFrame still wants the
+    // field of view for everything else that reads it, so both are computed.
+    VROMatrix4f projection = _renderer->computeProjection(viewport.getWidth(), viewport.getHeight(),
+                                                         kZNear, _renderer->getFarClippingPlane());
     
     _renderer->prepareFrame(_frame, viewport, fov, VROMatrix4f::identity(), projection, _driver);
     _renderer->renderEye(VROEyeType::Monocular, _renderer->getLookAtMatrix(), projection, viewport, _driver);
