@@ -50,6 +50,7 @@
 #include "VROEventDelegate.h"
 #include "VROGLTFLoader.h"
 #include "VROFBXLoader.h"
+#include "VROOBJLoader.h"
 #include "VROHDRLoader.h"
 #include "VROModelIOUtil.h"
 #include "VROExecutableAnimation.h"
@@ -1185,7 +1186,7 @@ static void viroSetCameraOrthographicScale(int node, float scale) {
     n->getCamera()->setOrthographicHeight(scale);
 }
 
-// --- Model loading (GLB / glTF / VRX) ---
+// --- Model loading (GLB / glTF / VRX / OBJ) ---
 
 // cb(nodeHandle, success). Registered by the bridge to know when a load finishes.
 static emscripten::val sModelLoadCallback = emscripten::val::undefined();
@@ -1194,8 +1195,16 @@ static void viroSetModelLoadCallback(emscripten::val callback) {
 }
 
 // Loads a model at `path` (already written to the emscripten virtual FS by JS)
-// into the node. format: 0=GLB, 1=glTF, 2=VRX. Self-contained assets (GLB/VRX)
-// need only the single file; the VRX loader handles gzip.
+// into the node. format: 0=GLB, 1=glTF, 2=VRX, 3=OBJ. Self-contained assets
+// (GLB/VRX) need only the single file; the VRX loader handles gzip.
+//
+// OBJ is the exception: it names a .mtl, which in turn names textures, and both
+// are resolved against the *directory* of `path` — VROOBJLoader takes everything
+// before the last '/' and tinyobj joins that with the referenced name. So the JS
+// side writes an OBJ and its companions into a directory of their own. A flat
+// layout at the FS root happens to resolve too (an empty base yields "/tex.png"
+// for textures and a CWD-relative open for the .mtl), but then two models that
+// both reference "wood.png" overwrite each other.
 static void viroLoadModel(int nodeHandle, std::string path, int format) {
     auto node = getNode(nodeHandle);
     if (!node || !sScene) {
@@ -1209,7 +1218,9 @@ static void viroLoadModel(int nodeHandle, std::string path, int format) {
         }
     };
 
-    if (format == 2) {
+    if (format == 3) {
+        VROOBJLoader::loadOBJFromResource(path, VROResourceType::LocalFile, node, driver, onFinish);
+    } else if (format == 2) {
         VROFBXLoader::loadFBXFromResource(path, VROResourceType::LocalFile, node, driver, onFinish);
     } else {
         bool isBinary = (format == 0); // 0=GLB binary, 1=glTF text
