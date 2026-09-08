@@ -309,7 +309,7 @@ static inline VROMatrix4f viroGLConvTransform(VROMatrix4f t) {
     [self addGestureRecognizer:rotateGesture];
 
     UIPinchGestureRecognizer *pinchGesture = [[UIPinchGestureRecognizer alloc] initWithTarget:self action:@selector(handlePinch:)];
-    [rotateGesture setDelegate:self];
+    [pinchGesture setDelegate:self];
     [self addGestureRecognizer:pinchGesture];
 
     /*
