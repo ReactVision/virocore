@@ -345,9 +345,9 @@ void VROInputControllerOpenXR::onProcess(XrSession session, XrSpace baseSpace,
         if (state.isActive) {
             bool pressed = (state.currentState >= kTriggerThreshold);
             if (pressed && !_prevTriggerRight)
-                VROInputControllerBase::onButtonEvent(ViroOculus::Controller, VROEventDelegate::ClickState::ClickDown);
+                queueButtonEvent(ViroOculus::Controller, VROEventDelegate::ClickState::ClickDown);
             else if (!pressed && _prevTriggerRight)
-                VROInputControllerBase::onButtonEvent(ViroOculus::Controller, VROEventDelegate::ClickState::ClickUp);
+                queueButtonEvent(ViroOculus::Controller, VROEventDelegate::ClickState::ClickUp);
             _prevTriggerRight = pressed;
         }
     }
@@ -361,9 +361,9 @@ void VROInputControllerOpenXR::onProcess(XrSession session, XrSpace baseSpace,
         if (state.isActive) {
             bool pressed = (state.currentState >= kTriggerThreshold);
             if (pressed && !_prevTriggerLeft)
-                VROInputControllerBase::onButtonEvent(ViroOculus::LeftController, VROEventDelegate::ClickState::ClickDown);
+                queueButtonEvent(ViroOculus::LeftController, VROEventDelegate::ClickState::ClickDown);
             else if (!pressed && _prevTriggerLeft)
-                VROInputControllerBase::onButtonEvent(ViroOculus::LeftController, VROEventDelegate::ClickState::ClickUp);
+                queueButtonEvent(ViroOculus::LeftController, VROEventDelegate::ClickState::ClickUp);
             _prevTriggerLeft = pressed;
         }
     }
@@ -377,9 +377,9 @@ void VROInputControllerOpenXR::onProcess(XrSession session, XrSpace baseSpace,
         if (state.isActive) {
             bool pressed = (state.currentState >= kGripThreshold);
             if (pressed && !_prevGripRight)
-                VROInputControllerBase::onButtonEvent(ViroOculus::RightGrip, VROEventDelegate::ClickState::ClickDown);
+                queueButtonEvent(ViroOculus::RightGrip, VROEventDelegate::ClickState::ClickDown);
             else if (!pressed && _prevGripRight)
-                VROInputControllerBase::onButtonEvent(ViroOculus::RightGrip, VROEventDelegate::ClickState::ClickUp);
+                queueButtonEvent(ViroOculus::RightGrip, VROEventDelegate::ClickState::ClickUp);
             _prevGripRight = pressed;
         }
     }
@@ -393,9 +393,9 @@ void VROInputControllerOpenXR::onProcess(XrSession session, XrSpace baseSpace,
         if (state.isActive) {
             bool pressed = (state.currentState >= kGripThreshold);
             if (pressed && !_prevGripLeft)
-                VROInputControllerBase::onButtonEvent(ViroOculus::LeftGrip, VROEventDelegate::ClickState::ClickDown);
+                queueButtonEvent(ViroOculus::LeftGrip, VROEventDelegate::ClickState::ClickDown);
             else if (!pressed && _prevGripLeft)
-                VROInputControllerBase::onButtonEvent(ViroOculus::LeftGrip, VROEventDelegate::ClickState::ClickUp);
+                queueButtonEvent(ViroOculus::LeftGrip, VROEventDelegate::ClickState::ClickUp);
             _prevGripLeft = pressed;
         }
     }
@@ -409,9 +409,9 @@ void VROInputControllerOpenXR::onProcess(XrSession session, XrSpace baseSpace,
         if (state.isActive) {
             bool pressed = (state.currentState == XR_TRUE);
             if (pressed && !_prevAButton)
-                VROInputControllerBase::onButtonEvent(ViroOculus::AButton, VROEventDelegate::ClickState::ClickDown);
+                queueButtonEvent(ViroOculus::AButton, VROEventDelegate::ClickState::ClickDown);
             else if (!pressed && _prevAButton)
-                VROInputControllerBase::onButtonEvent(ViroOculus::AButton, VROEventDelegate::ClickState::ClickUp);
+                queueButtonEvent(ViroOculus::AButton, VROEventDelegate::ClickState::ClickUp);
             _prevAButton = pressed;
         }
     }
@@ -425,10 +425,10 @@ void VROInputControllerOpenXR::onProcess(XrSession session, XrSpace baseSpace,
         if (state.isActive) {
             bool pressed = (state.currentState == XR_TRUE);
             if (pressed && !_prevBButton) {
-                VROInputControllerBase::onButtonEvent(ViroOculus::BackButton, VROEventDelegate::ClickState::ClickDown);
+                queueButtonEvent(ViroOculus::BackButton, VROEventDelegate::ClickState::ClickDown);
                 if (_backButtonCallback) _backButtonCallback();
             } else if (!pressed && _prevBButton) {
-                VROInputControllerBase::onButtonEvent(ViroOculus::BackButton, VROEventDelegate::ClickState::ClickUp);
+                queueButtonEvent(ViroOculus::BackButton, VROEventDelegate::ClickState::ClickUp);
             }
             _prevBButton = pressed;
         }
@@ -443,9 +443,9 @@ void VROInputControllerOpenXR::onProcess(XrSession session, XrSpace baseSpace,
         if (state.isActive) {
             bool pressed = (state.currentState == XR_TRUE);
             if (pressed && !_prevXButton)
-                VROInputControllerBase::onButtonEvent(ViroOculus::XButton, VROEventDelegate::ClickState::ClickDown);
+                queueButtonEvent(ViroOculus::XButton, VROEventDelegate::ClickState::ClickDown);
             else if (!pressed && _prevXButton)
-                VROInputControllerBase::onButtonEvent(ViroOculus::XButton, VROEventDelegate::ClickState::ClickUp);
+                queueButtonEvent(ViroOculus::XButton, VROEventDelegate::ClickState::ClickUp);
             _prevXButton = pressed;
         }
     }
@@ -459,9 +459,9 @@ void VROInputControllerOpenXR::onProcess(XrSession session, XrSpace baseSpace,
         if (state.isActive) {
             bool pressed = (state.currentState == XR_TRUE);
             if (pressed && !_prevYButton)
-                VROInputControllerBase::onButtonEvent(ViroOculus::YButton, VROEventDelegate::ClickState::ClickDown);
+                queueButtonEvent(ViroOculus::YButton, VROEventDelegate::ClickState::ClickDown);
             else if (!pressed && _prevYButton)
-                VROInputControllerBase::onButtonEvent(ViroOculus::YButton, VROEventDelegate::ClickState::ClickUp);
+                queueButtonEvent(ViroOculus::YButton, VROEventDelegate::ClickState::ClickUp);
             _prevYButton = pressed;
         }
     }
@@ -475,10 +475,10 @@ void VROInputControllerOpenXR::onProcess(XrSession session, XrSpace baseSpace,
         if (state.isActive) {
             bool pressed = (state.currentState == XR_TRUE);
             if (pressed && !_prevMenuButton) {
-                VROInputControllerBase::onButtonEvent(ViroOculus::BackButton, VROEventDelegate::ClickState::ClickDown);
+                queueButtonEvent(ViroOculus::BackButton, VROEventDelegate::ClickState::ClickDown);
                 if (_backButtonCallback) _backButtonCallback();
             } else if (!pressed && _prevMenuButton) {
-                VROInputControllerBase::onButtonEvent(ViroOculus::BackButton, VROEventDelegate::ClickState::ClickUp);
+                queueButtonEvent(ViroOculus::BackButton, VROEventDelegate::ClickState::ClickUp);
             }
             _prevMenuButton = pressed;
         }
@@ -551,9 +551,9 @@ void VROInputControllerOpenXR::onProcess(XrSession session, XrSpace baseSpace,
 
     // ── Per-source dispatch — both hands handled independently ──────────────
     // Each side calls the source-aware updateHitNode so its hit/hover/click
-    // state is tracked separately in VROInputControllerBase. Pinch / trigger
-    // edge events emitted earlier in this frame already carry the correct
-    // source, so onButtonEvent will resolve against this side's hit result.
+    // state is tracked separately in VROInputControllerBase. Button edges
+    // polled earlier this frame are flushed after this, so they resolve
+    // against these hits rather than the previous frame's.
     auto dispatchSide = [this, &camera](
         bool valid, int source,
         const VROVector3f &pos, const VROQuaternion &rot, const VROVector3f &fwd) {
@@ -587,6 +587,11 @@ void VROInputControllerOpenXR::onProcess(XrSession session, XrSpace baseSpace,
             VROInputControllerBase::processGazeEvent(ViroOculus::EyeGaze);
         }
     }
+
+    for (const auto &edge : _pendingButtons) {
+        VROInputControllerBase::onButtonEvent(edge.first, edge.second);
+    }
+    _pendingButtons.clear();
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -781,9 +786,9 @@ void VROInputControllerOpenXR::processHands(XrSpace baseSpace, XrTime time,
             }
         }
         if (pinched && !prevPinch)
-            VROInputControllerBase::onButtonEvent(source, VROEventDelegate::ClickState::ClickDown);
+            queueButtonEvent(source, VROEventDelegate::ClickState::ClickDown);
         else if (!pinched && prevPinch)
-            VROInputControllerBase::onButtonEvent(source, VROEventDelegate::ClickState::ClickUp);
+            queueButtonEvent(source, VROEventDelegate::ClickState::ClickUp);
         prevPinch = pinched;
 
         // ── Grab detection (middle tip to palm distance) ──────────────────────
@@ -797,9 +802,9 @@ void VROInputControllerOpenXR::processHands(XrSpace baseSpace, XrTime time,
             bool grabbed = (sqrtf(dx*dx + dy*dy + dz*dz) < 0.06f);
 
             if (grabbed && !prevGrab)
-                VROInputControllerBase::onButtonEvent(gripSource, VROEventDelegate::ClickState::ClickDown);
+                queueButtonEvent(gripSource, VROEventDelegate::ClickState::ClickDown);
             else if (!grabbed && prevGrab)
-                VROInputControllerBase::onButtonEvent(gripSource, VROEventDelegate::ClickState::ClickUp);
+                queueButtonEvent(gripSource, VROEventDelegate::ClickState::ClickUp);
             prevGrab = grabbed;
         }
     }
@@ -811,6 +816,26 @@ void VROInputControllerOpenXR::processHands(XrSpace baseSpace, XrTime time,
 
 VROVector3f VROInputControllerOpenXR::getDragForwardOffset() {
     return VROVector3f(0, 0, 0);
+}
+
+void VROInputControllerOpenXR::queueButtonEvent(int source, VROEventDelegate::ClickState state) {
+    _pendingButtons.emplace_back(source, state);
+}
+
+int VROInputControllerOpenXR::rayForSource(int source) const {
+    switch (source) {
+        case ViroOculus::AButton:
+        case ViroOculus::RightGrip:
+        case ViroOculus::RightThumbstick:
+            return ViroOculus::Controller;
+        case ViroOculus::XButton:
+        case ViroOculus::YButton:
+        case ViroOculus::LeftGrip:
+        case ViroOculus::LeftThumbstick:
+            return ViroOculus::LeftController;
+        default:
+            return source;
+    }
 }
 
 bool VROInputControllerOpenXR::stickyPose(PersistentAim &state, bool currentValid,

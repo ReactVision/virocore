@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## Unreleased
+
+### Fixed
+
+- **Quest: dragging with both hands tracked followed the wrong hand and jumped on grab (`VROInputControllerBase`).** Hover and click were source-aware but drag still ran off the shared single-pointer slot, so with two aim rays dispatched per frame a drag was seeded from whichever ray was mirrored last (the left) and then moved by both rays in turn, rendering the idle hand's result; any hand's ClickUp ended it. A `VRODraggedObject` now records the ray that started it and that ray's pose, only that ray moves or ends the drag, the original hit is snapshotted at ClickDown, and a second button during a drag neither restarts nor steals it. Grip, A/X/Y and thumbstick sources resolve their hit, hover and drag state through their hand's aim ray via the new `rayForSource()` hook (`VROInputControllerOpenXR`), so a right-grip grab no longer acts on what the left hand points at. Single-pointer backends (AR, Cardboard, Daydream) keep the identity mapping and are unchanged.
+- **Quest: a click on a highlighted button was dropped several times a second (`VROInputPresenterOpenXR`, `VROInputControllerBase`, `VROInputControllerOpenXR`).** The aim-laser nodes were ordinary selectable scene geometry whose bounding box spans controller to hit point, so the hand's own ray hit its laser before the button on a large share of frames; hover hysteresis hid the churn but every click on such a frame resolved to nothing. Lasers and the presenter root are now unselectable. Clicks also get their own grace: the click follows the highlighted node while a hover exit is pending (the old re-route required the miss to land on another hoverable node, which a panel body or the background never is), or the node the ray left within the last 150 ms when the hit is not clickable; the comparison uses bubbled handler nodes, so `Clicked` fires for a press and release on different children of one handler. ClickUp is delivered to the node that took the ClickDown from the same button (press capture). On OpenXR, button and gesture edges are queued and flushed after the frame's hit update instead of resolving against the previous frame's hit.
+
 ## v2.58.1 — 17 August 2026
 
 ### Fixed
