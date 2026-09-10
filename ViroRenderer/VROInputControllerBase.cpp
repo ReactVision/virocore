@@ -286,13 +286,15 @@ void VROInputControllerBase::processDragging(int source) {
         } else if (draggedNode->getDragType() == VRODragType::FixedToPlane) {
             _lastDraggedNode->_originalHitLocation = getPlaneIntersect(draggedNode);
 
-            // Snap object onto the plane if need be.
+            // Snap object onto the plane if need be. This is a tolerance rather
+            // than floorf(x * 100) / 100, which sent every value in [-0.01, 0)
+            // to -0.01, so float noise on a node that is on the plane read as
+            // off it and snapped the node to the aim point.
             VROVector3f p = draggedNode->getDragPlanePoint();
             VROVector3f n = draggedNode->getDragPlaneNormal();
             VROVector3f c = draggedNode->getWorldPosition();
-            float isOnPlane = (n.x * (c.x - p.x)) + (n.y * (c.y - p.y)) + (n.z * (c.z -p.z));
-            isOnPlane = floorf(isOnPlane * 100) / 100;
-            if (isOnPlane != 0.0){
+            float distanceFromPlane = (n.x * (c.x - p.x)) + (n.y * (c.y - p.y)) + (n.z * (c.z - p.z));
+            if (fabs(distanceFromPlane) > ON_PLANE_DISTANCE_THRESHOLD){
                 _lastDraggedNode->_originalDraggedNodePosition = _lastDraggedNode->_originalHitLocation;
             }
         } else {
@@ -366,9 +368,13 @@ VROVector3f VROInputControllerBase::getPlaneIntersect(std::shared_ptr<VRONode> n
     VROVector3f planeNormal = node->getDragPlaneNormal();
     float maxDistance = node->getDragMaxDistance();
 
-    // if the plane info hasn't been set, then just return the current position.
+    // if the plane info hasn't been set, then just leave the node where it is.
+    // Every exit from this function is applied by the caller as a world
+    // transform, so it has to be a world position: getPosition() is the offset
+    // inside the parent, which for an anchored node moved it by the anchor's
+    // own translation.
     if (planeNormal.isZero()) { // we don't check if planePoint is zero because that's a "valid" point
-        return node->getPosition();
+        return node->getWorldPosition();
     }
 
     // Find the intersection between the plane and the controller forward
@@ -386,22 +392,39 @@ VROVector3f VROInputControllerBase::getPlaneIntersect(std::shared_ptr<VRONode> n
         VROVector3f controllerProj;
         success = _lastDraggedNode->_position.projectOnPlane(planePoint, planeNormal, &controllerProj);
         if (!success) {
-            return node->getPosition();
+            return node->getWorldPosition();
         }
 
         // second, project the controller's position + forward onto the plane
         VROVector3f forwardProj;
         success = _lastDraggedNode->_position.add(_lastDraggedNode->_forward).projectOnPlane(planePoint, planeNormal, &forwardProj);
         if (!success) {
-            return node->getPosition();
+            return node->getWorldPosition();
+        }
+
+        // A sphere of radius maxDistance around the controller only reaches the
+        // plane while the controller is inside that distance of it. Further out
+        // the two constraints share no point and the root below is of a negative
+        // number, and a NaN reaches the caller as a world transform and takes the
+        // node off screen. distanceAccurate because distance() returns NaN for
+        // two identical points, which is a controller sitting on the plane.
+        float distanceToPlane = _lastDraggedNode->_position.distanceAccurate(controllerProj);
+        if (distanceToPlane > maxDistance) {
+            return node->getWorldPosition();
         }
 
         // find the length of the 3rd side of the right handed triangle formed by the controller's
         // position, it's projected point, and the position on the plane "maxDistance" from the controller
-        float length = sqrtf(powf(maxDistance, 2) - (powf(_lastDraggedNode->_position.distance(controllerProj), 2)));
+        float length = sqrtf(powf(maxDistance, 2) - powf(distanceToPlane, 2));
 
-        // finally, calculate the intersection point b/t the plane and sphere along the user's forward
-        intersectionPoint = controllerProj.add(forwardProj.subtract(controllerProj).normalize().scale(length));
+        // finally, calculate the intersection point b/t the plane and sphere along the user's forward.
+        // Aiming straight away from the plane leaves no in-plane direction and
+        // normalize() would divide by sqrtf(0).
+        VROVector3f inPlaneAim = forwardProj.subtract(controllerProj);
+        if (inPlaneAim.magnitude() < MIN_DRAG_AIM_IN_PLANE) {
+            return node->getWorldPosition();
+        }
+        intersectionPoint = controllerProj.add(inPlaneAim.normalize().scale(length));
     }
 
     return intersectionPoint;
