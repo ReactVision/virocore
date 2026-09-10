@@ -1154,6 +1154,12 @@
 		E14F91632FFC939E00CA253E /* VROFrontCameraProvider.h in Headers */ = {isa = PBXBuildFile; fileRef = E14F91602FFC939E00CA253E /* VROFrontCameraProvider.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		E15075852F185C5700653622 /* VROARHitTestResultiOS.mm in Sources */ = {isa = PBXBuildFile; fileRef = E15075842F185C5700653622 /* VROARHitTestResultiOS.mm */; };
 		E15075862F185C5700653622 /* VROARHitTestResultiOS.h in Headers */ = {isa = PBXBuildFile; fileRef = E15075832F185C5700653622 /* VROARHitTestResultiOS.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		E1C010000000000000000004 /* VROColocationBridge.mm in Sources */ = {isa = PBXBuildFile; fileRef = E1C010000000000000000001 /* VROColocationBridge.mm */; };
+		E1C010000000000000000005 /* VROColocationSession.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E1C010000000000000000003 /* VROColocationSession.cpp */; };
+		E1C010000000000000000006 /* VROColocationBridge.h in Headers */ = {isa = PBXBuildFile; fileRef = E1C010000000000000000000 /* VROColocationBridge.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		E1C010000000000000000007 /* VROColocationBridge.mm in Sources */ = {isa = PBXBuildFile; fileRef = E1C010000000000000000001 /* VROColocationBridge.mm */; };
+		E1C010000000000000000008 /* VROColocationSession.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E1C010000000000000000003 /* VROColocationSession.cpp */; };
+		E1C010000000000000000009 /* VROColocationBridge.h in Headers */ = {isa = PBXBuildFile; fileRef = E1C010000000000000000000 /* VROColocationBridge.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		E1626A182F46B830005AA731 /* VROCloudAnchorProviderReactVision.h in Headers */ = {isa = PBXBuildFile; fileRef = E1626A162F46B830005AA731 /* VROCloudAnchorProviderReactVision.h */; };
 		E1626A192F46B830005AA731 /* VROCloudAnchorProviderReactVision.mm in Sources */ = {isa = PBXBuildFile; fileRef = E1626A172F46B830005AA731 /* VROCloudAnchorProviderReactVision.mm */; };
 		E1626A1A2F46B83E005AA731 /* VROCloudAnchorProviderReactVision.h in Sources */ = {isa = PBXBuildFile; fileRef = E1626A162F46B830005AA731 /* VROCloudAnchorProviderReactVision.h */; };
@@ -2074,6 +2080,8 @@
 		8FCED0721EBBD35200C19BCA /* SvenArmor_Normal.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = SvenArmor_Normal.png; path = ViroSample/SvenArmor_Normal.png; sourceTree = "<group>"; };
 		8FCED0731EBBD35200C19BCA /* SvenArmor_Spec.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = SvenArmor_Spec.png; path = ViroSample/SvenArmor_Spec.png; sourceTree = "<group>"; };
 		8FCF39621CAEE26F00A86CA3 /* VROHoverDistanceListener.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = VROHoverDistanceListener.h; sourceTree = "<group>"; };
+		E1C010000000000000000002 /* VROColocationSession.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VROColocationSession.h; sourceTree = "<group>"; };
+		E1C010000000000000000003 /* VROColocationSession.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = VROColocationSession.cpp; sourceTree = "<group>"; };
 		8FCF39691CB4242000A86CA3 /* VRORenderer.cpp */ = {isa = PBXFileReference; explicitFileType = sourcecode.cpp.objcpp; fileEncoding = 4; path = VRORenderer.cpp; sourceTree = "<group>"; };
 		8FCF396A1CB4242000A86CA3 /* VRORenderer.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = VRORenderer.h; sourceTree = "<group>"; };
 		8FD06F1C1E831E81003D3BC4 /* VROCameraTexture.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = VROCameraTexture.h; sourceTree = "<group>"; };
@@ -2441,6 +2449,8 @@
 		E14F91612FFC939E00CA253E /* VROFrontCameraProvider.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = VROFrontCameraProvider.mm; sourceTree = "<group>"; };
 		E15075832F185C5700653622 /* VROARHitTestResultiOS.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VROARHitTestResultiOS.h; sourceTree = "<group>"; };
 		E15075842F185C5700653622 /* VROARHitTestResultiOS.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = VROARHitTestResultiOS.mm; sourceTree = "<group>"; };
+		E1C010000000000000000000 /* VROColocationBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VROColocationBridge.h; sourceTree = "<group>"; };
+		E1C010000000000000000001 /* VROColocationBridge.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = VROColocationBridge.mm; sourceTree = "<group>"; };
 		E1626A162F46B830005AA731 /* VROCloudAnchorProviderReactVision.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VROCloudAnchorProviderReactVision.h; sourceTree = "<group>"; };
 		E1626A172F46B830005AA731 /* VROCloudAnchorProviderReactVision.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = VROCloudAnchorProviderReactVision.mm; sourceTree = "<group>"; };
 		E188BC742EE37644000A427E /* VROCloudAnchorProviderARCore.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = VROCloudAnchorProviderARCore.mm; sourceTree = "<group>"; };
@@ -2697,6 +2707,8 @@
 				8F65F78C1C90D83600415115 /* VROTransformConstraint.h */,
 				8F65F78B1C90D83600415115 /* VROTransformConstraint.cpp */,
 				8FCF396A1CB4242000A86CA3 /* VRORenderer.h */,
+				E1C010000000000000000002 /* VROColocationSession.h */,
+				E1C010000000000000000003 /* VROColocationSession.cpp */,
 				8FCF39691CB4242000A86CA3 /* VRORenderer.cpp */,
 				8FA81D5E2023EE7100B04790 /* VRORendererConfiguration.h */,
 				8FCB10001DD0055400FE425C /* VRORenderDelegateInternal.h */,
@@ -3581,6 +3593,8 @@
 				8F11B7C41C20B2A20026D150 /* VRORenderDelegate.h */,
 				8FAE504A222C3CD40043220B /* VRODeviceUtil.h */,
 				8FAE504B222C3CD40043220B /* VRODeviceUtil.m */,
+				E1C010000000000000000000 /* VROColocationBridge.h */,
+				E1C010000000000000000001 /* VROColocationBridge.mm */,
 				E1626A162F46B830005AA731 /* VROCloudAnchorProviderReactVision.h */,
 				E1626A172F46B830005AA731 /* VROCloudAnchorProviderReactVision.mm */,
 				8FAE5049222C3CD40043220B /* DeviceList.plist */,
@@ -4090,6 +4104,7 @@
 			isa = PBXHeadersBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E1C010000000000000000009 /* VROColocationBridge.h in Headers */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -4097,6 +4112,7 @@
 			isa = PBXHeadersBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E1C010000000000000000006 /* VROColocationBridge.h in Headers */,
 				E14F91632FFC939E00CA253E /* VROFrontCameraProvider.h in Headers */,
 				8FCA009A22C7DA0E00BB1D70 /* VROVertexBuffer.h in Headers */,
 				A586978A1E308B4500191090 /* VROInputControllerBase.h in Headers */,
@@ -5054,6 +5070,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E1C010000000000000000004 /* VROColocationBridge.mm in Sources */,
+				E1C010000000000000000005 /* VROColocationSession.cpp in Sources */,
 				E1BD61882FBBEA93008FDF74 /* VROInputState.h in Sources */,
 				E1BD61892FBBEA95008FDF74 /* VROVirtualControllerRegistry.h in Sources */,
 				E1BD617F2FBBE574008FDF74 /* VRODynamicGeometry.h in Sources */,
@@ -5338,6 +5356,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E1C010000000000000000007 /* VROColocationBridge.mm in Sources */,
+				E1C010000000000000000008 /* VROColocationSession.cpp in Sources */,
 				7C2B122D8273AF546B86E5E6 /* VROAction.cpp in Sources */,
 				DE5CF8FE4DA044BA0C640559 /* VROAllocationTracker.cpp in Sources */,
 				A129455B56737D681EC8B765 /* VROAnimatable.cpp in Sources */,

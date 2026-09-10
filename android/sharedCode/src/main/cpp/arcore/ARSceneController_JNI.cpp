@@ -742,6 +742,72 @@ VRO_METHOD(void, nativeRvFinishScan)(VRO_ARGS
     });
 }
 
+// Shared coordinate frames (CL-H). The result shape matches finishScan's
+// exactly — success, an id, a transform CSV, an error — so the same Java
+// callback and the same JS plumbing carry both, and a frame source does not
+// care which produced it.
+static void rvFireSharedFrameResult(VRO_WEAK weakObj, std::string keyStr,
+                                     bool success, std::string frameId,
+                                     std::string transformCsv, std::string error) {
+    VROPlatformDispatchAsyncApplication([weakObj, keyStr, success, frameId, transformCsv, error] {
+        VRO_ENV env = VROPlatformGetJNIEnv();
+        VRO_OBJECT localObj = VRO_NEW_LOCAL_REF(weakObj);
+        if (VRO_IS_OBJECT_NULL(localObj)) {
+            VRO_DELETE_LOCAL_REF(localObj);
+            VRO_DELETE_WEAK_GLOBAL_REF(weakObj);
+            return;
+        }
+        VRO_STRING jKey = VRO_NEW_STRING(keyStr.c_str());
+        VRO_STRING jId  = VRO_NEW_STRING(frameId.c_str());
+        VRO_STRING jCsv = VRO_NEW_STRING(transformCsv.c_str());
+        VRO_STRING jErr = VRO_NEW_STRING(error.c_str());
+        VROPlatformCallHostFunction(localObj, "onRvSharedFrameResult",
+            "(Ljava/lang/String;ZLjava/lang/String;Ljava/lang/String;Ljava/lang/String;)V",
+            jKey, (jboolean)success, jId, jCsv, jErr);
+        VRO_DELETE_LOCAL_REF(localObj);
+        VRO_DELETE_WEAK_GLOBAL_REF(weakObj);
+    });
+}
+
+// `joining` picks create vs join rather than two near-identical natives: the
+// dispatch, session lookup and failure path are the whole body otherwise.
+static void rvSharedFrameOp(VRO_ENV env, VRO_OBJECT obj,
+                             VRO_REF(VROARSceneController) arSceneControllerPtr,
+                             jstring key_j, jstring groupId_j, bool joining) {
+    std::string keyStr   = VRO_STRING_STL(key_j);
+    std::string groupStr = VRO_STRING_STL(groupId_j);
+    std::weak_ptr<VROARScene> arScene_w = std::dynamic_pointer_cast<VROARScene>(
+        VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
+    VRO_WEAK weakObj = VRO_NEW_WEAK_GLOBAL_REF(obj);
+
+    VROPlatformDispatchAsyncRenderer([arScene_w, weakObj, keyStr, groupStr, joining] {
+        std::shared_ptr<VROARScene> arScene = arScene_w.lock();
+        std::shared_ptr<VROARSession> arSession = arScene ? arScene->getARSession() : nullptr;
+        if (!arSession) {
+            rvFireSharedFrameResult(weakObj, keyStr, false, "", "", "AR session not available");
+            return;
+        }
+        auto cb = [weakObj, keyStr](bool success, std::string frameId,
+                                     std::string csv, std::string error) {
+            rvFireSharedFrameResult(weakObj, keyStr, success, frameId, csv, error);
+        };
+        if (joining) arSession->rvJoinSharedFrame(groupStr, cb);
+        else         arSession->rvCreateSharedFrame(groupStr, cb);
+    });
+}
+
+VRO_METHOD(void, nativeRvCreateSharedFrame)(VRO_ARGS
+                                            VRO_REF(VROARSceneController) arSceneControllerPtr,
+                                            jstring key_j, jstring groupId_j) {
+    rvSharedFrameOp(env, obj, arSceneControllerPtr, key_j, groupId_j, false);
+}
+
+VRO_METHOD(void, nativeRvJoinSharedFrame)(VRO_ARGS
+                                          VRO_REF(VROARSceneController) arSceneControllerPtr,
+                                          jstring key_j, jstring groupId_j) {
+    rvSharedFrameOp(env, obj, arSceneControllerPtr, key_j, groupId_j, true);
+}
+
 VRO_METHOD(void, nativeRvGetCloudAnchor)(VRO_ARGS
                                          VRO_REF(VROARSceneController) arSceneControllerPtr,
                                          jstring key_j, jstring anchorId_j) {

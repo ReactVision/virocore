@@ -59,6 +59,8 @@ add_library( # Sets the name of the library.
              # dependency, which was not 16 KB-page compliant (see viro#491).
              ${VIRO_ANDROID_SRC}/VROSceneRendererOpenXR.cpp
              ${VIRO_ANDROID_SRC}/VROARSessionOpenXR.cpp
+             ${VIRO_ANDROID_SRC}/VROARSessionOpenXRSharedFrame.cpp
+             ${VIRO_ANDROID_SRC}/Colocation_JNI.cpp
              ${VIRO_ANDROID_SRC}/VROSceneRendererSceneView.cpp
              ${VIRO_ANDROID_SRC}/VROSample.cpp
              ${VIRO_ANDROID_SRC}/VROImageAndroid.cpp
@@ -195,6 +197,7 @@ add_library( # Sets the name of the library.
              ${VIRO_RENDERER_SRC}/VROBoneConstraint.cpp
              ${VIRO_RENDERER_SRC}/VROTransformConstraint.cpp
              ${VIRO_RENDERER_SRC}/VRORenderer.cpp
+             ${VIRO_RENDERER_SRC}/VROColocationSession.cpp
              ${VIRO_RENDERER_SRC}/VROFrameSynchronizerInternal.cpp
              ${VIRO_RENDERER_SRC}/VROPortalTraversalListener.cpp
              ${VIRO_RENDERER_SRC}/VROGeometrySubstrate.cpp

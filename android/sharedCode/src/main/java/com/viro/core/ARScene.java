@@ -1502,6 +1502,43 @@ public class ARScene extends Scene {
     }
 
     /**
+     * CL-H: result of establishing a platform-native shared coordinate frame.
+     * Same shape as {@link RvFinishScanCallback} on purpose — a shared frame and
+     * a hosted scan are interchangeable to everything downstream.
+     */
+    public interface RvSharedFrameCallback {
+        void onResult(boolean success, String frameId, String transformCsv, String error);
+    }
+
+    private Map<String, RvSharedFrameCallback> mRvSharedFrameCallbacks = new HashMap<>();
+
+    void onRvSharedFrameResult(String key, boolean success, String frameId,
+                                String transformCsv, String error) {
+        RvSharedFrameCallback cb = mRvSharedFrameCallbacks.remove(key);
+        if (cb != null) cb.onResult(success, frameId, transformCsv, error);
+    }
+
+    /**
+     * CL-H: establish a shared coordinate frame and publish it to {@code groupId}
+     * for other devices to join. Quest only; other platforms report unsupported
+     * through the callback.
+     *
+     * @param groupId a UUID chosen by the app. Also the co-location room key.
+     */
+    public void rvCreateSharedFrame(String groupId, RvSharedFrameCallback callback) {
+        String key = "rvCreateSharedFrame_" + System.nanoTime();
+        mRvSharedFrameCallbacks.put(key, callback);
+        nativeRvCreateSharedFrame(mNativeRef, key, groupId);
+    }
+
+    /** CL-H: recover a frame another device published to {@code groupId}. */
+    public void rvJoinSharedFrame(String groupId, RvSharedFrameCallback callback) {
+        String key = "rvJoinSharedFrame_" + System.nanoTime();
+        mRvSharedFrameCallbacks.put(key, callback);
+        nativeRvJoinSharedFrame(mNativeRef, key, groupId);
+    }
+
+    /**
      * WS-A: begin a room/building-scale scan with its own self-defined location
      * frame, independent of any placed anchor. Resets the native background
      * keyframe buffer. Call {@link #rvFinishScan} when done scanning.
@@ -1913,6 +1950,8 @@ public class ARScene extends Scene {
     // Cloud anchor management native methods
     private native void nativeRvStartScan(long sceneControllerRef);
     private native void nativeRvFinishScan(long sceneControllerRef, String key, int ttlDays);
+    private native void nativeRvCreateSharedFrame(long sceneControllerRef, String key, String groupId);
+    private native void nativeRvJoinSharedFrame(long sceneControllerRef, String key, String groupId);
     private native void nativeRvGetCloudAnchor(long sceneControllerRef, String key, String anchorId);
     private native void nativeRvListCloudAnchors(long sceneControllerRef, String key,
                                                   int limit, int offset);
