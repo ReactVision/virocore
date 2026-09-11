@@ -590,6 +590,22 @@ void VROInputControllerOpenXR::onProcess(XrSession session, XrSpace baseSpace,
 
     for (const auto &edge : _pendingButtons) {
         VROInputControllerBase::onButtonEvent(edge.first, edge.second);
+
+        // A short pulse on press, so a click reads as having landed. The left and
+        // right vibration output actions have been bound since this controller was
+        // written but had no caller anywhere, which is why every click, drag and
+        // collision in a Quest scene was silent.
+        //
+        // Only on the ClickDown edge: buzzing on release would read as a second
+        // press. BackButton is excluded for two reasons — it has no attributable
+        // hand (B on the right and Menu on the left share the source id, so
+        // rayForSource returns neither controller), and its callback finishes the
+        // VR activity, so the pulse would be cut off or land after the scene is gone.
+        if (edge.second == VROEventDelegate::ClickState::ClickDown &&
+            edge.first != ViroOculus::BackButton) {
+            const bool leftHand = rayForSource(edge.first) == ViroOculus::LeftController;
+            triggerHaptic(session, leftHand ? 0 : 1);
+        }
     }
     _pendingButtons.clear();
 
