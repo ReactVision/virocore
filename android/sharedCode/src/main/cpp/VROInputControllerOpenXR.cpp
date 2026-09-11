@@ -569,10 +569,18 @@ void VROInputControllerOpenXR::onProcess(XrSession session, XrSpace baseSpace,
     dispatchSide(rightValid, ViroOculus::Controller,     rightPos, rightRot, rightForward);
     dispatchSide(leftValid,  ViroOculus::LeftController, leftPos,  leftRot,  leftForward);
 
-    // ── Eye gaze (Quest Pro) — additive onHover source ──────────────────────
-    // Locate the eye-gaze pose and feed it through the same hit-test/onHover path
-    // as the controllers, under its own source id. No laser line is drawn (a gaze
-    // ray shouldn't render a beam); the reticle still follows via processGazeEvent.
+    // ── Gaze — additive onHover source ──────────────────────────────────────
+    // Feed a gaze pose through the same hit-test/onHover path as the controllers,
+    // under its own source id. No laser line is drawn (a gaze ray shouldn't render
+    // a beam); the reticle still follows via processGazeEvent.
+    //
+    // Eye gaze where the headset tracks eyes, head pose where it does not. Only the
+    // Quest Pro reports supportsEyeGazeInteraction, so before the fallback On Gaze
+    // was inert on every Quest actually being sold: an author who bound a gaze
+    // trigger and tested it on a Quest 3 saw nothing happen, and no error either.
+    // Head pose is the coarser signal, but it is the one every headset has, and it
+    // is what "look at the object" means to the person wearing it. It is also what
+    // the Cardboard and Daydream controllers in this renderer have always done.
     if (_eyeGazeEnabled && _eyeGazeSpace != XR_NULL_HANDLE) {
         XrSpaceLocation loc = { XR_TYPE_SPACE_LOCATION };
         XrResult r = xrLocateSpace(_eyeGazeSpace, baseSpace, time, &loc);
@@ -586,6 +594,16 @@ void VROInputControllerOpenXR::onProcess(XrSession session, XrSpace baseSpace,
             VROInputControllerBase::onMove(ViroOculus::EyeGaze, gazePos, gazeRot, gazeForward);
             VROInputControllerBase::processGazeEvent(ViroOculus::EyeGaze);
         }
+    } else {
+        // The camera holds this frame's HMD pose, already in the reference space the
+        // controller rays above were located in, so no conversion is needed and the
+        // two hover sources agree about where things are.
+        const VROVector3f   gazePos     = camera.getPosition();
+        const VROVector3f   gazeForward = camera.getForward();
+        const VROQuaternion gazeRot     = camera.getRotation();
+        VROInputControllerBase::updateHitNode(ViroOculus::EyeGaze, camera, gazePos, gazeForward);
+        VROInputControllerBase::onMove(ViroOculus::EyeGaze, gazePos, gazeRot, gazeForward);
+        VROInputControllerBase::processGazeEvent(ViroOculus::EyeGaze);
     }
 
     for (const auto &edge : _pendingButtons) {
