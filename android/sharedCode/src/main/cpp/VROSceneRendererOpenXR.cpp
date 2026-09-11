@@ -799,6 +799,14 @@ void VROSceneRendererOpenXR::attachARSceneIfNeeded(
     }
 }
 
+std::vector<std::shared_ptr<VROARHitTestResult>>
+VROSceneRendererOpenXR::performARHitTest(VROVector3f rayOrigin, VROVector3f rayDestination) {
+    if (!_arSession) {
+        return {};
+    }
+    return _arSession->performARHitTest(rayOrigin, rayDestination - rayOrigin);
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // Teardown
 // ──────────────────────────────────────────────────────────────────────────────

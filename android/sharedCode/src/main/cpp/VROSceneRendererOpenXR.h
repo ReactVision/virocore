@@ -24,6 +24,7 @@
 #define ANDROID_VROSCENERENDEREROPENBXR_H
 
 #include "VROSceneRenderer.h"
+#include "VROARHitTestResult.h"
 #include <memory>
 #include <thread>
 #include <atomic>
@@ -104,6 +105,18 @@ public:
     void onSurfaceCreated(jobject surface)  {}  // OpenXR owns the display surface
     void onSurfaceChanged(jobject surface, VRO_INT w, VRO_INT h) {}
     void onSurfaceDestroyed() {}
+
+    /*
+     AR hit test from a ray origin to a destination, against the planes the AR
+     session tracks. See VROARSessionOpenXR::performARHitTest for how it resolves.
+     Empty if there is no AR session — a plain VR scene has no surfaces to hit.
+
+     This is the only overload, where VROSceneRendererARCore has three: a headset
+     has no screen to take a 2D tap from, and the ray a caller holds is a
+     controller's aim rather than the camera's forward.
+     */
+    std::vector<std::shared_ptr<VROARHitTestResult>>
+    performARHitTest(VROVector3f rayOrigin, VROVector3f rayDestination);
 
 private:
 
