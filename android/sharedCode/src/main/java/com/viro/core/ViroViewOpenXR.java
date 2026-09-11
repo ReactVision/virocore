@@ -118,6 +118,7 @@ public class ViroViewOpenXR extends ViroView {
     private StartupListener mStartupListener;
     private Application mApplication; // for unregistering ActivityLifecycleCallbacks
     private boolean mResumed = false;  // tracks renderer.onResume / onPause balance
+    private ViroMediaRecorder mMediaRecorder; // lazily created; see getRecorder()
 
     // Passthrough / hand-tracking props can be set (via VRT*SceneNavigator) before
     // the native Renderer exists, since renderer creation is deferred to the host
@@ -448,9 +449,44 @@ public class ViroViewOpenXR extends ViroView {
         }
     }
 
+    /**
+     * Recorder for capturing the rendered scene. Created on first use, because the
+     * XR session has to exist before its swapchains have a size to record at.
+     *
+     * <p>The capture itself runs through the same path every other platform uses:
+     * {@link ViroMediaRecorder} turns on the choreographer's render-to-texture
+     * delegate, and {@code VROChoreographer::render} already gates that work on
+     * {@code Left || Monocular}, so one eye is captured rather than a stereo pair.
+     * The choreographer blits back to the display after handing the frame over, so
+     * recording does not blank the headset.
+     *
+     * <p><b>A capture of a passthrough scene does not contain the room.</b> The
+     * swapchain is cleared transparent and the camera feed is composited by the OS
+     * beneath our projection layer, so what comes back is the virtual content on
+     * transparency. Compositing the real world needs the passthrough camera API and
+     * is tracked separately.
+     *
+     * @return the recorder, or {@code null} if the XR session has not produced
+     *         swapchains yet — retry once a scene is rendering.
+     */
     @Override
     public ViroMediaRecorder getRecorder() {
-        return null; // Not supported on Quest.
+        if (mMediaRecorder == null) {
+            if (mNativeRenderer == null) {
+                return null;
+            }
+            // No Android surface here, so there is no view size to record at: the
+            // frame measures one eye's swapchain image. Zero means the session has
+            // not created them yet, and a recorder sized 0x0 would fail on its first
+            // capture rather than on construction, which is harder to diagnose.
+            int width  = mNativeRenderer.getEyeWidth();
+            int height = mNativeRenderer.getEyeHeight();
+            if (width <= 0 || height <= 0) {
+                return null;
+            }
+            mMediaRecorder = new ViroMediaRecorder(getContext(), mNativeRenderer, width, height);
+        }
+        return mMediaRecorder;
     }
 
     @Override
@@ -611,6 +647,10 @@ public class ViroViewOpenXR extends ViroView {
     /** @hide */
     @Override
     public void dispose() {
+        if (mMediaRecorder != null) {
+            mMediaRecorder.dispose();
+            mMediaRecorder = null;
+        }
         if (mApplication != null) {
             mApplication.unregisterActivityLifecycleCallbacks(this);
             mApplication = null;

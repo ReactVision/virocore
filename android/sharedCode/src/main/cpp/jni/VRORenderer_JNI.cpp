@@ -173,6 +173,20 @@ VRO_METHOD(void, nativeSetHandTrackingEnabled)(VRO_ARGS
     }
 }
 
+VRO_METHOD(jint, nativeGetEyeWidth)(VRO_ARGS
+                                    jlong rendererRef) {
+    auto base = Renderer::native(rendererRef);
+    auto xrRenderer = std::dynamic_pointer_cast<VROSceneRendererOpenXR>(base);
+    return xrRenderer ? (jint)xrRenderer->getEyeWidth() : 0;
+}
+
+VRO_METHOD(jint, nativeGetEyeHeight)(VRO_ARGS
+                                     jlong rendererRef) {
+    auto base = Renderer::native(rendererRef);
+    auto xrRenderer = std::dynamic_pointer_cast<VROSceneRendererOpenXR>(base);
+    return xrRenderer ? (jint)xrRenderer->getEyeHeight() : 0;
+}
+
 VRO_METHOD(jlong, nativeCreateRendererSceneView)(VRO_ARGS
                                                  jobject class_loader,
                                                  jobject android_context,

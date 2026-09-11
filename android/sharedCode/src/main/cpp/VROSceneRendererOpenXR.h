@@ -97,6 +97,17 @@ public:
      */
     void setPassthroughStyle(float opacity, float edgeR, float edgeG, float edgeB, float edgeA);
     void setHandTrackingEnabled(bool enabled);
+
+    /*
+     Per-eye swapchain dimensions, or 0 until the session has created them.
+
+     These are what a frame captured off this renderer measures: there is no
+     Android surface to ask, so ViroViewOpenXR has no width or height of its own
+     and the recorder has to be sized from here instead.
+     */
+    uint32_t getEyeWidth()  const { return _swapchains[0].width;  }
+    uint32_t getEyeHeight() const { return _swapchains[0].height; }
+
     void onStart();
     void onResume();
     void onPause();

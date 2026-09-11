@@ -136,6 +136,21 @@ public class Renderer {
         nativeSetHandTrackingEnabled(mNativeRef, enabled);
     }
 
+    /**
+     * Width of one eye's swapchain image (Quest only; 0 on other renderers, and 0
+     * until the XR session has created its swapchains). A frame captured off the
+     * OpenXR renderer measures this, since there is no Android surface to size
+     * against.
+     */
+    public int getEyeWidth() {
+        return nativeGetEyeWidth(mNativeRef);
+    }
+
+    /** Height of one eye's swapchain image. See {@link #getEyeWidth()}. */
+    public int getEyeHeight() {
+        return nativeGetEyeHeight(mNativeRef);
+    }
+
     /* ----------     Common lifecycle methods    ---------- */
 
     public void destroy() {
@@ -358,6 +373,8 @@ public class Renderer {
     private native void nativeSetPassthroughStyle(long nativeRenderer, float opacity,
                                                   float edgeR, float edgeG, float edgeB, float edgeA);
     private native void nativeSetHandTrackingEnabled(long nativeRenderer, boolean enabled);
+    private native int nativeGetEyeWidth(long nativeRenderer);
+    private native int nativeGetEyeHeight(long nativeRenderer);
     private native void nativeSetClearColor(long sceneRef, int color);
     private native void nativeSetShadowsEnabled(long nativeRef, boolean enabled);
     private native void nativeSetHDREnabled(long nativeRef, boolean enabled);
