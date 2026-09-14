@@ -396,6 +396,11 @@ static void viroBuildDemoCube() {
 static std::unordered_map<int, std::shared_ptr<VRONode>> sNodes;
 static std::unordered_map<int, std::shared_ptr<VROGeometry>> sGeometries;
 static std::unordered_map<int, std::shared_ptr<VROMaterial>> sMaterials;
+// Pre-override materials per node, dropped with the node. Declared up here
+// because viroDestroyNode erases it; see "Shader overrides" for what it holds.
+static std::unordered_map<int,
+    std::unordered_map<VROGeometry *, std::vector<std::shared_ptr<VROMaterial>>>>
+    sShaderOverrideBaselines;
 static int sNextHandle = 1;
 static int sRootHandle = 0;
 
@@ -517,6 +522,7 @@ static void viroDestroyNode(int node) {
     sNodes.erase(node);
     sNodeDelegates.erase(node);
     sNodeAnimations.erase(node);
+    sShaderOverrideBaselines.erase(node);
 }
 
 // --- Events ---
@@ -860,6 +866,90 @@ static void viroSetMaterialShaderUniformMat4(int material, std::string name, ems
         return;
     }
     m->setShaderUniform(name, VROMatrix4f(elements.data()));
+}
+
+// --- Shader overrides (a registered material merged onto a loaded model) ---
+//
+// The web counterpart of VRTNode.mm's applyShaderOverridesRecursive, and
+// deliberately the same merge: the model keeps its own colours and textures, and
+// the override contributes the seven rendering properties plus its shader
+// modifiers and uniforms. Copying the colour here would make a model read one way
+// in a browser and another on a phone, which is the difference this exists to
+// close; the shared defect is that neither surface honours an authored colour on
+// a model, and that belongs to the native merge, not here.
+//
+// A node handed to the bridge usually draws nothing itself — a loaded model hangs
+// its geometry off child nodes — so this walks the subtree rather than reading
+// getGeometry() alone.
+
+// sShaderOverrideBaselines (declared with the handle tables) holds, per node, the
+// materials each of its geometries carried before the first override landed, so
+// re-applying a changed override merges onto the model's own materials again
+// rather than compounding onto the previous merge.
+
+static void mergeShaderOverride(const std::shared_ptr<VROMaterial> &source,
+                                const std::shared_ptr<VROMaterial> &dest) {
+    dest->setLightingModel(source->getLightingModel());
+    dest->setShininess(source->getShininess());
+    dest->setBlendMode(source->getBlendMode());
+    dest->setTransparencyMode(source->getTransparencyMode());
+    dest->setCullMode(source->getCullMode());
+    dest->setWritesToDepthBuffer(source->getWritesToDepthBuffer());
+    dest->setReadsFromDepthBuffer(source->getReadsFromDepthBuffer());
+
+    // Modifiers are added, not replaced: dest is a copy of the model's own
+    // material and still carries the loader's modifiers, so clearing them would
+    // stop a rigged mesh skinning. Each merge starts from the baseline, so
+    // nothing accumulates across applications.
+    dest->setThreadRestrictionEnabled(false);
+    for (const auto &modifier : source->getShaderModifiers()) {
+        dest->addShaderModifier(modifier);
+    }
+    for (const auto &u : source->getShaderUniformFloats())   dest->setShaderUniform(u.first, u.second);
+    for (const auto &u : source->getShaderUniformVec2s())    dest->setShaderUniform(u.first, u.second);
+    for (const auto &u : source->getShaderUniformVec3s())    dest->setShaderUniform(u.first, u.second);
+    for (const auto &u : source->getShaderUniformVec4s())    dest->setShaderUniform(u.first, u.second);
+    for (const auto &u : source->getShaderUniformMat4s())    dest->setShaderUniform(u.first, u.second);
+    for (const auto &u : source->getShaderUniformTextures()) dest->setShaderUniform(u.first, u.second);
+    dest->setThreadRestrictionEnabled(true);
+}
+
+static void applyShaderOverrideToNode(
+    const std::shared_ptr<VRONode> &node,
+    const std::shared_ptr<VROMaterial> &source,
+    std::unordered_map<VROGeometry *, std::vector<std::shared_ptr<VROMaterial>>> &baselines) {
+
+    std::shared_ptr<VROGeometry> geometry = node->getGeometry();
+    // An empty material list means the loader has not populated this geometry
+    // yet; skipping leaves the baseline unrecorded so a later call still sees the
+    // model's own materials rather than adopting an empty set as the original.
+    if (geometry && !geometry->getMaterials().empty()) {
+        auto baseline = baselines.find(geometry.get());
+        if (baseline == baselines.end()) {
+            baseline = baselines.emplace(geometry.get(), geometry->getMaterials()).first;
+        }
+        std::vector<std::shared_ptr<VROMaterial>> merged;
+        merged.reserve(baseline->second.size());
+        for (const auto &original : baseline->second) {
+            auto copy = std::make_shared<VROMaterial>(original);
+            mergeShaderOverride(source, copy);
+            merged.push_back(copy);
+        }
+        geometry->setMaterials(merged);
+    }
+
+    for (const auto &child : node->getChildNodes()) {
+        applyShaderOverrideToNode(child, source, baselines);
+    }
+}
+
+static void viroApplyShaderOverride(int nodeHandle, int materialHandle) {
+    auto node = getNode(nodeHandle);
+    auto material = getMaterial(materialHandle);
+    if (!node || !material) {
+        return;
+    }
+    applyShaderOverrideToNode(node, material, sShaderOverrideBaselines[nodeHandle]);
 }
 
 // --- Textures ---
@@ -1441,6 +1531,7 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroSetMaterialShaderUniformVec3", &viroSetMaterialShaderUniformVec3);
     emscripten::function("viroSetMaterialShaderUniformVec4", &viroSetMaterialShaderUniformVec4);
     emscripten::function("viroSetMaterialShaderUniformMat4", &viroSetMaterialShaderUniformMat4);
+    emscripten::function("viroApplyShaderOverride", &viroApplyShaderOverride);
 
     emscripten::function("viroCreateTextureRGBA", &viroCreateTextureRGBA);
     emscripten::function("viroSetTextureWrap", &viroSetTextureWrap);
