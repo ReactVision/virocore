@@ -38,7 +38,54 @@ const std::string VROPhysicsShape::kAutoCompoundTag = "Compound";
 const std::string VROPhysicsShape::kTriangleMeshTag = "TriangleMesh";
 const float kMinBoxSize = 0.001f;
 
+static float childShapeVolume(const btCollisionShape *shape) {
+    if (shape->getShapeType() == BOX_SHAPE_PROXYTYPE) {
+        btVector3 halfExtents = ((const btBoxShape *) shape)->getHalfExtentsWithoutMargin();
+        return 8 * halfExtents.x() * halfExtents.y() * halfExtents.z();
+    } else if (shape->getShapeType() == SPHERE_SHAPE_PROXYTYPE) {
+        float radius = ((const btSphereShape *) shape)->getRadius();
+        return (4.0f / 3.0f) * SIMD_PI * radius * radius * radius;
+    }
+    return 0;
+}
+
+/*
+ The share of a compound shape each of its parts takes, by volume. A degenerate
+ set, every part with a zero dimension, shares evenly rather than leaving the
+ body massless.
+ */
+static std::vector<float> compoundVolumeWeights(const btCompoundShape *compoundShape) {
+    int numShapes = compoundShape->getNumChildShapes();
+    if (numShapes == 0) {
+        return {};
+    }
+
+    std::vector<float> weights;
+    float total = 0;
+    for (int i = 0; i < numShapes; i++) {
+        float volume = childShapeVolume(compoundShape->getChildShape(i));
+        weights.push_back(volume);
+        total += volume;
+    }
+
+    if (total <= 0) {
+        return std::vector<float>(numShapes, 1.0f / numShapes);
+    }
+    for (float &weight : weights) {
+        weight /= total;
+    }
+    return weights;
+}
+
 VROPhysicsShape::VROPhysicsShape(VROShapeType type, std::vector<float> params) {
+    // A compound that was given its parts builds them; one that was not keeps
+    // meaning the AutoCompound inferred from the node's own children.
+    if (type == VROShapeType::AutoCompound && !params.empty()) {
+        _type = VROShapeType::Compound;
+        _bulletShape = generateAuthoredCompoundShape(params);
+        return;
+    }
+
     if (type != VROShapeType::Sphere && type != VROShapeType::Box){
         perror("Attempted to construct unsupported VROPhysicsShape type!");
     }
@@ -77,6 +124,13 @@ VROPhysicsShape::VROPhysicsShape(const std::vector<VROVector3f>& vertices,
 
 VROPhysicsShape::~VROPhysicsShape() {
     if (_bulletShape != nullptr) {
+        // A btCompoundShape does not own the parts added to it.
+        if (getIsCompoundShape()) {
+            btCompoundShape *compoundShape = (btCompoundShape *) _bulletShape;
+            for (int i = compoundShape->getNumChildShapes() - 1; i >= 0; i--) {
+                delete compoundShape->getChildShape(i);
+            }
+        }
         delete _bulletShape;
         _bulletShape = nullptr;
     }
@@ -84,6 +138,10 @@ VROPhysicsShape::~VROPhysicsShape() {
     if (_triangleMesh != nullptr) {
         delete _triangleMesh;
         _triangleMesh = nullptr;
+    }
+    if (_compoundCenterOfMassOffset != nullptr) {
+        delete _compoundCenterOfMassOffset;
+        _compoundCenterOfMassOffset = nullptr;
     }
 }
 
@@ -96,7 +154,34 @@ bool VROPhysicsShape::getIsGeneratedFromGeometry() {
 }
 
 bool VROPhysicsShape::getIsCompoundShape() {
-    return _type == AutoCompound;
+    return _type == AutoCompound || _type == Compound;
+}
+
+const btTransform *VROPhysicsShape::getCompoundCenterOfMassOffset() {
+    return _compoundCenterOfMassOffset;
+}
+
+std::vector<float> VROPhysicsShape::getCompoundChildMasses(float totalMass) {
+    if (!getIsCompoundShape() || _bulletShape == nullptr) {
+        return {};
+    }
+
+    btCompoundShape *compoundShape = (btCompoundShape *) _bulletShape;
+    int numShapes = compoundShape->getNumChildShapes();
+    if (numShapes == 0) {
+        return {};
+    }
+
+    // A massless body still needs a weight per part for Bullet to find a center
+    // of mass, which is what the 1 stands in for here.
+    if (_type == VROShapeType::Compound) {
+        std::vector<float> masses = compoundVolumeWeights(compoundShape);
+        for (float &mass : masses) {
+            mass *= totalMass > 0 ? totalMass : 1;
+        }
+        return masses;
+    }
+    return std::vector<float>(numShapes, totalMass > 0 ? totalMass / numShapes : 1);
 }
 
 btCollisionShape* VROPhysicsShape::generateBasicBulletShape(std::shared_ptr<VRONode> node) {
@@ -136,6 +221,47 @@ btCollisionShape* VROPhysicsShape::generateBasicBulletShape(VROPhysicsShape::VRO
         perror("Attempted to grab a bullet shape from a mis-configured VROPhysicsShape!");
     }
     return nullptr;
+}
+
+btCollisionShape *VROPhysicsShape::generateAuthoredCompoundShape(const std::vector<float> &params) {
+    btCompoundShape *compoundShape = new btCompoundShape();
+
+    size_t numChildren = params.size() / kCompoundChildStride;
+    for (size_t i = 0; i < numChildren; i++) {
+        const float *child = params.data() + i * kCompoundChildStride;
+        bool isSphere = child[0] == 1;
+        std::vector<float> childParams = isSphere ? std::vector<float>{ child[1] }
+                                                  : std::vector<float>{ child[1], child[2], child[3] };
+        btCollisionShape *childShape = generateBasicBulletShape(
+                isSphere ? VROShapeType::Sphere : VROShapeType::Box, childParams);
+        if (childShape == nullptr) {
+            continue;
+        }
+
+        btTransform childTransform;
+        childTransform.setIdentity();
+        childTransform.setOrigin({ child[4], child[5], child[6] });
+        compoundShape->addChildShape(childTransform, childShape);
+    }
+
+    // Bullet simulates a body about its center of mass, so the parts are moved
+    // onto it here rather than on every physics update: where it sits depends
+    // only on the parts' own volumes, and this shape outlives the update that
+    // reads it, so moving them again would drift them further each time.
+    _compoundCenterOfMassOffset = new btTransform(btTransform::getIdentity());
+    int numShapes = compoundShape->getNumChildShapes();
+    if (numShapes > 0) {
+        std::vector<float> weights = compoundVolumeWeights(compoundShape);
+        btVector3 principalInertia;
+        compoundShape->calculatePrincipalAxisTransform(weights.data(),
+                                                       *_compoundCenterOfMassOffset,
+                                                       principalInertia);
+        btTransform toCenterOfMass = _compoundCenterOfMassOffset->inverse();
+        for (int i = 0; i < numShapes; i++) {
+            compoundShape->updateChildTransform(i, toCenterOfMass * compoundShape->getChildTransform(i));
+        }
+    }
+    return compoundShape;
 }
 
 void VROPhysicsShape::generateCompoundBulletShape(btCompoundShape &compoundShape,
