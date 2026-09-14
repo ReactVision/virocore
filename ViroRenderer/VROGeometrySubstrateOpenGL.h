@@ -56,6 +56,9 @@ struct VROVertexAttributeOpenGL {
     GLint size;
     GLenum type;
     uintptr_t offset;
+    // Integer data the shader reads as a float, which is a colour stored as bytes or
+    // shorts. Bone indices are the other integer attribute and are genuinely integral.
+    bool normalized;
 };
 
 struct VROVertexDescriptorOpenGL {
