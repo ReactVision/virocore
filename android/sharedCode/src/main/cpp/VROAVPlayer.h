@@ -51,6 +51,10 @@ public:
 
     // this is called when the AVPlayer has encountered an error
     virtual void onError(std::string error) = 0;
+
+    // this is called when the player reports the video's dimensions, which arrive
+    // after the source is prepared. Not pure: a delegate that sizes nothing ignores it.
+    virtual void onVideoSizeChanged(float width, float height) {}
 };
 
 class VROAVPlayer {

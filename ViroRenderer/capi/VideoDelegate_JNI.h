@@ -46,6 +46,7 @@ class VideoDelegate : public VROVideoDelegateInternal {
     virtual void videoDidFinish();
     virtual void onVideoUpdatedTime(float seconds, float duration);
     virtual void videoDidFail(std::string error);
+    virtual void videoDidChangeSize(float width, float height);
 
 private:
     VRO_OBJECT _javaObject;

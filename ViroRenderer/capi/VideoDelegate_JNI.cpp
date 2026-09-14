@@ -111,6 +111,23 @@ void VideoDelegate::videoDidFail(std::string error) {
     });
 }
 
+void VideoDelegate::videoDidChangeSize(float width, float height) {
+    VRO_ENV env = VROPlatformGetJNIEnv();
+    VRO_WEAK weakObj = VRO_NEW_WEAK_GLOBAL_REF(_javaObject);
+
+    VROPlatformDispatchAsyncApplication([weakObj, width, height] {
+        VRO_ENV env = VROPlatformGetJNIEnv();
+        VRO_OBJECT localObj = VRO_NEW_LOCAL_REF(weakObj);
+        if (VRO_IS_OBJECT_NULL(localObj)) {
+            return;
+        }
+
+        VROPlatformCallHostFunction(localObj, "onVideoSizeChanged", "(FF)V", width, height);
+        VRO_DELETE_LOCAL_REF(localObj);
+        VRO_DELETE_WEAK_GLOBAL_REF(weakObj);
+    });
+}
+
 void VideoDelegate::onReady() {
     VRO_ENV env = VROPlatformGetJNIEnv();
     VRO_WEAK weakObj = VRO_NEW_WEAK_GLOBAL_REF(_javaObject);
