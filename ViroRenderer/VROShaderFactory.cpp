@@ -348,9 +348,17 @@ std::shared_ptr<VROShaderProgram> VROShaderFactory::buildShader(VROShaderCapabil
         modifiers.push_back(createOcclusionMaskModifier());
     }
 
-    // All shaders use these three base attributes. Add additional attributes from the
+    // All shaders use these base attributes. Add additional attributes from the
     // modifiers.
-    int attributes = (int)(VROShaderMask::Tex) | (int)(VROShaderMask::Norm) | (int)(VROShaderMask::Tangent);
+    //
+    // Color belongs here even though most meshes carry none. standard_vsh declares the
+    // attribute unconditionally, and an attribute nobody binds gets whatever location
+    // the GL linker has free. Under a constant lighting model the normal is unused and
+    // its location comes free, so the driver is at liberty to hand it to color, which
+    // then reads the mesh's normals: on Android that turned the camera background,
+    // whose quad faces the viewer, solid blue.
+    int attributes = (int)(VROShaderMask::Tex) | (int)(VROShaderMask::Norm) |
+                     (int)(VROShaderMask::Tangent) | (int)(VROShaderMask::Color);
     for (std::shared_ptr<VROShaderModifier> &modifier : modifiers) {
         attributes |= modifier->getAttributes();
     }
