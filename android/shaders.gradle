@@ -1,0 +1,41 @@
+// Android is the only platform that loads its GLSL from a packaged copy rather than
+// reading ViroRenderer's own files, and keeping that copy in step by hand is how it
+// fell four years behind. This regenerates it on every build.
+//
+// The three files listed need GLES external-texture extensions no other platform
+// wants. An #extension is only legal ahead of the first non-preprocessor token, and
+// each of these is included on the line after #version, so the directives have to sit
+// at the top of the included file to land somewhere GLSL accepts them.
+
+def shaderSource = new File(rootDir, "../ViroRenderer")
+def shaderTarget = new File(rootDir, "sharedCode/src/main/assets")
+
+def glesExtensionShaders = [
+        "constant_functions_fsh.glsl",
+        "constant_functions_fsh_adreno.glsl",
+        "lighting_general_functions_fsh.glsl",
+]
+
+def glesExtensions = """#extension GL_OES_EGL_image_external : enable
+#extension GL_OES_EGL_image_external_essl3 : enable
+
+"""
+
+tasks.register("syncShaderAssets") {
+    description = "Copies ViroRenderer's GLSL into the assets the Android renderer loads at runtime."
+    doLast {
+        fileTree(dir: shaderSource, include: "*.glsl").each { shader ->
+            def text = shader.text
+            if (glesExtensionShaders.contains(shader.name)) {
+                text = glesExtensions + text
+            }
+            def target = new File(shaderTarget, shader.name)
+            if (!target.exists() || target.text != text) {
+                target.text = text
+                logger.lifecycle("syncShaderAssets: updated ${shader.name}")
+            }
+        }
+    }
+}
+
+tasks.named("preBuild") { dependsOn("syncShaderAssets") }
