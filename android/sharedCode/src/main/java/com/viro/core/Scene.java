@@ -368,6 +368,18 @@ public class Scene {
 
     /**
      * @hide
+     * Turns this Scene's tone mapping pass on or off. Off passes HDR colour through
+     * untouched, which is how an app keeps PBR (which requires HDR) without the
+     * default Hable curve moving every colour it renders.
+     */
+    //#IFDEF 'viro_react'
+    public void setToneMappingEnabled(boolean enabled) {
+        nativeSetToneMappingEnabled(mNativeRef, enabled);
+    }
+    //#ENDIF
+
+    /**
+     * @hide
      * @param effects
      * @return
      */
@@ -393,6 +405,7 @@ public class Scene {
                                            float sizeY, float sizeZ, String wallMaterial,
                                            String ceilingMaterial, String floorMaterial);
     private native boolean nativeSetEffects(long sceneRef, String[] effects);
+    private native void nativeSetToneMappingEnabled(long sceneRef, boolean enabled);
 
     /**
      * @hide
