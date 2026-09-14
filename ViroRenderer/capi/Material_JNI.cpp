@@ -196,7 +196,8 @@ VRO_METHOD(VRO_REF(VROMaterial), nativeCreateImmutableMaterial)(VRO_ARGS
                                                    VRO_STRING lightingModel, VRO_LONG diffuseColor, VRO_REF(VROTexture) diffuseTexture,
                                                    VRO_FLOAT diffuseIntensity, VRO_REF(VROTexture) specularTexture,
                                                    VRO_FLOAT shininess, VRO_FLOAT fresnelExponent, VRO_REF(VROTexture) normalMap, VRO_STRING cullMode,
-                                                   VRO_STRING transparencyMode, VRO_STRING blendMode, VRO_FLOAT bloomThreshold,
+                                                   VRO_STRING transparencyMode, VRO_STRING blendMode, VRO_FLOAT transparency,
+                                                   VRO_FLOAT bloomThreshold,
                                                    VRO_BOOL writesToDepthBuffer, VRO_BOOL readsFromDepthBuffer,
                                                    VRO_STRING_ARRAY colorWriteMask) {
     VRO_METHOD_PREAMBLE;
@@ -215,6 +216,7 @@ VRO_METHOD(VRO_REF(VROMaterial), nativeCreateImmutableMaterial)(VRO_ARGS
     material->setCullMode(parseCullMode(VRO_STRING_STL(cullMode)));
     material->setTransparencyMode(parseTransparencyMode(VRO_STRING_STL(transparencyMode)));
     material->setBlendMode(parseBlendMode(VRO_STRING_STL(blendMode)));
+    material->setTransparency(transparency);
     material->setBloomThreshold(bloomThreshold);
     material->setWritesToDepthBuffer(writesToDepthBuffer);
     material->setReadsFromDepthBuffer(readsFromDepthBuffer);
@@ -354,6 +356,20 @@ VRO_METHOD(void, nativeSetShininess)(VRO_ARGS
         std::shared_ptr<VROMaterial> material = material_w.lock();
         if (material) {
             material->setShininess(shininess);
+        }
+    });
+}
+
+VRO_METHOD(void, nativeSetTransparency)(VRO_ARGS
+                                        VRO_REF(VROMaterial) material_j,
+                                        VRO_FLOAT transparency) {
+    VRO_METHOD_PREAMBLE;
+
+    std::weak_ptr<VROMaterial> material_w = VRO_REF_GET(VROMaterial, material_j);
+    VROPlatformDispatchAsyncRenderer([material_w, transparency] {
+        std::shared_ptr<VROMaterial> material = material_w.lock();
+        if (material) {
+            material->setTransparency(transparency);
         }
     });
 }
