@@ -1457,6 +1457,22 @@ public class Material {
     }
 
     /**
+     * Copy one named property from another material to this material. A texture is
+     * copied natively because the Java Texture handle a material was built from is
+     * disposed once the material holds it.
+     *
+     * @param sourceMaterial The material to copy the property from.
+     * @param name The material property name, for example {@code diffuseTexture}.
+     * @param asTexture Whether the name was given a texture rather than a value.
+     */
+    public void copyProperty(Material sourceMaterial, String name, boolean asTexture) {
+        if (sourceMaterial == null) {
+            return;
+        }
+        nativeCopyProperty(mNativeRef, sourceMaterial.mNativeRef, name, asTexture);
+    }
+
+    /**
      * Remove all shader modifiers from this material.
      * This ensures shader modifiers REPLACE instead of STACK when switching shaders.
      */
@@ -1502,6 +1518,7 @@ public class Material {
     private native void nativeSetShaderUniformTexture(long nativeRef, String uniformName, long textureNativeRef);
     private native void nativeCopyShaderUniforms(long destNativeRef, long sourceNativeRef);
     private native void nativeCopyShaderModifiers(long destNativeRef, long sourceNativeRef);
+    private native void nativeCopyProperty(long destNativeRef, long sourceNativeRef, String name, boolean asTexture);
     private native void nativeRemoveAllShaderModifiers(long nativeRef);
 
     /**
