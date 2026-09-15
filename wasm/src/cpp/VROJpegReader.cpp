@@ -209,11 +209,19 @@ SDL_Surface *IMG_LoadJPG_RW(VROByteBuffer *src)
         return NULL;
     }
     start = 0;
-    
-    if ( !IMG_Init(IMG_INIT_JPG) ) {
-        return NULL;
-    }
-    
+
+    /*
+     No IMG_Init(IMG_INIT_JPG) here. This decoder exists precisely because the
+     emscripten SDL_image port is built PNG-only, and asking that port to
+     initialise JPEG support fails and sets "JPEG images are not supported" —
+     so the gate turned away every JPEG before libjpeg, which is linked in and
+     right below, ever saw it. Nothing past this point is SDL_image's JPEG
+     support; it is libjpeg plus an SDL surface to decode into.
+
+     The symptom was not a missing texture: an image that fails to decode keeps
+     VROImage's uninitialised _format, and the upload then aborts the renderer.
+     */
+
     /* Create a decompression structure and load the JPEG header */
     cinfo.err = jpeg_std_error(&jerr.errmgr);
     jerr.errmgr.error_exit = my_error_exit;

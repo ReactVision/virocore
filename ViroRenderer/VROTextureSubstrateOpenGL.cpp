@@ -227,7 +227,14 @@ void VROTextureSubstrateOpenGL::loadFace(GLenum target,
                          GL_RED, GL_UNSIGNED_BYTE, faceData->getData()) );
     }
     else {
-        pabort();
+        /*
+         An unrecognised source format used to pabort(), which on web takes the
+         emscripten main loop down with it: the canvas freezes on whatever had
+         been drawn and the whole scene is lost over one texture. Warning and
+         leaving the texture undefined costs that one surface instead.
+         */
+        pwarn("Unsupported texture format [%d]; leaving this face undefined",
+              (int) format);
     }
 }
 
