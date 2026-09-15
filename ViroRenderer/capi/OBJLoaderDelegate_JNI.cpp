@@ -54,11 +54,15 @@ void OBJLoaderDelegate::objLoaded(std::shared_ptr<VRONode> node, ModelType model
             return;
         }
 
-        // If the request was for an OBJ, create a persistent ref for the Java Geometry and
-        // pass that up as well. This enables Java SDK users to set materials on the Geometry
-        VRO_REF(VROGeometry) geometryRef = 0;
+        // An OBJ carries its geometry on the root node, which nativeIntializeNode never
+        // visits (that walks the child nodes), so the host Geometry is built here. It has
+        // to go through createJGeometry: wrapping the bare native ref leaves the host
+        // object's material list empty, and a caller merging onto the model's own
+        // materials then finds nothing to merge onto.
+        VRO_OBJECT jGeometry = VRO_OBJECT_NULL;
         if (modelType == ModelType::OBJ && node->getGeometry()) {
-            geometryRef = VRO_REF_NEW(VROGeometry, node->getGeometry());
+            std::shared_ptr<VROGeometry> geometry = node->getGeometry();
+            jGeometry = Geometry::createJGeometry(geometry);
         }
 
         // Generate a map of unique jMaterials representing this 3D model.
@@ -82,12 +86,14 @@ void OBJLoaderDelegate::objLoaded(std::shared_ptr<VRONode> node, ModelType model
         }
 
         // Call the nodeDidFinishCreation callback.
-        VRO_REF(VROGeometry) jGeometryRef = geometryRef;
         VROPlatformCallHostFunction(localObj,
                                     "nodeDidFinishCreation",
-                                    "([Lcom/viro/core/Material;IJ)V",
-                                    materialArray, (int)modelType, jGeometryRef);
+                                    "([Lcom/viro/core/Material;ILcom/viro/core/Geometry;)V",
+                                    materialArray, (int)modelType, jGeometry);
 
+        if (!VRO_IS_OBJECT_NULL(jGeometry)) {
+            VRO_DELETE_LOCAL_REF(jGeometry);
+        }
         VRO_DELETE_LOCAL_REF(localObj);
         VRO_DELETE_WEAK_GLOBAL_REF(weakObj);
     });

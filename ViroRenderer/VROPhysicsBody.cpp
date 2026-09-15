@@ -262,36 +262,34 @@ void VROPhysicsBody::updateBulletRigidBody() {
     btTransform physicsBodyTransformOffset = btTransform::getIdentity();
     if (_shape->getIsCompoundShape()) {
         btCompoundShape *compoundShape = (btCompoundShape *)_shape->getBulletShape();
-        btVector3 principalInertia;
-
-        btScalar* masses;
         int numShapes = compoundShape->getNumChildShapes();
-
-        if (numShapes > 0){
-            masses = new btScalar[numShapes];
-            // Evenly distribute mass for this compound body
-            for (int j=0; j<compoundShape->getNumChildShapes(); j++) {
-                if (_mass > 0) {
-                    masses[j] = _mass / compoundShape->getNumChildShapes();
-                } else {
-                    masses[j] = 1;
-                }
-            }
-        } else {
+        if (numShapes == 0) {
             // Default to a single shaped mass if no shape.
             pwarn("Warning, attempted to create a compound shape with no sub shape! Ignoring update.");
             return;
         }
-        
-        // Recalculate the inertia and the center of mass offset of the compounded body
-        compoundShape->calculatePrincipalAxisTransform(masses, physicsBodyTransformOffset, principalInertia);
 
-        // Transform each sub-shape such that they are oriented in relation to the
-        // calculated center of mass for this physics object. We then treat the center of
-        // mass as the physicsBodyTransform offset.
-        for (int i=0; i < compoundShape->getNumChildShapes(); i++) {
-            btTransform newChildTransform = physicsBodyTransformOffset.inverse()*compoundShape->getChildTransform(i);
-            compoundShape->updateChildTransform(i,newChildTransform);
+        // Recalculate the inertia and the center of mass offset of the compounded body
+        std::vector<float> masses = _shape->getCompoundChildMasses(_mass);
+        btVector3 principalInertia;
+        btTransform centerOfMass;
+        compoundShape->calculatePrincipalAxisTransform(masses.data(), centerOfMass, principalInertia);
+
+        const btTransform *authoredCenterOfMass = _shape->getCompoundCenterOfMassOffset();
+        if (authoredCenterOfMass != nullptr) {
+            // A compound built from given parts was moved onto its center of
+            // mass when it was built, and it outlives this pass, so moving it
+            // again here would drift it further on every update.
+            physicsBodyTransformOffset = *authoredCenterOfMass;
+        } else {
+            // Transform each sub-shape such that they are oriented in relation to the
+            // calculated center of mass for this physics object. We then treat the center of
+            // mass as the physicsBodyTransform offset.
+            physicsBodyTransformOffset = centerOfMass;
+            for (int i = 0; i < numShapes; i++) {
+                btTransform newChildTransform = physicsBodyTransformOffset.inverse()*compoundShape->getChildTransform(i);
+                compoundShape->updateChildTransform(i,newChildTransform);
+            }
         }
 
         // Update the inertia of the compound physics shape

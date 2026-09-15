@@ -100,6 +100,16 @@ public class VideoTexture extends Texture {
          * @param totalDuration The total duration of the video, in seconds.
          */
         void onVideoUpdatedTime(VideoTexture video, float seconds, float totalDuration);
+
+        /**
+         * Invoked when the video's own dimensions become known, which is after the source
+         * loads. Default: ignored.
+         *
+         * @param video  The {@link VideoTexture} displaying the video.
+         * @param width  The width of the video, in pixels.
+         * @param height The height of the video, in pixels.
+         */
+        default void onVideoSizeChanged(VideoTexture video, float width, float height) {}
     }
 
     private long mNativeDelegateRef;
@@ -385,6 +395,14 @@ public class VideoTexture extends Texture {
     void onVideoUpdatedTime(float currentTimeInSeconds, float totalTimeInSeconds) {
         if (mListener != null) {
             mListener.onVideoUpdatedTime(this, currentTimeInSeconds, totalTimeInSeconds);
+        }
+    }
+    /**
+     * @hide
+     */
+    void onVideoSizeChanged(float width, float height) {
+        if (mListener != null && mNativeRef != 0) {
+            mListener.onVideoSizeChanged(this, width, height);
         }
     }
 }

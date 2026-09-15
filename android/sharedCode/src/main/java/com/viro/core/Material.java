@@ -491,6 +491,7 @@ public class Material {
     private CullMode mCullMode = CullMode.BACK;
     private TransparencyMode mTransparencyMode = TransparencyMode.A_ONE;
     private BlendMode mBlendMode = BlendMode.ALPHA;
+    private float mTransparency = 1.0f;
     private float mBloomThreshold = -1.0f;
     private String mName ="";
     private boolean mChromaKeyFilteringEnabled = false;
@@ -538,7 +539,8 @@ public class Material {
     //#IFDEF 'viro_react'
     public Material(LightingModel lightingModel, int diffuseColor, Texture diffuseTexture, float diffuseIntensity, Texture specularTexture,
                     float shininess, float fresnelExponent, Texture normalMap, CullMode cullMode,
-                    TransparencyMode transparencyMode, BlendMode blendMode, float bloomThreshold,
+                    TransparencyMode transparencyMode, BlendMode blendMode, float transparency,
+                    float bloomThreshold,
                     boolean writesToDepthBuffer, boolean readsFromDepthBuffer, EnumSet<ColorWriteMask> colorWriteMask) {
 
         mWritesToDepthBuffer = writesToDepthBuffer;
@@ -555,6 +557,7 @@ public class Material {
         mCullMode = cullMode;
         mTransparencyMode = transparencyMode;
         mBlendMode = blendMode;
+        mTransparency = transparency;
         mBloomThreshold = bloomThreshold;
         mNativeRef = nativeCreateImmutableMaterial(lightingModel.getStringValue(),
                 diffuseColor,
@@ -567,6 +570,7 @@ public class Material {
                 cullMode.getStringValue(),
                 transparencyMode.getStringValue(),
                 blendMode.getStringValue(),
+                transparency,
                 bloomThreshold, writesToDepthBuffer, readsFromDepthBuffer,
                 getMaskArray(colorWriteMask));
     }
@@ -1058,6 +1062,30 @@ public class Material {
     }
 
     /**
+     * Set the transparency of this Material, from 0.0 (invisible) to 1.0 (opaque). It is
+     * multiplied with the opacity of every {@link Node} the Material is rendered under and
+     * with the alpha of the diffuse color, and any value under 1.0 makes the geometry render
+     * in the transparent pass.
+     * <p>
+     * Defaults to 1.0.
+     *
+     * @param transparency The transparency value.
+     */
+    public void setTransparency(float transparency) {
+        mTransparency = transparency;
+        nativeSetTransparency(mNativeRef, transparency);
+    }
+
+    /**
+     * Get the transparency of this Material.
+     *
+     * @return The transparency value.
+     */
+    public float getTransparency() {
+        return mTransparency;
+    }
+
+    /**
      * @hide
      * @param fresnelExponent
      */
@@ -1429,6 +1457,22 @@ public class Material {
     }
 
     /**
+     * Copy one named property from another material to this material. A texture is
+     * copied natively because the Java Texture handle a material was built from is
+     * disposed once the material holds it.
+     *
+     * @param sourceMaterial The material to copy the property from.
+     * @param name The material property name, for example {@code diffuseTexture}.
+     * @param asTexture Whether the name was given a texture rather than a value.
+     */
+    public void copyProperty(Material sourceMaterial, String name, boolean asTexture) {
+        if (sourceMaterial == null) {
+            return;
+        }
+        nativeCopyProperty(mNativeRef, sourceMaterial.mNativeRef, name, asTexture);
+    }
+
+    /**
      * Remove all shader modifiers from this material.
      * This ensures shader modifiers REPLACE instead of STACK when switching shaders.
      */
@@ -1440,7 +1484,8 @@ public class Material {
     private native long nativeCopyMaterial(long sourceNativeRef);
     private native long nativeCreateImmutableMaterial(String lightingModel, long diffuseColor, long diffuseTexture, float diffuseIntensity, long specularTexture,
                                                       float shininess, float fresnelExponent, long normalMap, String cullMode,
-                                                      String transparencyMode, String blendMode, float bloomThreshold,
+                                                      String transparencyMode, String blendMode, float transparency,
+                                                      float bloomThreshold,
                                                       boolean writesToDepthBuffer, boolean readsFromDepthBuffer,
                                                       String[] colorWriteMask);
     private native void nativeSetWritesToDepthBuffer(long nativeRef, boolean writesToDepthBuffer);
@@ -1449,6 +1494,7 @@ public class Material {
     private native void nativeSetColor(long nativeRef, long color, String materialPropertyName);
     private native void nativeSetFloat(long nativeRef, float value, String materialPropertyName);
     private native void nativeSetShininess(long nativeRef, double shininess);
+    private native void nativeSetTransparency(long nativeRef, float transparency);
     private native void nativeSetFresnelExponent(long nativeRef, double fresnelExponent);
     private native void nativeSetLightingModel(long nativeRef, String lightingModelName);
     private native void nativeSetBlendMode(long nativeRef, String blendModeName);
@@ -1472,6 +1518,7 @@ public class Material {
     private native void nativeSetShaderUniformTexture(long nativeRef, String uniformName, long textureNativeRef);
     private native void nativeCopyShaderUniforms(long destNativeRef, long sourceNativeRef);
     private native void nativeCopyShaderModifiers(long destNativeRef, long sourceNativeRef);
+    private native void nativeCopyProperty(long destNativeRef, long sourceNativeRef, String name, boolean asTexture);
     private native void nativeRemoveAllShaderModifiers(long nativeRef);
 
     /**
@@ -1665,6 +1712,16 @@ public class Material {
          */
         public MaterialBuilder blendMode(BlendMode blendMode) {
             material.setBlendMode(blendMode);
+            return this;
+        }
+
+        /**
+         * Refer to {@link Material#setTransparency(float)}.
+         *
+         * @return This builder.
+         */
+        public MaterialBuilder transparency(float transparency) {
+            material.setTransparency(transparency);
             return this;
         }
 

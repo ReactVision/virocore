@@ -96,7 +96,8 @@ VROShaderProgram::VROShaderProgram(std::string vertexShader, std::string fragmen
         vertexAssignments += "_geometry.texcoord = texcoord;\n";
     }
     if ((_attributes & (int)VROShaderMask::Color) != 0) {
-        // Color is not currently supported in the shaders
+        // No assignment: the vertex shader passes color straight to the v_color
+        // varying, so it never travels through _geometry.
     }
     if ((_attributes & (int)VROShaderMask::Norm) != 0) {
         vertexAssignments += "_geometry.normal = normal;\n";

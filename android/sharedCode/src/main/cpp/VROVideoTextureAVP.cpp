@@ -53,6 +53,10 @@ void VROVideoTextureAVP::setDelegate(std::shared_ptr<VROVideoDelegateInternal> d
     VROVideoTexture::setDelegate(delegate);
     std::shared_ptr<VROAVPlayerDelegate> avDelegate = std::dynamic_pointer_cast<VROAVPlayerDelegate>(shared_from_this());
     _player->setDelegate(avDelegate);
+
+    if (delegate && _videoWidth > 0 && _videoHeight > 0) {
+        delegate->videoDidChangeSize(_videoWidth, _videoHeight);
+    }
 }
 
 void VROVideoTextureAVP::loadVideo(std::string url,
@@ -172,5 +176,15 @@ void VROVideoTextureAVP::onError(std::string error) {
     std::shared_ptr<VROVideoDelegateInternal> delegate = _delegate.lock();
     if (delegate) {
         delegate->videoDidFail(error);
+    }
+}
+
+void VROVideoTextureAVP::onVideoSizeChanged(float width, float height) {
+    _videoWidth = width;
+    _videoHeight = height;
+
+    std::shared_ptr<VROVideoDelegateInternal> delegate = _delegate.lock();
+    if (delegate) {
+        delegate->videoDidChangeSize(width, height);
     }
 }

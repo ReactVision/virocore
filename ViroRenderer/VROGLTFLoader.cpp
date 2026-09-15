@@ -2983,6 +2983,14 @@ std::shared_ptr<VROMaterial> VROGLTFLoader::getMaterial(const tinygltf::Model &g
         vroMat->setLightingModel(VROLightingModel::Constant);
     }
 
+    // doubleSided defaults to false, which is the Back cull mode VROMaterial opens on.
+    // This tinygltf predates the typed Material fields, so every key it does not know
+    // by name lands in additionalValues, a boolean in bool_value.
+    if (gAdditionalMap.find("doubleSided") != gAdditionalMap.end() &&
+        gAdditionalMap["doubleSided"].bool_value) {
+        vroMat->setCullMode(VROCullMode::None);
+    }
+
     vroMat->setName(gMat.name);
     return vroMat;
 }

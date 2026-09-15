@@ -142,3 +142,5 @@ tasks.whenTaskAdded { task ->
         task.enabled = false
     }
 }
+
+apply from: "../shaders.gradle"

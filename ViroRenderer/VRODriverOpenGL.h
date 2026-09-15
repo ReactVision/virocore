@@ -43,6 +43,7 @@
 #include "VROShaderModifier.h"
 #include "VRORenderContext.h"
 #include "VROGeometrySource.h"
+#include "VROGeometryUtil.h"
 #include "VROImagePostProcessOpenGL.h"
 #include "VROLight.h"
 #include "VROShaderFactory.h"
@@ -96,6 +97,12 @@ public:
         GL( glEnable(GL_BLEND) );
         GL( glBlendEquation(GL_FUNC_ADD) );
         GL( glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA) );
+
+        // The fragment shaders multiply the vertex colour into the surface diffuse, and a
+        // mesh without one leaves that attribute array disabled, where GL's own generic
+        // value is opaque black. White here is what makes the multiply a no-op for them.
+        GL( glVertexAttrib4f(VROGeometryUtilParseAttributeIndex(VROGeometrySourceSemantic::Color),
+                             1.0, 1.0, 1.0, 1.0) );
 
         // Delete all moribund GL objects
         {

@@ -2081,7 +2081,7 @@
 		8FCED0731EBBD35200C19BCA /* SvenArmor_Spec.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = SvenArmor_Spec.png; path = ViroSample/SvenArmor_Spec.png; sourceTree = "<group>"; };
 		8FCF39621CAEE26F00A86CA3 /* VROHoverDistanceListener.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = VROHoverDistanceListener.h; sourceTree = "<group>"; };
 		E1C010000000000000000002 /* VROColocationSession.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VROColocationSession.h; sourceTree = "<group>"; };
-		E1C010000000000000000003 /* VROColocationSession.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = VROColocationSession.cpp; sourceTree = "<group>"; };
+		E1C010000000000000000003 /* VROColocationSession.cpp */ = {isa = PBXFileReference; explicitFileType = sourcecode.cpp.objcpp; path = VROColocationSession.cpp; sourceTree = "<group>"; };
 		8FCF39691CB4242000A86CA3 /* VRORenderer.cpp */ = {isa = PBXFileReference; explicitFileType = sourcecode.cpp.objcpp; fileEncoding = 4; path = VRORenderer.cpp; sourceTree = "<group>"; };
 		8FCF396A1CB4242000A86CA3 /* VRORenderer.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = VRORenderer.h; sourceTree = "<group>"; };
 		8FD06F1C1E831E81003D3BC4 /* VROCameraTexture.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = VROCameraTexture.h; sourceTree = "<group>"; };

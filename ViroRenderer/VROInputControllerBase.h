@@ -44,6 +44,14 @@
 static const float ON_DRAG_DISTANCE_THRESHOLD = 0.01;
 static const float ON_PINCH_SCALE_THRESHOLD = 0.02;
 static const float ON_ROTATE_THRESHOLD = 0.01; // in radians (~.5729 degrees)
+
+// Distance from a FixedToPlane drag plane within which a node counts as already
+// on it, so starting a drag does not snap it to the aim point.
+static const float ON_PLANE_DISTANCE_THRESHOLD = 0.01;
+
+// Shortest in-plane component of the aim direction that still names a direction
+// to travel along a drag plane. Below it the aim is square to the plane.
+static const float MIN_DRAG_AIM_IN_PLANE = 0.0001;
 static float kSceneBackgroundDistance = 8;
 
 /*

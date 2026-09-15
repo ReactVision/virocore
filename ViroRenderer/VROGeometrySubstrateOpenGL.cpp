@@ -184,6 +184,8 @@ VROVertexDescriptorOpenGL VROGeometrySubstrateOpenGL::configureVertexDescriptor(
         vd.attributes[vd.numAttributes].size = format.second;
         vd.attributes[vd.numAttributes].type = format.first;
         vd.attributes[vd.numAttributes].offset = source->getDataOffset();
+        vd.attributes[vd.numAttributes].normalized =
+            source->getSemantic() == VROGeometrySourceSemantic::Color && !source->isFloatComponents();
         vd.numAttributes++;
         passert (source->getDataStride() == vd.stride);
         
@@ -214,13 +216,15 @@ void VROGeometrySubstrateOpenGL::createVAO() {
             GL( glBindBuffer(GL_ARRAY_BUFFER, vd.buffer) );
     
             for (int i = 0; i < vd.numAttributes; i++) {
-                if (vd.attributes[i].type == GL_INT || vd.attributes[i].type == GL_SHORT ||
-                    vd.attributes[i].type == GL_UNSIGNED_BYTE || vd.attributes[i].type == GL_UNSIGNED_SHORT) {
+                if (!vd.attributes[i].normalized &&
+                    (vd.attributes[i].type == GL_INT || vd.attributes[i].type == GL_SHORT ||
+                     vd.attributes[i].type == GL_UNSIGNED_BYTE || vd.attributes[i].type == GL_UNSIGNED_SHORT)) {
                     GL( glVertexAttribIPointer(vd.attributes[i].index, vd.attributes[i].size, vd.attributes[i].type, vd.stride,
                                                (GLvoid *) vd.attributes[i].offset) );
                 }
                 else {
-                    GL( glVertexAttribPointer(vd.attributes[i].index, vd.attributes[i].size, vd.attributes[i].type, GL_FALSE, vd.stride,
+                    GL( glVertexAttribPointer(vd.attributes[i].index, vd.attributes[i].size, vd.attributes[i].type,
+                                              vd.attributes[i].normalized ? GL_TRUE : GL_FALSE, vd.stride,
                                               (GLvoid *) vd.attributes[i].offset) );
                 }
                 GL( glEnableVertexAttribArray(vd.attributes[i].index) );

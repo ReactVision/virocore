@@ -13,11 +13,13 @@ flat in int v_instance_id;
 in lowp mat3 v_tbn;
 in highp vec2 v_texcoord;
 in highp vec3 v_surface_position;
+in lowp vec4 v_color;
+#pragma varying_in_declarations
 
 layout (location = 0) out highp vec4 frag_color;
 
 void main() {
-    _surface_diffuse_color = material_diffuse_surface_color;
+    _surface_diffuse_color = material_diffuse_surface_color * v_color;
     _surface_diffuse_texcoord = v_texcoord;
     _surface_diffuse_intensity = material_diffuse_intensity;
     _surface_alpha = material_alpha;
