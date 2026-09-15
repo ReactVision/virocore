@@ -181,6 +181,10 @@ std::shared_ptr<VRODriverOpenGLWasm> VROSceneWeb::getDriver() {
     return _driver;
 }
 
+std::shared_ptr<VRORenderer> VROSceneWeb::getRenderer() {
+    return _renderer;
+}
+
 void VROSceneWeb::buildEmptyScene() {
     _sceneController = std::make_shared<VROSceneController>();
     _scene = _sceneController->getScene();
@@ -365,6 +369,39 @@ static std::shared_ptr<VROSceneWeb> sScene;
 
 static void initViroScene(std::string canvasSelector, int width, int height) {
     sScene = std::make_shared<VROSceneWeb>(canvasSelector, width, height);
+}
+
+// --- Post-processing effects ---
+//
+// The renderer opens with all four on (VROSceneWeb's constructor asks for the
+// full set and VROChoreographer degrades what the driver cannot do). The native
+// scene navigators expose the same four as props and Studio switches HDR and
+// bloom off, because Hable tone mapping renders pure white at about 0.77 and
+// bright materials glow — neither of which the editor previews. Without these
+// the web player was the only surface of the three still applying them.
+//
+// Each returns whether the effect is on after the call: asking for HDR on a
+// driver without float colour buffers leaves it off, and the caller should know
+// rather than assume.
+static bool viroSetHDREnabled(bool enabled) {
+    if (!sScene) return false;
+    auto renderer = sScene->getRenderer();
+    return renderer ? renderer->setHDREnabled(enabled) : false;
+}
+static bool viroSetBloomEnabled(bool enabled) {
+    if (!sScene) return false;
+    auto renderer = sScene->getRenderer();
+    return renderer ? renderer->setBloomEnabled(enabled) : false;
+}
+static bool viroSetPBREnabled(bool enabled) {
+    if (!sScene) return false;
+    auto renderer = sScene->getRenderer();
+    return renderer ? renderer->setPBREnabled(enabled) : false;
+}
+static bool viroSetShadowsEnabled(bool enabled) {
+    if (!sScene) return false;
+    auto renderer = sScene->getRenderer();
+    return renderer ? renderer->setShadowsEnabled(enabled) : false;
 }
 
 static void setViroSceneSize(int width, int height) {
@@ -1485,6 +1522,10 @@ static void viroARSetCameraIntrinsics(float fx, float fy, float cx, float cy,
 EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("initViroScene", &initViroScene);
     emscripten::function("setViroSceneSize", &setViroSceneSize);
+    emscripten::function("viroSetHDREnabled", &viroSetHDREnabled);
+    emscripten::function("viroSetBloomEnabled", &viroSetBloomEnabled);
+    emscripten::function("viroSetPBREnabled", &viroSetPBREnabled);
+    emscripten::function("viroSetShadowsEnabled", &viroSetShadowsEnabled);
     emscripten::function("viroOnTouch", &viroOnTouch);
     emscripten::function("viroBuildDemoCube", &viroBuildDemoCube);
 
