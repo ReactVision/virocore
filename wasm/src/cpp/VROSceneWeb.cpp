@@ -41,6 +41,7 @@
 #include "VROGeometryElement.h"
 #include "VROParticleEmitter.h"
 #include "VROParticleModifier.h"
+#include "VROBillboardConstraint.h"
 #include "VROMaterial.h"
 #include "VROMaterialVisual.h"
 #include "VROShaderModifier.h"
@@ -555,11 +556,78 @@ static void viroAddChildNode(int parent, int child) {
 static void viroRemoveNodeFromParent(int node) {
     if (auto n = getNode(node)) n->removeFromParentNode();
 }
+// --- Node rendering order, light masks, billboard and world position ---
+
+// B3. Drawn-last wins among equal-depth fragments; the native nodes take the
+// same int.
+static void viroSetNodeRenderingOrder(int nodeHandle, int order) {
+    if (auto n = getNode(nodeHandle)) n->setRenderingOrder(order);
+}
+
+// B4. The node half of light masking: a light lights a node only where their
+// masks intersect. `recursive` matches VRONode's own parameter, which a loaded
+// model needs — its geometry is on children, not on the handle the bridge owns.
+static void viroSetNodeLightReceivingBitMask(int nodeHandle, int mask, bool recursive) {
+    if (auto n = getNode(nodeHandle)) n->setLightReceivingBitMask(mask, recursive);
+}
+static void viroSetNodeShadowCastingBitMask(int nodeHandle, int mask, bool recursive) {
+    if (auto n = getNode(nodeHandle)) n->setShadowCastingBitMask(mask, recursive);
+}
+
+// B2. Billboarding, as a constraint on the node — the same VROBillboardConstraint
+// the native `transformBehaviors` prop installs. One per node: the map holds the
+// live constraint so a change can remove the previous one rather than stacking a
+// second that fights it.
+static std::unordered_map<int, std::shared_ptr<VROBillboardConstraint>> sBillboards;
+
+// axis: 0 = X, 1 = Y, 2 = Z, 3 = all; anything else removes the constraint.
+static void viroSetNodeBillboard(int nodeHandle, int axis) {
+    auto node = getNode(nodeHandle);
+    if (!node) return;
+
+    auto existing = sBillboards.find(nodeHandle);
+    if (existing != sBillboards.end()) {
+        node->removeConstraint(existing->second);
+        sBillboards.erase(existing);
+    }
+    if (axis < 0 || axis > 3) {
+        return;
+    }
+
+    VROBillboardAxis freeAxis;
+    switch (axis) {
+        case 0:  freeAxis = VROBillboardAxis::X; break;
+        case 1:  freeAxis = VROBillboardAxis::Y; break;
+        case 2:  freeAxis = VROBillboardAxis::Z; break;
+        default: freeAxis = VROBillboardAxis::All; break;
+    }
+    auto constraint = std::make_shared<VROBillboardConstraint>(freeAxis);
+    node->addConstraint(constraint);
+    sBillboards[nodeHandle] = constraint;
+}
+
+// B7. A node's world position as [x, y, z].
+//
+// Anything measuring real distances needs this: inside a plane wrapper an
+// asset's authored position is local to the plane, so the proximity runtime was
+// comparing a camera world position against a plane-local one.
+static emscripten::val viroGetNodeWorldPosition(int nodeHandle) {
+    emscripten::val out = emscripten::val::array();
+    auto node = getNode(nodeHandle);
+    if (!node) return out;
+    VROVector3f p = node->getWorldPosition();
+    out.set(0, p.x);
+    out.set(1, p.y);
+    out.set(2, p.z);
+    return out;
+}
+
 static void viroDestroyNode(int node) {
     sNodes.erase(node);
     sNodeDelegates.erase(node);
     sNodeAnimations.erase(node);
     sShaderOverrideBaselines.erase(node);
+    sBillboards.erase(node);
 }
 
 // --- Events ---
@@ -597,6 +665,18 @@ static int viroCreateSphere(float radius) {
     sGeometries[h] = VROSphere::createSphere(radius, 20, 20, true);
     return h;
 }
+// B6. A surface with explicit UVs, so a caller can crop the texture into the
+// quad instead of stretching it — what imageClipMode ClipToBounds does on a
+// device. Separate from viroCreateSurface rather than extra parameters on it:
+// a binary that predates this would silently read the extra arguments as
+// garbage, where a missing function is something the caller can detect.
+static int viroCreateSurfaceUV(float width, float height,
+                               float u0, float v0, float u1, float v1) {
+    int h = sNextHandle++;
+    sGeometries[h] = VROSurface::createSurface(width, height, u0, v0, u1, v1);
+    return h;
+}
+
 static int viroCreateSurface(float width, float height) {
     int h = sNextHandle++;
     sGeometries[h] = VROSurface::createSurface(width, height);
@@ -1181,6 +1261,20 @@ static int viroCreateParticleEmitter(int nodeHandle, int textureHandle,
     return 1;
 }
 
+// B8. Acceleration on a running emitter, as a [min, max] range like velocity.
+// Set after creation rather than as six more arguments to an emitter factory
+// that already takes seventeen.
+static void viroSetParticleAcceleration(int nodeHandle,
+                                        float minX, float minY, float minZ,
+                                        float maxX, float maxY, float maxZ) {
+    auto node = getNode(nodeHandle);
+    if (!node) return;
+    auto emitter = node->getParticleEmitter();
+    if (!emitter) return;
+    emitter->setAccelerationmodifier(std::make_shared<VROParticleModifier>(
+        VROVector3f(minX, minY, minZ), VROVector3f(maxX, maxY, maxZ)));
+}
+
 // Toggle a node's emitter run/pause state.
 static void viroSetParticleEmitterRun(int nodeHandle, bool run) {
     std::shared_ptr<VRONode> node = getNode(nodeHandle);
@@ -1266,6 +1360,37 @@ static void viroSetLightSpotAngles(int light, float inner, float outer) {
         l->setSpotOuterAngle(outer);
     }
 }
+// B4. The light half of masking. Pairs with the node's lightReceivingBitMask:
+// a light only lights a node where the two masks intersect.
+static void viroSetLightInfluenceBitMask(int light, int mask) {
+    if (auto l = getLight(light)) l->setInfluenceBitMask(mask);
+}
+
+// B5. Shadow tuning. `castsShadow` alone decides whether a light casts; these
+// decide whether the result is usable — a map too small or a bias too low is
+// the difference between a shadow and a field of acne.
+//
+// No shadowOrthographicPosition: the native navigators expose it but VROLight
+// has no setter for it, so there is nothing to forward it to. Six of the seven.
+static void viroSetLightShadowOpacity(int light, float opacity) {
+    if (auto l = getLight(light)) l->setShadowOpacity(opacity);
+}
+static void viroSetLightShadowMapSize(int light, int size) {
+    if (auto l = getLight(light)) l->setShadowMapSize(size);
+}
+static void viroSetLightShadowBias(int light, float bias) {
+    if (auto l = getLight(light)) l->setShadowBias(bias);
+}
+static void viroSetLightShadowNearZ(int light, float nearZ) {
+    if (auto l = getLight(light)) l->setShadowNearZ(nearZ);
+}
+static void viroSetLightShadowFarZ(int light, float farZ) {
+    if (auto l = getLight(light)) l->setShadowFarZ(farZ);
+}
+static void viroSetLightShadowOrthographicSize(int light, float size) {
+    if (auto l = getLight(light)) l->setShadowOrthographicSize(size);
+}
+
 static void viroSetLightCastsShadow(int light, bool castsShadow) {
     if (auto l = getLight(light)) l->setCastsShadow(castsShadow);
 }
@@ -1541,10 +1666,16 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroAddChildNode", &viroAddChildNode);
     emscripten::function("viroRemoveNodeFromParent", &viroRemoveNodeFromParent);
     emscripten::function("viroDestroyNode", &viroDestroyNode);
+    emscripten::function("viroSetNodeRenderingOrder", &viroSetNodeRenderingOrder);
+    emscripten::function("viroSetNodeLightReceivingBitMask", &viroSetNodeLightReceivingBitMask);
+    emscripten::function("viroSetNodeShadowCastingBitMask", &viroSetNodeShadowCastingBitMask);
+    emscripten::function("viroSetNodeBillboard", &viroSetNodeBillboard);
+    emscripten::function("viroGetNodeWorldPosition", &viroGetNodeWorldPosition);
 
     emscripten::function("viroCreateBox", &viroCreateBox);
     emscripten::function("viroCreateSphere", &viroCreateSphere);
     emscripten::function("viroCreateSurface", &viroCreateSurface);
+    emscripten::function("viroCreateSurfaceUV", &viroCreateSurfaceUV);
     emscripten::function("viroCreateText", &viroCreateText);
     emscripten::function("viroCreatePolyline", &viroCreatePolyline);
     emscripten::function("viroCreatePolygon", &viroCreatePolygon);
@@ -1588,6 +1719,7 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroSetBackgroundRotation", &viroSetBackgroundRotation);
     emscripten::function("viroCreateParticleEmitter", &viroCreateParticleEmitter);
     emscripten::function("viroSetParticleEmitterRun", &viroSetParticleEmitterRun);
+    emscripten::function("viroSetParticleAcceleration", &viroSetParticleAcceleration);
     emscripten::function("viroCreatePortalScene", &viroCreatePortalScene);
     emscripten::function("viroCreatePortalFrame", &viroCreatePortalFrame);
     emscripten::function("viroSetPortalEntrance", &viroSetPortalEntrance);
@@ -1605,6 +1737,13 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroSetLightAttenuation", &viroSetLightAttenuation);
     emscripten::function("viroSetLightSpotAngles", &viroSetLightSpotAngles);
     emscripten::function("viroSetLightCastsShadow", &viroSetLightCastsShadow);
+    emscripten::function("viroSetLightInfluenceBitMask", &viroSetLightInfluenceBitMask);
+    emscripten::function("viroSetLightShadowOpacity", &viroSetLightShadowOpacity);
+    emscripten::function("viroSetLightShadowMapSize", &viroSetLightShadowMapSize);
+    emscripten::function("viroSetLightShadowBias", &viroSetLightShadowBias);
+    emscripten::function("viroSetLightShadowNearZ", &viroSetLightShadowNearZ);
+    emscripten::function("viroSetLightShadowFarZ", &viroSetLightShadowFarZ);
+    emscripten::function("viroSetLightShadowOrthographicSize", &viroSetLightShadowOrthographicSize);
     emscripten::function("viroAddLightToNode", &viroAddLightToNode);
     emscripten::function("viroRemoveLightFromNode", &viroRemoveLightFromNode);
     emscripten::function("viroDestroyLight", &viroDestroyLight);
