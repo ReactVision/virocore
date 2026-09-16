@@ -58,6 +58,15 @@ VROARCameraARCore::VROARCameraARCore(arcore::Frame *frame,
     _rotation[12] = 0;
     _rotation[13] = 0;
     _rotation[14] = 0;
+
+    float poseMtx[16];
+    frame->getCameraPose(poseMtx);
+    VROMatrix4f imageMatrix(poseMtx);
+    _imagePosition = { imageMatrix[12], imageMatrix[13], imageMatrix[14] };
+    _imageRotation = imageMatrix;
+    _imageRotation[12] = 0;
+    _imageRotation[13] = 0;
+    _imageRotation[14] = 0;
 }
 
 VROARCameraARCore::~VROARCameraARCore() {
@@ -128,6 +137,14 @@ bool VROARCameraARCore::getImageIntrinsics(float *outFx, float *outFy, float *ou
 
 VROMatrix4f VROARCameraARCore::getRotation() const {
     return _rotation;
+}
+
+VROMatrix4f VROARCameraARCore::getImageRotation() const {
+    return _imageRotation;
+}
+
+VROVector3f VROARCameraARCore::getImagePosition() const {
+    return _imagePosition;
 }
 
 VROVector3f VROARCameraARCore::getPosition() const {

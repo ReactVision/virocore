@@ -49,6 +49,16 @@ public:
     
     VROMatrix4f getRotation() const;
     VROVector3f getPosition() const;
+
+    /*
+     Pose of the camera that took the CPU image, axes aligned with that image.
+     getRotation() is the display-oriented pose ARCore renders with, which on a
+     portrait phone is this rolled 90 degrees about the optical axis; anything
+     doing geometry on the landscape image wants this one.
+     */
+    VROMatrix4f getImageRotation() const;
+    VROVector3f getImagePosition() const;
+
     VROMatrix4f getProjection(VROViewport viewport, float near, float far, VROFieldOfView *outFOV);
 
     /*
@@ -88,6 +98,8 @@ private:
 
     VROVector3f _position;
     VROMatrix4f _rotation;
+    VROVector3f _imagePosition;
+    VROMatrix4f _imageRotation;
 
     /*
      Load the image data from ARCore, and stores it in _image.
