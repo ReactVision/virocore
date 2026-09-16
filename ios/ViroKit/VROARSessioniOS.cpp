@@ -860,22 +860,18 @@ void VROARSessioniOS::resolveCloudAnchor(
       return;
     }
 
-    ARFrame *arFrame = nil;
-    if (_currentFrame) {
-      VROARFrameiOS *frameiOS = (VROARFrameiOS *)_currentFrame.get();
-      arFrame = frameiOS->getARFrame();
-    }
-    if (!arFrame) {
-      if (onFailure) onFailure("No AR frame available for localisation.");
-      return;
-    }
-
+    // No frame check here, and none wanted. Localisation runs off updateFrame's
+    // per-frame updateWithFrame:, so the frame argument below is ignored and a
+    // resolve issued before ARKit's first frame is simply early, not doomed.
+    // Gating on it failed every join that mounted with the anchor id already
+    // known, which is the usual way a second device joins. Android's path has
+    // never had the check.
     NSString *cloudIdNS = [NSString stringWithUTF8String:cloudAnchorId.c_str()];
     std::weak_ptr<VROARSessioniOS> weakSelf = shared_from_this();
     std::string cloudIdCopy = cloudAnchorId;
 
     [_cloudAnchorProviderRV resolveCloudAnchorWithId:cloudIdNS
-                                               frame:arFrame
+                                               frame:nil
                                            onSuccess:^(NSString * /*resolvedId*/, simd_float4x4 transform) {
       auto strongSelf = weakSelf.lock();
       if (!strongSelf) return;
