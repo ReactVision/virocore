@@ -1167,8 +1167,12 @@ public class ARScene extends Scene {
      */
     public void resolveCloudAnchor(String cloudAnchorId, CloudAnchorResolveListener callback) {
         if (mCloudAnchorResolveCallbacks.containsKey(cloudAnchorId)) {
+            // Answered rather than dropped: returning silently leaves the caller's
+            // promise unsettled forever, which looks identical to a resolve that
+            // is still working.
             Log.e("Viro", "Ignoring redundant cloud anchor resolve request: we are already processing anchor ["
                     + cloudAnchorId + "]");
+            callback.onFailure("A resolve for this anchor is already in progress");
             return;
         }
         mCloudAnchorResolveCallbacks.put(cloudAnchorId, callback);

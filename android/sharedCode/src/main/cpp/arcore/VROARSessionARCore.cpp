@@ -896,7 +896,8 @@ void VROARSessionARCore::hostCloudAnchor(
   }
 
   if (_cloudAnchorMode == arcore::CloudAnchorMode::Disabled) {
-    pwarn("Cloud anchors are disabled, ignoring anchor host request");
+    // Answered, not dropped: a silent return leaves the caller's promise open.
+    if (onFailure) onFailure("Cloud anchors are disabled: set cloudAnchorProvider, and the API key for reactvision");
     return;
   }
   _cloudAnchorProvider->hostCloudAnchor(anchor, ttlDays, onSuccess, onFailure);
@@ -934,7 +935,8 @@ void VROARSessionARCore::resolveCloudAnchor(
   }
 
   if (_cloudAnchorMode == arcore::CloudAnchorMode::Disabled) {
-    pwarn("Cloud anchors are disabled, ignoring anchor resolve request");
+    // Answered, not dropped: a silent return leaves the caller's promise open.
+    if (onFailure) onFailure("Cloud anchors are disabled: set cloudAnchorProvider, and the API key for reactvision");
     return;
   }
   _cloudAnchorProvider->resolveCloudAnchor(cloudAnchorId, onSuccess, onFailure);
