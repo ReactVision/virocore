@@ -732,14 +732,19 @@ void VRORenderer::updateSceneEffects(std::shared_ptr<VRODriver> driver, std::sha
     }
     
     if (driver->getColorRenderingMode() != VROColorRenderingMode::NonLinear && scene->isToneMappingUpdated()) {
+        // Null whenever HDR is off, since the pass is only built on the HDR path while
+        // this branch turns on the driver's color mode, which is Linear on GL either way.
+        // Nothing to configure then: with no pass the scene is already untone-mapped.
         std::shared_ptr<VROToneMappingRenderPass> toneMapping = _choreographer->getToneMapping();
-        if (scene->isToneMappingEnabled()) {
-            toneMapping->setMethod(scene->getToneMappingMethod());
-            toneMapping->setExposure(scene->getToneMappingExposure());
-            toneMapping->setWhitePoint(scene->getToneMappingWhitePoint());
-        }
-        else {
-            toneMapping->setMethod(VROToneMappingMethod::Disabled);
+        if (toneMapping) {
+            if (scene->isToneMappingEnabled()) {
+                toneMapping->setMethod(scene->getToneMappingMethod());
+                toneMapping->setExposure(scene->getToneMappingExposure());
+                toneMapping->setWhitePoint(scene->getToneMappingWhitePoint());
+            }
+            else {
+                toneMapping->setMethod(VROToneMappingMethod::Disabled);
+            }
         }
         scene->setToneMappingUpdated(false);
     }
