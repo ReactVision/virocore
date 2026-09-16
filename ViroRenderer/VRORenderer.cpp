@@ -112,7 +112,15 @@ void VRORenderer::setDebugHUDEnabled(bool enabled) {
 
 bool VRORenderer::setHDREnabled(bool enableHDR) {
     if (_choreographer) {
-        return _choreographer->setHDREnabled(enableHDR);
+        bool result = _choreographer->setHDREnabled(enableHDR);
+        // Toggling HDR rebuilds the render targets, and the tone mapping pass
+        // with them, back at its constructor default. A scene that had asked for
+        // the curve off would silently get it back, so ask for its setting to be
+        // pushed again on the next frame.
+        if (_sceneController && _sceneController->getScene()) {
+            _sceneController->getScene()->setToneMappingUpdated(true);
+        }
+        return result;
     } else {
         pinfo("Modified initial renderer config for HDR");
         _initialRendererConfig.enableHDR = enableHDR;
@@ -733,6 +741,12 @@ void VRORenderer::updateSceneEffects(std::shared_ptr<VRODriver> driver, std::sha
     
     if (driver->getColorRenderingMode() != VROColorRenderingMode::NonLinear && scene->isToneMappingUpdated()) {
         std::shared_ptr<VROToneMappingRenderPass> toneMapping = _choreographer->getToneMapping();
+        // There is no pass to configure when the pipeline has neither HDR nor a
+        // software gamma pass to run it for; the scene keeps its request for
+        // whenever one is created.
+        if (!toneMapping) {
+            return;
+        }
         if (scene->isToneMappingEnabled()) {
             toneMapping->setMethod(scene->getToneMappingMethod());
             toneMapping->setExposure(scene->getToneMappingExposure());

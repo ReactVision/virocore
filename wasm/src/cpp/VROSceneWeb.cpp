@@ -413,6 +413,20 @@ static bool viroSetShadowsEnabled(bool enabled) {
     return renderer ? renderer->setShadowsEnabled(enabled) : false;
 }
 
+// The tone curve, separately from HDR. Studio switches this off and leaves HDR
+// on, because isPBREnabled() is `_hdrEnabled && _pbrEnabled`: turning HDR off to
+// lose the curve takes the whole PBR branch of VROShaderFactory with it, and a
+// glTF material then falls back to Blinn — roughness, metalness and the AO map
+// read by nothing, and the default specular washing the model out to white.
+// Native has said this with ViroScene's `toneMappingEnabled` since the editor
+// shipped; this is the same switch.
+static void viroSetToneMappingEnabled(bool enabled) {
+    if (!sScene) return;
+    std::shared_ptr<VROScene> scene = sScene->getScene();
+    if (!scene) return;
+    scene->setToneMappingEnabled(enabled);
+}
+
 static void setViroSceneSize(int width, int height) {
     if (sScene) {
         sScene->setSize(width, height);
@@ -1839,6 +1853,7 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroSetBloomEnabled", &viroSetBloomEnabled);
     emscripten::function("viroSetPBREnabled", &viroSetPBREnabled);
     emscripten::function("viroSetShadowsEnabled", &viroSetShadowsEnabled);
+    emscripten::function("viroSetToneMappingEnabled", &viroSetToneMappingEnabled);
 
     // Physics
     emscripten::function("viroSetPhysicsWorld", &viroSetPhysicsWorld);
