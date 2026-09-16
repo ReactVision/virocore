@@ -62,7 +62,7 @@ public:
     bool isImageDataAvailable();
     void getImageData(uint8_t *outImageData);
     VROVector3f getImageSize();
-    void getImageIntrinsics(float *outFx, float *outFy, float *outCx, float *outCy);
+    bool getImageIntrinsics(float *outFx, float *outFy, float *outCx, float *outCy) override;
 
     /*
      Retrieve the rotated camera image data in RGBA, rotated to display orientation but NOT cropped

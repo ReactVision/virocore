@@ -31,6 +31,11 @@ std::shared_ptr<VROARFrame> VROARFrameSnapshot::fromFrame(VROARFrame& src)
     snapCam->_projection = cam->getProjection(VROViewport(0, 0, 1, 1),
                                                0.01f, 100.0f, nullptr);
 
+    // Safe beside the note above: the ARCore override reads the ArCamera and
+    // acquires no image.
+    snapCam->_hasIntrinsics = cam->getImageIntrinsics(&snapCam->_fx, &snapCam->_fy,
+                                                      &snapCam->_cx, &snapCam->_cy);
+
     // ── Point cloud snapshot (deep copy) ─────────────────────────────────────
     std::shared_ptr<VROARPointCloud> snapPc;
     auto srcPc = src.getPointCloud();
