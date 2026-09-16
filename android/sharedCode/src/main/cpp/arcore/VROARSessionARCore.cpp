@@ -902,6 +902,26 @@ void VROARSessionARCore::hostCloudAnchor(
   _cloudAnchorProvider->hostCloudAnchor(anchor, ttlDays, onSuccess, onFailure);
 }
 
+bool VROARSessionARCore::getCloudAnchorStatus(std::string &message, float &progress) {
+#if RVCCA_AVAILABLE
+  if (!_cloudAnchorProviderRV) return false;
+  auto provider = _cloudAnchorProviderRV->getProvider();
+  if (!provider) return false;
+
+  // One operation at a time in practice, and the first is the one a caller is
+  // waiting on: a second resolve of the same anchor replaces nothing, it queues.
+  std::vector<std::string> ids = provider->getActiveOperations();
+  if (ids.empty()) return false;
+
+  auto status = provider->getOperationStatus(ids.front());
+  message  = status.message;
+  progress = status.progress;
+  return true;
+#else
+  return false;
+#endif
+}
+
 void VROARSessionARCore::resolveCloudAnchor(
     std::string cloudAnchorId,
     std::function<void(std::shared_ptr<VROARAnchor> anchor)> onSuccess,

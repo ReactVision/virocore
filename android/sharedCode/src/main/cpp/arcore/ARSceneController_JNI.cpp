@@ -1727,6 +1727,29 @@ static std::string rvMatrixToCsvJNI(const VROMatrix4f& m) {
     return csv;
 }
 
+VRO_METHOD(VRO_STRING, nativeGetCloudAnchorStatus)(VRO_ARGS
+                                                   VRO_REF(VROARSceneController) sceneController_j) {
+    VRO_METHOD_PREAMBLE;
+
+    // "progress|message", empty when nothing is resolving. A delimited string
+    // rather than a Java object because the error path next door already encodes
+    // itself that way, and this is read by a poll rather than parsed deeply.
+    std::shared_ptr<VROARScene> scene = std::dynamic_pointer_cast<VROARScene>(
+            VRO_REF_GET(VROARSceneController, sceneController_j)->getScene());
+    if (!scene || !scene->getARSession()) return VRO_NEW_STRING("");
+
+    std::string message;
+    float progress = 0.0f;
+    if (!scene->getARSession()->getCloudAnchorStatus(message, progress)) {
+        return VRO_NEW_STRING("");
+    }
+
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%.3f|", progress);
+    std::string out = std::string(buf) + message;
+    return VRO_NEW_STRING(out.c_str());
+}
+
 VRO_METHOD(void, nativeResolveCloudAnchor)(VRO_ARGS
                                            VRO_REF(VROARSceneController) sceneController_j,
                                            VRO_STRING cloudAnchorId_j) {
