@@ -388,7 +388,17 @@ SET(VIRO_WEB_LINK_FLAGS "-Oz \
                      --bind \
                      --preload-file ${CMAKE_SOURCE_DIR}/preload@/")
 
+# What this binary is, compiled into it. A web build is copied by hand into
+# another repo and then into an app's node_modules, so by the time someone
+# reports a bug the artifact has no provenance left anywhere around it — the only
+# place it survives is inside. Set by build_web.sh; "unknown" from a bare cmake.
+IF(NOT DEFINED VIRO_WEB_BUILD_ID)
+  SET(VIRO_WEB_BUILD_ID "unknown")
+ENDIF()
+MESSAGE(STATUS "VIRO_WEB_BUILD_ID:     ${VIRO_WEB_BUILD_ID}")
+
 ADD_EXECUTABLE       (viro_web ${VIRO_CORE_SRC} src/cpp/VROSceneWeb.cpp)
+TARGET_COMPILE_DEFINITIONS(viro_web PRIVATE VIRO_WEB_BUILD_ID="${VIRO_WEB_BUILD_ID}")
 SET_TARGET_PROPERTIES(viro_web PROPERTIES
                       LINK_FLAGS ${VIRO_WEB_LINK_FLAGS}
                       OUTPUT_NAME "viro-web"

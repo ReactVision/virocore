@@ -413,6 +413,16 @@ static bool viroSetShadowsEnabled(bool enabled) {
     return renderer ? renderer->setShadowsEnabled(enabled) : false;
 }
 
+// What this binary is: the virocore commit it was built from, whether that tree
+// was dirty, and when. Compiled in (see CMakeLists) because by the time a report
+// arrives the .wasm has been copied twice and carries no provenance otherwise.
+#ifndef VIRO_WEB_BUILD_ID
+#define VIRO_WEB_BUILD_ID "unknown"
+#endif
+static std::string viroGetBuildId() {
+    return VIRO_WEB_BUILD_ID;
+}
+
 // The tone curve, separately from HDR. Studio switches this off and leaves HDR
 // on, because isPBREnabled() is `_hdrEnabled && _pbrEnabled`: turning HDR off to
 // lose the curve takes the whole PBR branch of VROShaderFactory with it, and a
@@ -1854,6 +1864,7 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroSetPBREnabled", &viroSetPBREnabled);
     emscripten::function("viroSetShadowsEnabled", &viroSetShadowsEnabled);
     emscripten::function("viroSetToneMappingEnabled", &viroSetToneMappingEnabled);
+    emscripten::function("viroGetBuildId", &viroGetBuildId);
 
     // Physics
     emscripten::function("viroSetPhysicsWorld", &viroSetPhysicsWorld);
