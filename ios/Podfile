@@ -1,4 +1,7 @@
-platform :ios, '13.0'
+# 15.0 is the floor Xcode 26+ accepts — anything lower is a hard build error, not a
+# warning. ViroKit itself targets 17.6; the pods only need to be no lower than the
+# toolchain's minimum.
+platform :ios, '15.0'
 
 # Disable Mac Catalyst - ViroKit uses GLKit and ARCore which are iOS-only
 ENV['ONLY_ACTIVE_ARCH'] = 'NO'
@@ -26,6 +29,16 @@ end
 # Post-install hook to enable weak linking for ARCore frameworks in ViroKit only
 # This allows ViroKit to be used with or without ARCore SDK in the final app
 post_install do |installer|
+    # Several pods (GVRAudioSDK, PromisesObjC, GTMSessionFetcher, the Firebase family)
+    # still declare deployment targets from iOS 8–13. Xcode 26+ refuses to build those
+    # outright, so raise every pod target — resource bundles included — to the Podfile
+    # platform. Without this the build fails before a single source file is compiled.
+    installer.pods_project.targets.each do |target|
+        target.build_configurations.each do |config|
+            config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
+        end
+    end
+
     # Note: ARCore is distributed as sub-frameworks, not a single ARCore.framework
     # We also need to weak link Firebase and Google frameworks that ARCore depends on
     arcore_frameworks = ['ARCoreBase', 'ARCoreGARSession', 'ARCoreCloudAnchors',
