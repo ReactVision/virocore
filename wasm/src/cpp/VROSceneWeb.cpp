@@ -62,6 +62,8 @@
 #include "VROTimingFunction.h"
 #include "VROARWeb.h"
 #include "VROQuaternion.h"
+#include "VROMorpher.h"
+#include "VROStringUtil.h"
 #include <set>
 
 #include <unordered_map>
@@ -655,6 +657,58 @@ static emscripten::val viroGetNodeWorldPosition(int nodeHandle) {
     out.set(1, p.y);
     out.set(2, p.z);
     return out;
+}
+
+// Morph targets. A glTF or FBX model carries its blend shapes in the geometry
+// virocore already loaded; nothing on web could name one or move it, so a face
+// rig that animates on a phone sat at its rest pose in a browser.
+//
+// Both act on the node's whole subtree, as the native bridges do: a loaded model
+// keeps its meshes on child nodes, so a target named on the root would otherwise
+// reach nothing.
+static void viroSetMorphTargetWeight(int nodeHandle, std::string target, float weight) {
+    auto node = getNode(nodeHandle);
+    if (!node) return;
+    for (const std::shared_ptr<VROMorpher> &morpher : node->getMorphers(true)) {
+        morpher->setWeightForTarget(target, weight);
+    }
+}
+
+// The names this model's meshes morph by, sorted and deduplicated across them.
+static emscripten::val viroGetMorphTargetKeys(int nodeHandle) {
+    emscripten::val out = emscripten::val::array();
+    auto node = getNode(nodeHandle);
+    if (!node) return out;
+    std::set<std::string> keys;
+    for (const std::shared_ptr<VROMorpher> &morpher : node->getMorphers(true)) {
+        std::set<std::string> morphKeys = morpher->getMorphTargetKeys();
+        keys.insert(morphKeys.begin(), morphKeys.end());
+    }
+    int i = 0;
+    for (const std::string &key : keys) {
+        out.set(i++, key);
+    }
+    return out;
+}
+
+// "cpu", "gpu" or "hybrid", matching the strings the native bridges take.
+// Returns whether every morpher accepted it: the GPU path needs vertex
+// attributes a model may not have left, and virocore refuses rather than
+// degrade silently.
+static bool viroSetMorphMode(int nodeHandle, std::string mode) {
+    auto node = getNode(nodeHandle);
+    if (!node) return false;
+    VROMorpher::ComputeLocation location = VROMorpher::ComputeLocation::CPU;
+    if (VROStringUtil::strcmpinsensitive("gpu", mode)) {
+        location = VROMorpher::ComputeLocation::GPU;
+    } else if (VROStringUtil::strcmpinsensitive("hybrid", mode)) {
+        location = VROMorpher::ComputeLocation::Hybrid;
+    }
+    bool ok = true;
+    for (const std::shared_ptr<VROMorpher> &morpher : node->getMorphers(true)) {
+        ok = morpher->setComputeLocation(location) && ok;
+    }
+    return ok;
 }
 
 static void viroDestroyNode(int node) {
@@ -1895,6 +1949,9 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroSetNodeShadowCastingBitMask", &viroSetNodeShadowCastingBitMask);
     emscripten::function("viroSetNodeBillboard", &viroSetNodeBillboard);
     emscripten::function("viroGetNodeWorldPosition", &viroGetNodeWorldPosition);
+    emscripten::function("viroSetMorphTargetWeight", &viroSetMorphTargetWeight);
+    emscripten::function("viroGetMorphTargetKeys", &viroGetMorphTargetKeys);
+    emscripten::function("viroSetMorphMode", &viroSetMorphMode);
 
     emscripten::function("viroCreateBox", &viroCreateBox);
     emscripten::function("viroCreateSphere", &viroCreateSphere);
