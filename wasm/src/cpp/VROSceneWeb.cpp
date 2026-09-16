@@ -1074,6 +1074,11 @@ static void viroSetPhysicsWorld(bool enabled, float gx, float gy, float gz) {
     }
     world->setGravity({ gx, gy, gz });
     for (auto &entry : sPhysicsBodies) {
+        // Remove first: this runs again on every scene change and on a hot
+        // reload, and the world rejects a body it already holds ("Attempted to
+        // add the same physics body twice"). Removing an absent one is a no-op,
+        // so this is the idempotent order.
+        world->removePhysicsBody(entry.second);
         world->addPhysicsBody(entry.second);
     }
 }
@@ -1086,6 +1091,11 @@ static void viroSetPhysicsBody(int nodeHandle, int type, float mass,
                                std::string tag) {
     auto node = getNode(nodeHandle);
     if (!node) return;
+
+    // Replacing a body rather than adding a second one: a changed collider
+    // re-enters here, and the old body would otherwise stay in the world for
+    // ever, colliding with things from a shape the author already changed.
+    viroClearPhysicsBody(nodeHandle);
 
     VROPhysicsBody::VROPhysicsBodyType bodyType;
     switch (type) {
