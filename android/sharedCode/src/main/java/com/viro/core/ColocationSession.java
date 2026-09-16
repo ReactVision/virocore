@@ -47,6 +47,45 @@ public class ColocationSession {
         void onResult(boolean success, String error);
     }
 
+    /**
+     * Loaded here rather than relied on from ViroViewARCore's static block.
+     *
+     * This class is deliberately independent of ARScene, so it gets asked
+     * whether co-location is available before any AR view exists — on the first
+     * open of a scene, that is before the renderer library is loaded at all.
+     * nativeIsAvailable() then threw UnsatisfiedLinkError, the bridge answered
+     * "unavailable", and a caller that checks once believed it for the life of
+     * the scene. Opening the scene a second time appeared to fix it, because by
+     * then the AR view had loaded the library.
+     */
+    private static final boolean sNativeLoaded = loadNativeLibraries();
+
+    private static boolean loadNativeLibraries() {
+        try {
+            System.loadLibrary("gvr");
+            System.loadLibrary("gvr_audio");
+            System.loadLibrary("viro_renderer");
+        } catch (Throwable t) {
+            // A build without the renderer is a real configuration, not an error
+            // to raise here: isAvailable() reports it as unavailable.
+            return false;
+        }
+
+        // Separate, and not optional. libreactvisioncca.so is already in the
+        // process as a link-time dependency of the renderer, but Android runs
+        // JNI_OnLoad only for libraries named in System.loadLibrary, and that
+        // hook is what caches the RVWebSocketSupport class the transport asks
+        // for. Without it isSupported() answers false with every library in
+        // memory. The AR scene navigator loads it too, so the second open of a
+        // scene worked and the first did not.
+        try {
+            System.loadLibrary("reactvisioncca");
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
     private static ColocationSession sInstance;
 
     public static synchronized ColocationSession getInstance() {
@@ -60,7 +99,7 @@ public class ColocationSession {
 
     /** False when ReactVisionCCA is not linked or the platform has no socket. */
     public boolean isAvailable() {
-        return nativeIsAvailable();
+        return sNativeLoaded && nativeIsAvailable();
     }
 
     /**
