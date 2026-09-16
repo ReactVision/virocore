@@ -1541,6 +1541,60 @@ static void viroSetParticleAcceleration(int nodeHandle,
         VROVector3f(minX, minY, minZ), VROVector3f(maxX, maxY, maxZ)));
 }
 
+// The appearance modifiers: how a particle's colour, opacity, scale and rotation
+// change over its life. Without them a web emitter drew every particle at full
+// opacity and one size until it expired, so smoke never thinned and a spark
+// never shrank — the two things an author uses particles for.
+//
+// One entry point for all four because virocore models them identically: an
+// initial [min, max] range to randomise from, a reference factor, and a list of
+// intervals to interpolate towards. `intervals` arrives flattened at five floats
+// each — startFactor, endFactor, then the target x/y/z — since embind has no
+// cheap way to hand over an array of structs, and a trailing partial entry is
+// dropped rather than read past.
+//
+//   which:  0 alpha (x only), 1 colour (rgb), 2 scale (xyz), 3 rotation (xyz radians)
+//   factor: 0 time, 1 distance, 2 velocity
+static void viroSetParticleModifier(int nodeHandle, int which,
+                                    float minX, float minY, float minZ,
+                                    float maxX, float maxY, float maxZ,
+                                    int factor, emscripten::val intervals) {
+    auto node = getNode(nodeHandle);
+    if (!node) return;
+    auto emitter = node->getParticleEmitter();
+    if (!emitter) return;
+
+    VROParticleModifier::VROModifierFactor referenceFactor;
+    switch (factor) {
+        case 1:  referenceFactor = VROParticleModifier::VROModifierFactor::Distance; break;
+        case 2:  referenceFactor = VROParticleModifier::VROModifierFactor::Velocity; break;
+        default: referenceFactor = VROParticleModifier::VROModifierFactor::Time; break;
+    }
+
+    std::vector<float> flat = emscripten::convertJSArrayToNumberVector<float>(intervals);
+    std::vector<VROParticleModifier::VROModifierInterval> points;
+    const size_t stride = 5;
+    for (size_t i = 0; i + stride <= flat.size(); i += stride) {
+        VROParticleModifier::VROModifierInterval point;
+        point.startFactor = flat[i];
+        point.endFactor = flat[i + 1];
+        point.targetedValue = VROVector3f(flat[i + 2], flat[i + 3], flat[i + 4]);
+        points.push_back(point);
+    }
+
+    auto modifier = std::make_shared<VROParticleModifier>(
+        VROVector3f(minX, minY, minZ), VROVector3f(maxX, maxY, maxZ),
+        referenceFactor, points);
+
+    switch (which) {
+        case 0: emitter->setAlphaModifier(modifier); break;
+        case 1: emitter->setColorModifier(modifier); break;
+        case 2: emitter->setScaleModifier(modifier); break;
+        case 3: emitter->setRotationModifier(modifier); break;
+        default: break;
+    }
+}
+
 // Toggle a node's emitter run/pause state.
 static void viroSetParticleEmitterRun(int nodeHandle, bool run) {
     std::shared_ptr<VRONode> node = getNode(nodeHandle);
@@ -2001,6 +2055,7 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroCreateParticleEmitter", &viroCreateParticleEmitter);
     emscripten::function("viroSetParticleEmitterRun", &viroSetParticleEmitterRun);
     emscripten::function("viroSetParticleAcceleration", &viroSetParticleAcceleration);
+    emscripten::function("viroSetParticleModifier", &viroSetParticleModifier);
     emscripten::function("viroCreatePortalScene", &viroCreatePortalScene);
     emscripten::function("viroCreatePortalFrame", &viroCreatePortalFrame);
     emscripten::function("viroSetPortalEntrance", &viroSetPortalEntrance);
