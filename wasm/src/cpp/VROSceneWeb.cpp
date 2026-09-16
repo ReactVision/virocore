@@ -42,6 +42,10 @@
 #include "VROParticleEmitter.h"
 #include "VROParticleModifier.h"
 #include "VROBillboardConstraint.h"
+#include "VROPhysicsWorld.h"
+#include "VROPhysicsBody.h"
+#include "VROPhysicsShape.h"
+#include "VROPhysicsBodyDelegate.h"
 #include "VROMaterial.h"
 #include "VROMaterialVisual.h"
 #include "VROShaderModifier.h"
@@ -184,6 +188,10 @@ std::shared_ptr<VRODriverOpenGLWasm> VROSceneWeb::getDriver() {
 
 std::shared_ptr<VRORenderer> VROSceneWeb::getRenderer() {
     return _renderer;
+}
+
+std::shared_ptr<VROScene> VROSceneWeb::getScene() {
+    return _scene;
 }
 
 void VROSceneWeb::buildEmptyScene() {
@@ -439,6 +447,9 @@ static std::unordered_map<int, std::shared_ptr<VROMaterial>> sMaterials;
 static std::unordered_map<int,
     std::unordered_map<VROGeometry *, std::vector<std::shared_ptr<VROMaterial>>>>
     sShaderOverrideBaselines;
+
+// Defined with the physics section below; viroDestroyNode needs it before that.
+static void viroClearPhysicsBody(int nodeHandle);
 static int sNextHandle = 1;
 static int sRootHandle = 0;
 
@@ -628,6 +639,7 @@ static void viroDestroyNode(int node) {
     sNodeAnimations.erase(node);
     sShaderOverrideBaselines.erase(node);
     sBillboards.erase(node);
+    viroClearPhysicsBody(node);
 }
 
 // --- Events ---
@@ -983,6 +995,172 @@ static void viroSetMaterialShaderUniformMat4(int material, std::string name, ems
         return;
     }
     m->setShaderUniform(name, VROMatrix4f(elements.data()));
+}
+
+// --- Physics ---
+//
+// Bullet was compiled and linked into this binary from the start and nothing
+// reached it: every scene on web ran with no physics at all, and the host said
+// so through its capability report rather than because it had to.
+//
+// The scene switch is honoured here rather than left to the engine. VROScene
+// creates a physics world on demand at its own -9.81 the first time anything
+// asks for one, so a body attached while the scene's physics is off would
+// simulate anyway — exactly the bug the native side had to fix once already.
+// viroSetPhysicsWorld(enabled=false) is therefore a real instruction, not a
+// no-op: it detaches every body it knows about.
+
+static bool sPhysicsEnabled = false;
+
+/** Reports a collision to JS as (viroTag of A, viroTag of B, point, normal). */
+static emscripten::val sCollisionCallback = emscripten::val::undefined();
+static void viroSetCollisionCallback(emscripten::val cb) {
+    sCollisionCallback = cb;
+}
+
+class WebPhysicsDelegate : public VROPhysicsBodyDelegate {
+public:
+    explicit WebPhysicsDelegate(std::string tag) : _tag(std::move(tag)) {}
+    void onCollided(std::string bodyBKey, VROPhysicsBody::VROCollision collision) override {
+        if (sCollisionCallback.isUndefined() || sCollisionCallback.isNull()) {
+            return;
+        }
+        sCollisionCallback(_tag, collision.collidedBodyTag,
+                           collision.collidedPoint.x, collision.collidedPoint.y,
+                           collision.collidedPoint.z,
+                           collision.collidedNormal.x, collision.collidedNormal.y,
+                           collision.collidedNormal.z);
+    }
+private:
+    std::string _tag;
+};
+
+// Bodies by node handle, so a scene teardown or a switch-off can detach them.
+static std::unordered_map<int, std::shared_ptr<VROPhysicsBody>> sPhysicsBodies;
+static std::unordered_map<int, std::shared_ptr<WebPhysicsDelegate>> sPhysicsDelegates;
+
+/**
+ The scene's physics world.
+
+ `create` is false everywhere the answer "there isn't one" is the right one:
+ VROScene builds a world on demand and VROScene::computePhysics only steps when
+ one exists, so asking for it is what starts the simulation. A scene whose author
+ switched physics off must never reach the creating branch, or it simulates at
+ virocore's own -9.81 regardless — the bug the native side already had to fix.
+ */
+static std::shared_ptr<VROPhysicsWorld> physicsWorld(bool create) {
+    if (!sScene) return nullptr;
+    std::shared_ptr<VROScene> scene = sScene->getScene();
+    if (!scene) return nullptr;
+    if (!create && !scene->hasPhysicsWorld()) return nullptr;
+    return scene->getPhysicsWorld();
+}
+
+static void viroSetPhysicsWorld(bool enabled, float gx, float gy, float gz) {
+    sPhysicsEnabled = enabled;
+    // Only create a world when switching physics ON. Off means: if one exists,
+    // empty it; if not, leave it that way and nothing ever steps.
+    auto world = physicsWorld(enabled);
+    if (!world) return;
+
+    if (!enabled) {
+        // Detach rather than merely stop: the world keeps stepping whatever it
+        // holds, so leaving the bodies in would simulate a scene whose author
+        // switched physics off.
+        for (auto &entry : sPhysicsBodies) {
+            world->removePhysicsBody(entry.second);
+        }
+        return;
+    }
+    world->setGravity({ gx, gy, gz });
+    for (auto &entry : sPhysicsBodies) {
+        world->addPhysicsBody(entry.second);
+    }
+}
+
+// type: 0 static, 1 kinematic, 2 dynamic.  shapeType: -1 infer from geometry,
+// 2 sphere, 3 box (VROShapeType). Box params are HALF spans, as virocore takes
+// them and as the native bridges pass them through.
+static void viroSetPhysicsBody(int nodeHandle, int type, float mass,
+                               int shapeType, emscripten::val shapeParams,
+                               std::string tag) {
+    auto node = getNode(nodeHandle);
+    if (!node) return;
+
+    VROPhysicsBody::VROPhysicsBodyType bodyType;
+    switch (type) {
+        case 1:  bodyType = VROPhysicsBody::VROPhysicsBodyType::Kinematic; break;
+        case 2:  bodyType = VROPhysicsBody::VROPhysicsBodyType::Dynamic; break;
+        default: bodyType = VROPhysicsBody::VROPhysicsBodyType::Static; break;
+    }
+
+    // No shape means "fit the geometry": virocore infers one from the node's
+    // bounding box and applies its world scale, which is what the editors
+    // measure. Sending a unit box instead is what used to stand a 0.4 m model
+    // 0.3 m off the ground.
+    std::shared_ptr<VROPhysicsShape> shape;
+    if (shapeType >= 0) {
+        std::vector<float> params =
+            emscripten::convertJSArrayToNumberVector<float>(shapeParams);
+        shape = std::make_shared<VROPhysicsShape>(
+            (VROPhysicsShape::VROShapeType) shapeType, params);
+    }
+
+    // The tag lives on the node: VROPhysicsBody::getTag() reads it from there,
+    // and it is what a collision reports as the other party.
+    node->setTag(tag);
+    auto body = node->initPhysicsBody(bodyType, mass, shape);
+    if (!body) return;
+
+    auto delegate = std::make_shared<WebPhysicsDelegate>(tag);
+    body->setPhysicsDelegate(delegate);
+    sPhysicsDelegates[nodeHandle] = delegate;
+    sPhysicsBodies[nodeHandle] = body;
+
+    // Only joins the world if the scene said physics is on.
+    if (sPhysicsEnabled) {
+        if (auto world = physicsWorld(true)) world->addPhysicsBody(body);
+    }
+}
+
+static void viroSetPhysicsBodyProperties(int nodeHandle, float restitution,
+                                         float friction, bool useGravity) {
+    auto it = sPhysicsBodies.find(nodeHandle);
+    if (it == sPhysicsBodies.end()) return;
+    it->second->setRestitution(restitution);
+    it->second->setFriction(friction);
+    it->second->setUseGravity(useGravity);
+}
+
+// isConstant=false is the instant latch the next physics step consumes once.
+// A constant velocity is reasserted on the rigid body every frame and gravity
+// never gets a turn, which is why Studio sends `instantVelocity`.
+static void viroSetPhysicsVelocity(int nodeHandle, float x, float y, float z,
+                                   bool isConstant) {
+    auto it = sPhysicsBodies.find(nodeHandle);
+    if (it == sPhysicsBodies.end()) return;
+    it->second->setVelocity({ x, y, z }, isConstant);
+}
+
+static void viroApplyPhysicsImpulse(int nodeHandle, float x, float y, float z) {
+    auto it = sPhysicsBodies.find(nodeHandle);
+    if (it == sPhysicsBodies.end()) return;
+    it->second->applyImpulse({ x, y, z }, { 0, 0, 0 });
+}
+
+static void viroApplyPhysicsTorque(int nodeHandle, float x, float y, float z) {
+    auto it = sPhysicsBodies.find(nodeHandle);
+    if (it == sPhysicsBodies.end()) return;
+    it->second->applyTorqueImpulse({ x, y, z });
+}
+
+static void viroClearPhysicsBody(int nodeHandle) {
+    auto it = sPhysicsBodies.find(nodeHandle);
+    if (it == sPhysicsBodies.end()) return;
+    if (auto world = physicsWorld(false)) world->removePhysicsBody(it->second);
+    sPhysicsBodies.erase(it);
+    sPhysicsDelegates.erase(nodeHandle);
+    if (auto node = getNode(nodeHandle)) node->clearPhysicsBody();
 }
 
 // --- Shader overrides (a registered material merged onto a loaded model) ---
@@ -1651,6 +1829,16 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroSetBloomEnabled", &viroSetBloomEnabled);
     emscripten::function("viroSetPBREnabled", &viroSetPBREnabled);
     emscripten::function("viroSetShadowsEnabled", &viroSetShadowsEnabled);
+
+    // Physics
+    emscripten::function("viroSetPhysicsWorld", &viroSetPhysicsWorld);
+    emscripten::function("viroSetPhysicsBody", &viroSetPhysicsBody);
+    emscripten::function("viroSetPhysicsBodyProperties", &viroSetPhysicsBodyProperties);
+    emscripten::function("viroSetPhysicsVelocity", &viroSetPhysicsVelocity);
+    emscripten::function("viroApplyPhysicsImpulse", &viroApplyPhysicsImpulse);
+    emscripten::function("viroApplyPhysicsTorque", &viroApplyPhysicsTorque);
+    emscripten::function("viroClearPhysicsBody", &viroClearPhysicsBody);
+    emscripten::function("viroSetCollisionCallback", &viroSetCollisionCallback);
     emscripten::function("viroOnTouch", &viroOnTouch);
     emscripten::function("viroBuildDemoCube", &viroBuildDemoCube);
 
