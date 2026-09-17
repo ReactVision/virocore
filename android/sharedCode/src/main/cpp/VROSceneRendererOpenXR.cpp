@@ -15,6 +15,8 @@
 #include "VRODisplayOpenGLOpenXR.h"
 #include "VROInputControllerOpenXR.h"
 #include "VROARSessionOpenXR.h"
+#include "VRONode.h"
+#include "VRONodeCamera.h"
 #include "VROARScene.h"
 #include "VROSceneController.h"
 #include "VROLog.h"
@@ -77,6 +79,10 @@ static const char *const kOptionalExtensions[] = {
 // ──────────────────────────────────────────────────────────────────────────────
 // Conversion helpers
 // ──────────────────────────────────────────────────────────────────────────────
+
+static VROVector3f xrVec3ToVRO(XrVector3f v) {
+    return VROVector3f(v.x, v.y, v.z);
+}
 
 static VROMatrix4f xrPoseToMatrix(const XrPosef &pose) {
     VROQuaternion q(pose.orientation.x, pose.orientation.y,
@@ -175,6 +181,11 @@ VROSceneRendererOpenXR::VROSceneRendererOpenXR(VRORendererConfiguration config,
     // VROSceneRenderer::_renderer is null until explicitly set here — every other
     // platform (GVR, OVR) does the equivalent in their constructor.
     _renderer = std::make_shared<VRORenderer>(config, _inputController);
+
+    // Point-of-view node for the head position; updated each frame in renderFrame().
+    _pointOfView = std::make_shared<VRONode>();
+    _pointOfView->setCamera(std::make_shared<VRONodeCamera>());
+    _renderer->setPointOfView(_pointOfView);
 
     // OpenXR owns its own render thread — bypass the GLSurfaceView dispatcher.
     // VROPlatformDrainRendererQueue() is called at the top of each renderFrame().
@@ -1135,6 +1146,12 @@ void VROSceneRendererOpenXR::renderFrame() {
             headPoseMatrix[13] = 0.0f;
             headPoseMatrix[14] = 0.0f;
             VROMatrix4f leftProjMatrix  = xrFovToProjection(fov0);
+
+            // The head position stripped above reaches the camera through the
+            // point-of-view node. Use the mid-eye point.
+            VROVector3f midEye = (xrVec3ToVRO(views[0].pose.position) +
+                                  xrVec3ToVRO(views[1].pose.position)).scale(0.5f);
+            _pointOfView->getCamera()->setPosition(midEye);
 
             _renderer->prepareFrame(_frame++, leftViewport, viroFov,
                                     headPoseMatrix, leftProjMatrix, _driver);
