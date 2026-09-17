@@ -177,7 +177,30 @@ void VROChoreographer::createRenderTargets() {
         _toneMappingPass = std::make_shared<VROToneMappingRenderPass>(VROToneMappingMethod::HableLuminanceOnly,
                                                                       needsSoftwareGammaPass, driver);
         driver->setHasSoftwareGammaPass(needsSoftwareGammaPass);
-    } else {
+    }
+    /*
+     Gamma correction without tone mapping.
+
+     The two used to be one thing: the gamma pass lived inside the tone mapper,
+     so it only existed when HDR did. On a device that costs nothing, because
+     there the framebuffer is sRGB in hardware and linear rendering survives HDR
+     being switched off. WebGL has no sRGB framebuffer, so there the driver
+     gamma-corrects in software and switching HDR off took linear rendering down
+     with it — lights stopped being converted out of sRGB, textures stopped being
+     decoded, and everything washed out to white.
+
+     So the same pass runs with its tone mapping Disabled: it still gamma
+     corrects, and isLinearRenderingEnabled() still answers true. The scene needs
+     somewhere to land first, which is what _blitTarget is; without MRT there is
+     no offscreen target to use and the driver falls back to non-linear, as it
+     did before.
+     */
+    else if (driver->getColorRenderingMode() == VROColorRenderingMode::LinearSoftware && _mrtSupported) {
+        _toneMappingPass = std::make_shared<VROToneMappingRenderPass>(VROToneMappingMethod::Disabled,
+                                                                      true, driver);
+        driver->setHasSoftwareGammaPass(true);
+    }
+    else {
         driver->setHasSoftwareGammaPass(false);
     }
     
@@ -367,6 +390,31 @@ void VROChoreographer::renderScene(std::shared_ptr<VROScene> scene,
                 inputs.outputTarget = driver->getDisplay();
                 _toneMappingPass->render(scene, outgoingScene, inputs, context, driver);
             }
+        }
+    }
+    // HDR off, but the driver still needs gamma correcting in software: render
+    // the scene offscreen and run the tone mapping pass with its tone mapping
+    // Disabled, which leaves it doing gamma and nothing else.
+    else if (_toneMappingPass && _blitTarget) {
+        inputs.outputTarget = _blitTarget;
+        _baseRenderPass->render(scene, outgoingScene, inputs, context, driver);
+
+        // Both slots get the same texture. With tone mapping Disabled the mask
+        // only ever selects between two identical values, and leaving its
+        // sampler unbound is not worth the risk for a value nothing reads.
+        std::shared_ptr<VROTexture> rendered = _blitTarget->getTexture(0);
+        inputs.textures[kToneMappingHDRInput] = rendered;
+        inputs.textures[kToneMappingMaskInput] = rendered;
+
+        if (_renderToTextureDelegate) {
+            _rttTarget->hydrate();
+            inputs.outputTarget = _rttTarget;
+            _toneMappingPass->render(scene, outgoingScene, inputs, context, driver);
+            renderToTextureAndDisplay(_rttTarget, driver);
+        }
+        else {
+            inputs.outputTarget = driver->getDisplay();
+            _toneMappingPass->render(scene, outgoingScene, inputs, context, driver);
         }
     }
     else if (_mrtSupported && _renderToTextureDelegate) {

@@ -41,6 +41,11 @@
 #include "VROGeometryElement.h"
 #include "VROParticleEmitter.h"
 #include "VROParticleModifier.h"
+#include "VROBillboardConstraint.h"
+#include "VROPhysicsWorld.h"
+#include "VROPhysicsBody.h"
+#include "VROPhysicsShape.h"
+#include "VROPhysicsBodyDelegate.h"
 #include "VROMaterial.h"
 #include "VROMaterialVisual.h"
 #include "VROShaderModifier.h"
@@ -57,6 +62,8 @@
 #include "VROTimingFunction.h"
 #include "VROARWeb.h"
 #include "VROQuaternion.h"
+#include "VROMorpher.h"
+#include "VROStringUtil.h"
 #include <set>
 
 #include <unordered_map>
@@ -179,6 +186,14 @@ void VROSceneWeb::setActiveCameraNode(std::shared_ptr<VRONode> node) {
 
 std::shared_ptr<VRODriverOpenGLWasm> VROSceneWeb::getDriver() {
     return _driver;
+}
+
+std::shared_ptr<VRORenderer> VROSceneWeb::getRenderer() {
+    return _renderer;
+}
+
+std::shared_ptr<VROScene> VROSceneWeb::getScene() {
+    return _scene;
 }
 
 void VROSceneWeb::buildEmptyScene() {
@@ -367,6 +382,63 @@ static void initViroScene(std::string canvasSelector, int width, int height) {
     sScene = std::make_shared<VROSceneWeb>(canvasSelector, width, height);
 }
 
+// --- Post-processing effects ---
+//
+// The renderer opens with all four on (VROSceneWeb's constructor asks for the
+// full set and VROChoreographer degrades what the driver cannot do). The native
+// scene navigators expose the same four as props and Studio switches HDR and
+// bloom off, because Hable tone mapping renders pure white at about 0.77 and
+// bright materials glow — neither of which the editor previews. Without these
+// the web player was the only surface of the three still applying them.
+//
+// Each returns whether the effect is on after the call: asking for HDR on a
+// driver without float colour buffers leaves it off, and the caller should know
+// rather than assume.
+static bool viroSetHDREnabled(bool enabled) {
+    if (!sScene) return false;
+    auto renderer = sScene->getRenderer();
+    return renderer ? renderer->setHDREnabled(enabled) : false;
+}
+static bool viroSetBloomEnabled(bool enabled) {
+    if (!sScene) return false;
+    auto renderer = sScene->getRenderer();
+    return renderer ? renderer->setBloomEnabled(enabled) : false;
+}
+static bool viroSetPBREnabled(bool enabled) {
+    if (!sScene) return false;
+    auto renderer = sScene->getRenderer();
+    return renderer ? renderer->setPBREnabled(enabled) : false;
+}
+static bool viroSetShadowsEnabled(bool enabled) {
+    if (!sScene) return false;
+    auto renderer = sScene->getRenderer();
+    return renderer ? renderer->setShadowsEnabled(enabled) : false;
+}
+
+// What this binary is: the virocore commit it was built from, whether that tree
+// was dirty, and when. Compiled in (see CMakeLists) because by the time a report
+// arrives the .wasm has been copied twice and carries no provenance otherwise.
+#ifndef VIRO_WEB_BUILD_ID
+#define VIRO_WEB_BUILD_ID "unknown"
+#endif
+static std::string viroGetBuildId() {
+    return VIRO_WEB_BUILD_ID;
+}
+
+// The tone curve, separately from HDR. Studio switches this off and leaves HDR
+// on, because isPBREnabled() is `_hdrEnabled && _pbrEnabled`: turning HDR off to
+// lose the curve takes the whole PBR branch of VROShaderFactory with it, and a
+// glTF material then falls back to Blinn — roughness, metalness and the AO map
+// read by nothing, and the default specular washing the model out to white.
+// Native has said this with ViroScene's `toneMappingEnabled` since the editor
+// shipped; this is the same switch.
+static void viroSetToneMappingEnabled(bool enabled) {
+    if (!sScene) return;
+    std::shared_ptr<VROScene> scene = sScene->getScene();
+    if (!scene) return;
+    scene->setToneMappingEnabled(enabled);
+}
+
 static void setViroSceneSize(int width, int height) {
     if (sScene) {
         sScene->setSize(width, height);
@@ -396,6 +468,14 @@ static void viroBuildDemoCube() {
 static std::unordered_map<int, std::shared_ptr<VRONode>> sNodes;
 static std::unordered_map<int, std::shared_ptr<VROGeometry>> sGeometries;
 static std::unordered_map<int, std::shared_ptr<VROMaterial>> sMaterials;
+// Pre-override materials per node, dropped with the node. Declared up here
+// because viroDestroyNode erases it; see "Shader overrides" for what it holds.
+static std::unordered_map<int,
+    std::unordered_map<VROGeometry *, std::vector<std::shared_ptr<VROMaterial>>>>
+    sShaderOverrideBaselines;
+
+// Defined with the physics section below; viroDestroyNode needs it before that.
+static void viroClearPhysicsBody(int nodeHandle);
 static int sNextHandle = 1;
 static int sRootHandle = 0;
 
@@ -513,10 +593,131 @@ static void viroAddChildNode(int parent, int child) {
 static void viroRemoveNodeFromParent(int node) {
     if (auto n = getNode(node)) n->removeFromParentNode();
 }
+// --- Node rendering order, light masks, billboard and world position ---
+
+// B3. Drawn-last wins among equal-depth fragments; the native nodes take the
+// same int.
+static void viroSetNodeRenderingOrder(int nodeHandle, int order) {
+    if (auto n = getNode(nodeHandle)) n->setRenderingOrder(order);
+}
+
+// B4. The node half of light masking: a light lights a node only where their
+// masks intersect. `recursive` matches VRONode's own parameter, which a loaded
+// model needs — its geometry is on children, not on the handle the bridge owns.
+static void viroSetNodeLightReceivingBitMask(int nodeHandle, int mask, bool recursive) {
+    if (auto n = getNode(nodeHandle)) n->setLightReceivingBitMask(mask, recursive);
+}
+static void viroSetNodeShadowCastingBitMask(int nodeHandle, int mask, bool recursive) {
+    if (auto n = getNode(nodeHandle)) n->setShadowCastingBitMask(mask, recursive);
+}
+
+// B2. Billboarding, as a constraint on the node — the same VROBillboardConstraint
+// the native `transformBehaviors` prop installs. One per node: the map holds the
+// live constraint so a change can remove the previous one rather than stacking a
+// second that fights it.
+static std::unordered_map<int, std::shared_ptr<VROBillboardConstraint>> sBillboards;
+
+// axis: 0 = X, 1 = Y, 2 = Z, 3 = all; anything else removes the constraint.
+static void viroSetNodeBillboard(int nodeHandle, int axis) {
+    auto node = getNode(nodeHandle);
+    if (!node) return;
+
+    auto existing = sBillboards.find(nodeHandle);
+    if (existing != sBillboards.end()) {
+        node->removeConstraint(existing->second);
+        sBillboards.erase(existing);
+    }
+    if (axis < 0 || axis > 3) {
+        return;
+    }
+
+    VROBillboardAxis freeAxis;
+    switch (axis) {
+        case 0:  freeAxis = VROBillboardAxis::X; break;
+        case 1:  freeAxis = VROBillboardAxis::Y; break;
+        case 2:  freeAxis = VROBillboardAxis::Z; break;
+        default: freeAxis = VROBillboardAxis::All; break;
+    }
+    auto constraint = std::make_shared<VROBillboardConstraint>(freeAxis);
+    node->addConstraint(constraint);
+    sBillboards[nodeHandle] = constraint;
+}
+
+// B7. A node's world position as [x, y, z].
+//
+// Anything measuring real distances needs this: inside a plane wrapper an
+// asset's authored position is local to the plane, so the proximity runtime was
+// comparing a camera world position against a plane-local one.
+static emscripten::val viroGetNodeWorldPosition(int nodeHandle) {
+    emscripten::val out = emscripten::val::array();
+    auto node = getNode(nodeHandle);
+    if (!node) return out;
+    VROVector3f p = node->getWorldPosition();
+    out.set(0, p.x);
+    out.set(1, p.y);
+    out.set(2, p.z);
+    return out;
+}
+
+// Morph targets. A glTF or FBX model carries its blend shapes in the geometry
+// virocore already loaded; nothing on web could name one or move it, so a face
+// rig that animates on a phone sat at its rest pose in a browser.
+//
+// Both act on the node's whole subtree, as the native bridges do: a loaded model
+// keeps its meshes on child nodes, so a target named on the root would otherwise
+// reach nothing.
+static void viroSetMorphTargetWeight(int nodeHandle, std::string target, float weight) {
+    auto node = getNode(nodeHandle);
+    if (!node) return;
+    for (const std::shared_ptr<VROMorpher> &morpher : node->getMorphers(true)) {
+        morpher->setWeightForTarget(target, weight);
+    }
+}
+
+// The names this model's meshes morph by, sorted and deduplicated across them.
+static emscripten::val viroGetMorphTargetKeys(int nodeHandle) {
+    emscripten::val out = emscripten::val::array();
+    auto node = getNode(nodeHandle);
+    if (!node) return out;
+    std::set<std::string> keys;
+    for (const std::shared_ptr<VROMorpher> &morpher : node->getMorphers(true)) {
+        std::set<std::string> morphKeys = morpher->getMorphTargetKeys();
+        keys.insert(morphKeys.begin(), morphKeys.end());
+    }
+    int i = 0;
+    for (const std::string &key : keys) {
+        out.set(i++, key);
+    }
+    return out;
+}
+
+// "cpu", "gpu" or "hybrid", matching the strings the native bridges take.
+// Returns whether every morpher accepted it: the GPU path needs vertex
+// attributes a model may not have left, and virocore refuses rather than
+// degrade silently.
+static bool viroSetMorphMode(int nodeHandle, std::string mode) {
+    auto node = getNode(nodeHandle);
+    if (!node) return false;
+    VROMorpher::ComputeLocation location = VROMorpher::ComputeLocation::CPU;
+    if (VROStringUtil::strcmpinsensitive("gpu", mode)) {
+        location = VROMorpher::ComputeLocation::GPU;
+    } else if (VROStringUtil::strcmpinsensitive("hybrid", mode)) {
+        location = VROMorpher::ComputeLocation::Hybrid;
+    }
+    bool ok = true;
+    for (const std::shared_ptr<VROMorpher> &morpher : node->getMorphers(true)) {
+        ok = morpher->setComputeLocation(location) && ok;
+    }
+    return ok;
+}
+
 static void viroDestroyNode(int node) {
     sNodes.erase(node);
     sNodeDelegates.erase(node);
     sNodeAnimations.erase(node);
+    sShaderOverrideBaselines.erase(node);
+    sBillboards.erase(node);
+    viroClearPhysicsBody(node);
 }
 
 // --- Events ---
@@ -554,6 +755,18 @@ static int viroCreateSphere(float radius) {
     sGeometries[h] = VROSphere::createSphere(radius, 20, 20, true);
     return h;
 }
+// B6. A surface with explicit UVs, so a caller can crop the texture into the
+// quad instead of stretching it — what imageClipMode ClipToBounds does on a
+// device. Separate from viroCreateSurface rather than extra parameters on it:
+// a binary that predates this would silently read the extra arguments as
+// garbage, where a missing function is something the caller can detect.
+static int viroCreateSurfaceUV(float width, float height,
+                               float u0, float v0, float u1, float v1) {
+    int h = sNextHandle++;
+    sGeometries[h] = VROSurface::createSurface(width, height, u0, v0, u1, v1);
+    return h;
+}
+
 static int viroCreateSurface(float width, float height) {
     int h = sNextHandle++;
     sGeometries[h] = VROSurface::createSurface(width, height);
@@ -862,6 +1075,266 @@ static void viroSetMaterialShaderUniformMat4(int material, std::string name, ems
     m->setShaderUniform(name, VROMatrix4f(elements.data()));
 }
 
+// --- Physics ---
+//
+// Bullet was compiled and linked into this binary from the start and nothing
+// reached it: every scene on web ran with no physics at all, and the host said
+// so through its capability report rather than because it had to.
+//
+// The scene switch is honoured here rather than left to the engine. VROScene
+// creates a physics world on demand at its own -9.81 the first time anything
+// asks for one, so a body attached while the scene's physics is off would
+// simulate anyway — exactly the bug the native side had to fix once already.
+// viroSetPhysicsWorld(enabled=false) is therefore a real instruction, not a
+// no-op: it detaches every body it knows about.
+
+static bool sPhysicsEnabled = false;
+
+/** Reports a collision to JS as (viroTag of A, viroTag of B, point, normal). */
+static emscripten::val sCollisionCallback = emscripten::val::undefined();
+static void viroSetCollisionCallback(emscripten::val cb) {
+    sCollisionCallback = cb;
+}
+
+class WebPhysicsDelegate : public VROPhysicsBodyDelegate {
+public:
+    explicit WebPhysicsDelegate(std::string tag) : _tag(std::move(tag)) {}
+    void onCollided(std::string bodyBKey, VROPhysicsBody::VROCollision collision) override {
+        if (sCollisionCallback.isUndefined() || sCollisionCallback.isNull()) {
+            return;
+        }
+        sCollisionCallback(_tag, collision.collidedBodyTag,
+                           collision.collidedPoint.x, collision.collidedPoint.y,
+                           collision.collidedPoint.z,
+                           collision.collidedNormal.x, collision.collidedNormal.y,
+                           collision.collidedNormal.z);
+    }
+private:
+    std::string _tag;
+};
+
+// Bodies by node handle, so a scene teardown or a switch-off can detach them.
+static std::unordered_map<int, std::shared_ptr<VROPhysicsBody>> sPhysicsBodies;
+static std::unordered_map<int, std::shared_ptr<WebPhysicsDelegate>> sPhysicsDelegates;
+
+/**
+ The scene's physics world.
+
+ `create` is false everywhere the answer "there isn't one" is the right one:
+ VROScene builds a world on demand and VROScene::computePhysics only steps when
+ one exists, so asking for it is what starts the simulation. A scene whose author
+ switched physics off must never reach the creating branch, or it simulates at
+ virocore's own -9.81 regardless — the bug the native side already had to fix.
+ */
+static std::shared_ptr<VROPhysicsWorld> physicsWorld(bool create) {
+    if (!sScene) return nullptr;
+    std::shared_ptr<VROScene> scene = sScene->getScene();
+    if (!scene) return nullptr;
+    if (!create && !scene->hasPhysicsWorld()) return nullptr;
+    return scene->getPhysicsWorld();
+}
+
+static void viroSetPhysicsWorld(bool enabled, float gx, float gy, float gz) {
+    sPhysicsEnabled = enabled;
+    // Only create a world when switching physics ON. Off means: if one exists,
+    // empty it; if not, leave it that way and nothing ever steps.
+    auto world = physicsWorld(enabled);
+    if (!world) return;
+
+    if (!enabled) {
+        // Detach rather than merely stop: the world keeps stepping whatever it
+        // holds, so leaving the bodies in would simulate a scene whose author
+        // switched physics off.
+        for (auto &entry : sPhysicsBodies) {
+            world->removePhysicsBody(entry.second);
+        }
+        return;
+    }
+    world->setGravity({ gx, gy, gz });
+    for (auto &entry : sPhysicsBodies) {
+        // Remove first: this runs again on every scene change and on a hot
+        // reload, and the world rejects a body it already holds ("Attempted to
+        // add the same physics body twice"). Removing an absent one is a no-op,
+        // so this is the idempotent order.
+        world->removePhysicsBody(entry.second);
+        world->addPhysicsBody(entry.second);
+    }
+}
+
+// type: 0 static, 1 kinematic, 2 dynamic.  shapeType: -1 infer from geometry,
+// 2 sphere, 3 box (VROShapeType). Box params are HALF spans, as virocore takes
+// them and as the native bridges pass them through.
+static void viroSetPhysicsBody(int nodeHandle, int type, float mass,
+                               int shapeType, emscripten::val shapeParams,
+                               std::string tag) {
+    auto node = getNode(nodeHandle);
+    if (!node) return;
+
+    // Replacing a body rather than adding a second one: a changed collider
+    // re-enters here, and the old body would otherwise stay in the world for
+    // ever, colliding with things from a shape the author already changed.
+    viroClearPhysicsBody(nodeHandle);
+
+    VROPhysicsBody::VROPhysicsBodyType bodyType;
+    switch (type) {
+        case 1:  bodyType = VROPhysicsBody::VROPhysicsBodyType::Kinematic; break;
+        case 2:  bodyType = VROPhysicsBody::VROPhysicsBodyType::Dynamic; break;
+        default: bodyType = VROPhysicsBody::VROPhysicsBodyType::Static; break;
+    }
+
+    // No shape means "fit the geometry": virocore infers one from the node's
+    // bounding box and applies its world scale, which is what the editors
+    // measure. Sending a unit box instead is what used to stand a 0.4 m model
+    // 0.3 m off the ground.
+    std::shared_ptr<VROPhysicsShape> shape;
+    if (shapeType >= 0) {
+        std::vector<float> params =
+            emscripten::convertJSArrayToNumberVector<float>(shapeParams);
+        shape = std::make_shared<VROPhysicsShape>(
+            (VROPhysicsShape::VROShapeType) shapeType, params);
+    }
+
+    // The tag lives on the node: VROPhysicsBody::getTag() reads it from there,
+    // and it is what a collision reports as the other party.
+    node->setTag(tag);
+    auto body = node->initPhysicsBody(bodyType, mass, shape);
+    if (!body) return;
+
+    auto delegate = std::make_shared<WebPhysicsDelegate>(tag);
+    body->setPhysicsDelegate(delegate);
+    sPhysicsDelegates[nodeHandle] = delegate;
+    sPhysicsBodies[nodeHandle] = body;
+
+    // Only joins the world if the scene said physics is on.
+    if (sPhysicsEnabled) {
+        if (auto world = physicsWorld(true)) world->addPhysicsBody(body);
+    }
+}
+
+static void viroSetPhysicsBodyProperties(int nodeHandle, float restitution,
+                                         float friction, bool useGravity) {
+    auto it = sPhysicsBodies.find(nodeHandle);
+    if (it == sPhysicsBodies.end()) return;
+    it->second->setRestitution(restitution);
+    it->second->setFriction(friction);
+    it->second->setUseGravity(useGravity);
+}
+
+// isConstant=false is the instant latch the next physics step consumes once.
+// A constant velocity is reasserted on the rigid body every frame and gravity
+// never gets a turn, which is why Studio sends `instantVelocity`.
+static void viroSetPhysicsVelocity(int nodeHandle, float x, float y, float z,
+                                   bool isConstant) {
+    auto it = sPhysicsBodies.find(nodeHandle);
+    if (it == sPhysicsBodies.end()) return;
+    it->second->setVelocity({ x, y, z }, isConstant);
+}
+
+static void viroApplyPhysicsImpulse(int nodeHandle, float x, float y, float z) {
+    auto it = sPhysicsBodies.find(nodeHandle);
+    if (it == sPhysicsBodies.end()) return;
+    it->second->applyImpulse({ x, y, z }, { 0, 0, 0 });
+}
+
+static void viroApplyPhysicsTorque(int nodeHandle, float x, float y, float z) {
+    auto it = sPhysicsBodies.find(nodeHandle);
+    if (it == sPhysicsBodies.end()) return;
+    it->second->applyTorqueImpulse({ x, y, z });
+}
+
+static void viroClearPhysicsBody(int nodeHandle) {
+    auto it = sPhysicsBodies.find(nodeHandle);
+    if (it == sPhysicsBodies.end()) return;
+    if (auto world = physicsWorld(false)) world->removePhysicsBody(it->second);
+    sPhysicsBodies.erase(it);
+    sPhysicsDelegates.erase(nodeHandle);
+    if (auto node = getNode(nodeHandle)) node->clearPhysicsBody();
+}
+
+// --- Shader overrides (a registered material merged onto a loaded model) ---
+//
+// The web counterpart of VRTNode.mm's applyShaderOverridesRecursive, and
+// deliberately the same merge: the model keeps its own colours and textures, and
+// the override contributes the seven rendering properties plus its shader
+// modifiers and uniforms. Copying the colour here would make a model read one way
+// in a browser and another on a phone, which is the difference this exists to
+// close; the shared defect is that neither surface honours an authored colour on
+// a model, and that belongs to the native merge, not here.
+//
+// A node handed to the bridge usually draws nothing itself — a loaded model hangs
+// its geometry off child nodes — so this walks the subtree rather than reading
+// getGeometry() alone.
+
+// sShaderOverrideBaselines (declared with the handle tables) holds, per node, the
+// materials each of its geometries carried before the first override landed, so
+// re-applying a changed override merges onto the model's own materials again
+// rather than compounding onto the previous merge.
+
+static void mergeShaderOverride(const std::shared_ptr<VROMaterial> &source,
+                                const std::shared_ptr<VROMaterial> &dest) {
+    dest->setLightingModel(source->getLightingModel());
+    dest->setShininess(source->getShininess());
+    dest->setBlendMode(source->getBlendMode());
+    dest->setTransparencyMode(source->getTransparencyMode());
+    dest->setCullMode(source->getCullMode());
+    dest->setWritesToDepthBuffer(source->getWritesToDepthBuffer());
+    dest->setReadsFromDepthBuffer(source->getReadsFromDepthBuffer());
+
+    // Modifiers are added, not replaced: dest is a copy of the model's own
+    // material and still carries the loader's modifiers, so clearing them would
+    // stop a rigged mesh skinning. Each merge starts from the baseline, so
+    // nothing accumulates across applications.
+    dest->setThreadRestrictionEnabled(false);
+    for (const auto &modifier : source->getShaderModifiers()) {
+        dest->addShaderModifier(modifier);
+    }
+    for (const auto &u : source->getShaderUniformFloats())   dest->setShaderUniform(u.first, u.second);
+    for (const auto &u : source->getShaderUniformVec2s())    dest->setShaderUniform(u.first, u.second);
+    for (const auto &u : source->getShaderUniformVec3s())    dest->setShaderUniform(u.first, u.second);
+    for (const auto &u : source->getShaderUniformVec4s())    dest->setShaderUniform(u.first, u.second);
+    for (const auto &u : source->getShaderUniformMat4s())    dest->setShaderUniform(u.first, u.second);
+    for (const auto &u : source->getShaderUniformTextures()) dest->setShaderUniform(u.first, u.second);
+    dest->setThreadRestrictionEnabled(true);
+}
+
+static void applyShaderOverrideToNode(
+    const std::shared_ptr<VRONode> &node,
+    const std::shared_ptr<VROMaterial> &source,
+    std::unordered_map<VROGeometry *, std::vector<std::shared_ptr<VROMaterial>>> &baselines) {
+
+    std::shared_ptr<VROGeometry> geometry = node->getGeometry();
+    // An empty material list means the loader has not populated this geometry
+    // yet; skipping leaves the baseline unrecorded so a later call still sees the
+    // model's own materials rather than adopting an empty set as the original.
+    if (geometry && !geometry->getMaterials().empty()) {
+        auto baseline = baselines.find(geometry.get());
+        if (baseline == baselines.end()) {
+            baseline = baselines.emplace(geometry.get(), geometry->getMaterials()).first;
+        }
+        std::vector<std::shared_ptr<VROMaterial>> merged;
+        merged.reserve(baseline->second.size());
+        for (const auto &original : baseline->second) {
+            auto copy = std::make_shared<VROMaterial>(original);
+            mergeShaderOverride(source, copy);
+            merged.push_back(copy);
+        }
+        geometry->setMaterials(merged);
+    }
+
+    for (const auto &child : node->getChildNodes()) {
+        applyShaderOverrideToNode(child, source, baselines);
+    }
+}
+
+static void viroApplyShaderOverride(int nodeHandle, int materialHandle) {
+    auto node = getNode(nodeHandle);
+    auto material = getMaterial(materialHandle);
+    if (!node || !material) {
+        return;
+    }
+    applyShaderOverrideToNode(node, material, sShaderOverrideBaselines[nodeHandle]);
+}
+
 // --- Textures ---
 
 static std::unordered_map<int, std::shared_ptr<VROTexture>> sTextures;
@@ -1054,6 +1527,74 @@ static int viroCreateParticleEmitter(int nodeHandle, int textureHandle,
     return 1;
 }
 
+// B8. Acceleration on a running emitter, as a [min, max] range like velocity.
+// Set after creation rather than as six more arguments to an emitter factory
+// that already takes seventeen.
+static void viroSetParticleAcceleration(int nodeHandle,
+                                        float minX, float minY, float minZ,
+                                        float maxX, float maxY, float maxZ) {
+    auto node = getNode(nodeHandle);
+    if (!node) return;
+    auto emitter = node->getParticleEmitter();
+    if (!emitter) return;
+    emitter->setAccelerationmodifier(std::make_shared<VROParticleModifier>(
+        VROVector3f(minX, minY, minZ), VROVector3f(maxX, maxY, maxZ)));
+}
+
+// The appearance modifiers: how a particle's colour, opacity, scale and rotation
+// change over its life. Without them a web emitter drew every particle at full
+// opacity and one size until it expired, so smoke never thinned and a spark
+// never shrank — the two things an author uses particles for.
+//
+// One entry point for all four because virocore models them identically: an
+// initial [min, max] range to randomise from, a reference factor, and a list of
+// intervals to interpolate towards. `intervals` arrives flattened at five floats
+// each — startFactor, endFactor, then the target x/y/z — since embind has no
+// cheap way to hand over an array of structs, and a trailing partial entry is
+// dropped rather than read past.
+//
+//   which:  0 alpha (x only), 1 colour (rgb), 2 scale (xyz), 3 rotation (xyz radians)
+//   factor: 0 time, 1 distance, 2 velocity
+static void viroSetParticleModifier(int nodeHandle, int which,
+                                    float minX, float minY, float minZ,
+                                    float maxX, float maxY, float maxZ,
+                                    int factor, emscripten::val intervals) {
+    auto node = getNode(nodeHandle);
+    if (!node) return;
+    auto emitter = node->getParticleEmitter();
+    if (!emitter) return;
+
+    VROParticleModifier::VROModifierFactor referenceFactor;
+    switch (factor) {
+        case 1:  referenceFactor = VROParticleModifier::VROModifierFactor::Distance; break;
+        case 2:  referenceFactor = VROParticleModifier::VROModifierFactor::Velocity; break;
+        default: referenceFactor = VROParticleModifier::VROModifierFactor::Time; break;
+    }
+
+    std::vector<float> flat = emscripten::convertJSArrayToNumberVector<float>(intervals);
+    std::vector<VROParticleModifier::VROModifierInterval> points;
+    const size_t stride = 5;
+    for (size_t i = 0; i + stride <= flat.size(); i += stride) {
+        VROParticleModifier::VROModifierInterval point;
+        point.startFactor = flat[i];
+        point.endFactor = flat[i + 1];
+        point.targetedValue = VROVector3f(flat[i + 2], flat[i + 3], flat[i + 4]);
+        points.push_back(point);
+    }
+
+    auto modifier = std::make_shared<VROParticleModifier>(
+        VROVector3f(minX, minY, minZ), VROVector3f(maxX, maxY, maxZ),
+        referenceFactor, points);
+
+    switch (which) {
+        case 0: emitter->setAlphaModifier(modifier); break;
+        case 1: emitter->setColorModifier(modifier); break;
+        case 2: emitter->setScaleModifier(modifier); break;
+        case 3: emitter->setRotationModifier(modifier); break;
+        default: break;
+    }
+}
+
 // Toggle a node's emitter run/pause state.
 static void viroSetParticleEmitterRun(int nodeHandle, bool run) {
     std::shared_ptr<VRONode> node = getNode(nodeHandle);
@@ -1139,6 +1680,37 @@ static void viroSetLightSpotAngles(int light, float inner, float outer) {
         l->setSpotOuterAngle(outer);
     }
 }
+// B4. The light half of masking. Pairs with the node's lightReceivingBitMask:
+// a light only lights a node where the two masks intersect.
+static void viroSetLightInfluenceBitMask(int light, int mask) {
+    if (auto l = getLight(light)) l->setInfluenceBitMask(mask);
+}
+
+// B5. Shadow tuning. `castsShadow` alone decides whether a light casts; these
+// decide whether the result is usable — a map too small or a bias too low is
+// the difference between a shadow and a field of acne.
+//
+// No shadowOrthographicPosition: the native navigators expose it but VROLight
+// has no setter for it, so there is nothing to forward it to. Six of the seven.
+static void viroSetLightShadowOpacity(int light, float opacity) {
+    if (auto l = getLight(light)) l->setShadowOpacity(opacity);
+}
+static void viroSetLightShadowMapSize(int light, int size) {
+    if (auto l = getLight(light)) l->setShadowMapSize(size);
+}
+static void viroSetLightShadowBias(int light, float bias) {
+    if (auto l = getLight(light)) l->setShadowBias(bias);
+}
+static void viroSetLightShadowNearZ(int light, float nearZ) {
+    if (auto l = getLight(light)) l->setShadowNearZ(nearZ);
+}
+static void viroSetLightShadowFarZ(int light, float farZ) {
+    if (auto l = getLight(light)) l->setShadowFarZ(farZ);
+}
+static void viroSetLightShadowOrthographicSize(int light, float size) {
+    if (auto l = getLight(light)) l->setShadowOrthographicSize(size);
+}
+
 static void viroSetLightCastsShadow(int light, bool castsShadow) {
     if (auto l = getLight(light)) l->setCastsShadow(castsShadow);
 }
@@ -1395,6 +1967,22 @@ static void viroARSetCameraIntrinsics(float fx, float fy, float cx, float cy,
 EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("initViroScene", &initViroScene);
     emscripten::function("setViroSceneSize", &setViroSceneSize);
+    emscripten::function("viroSetHDREnabled", &viroSetHDREnabled);
+    emscripten::function("viroSetBloomEnabled", &viroSetBloomEnabled);
+    emscripten::function("viroSetPBREnabled", &viroSetPBREnabled);
+    emscripten::function("viroSetShadowsEnabled", &viroSetShadowsEnabled);
+    emscripten::function("viroSetToneMappingEnabled", &viroSetToneMappingEnabled);
+    emscripten::function("viroGetBuildId", &viroGetBuildId);
+
+    // Physics
+    emscripten::function("viroSetPhysicsWorld", &viroSetPhysicsWorld);
+    emscripten::function("viroSetPhysicsBody", &viroSetPhysicsBody);
+    emscripten::function("viroSetPhysicsBodyProperties", &viroSetPhysicsBodyProperties);
+    emscripten::function("viroSetPhysicsVelocity", &viroSetPhysicsVelocity);
+    emscripten::function("viroApplyPhysicsImpulse", &viroApplyPhysicsImpulse);
+    emscripten::function("viroApplyPhysicsTorque", &viroApplyPhysicsTorque);
+    emscripten::function("viroClearPhysicsBody", &viroClearPhysicsBody);
+    emscripten::function("viroSetCollisionCallback", &viroSetCollisionCallback);
     emscripten::function("viroOnTouch", &viroOnTouch);
     emscripten::function("viroBuildDemoCube", &viroBuildDemoCube);
 
@@ -1410,10 +1998,19 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroAddChildNode", &viroAddChildNode);
     emscripten::function("viroRemoveNodeFromParent", &viroRemoveNodeFromParent);
     emscripten::function("viroDestroyNode", &viroDestroyNode);
+    emscripten::function("viroSetNodeRenderingOrder", &viroSetNodeRenderingOrder);
+    emscripten::function("viroSetNodeLightReceivingBitMask", &viroSetNodeLightReceivingBitMask);
+    emscripten::function("viroSetNodeShadowCastingBitMask", &viroSetNodeShadowCastingBitMask);
+    emscripten::function("viroSetNodeBillboard", &viroSetNodeBillboard);
+    emscripten::function("viroGetNodeWorldPosition", &viroGetNodeWorldPosition);
+    emscripten::function("viroSetMorphTargetWeight", &viroSetMorphTargetWeight);
+    emscripten::function("viroGetMorphTargetKeys", &viroGetMorphTargetKeys);
+    emscripten::function("viroSetMorphMode", &viroSetMorphMode);
 
     emscripten::function("viroCreateBox", &viroCreateBox);
     emscripten::function("viroCreateSphere", &viroCreateSphere);
     emscripten::function("viroCreateSurface", &viroCreateSurface);
+    emscripten::function("viroCreateSurfaceUV", &viroCreateSurfaceUV);
     emscripten::function("viroCreateText", &viroCreateText);
     emscripten::function("viroCreatePolyline", &viroCreatePolyline);
     emscripten::function("viroCreatePolygon", &viroCreatePolygon);
@@ -1441,6 +2038,7 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroSetMaterialShaderUniformVec3", &viroSetMaterialShaderUniformVec3);
     emscripten::function("viroSetMaterialShaderUniformVec4", &viroSetMaterialShaderUniformVec4);
     emscripten::function("viroSetMaterialShaderUniformMat4", &viroSetMaterialShaderUniformMat4);
+    emscripten::function("viroApplyShaderOverride", &viroApplyShaderOverride);
 
     emscripten::function("viroCreateTextureRGBA", &viroCreateTextureRGBA);
     emscripten::function("viroSetTextureWrap", &viroSetTextureWrap);
@@ -1456,6 +2054,8 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroSetBackgroundRotation", &viroSetBackgroundRotation);
     emscripten::function("viroCreateParticleEmitter", &viroCreateParticleEmitter);
     emscripten::function("viroSetParticleEmitterRun", &viroSetParticleEmitterRun);
+    emscripten::function("viroSetParticleAcceleration", &viroSetParticleAcceleration);
+    emscripten::function("viroSetParticleModifier", &viroSetParticleModifier);
     emscripten::function("viroCreatePortalScene", &viroCreatePortalScene);
     emscripten::function("viroCreatePortalFrame", &viroCreatePortalFrame);
     emscripten::function("viroSetPortalEntrance", &viroSetPortalEntrance);
@@ -1473,6 +2073,13 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroSetLightAttenuation", &viroSetLightAttenuation);
     emscripten::function("viroSetLightSpotAngles", &viroSetLightSpotAngles);
     emscripten::function("viroSetLightCastsShadow", &viroSetLightCastsShadow);
+    emscripten::function("viroSetLightInfluenceBitMask", &viroSetLightInfluenceBitMask);
+    emscripten::function("viroSetLightShadowOpacity", &viroSetLightShadowOpacity);
+    emscripten::function("viroSetLightShadowMapSize", &viroSetLightShadowMapSize);
+    emscripten::function("viroSetLightShadowBias", &viroSetLightShadowBias);
+    emscripten::function("viroSetLightShadowNearZ", &viroSetLightShadowNearZ);
+    emscripten::function("viroSetLightShadowFarZ", &viroSetLightShadowFarZ);
+    emscripten::function("viroSetLightShadowOrthographicSize", &viroSetLightShadowOrthographicSize);
     emscripten::function("viroAddLightToNode", &viroAddLightToNode);
     emscripten::function("viroRemoveLightFromNode", &viroRemoveLightFromNode);
     emscripten::function("viroDestroyLight", &viroDestroyLight);
