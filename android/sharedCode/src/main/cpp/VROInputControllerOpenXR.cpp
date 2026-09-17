@@ -587,6 +587,14 @@ void VROInputControllerOpenXR::onProcess(XrSession session, XrSpace baseSpace,
             VROInputControllerBase::processGazeEvent(ViroOculus::EyeGaze);
         }
     }
+
+    // Dispatch the per-frame camera transform to scene delegates (drives
+    // onCameraTransformUpdate in ViroReact). Every other input controller
+    // (AR, OVR, Cardboard, Daydream) does this once per frame from its
+    // onProcess(const VROCamera &) override, on the render thread. This
+    // overload runs on the same thread right after prepareFrame(), so `camera`
+    // carries the current head pose.
+    notifyCameraTransform(camera);
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

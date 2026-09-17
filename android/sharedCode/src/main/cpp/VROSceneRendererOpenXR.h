@@ -46,6 +46,7 @@ class VROInputControllerOpenXR;
 class VRODisplayOpenGLOpenXR;
 class VROARSessionOpenXR;
 class VROSceneController;
+class VRONode;
 
 namespace gvr { class AudioApi; }
 
@@ -168,6 +169,16 @@ private:
     // planes into the standard VROARScene anchor pipeline. Null when plane
     // detection is unavailable on the device. Driven once per renderFrame().
     std::shared_ptr<VROARSessionOpenXR>           _arSession;
+
+    // Point-of-view node: carries the tracked head *position* into the scene
+    // camera each frame. The headRotation matrix passed to prepareFrame() is
+    // rotation-only (translation is stripped to keep the frustum correct), and
+    // VRORenderer::updateCamera() takes the camera position solely from its
+    // point-of-view node — so without this node the render-context camera would
+    // sit at the origin forever, breaking camera transform events,
+    // getCameraOrientationAsync, portal traversal, and anything else
+    // position-dependent. Mirrors VROSceneRendererARCore / VROViewAR.
+    std::shared_ptr<VRONode>                      _pointOfView;
 
     // ── Java callback (onDrawFrame) ───────────────────────────────────────────
     JavaVM  *_jvm      = nullptr;

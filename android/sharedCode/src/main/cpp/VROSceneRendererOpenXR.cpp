@@ -15,6 +15,8 @@
 #include "VRODisplayOpenGLOpenXR.h"
 #include "VROInputControllerOpenXR.h"
 #include "VROARSessionOpenXR.h"
+#include "VRONode.h"
+#include "VRONodeCamera.h"
 #include "VROARScene.h"
 #include "VROSceneController.h"
 #include "VROLog.h"
@@ -175,6 +177,13 @@ VROSceneRendererOpenXR::VROSceneRendererOpenXR(VRORendererConfiguration config,
     // VROSceneRenderer::_renderer is null until explicitly set here — every other
     // platform (GVR, OVR) does the equivalent in their constructor.
     _renderer = std::make_shared<VRORenderer>(config, _inputController);
+
+    // Point-of-view node feeds the tracked head position into the scene camera
+    // (see _pointOfView in the header). Position is updated per-frame before
+    // prepareFrame(). Mirrors VROSceneRendererARCore.
+    _pointOfView = std::make_shared<VRONode>();
+    _pointOfView->setCamera(std::make_shared<VRONodeCamera>());
+    _renderer->setPointOfView(_pointOfView);
 
     // OpenXR owns its own render thread — bypass the GLSurfaceView dispatcher.
     // VROPlatformDrainRendererQueue() is called at the top of each renderFrame().
@@ -1135,6 +1144,23 @@ void VROSceneRendererOpenXR::renderFrame() {
             headPoseMatrix[13] = 0.0f;
             headPoseMatrix[14] = 0.0f;
             VROMatrix4f leftProjMatrix  = xrFovToProjection(fov0);
+
+            // The translation stripped from headPoseMatrix above still has to
+            // reach the scene camera: VRORenderer::updateCamera() takes the
+            // camera position only from its point-of-view node, never from the
+            // head matrix. Without this the render-context camera sits at the
+            // origin forever (breaking camera transform events,
+            // getCameraOrientationAsync, portal traversal, and every other
+            // position-dependent feature). Feed the mid-eye position — the
+            // head-centre that renderEye() renders from — through the
+            // point-of-view node, exactly like VROSceneRendererARCore.
+            if (_pointOfView && _pointOfView->getCamera()) {
+                VROVector3f headPosition(
+                    (views[0].pose.position.x + views[1].pose.position.x) * 0.5f,
+                    (views[0].pose.position.y + views[1].pose.position.y) * 0.5f,
+                    (views[0].pose.position.z + views[1].pose.position.z) * 0.5f);
+                _pointOfView->getCamera()->setPosition(headPosition);
+            }
 
             _renderer->prepareFrame(_frame++, leftViewport, viroFov,
                                     headPoseMatrix, leftProjMatrix, _driver);
