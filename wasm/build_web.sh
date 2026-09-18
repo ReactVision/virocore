@@ -15,9 +15,21 @@ set -e
 
 echo "Building viro_web [emcc: $(command -v emcc || echo 'NOT FOUND')]"
 
+# What this binary is, so the artifact can still say where it came from after it
+# has been copied into viro-web-renderer and from there into an app's
+# node_modules. "-dirty" is not cosmetic: it is the difference between a build
+# someone else can reproduce and one only this working tree ever had.
+BUILD_ID="$(git rev-parse --short HEAD 2>/dev/null || echo nogit)"
+if ! git diff --quiet HEAD -- .. 2>/dev/null; then
+  BUILD_ID="$BUILD_ID-dirty"
+fi
+BUILD_ID="$BUILD_ID $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+echo "Build id: $BUILD_ID"
+
 # emcmake injects the Emscripten CMake toolchain automatically (replaces the
 # old hand-passed -DCMAKE_TOOLCHAIN_FILE=$EMSCRIPTEN/cmake/... path).
-emcmake cmake -H. -Bproducts -DCMAKE_BUILD_TYPE=Release
+emcmake cmake -H. -Bproducts -DCMAKE_BUILD_TYPE=Release \
+    -DVIRO_WEB_BUILD_ID="$BUILD_ID"
 cmake --build products --target viro_web -- -j 4
 
 # Co-locate the HTML harness with the artifacts so everything is servable from

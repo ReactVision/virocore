@@ -55,6 +55,13 @@ public:
     // Driver, needed by the model loaders (GLTF/FBX) invoked from the C API.
     std::shared_ptr<VRODriverOpenGLWasm> getDriver();
 
+    // Renderer, so the C API can switch the post-processing effects on and off
+    // the way the native scene navigators do through their view.
+    std::shared_ptr<VRORenderer> getRenderer();
+
+    // The active scene, which owns the physics world.
+    std::shared_ptr<VROScene> getScene();
+
     // Switch the render loop into AR mode: creates a VROARSessionWeb whose pose /
     // camera background are injected from JS (slam-wasm). The scene graph is
     // reused; drawFrame() then drives the camera from the AR pose.
