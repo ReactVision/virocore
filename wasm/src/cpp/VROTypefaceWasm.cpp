@@ -11,7 +11,12 @@
 #include "VROGlyphOpenGL.h"
 #include "VRODriverOpenGLWasm.h"
 
-static const std::string kSystemFont = "Helvetica";
+// Roboto, and not the platform's own face: this build's fonts are baked into
+// the wasm data blob and therefore redistributed with it, so the font has to be
+// one we are allowed to redistribute. Roboto is Apache 2.0, and it is also what
+// Android and Quest render with — which makes the web player agree with two of
+// the three instead of being a third typeface.
+static const std::string kSystemFont = "Roboto";
 
 VROTypefaceWasm::VROTypefaceWasm(std::string name, int size, VROFontStyle style, VROFontWeight weight,
                                  std::shared_ptr<VRODriver> driver) :
@@ -37,10 +42,11 @@ FT_FaceRec_ *VROTypefaceWasm::loadFTFace() {
     }
     
     FT_Library ft = std::dynamic_pointer_cast<VRODriverOpenGLWasm>(driver)->getFreetype();
-    if (FT_New_Face(ft, getFontPath(getName()).c_str(), 0, &_face)) {
-        if (FT_New_Face(ft, getFontPath(kSystemFont).c_str(), 0, &_face)) {
-            pabort("Failed to load system font %s", kSystemFont.c_str());
-        }
+    // The requested face first, then the system one. Each is tried as .ttf and
+    // .ttc, because the suffix is a property of the file someone preloaded and
+    // not of the name a scene asked for.
+    if (!openFace(ft, getName()) && !openFace(ft, kSystemFont)) {
+        pabort("Failed to load system font %s", kSystemFont.c_str());
     }
 
     FT_Set_Pixel_Sizes(_face, 0, getSize());
@@ -75,8 +81,22 @@ std::shared_ptr<VROGlyph> VROTypefaceWasm::loadGlyph(uint32_t charCode, uint32_t
 }
 
 std::string VROTypefaceWasm::getFontPath(std::string fontName) {
-    std::string prefix = "/";
-    std::string suffix = ".ttc";
+    // Kept for callers that want the canonical path; openFace is what the loader
+    // uses, because it has to try both suffixes.
+    return "/" + fontName + ".ttf";
+}
 
-    return prefix + fontName + suffix;
+/**
+ Opens a preloaded face by name, trying each suffix a font file comes with.
+ Returns false when none of them is there, which is the caller's cue to fall
+ back rather than an error: a scene naming a font this build does not carry is
+ ordinary, and rendering it in the system face is the right answer.
+ */
+bool VROTypefaceWasm::openFace(FT_Library ft, const std::string &fontName) {
+    for (const std::string &suffix : { ".ttf", ".ttc" }) {
+        if (FT_New_Face(ft, ("/" + fontName + suffix).c_str(), 0, &_face) == 0) {
+            return true;
+        }
+    }
+    return false;
 }
