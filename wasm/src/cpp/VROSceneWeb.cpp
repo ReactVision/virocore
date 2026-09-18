@@ -70,6 +70,16 @@
 #include <vector>
 #include <sstream>
 
+/**
+ The face every text geometry on web is rendered in.
+
+ Roboto, and Apache 2.0, because these fonts are baked into the wasm data blob
+ and ship with it — a face we are not licensed to redistribute cannot be in
+ there. It is also what Android and Quest use, so the web player now agrees with
+ them rather than being a third typeface.
+ */
+static const std::string kWebSystemFont = "Roboto";
+
 static VROSceneWeb *sInstance = nullptr;
 
 // Minimal click handler for the demo cube: toggles the diffuse color on each
@@ -827,8 +837,10 @@ static int viroCreateText(std::string text, float width, float height, int fontS
     }
     VROTextClipMode clip = (clipMode == 1) ? VROTextClipMode::None : VROTextClipMode::ClipToBounds;
 
+    // kWebSystemFont rather than a name typed here: the face this build carries
+    // is a redistribution decision, and it should be made in one place.
     std::shared_ptr<VROText> textGeom = VROText::createText(
-        utf8ToWString(text), "Helvetica", fontSize,
+        utf8ToWString(text), kWebSystemFont, fontSize,
         VROFontStyle::Normal, VROFontWeight::Regular,
         {r, g, b, a}, 0 /*extrusion*/, width, height,
         h, v, lb, clip, maxLines, sScene->getDriver());

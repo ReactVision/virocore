@@ -34,6 +34,8 @@ protected:
     FT_FaceRec_ *loadFTFace();
 
 private:
+    bool openFace(FT_Library ft, const std::string &fontName);
+
 
     std::weak_ptr<VRODriver> _driver;
     FT_Face _face;
