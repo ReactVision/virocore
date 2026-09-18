@@ -592,6 +592,10 @@ void VROInputControllerOpenXR::onProcess(XrSession session, XrSpace baseSpace,
         VROInputControllerBase::onButtonEvent(edge.first, edge.second);
     }
     _pendingButtons.clear();
+
+    // Per-frame camera transform for onCameraTransformUpdate, as the other
+    // input controllers do. Runs after prepareFrame(), so `camera` is current.
+    notifyCameraTransform(camera);
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
