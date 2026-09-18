@@ -828,6 +828,26 @@ void VROARSessioniOS::hostCloudAnchor(
   }];
 }
 
+bool VROARSessioniOS::getCloudAnchorStatus(std::string &message, float &progress) {
+#if RVCCA_AVAILABLE
+  if (_cloudAnchorProviderRV == nil) return false;
+  auto provider = [_cloudAnchorProviderRV cppProvider];
+  if (!provider) return false;
+
+  // One operation at a time in practice, and the first is the one a caller is
+  // waiting on: a second resolve of the same anchor replaces nothing, it queues.
+  std::vector<std::string> ids = provider->getActiveOperations();
+  if (ids.empty()) return false;
+
+  auto status = provider->getOperationStatus(ids.front());
+  message  = status.message;
+  progress = status.progress;
+  return true;
+#else
+  return false;
+#endif
+}
+
 void VROARSessioniOS::resolveCloudAnchor(
     std::string cloudAnchorId,
     std::function<void(std::shared_ptr<VROARAnchor> anchor)> onSuccess,
@@ -840,22 +860,18 @@ void VROARSessioniOS::resolveCloudAnchor(
       return;
     }
 
-    ARFrame *arFrame = nil;
-    if (_currentFrame) {
-      VROARFrameiOS *frameiOS = (VROARFrameiOS *)_currentFrame.get();
-      arFrame = frameiOS->getARFrame();
-    }
-    if (!arFrame) {
-      if (onFailure) onFailure("No AR frame available for localisation.");
-      return;
-    }
-
+    // No frame check here, and none wanted. Localisation runs off updateFrame's
+    // per-frame updateWithFrame:, so the frame argument below is ignored and a
+    // resolve issued before ARKit's first frame is simply early, not doomed.
+    // Gating on it failed every join that mounted with the anchor id already
+    // known, which is the usual way a second device joins. Android's path has
+    // never had the check.
     NSString *cloudIdNS = [NSString stringWithUTF8String:cloudAnchorId.c_str()];
     std::weak_ptr<VROARSessioniOS> weakSelf = shared_from_this();
     std::string cloudIdCopy = cloudAnchorId;
 
     [_cloudAnchorProviderRV resolveCloudAnchorWithId:cloudIdNS
-                                               frame:arFrame
+                                               frame:nil
                                            onSuccess:^(NSString * /*resolvedId*/, simd_float4x4 transform) {
       auto strongSelf = weakSelf.lock();
       if (!strongSelf) return;

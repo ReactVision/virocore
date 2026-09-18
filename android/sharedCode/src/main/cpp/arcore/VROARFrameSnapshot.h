@@ -42,6 +42,8 @@ public:
     VROVector3f                _position;
     VROVector3f                _imageSize;
     VROMatrix4f                _projection;    // cached for image-size viewport
+    bool                       _hasIntrinsics  = false;
+    float                      _fx = 0.f, _fy = 0.f, _cx = 0.f, _cy = 0.f;
 
     VROARTrackingState       getTrackingState()             const override { return _trackingState;  }
     VROARTrackingStateReason getLimitedTrackingStateReason() const override { return _trackingReason; }
@@ -54,6 +56,16 @@ public:
     VROMatrix4f getProjection(VROViewport /*vp*/, float /*near*/, float /*far*/,
                                VROFieldOfView* /*outFOV*/) override {
         return _projection;
+    }
+
+    // Forwarded, not derived: this copy is the only camera the background
+    // thread ever sees, so a VROARCamera virtual it does not carry answers the
+    // base default there however the live camera implements it.
+    bool getImageIntrinsics(float *outFx, float *outFy,
+                            float *outCx, float *outCy) override {
+        if (!_hasIntrinsics) return false;
+        *outFx = _fx; *outFy = _fy; *outCx = _cx; *outCy = _cy;
+        return true;
     }
 };
 

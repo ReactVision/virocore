@@ -293,7 +293,7 @@ static inline VROMatrix4f viroGLConvTransform(VROMatrix4f t) {
         _arSession = std::make_shared<VROARSessioniOS>(_trackingType, _worldAlignment, _driver);
     }
 
-    _arSession->setOrientation(VROConvert::toCameraOrientation([[UIApplication sharedApplication] statusBarOrientation]));
+    _arSession->setOrientation(VROConvert::toCameraOrientation([self currentInterfaceOrientation]));
     _inputController->setSession(std::dynamic_pointer_cast<VROARSession>(_arSession));
     
     /*
@@ -578,10 +578,39 @@ static inline VROMatrix4f viroGLConvTransform(VROMatrix4f t) {
 
 #pragma mark - Settings and Notifications
 
+/*
+ The interface orientation, read from this view's own window scene.
+
+ UIApplication.statusBarOrientation is deprecated and, in a scene-based app,
+ returns UIInterfaceOrientationUnknown. VROConvert::toCameraOrientation maps
+ anything it does not recognise to PortraitUpsideDown, so reading it there
+ renders the entire AR view, camera and content alike, 180 degrees out.
+
+ self.window is nil while the view is still being assembled, so fall back to the
+ first foreground-active window scene, and to Portrait if there is not one yet;
+ orientationDidChange corrects it as soon as there is.
+ */
+- (UIInterfaceOrientation)currentInterfaceOrientation {
+    UIWindowScene *windowScene = self.window.windowScene;
+    if (windowScene == nil) {
+        for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
+            if ([scene isKindOfClass:[UIWindowScene class]] &&
+                scene.activationState == UISceneActivationStateForegroundActive) {
+                windowScene = (UIWindowScene *)scene;
+                break;
+            }
+        }
+    }
+    if (windowScene != nil && windowScene.interfaceOrientation != UIInterfaceOrientationUnknown) {
+        return windowScene.interfaceOrientation;
+    }
+    return UIInterfaceOrientationPortrait;
+}
+
 - (void)orientationDidChange:(NSNotification *)notification {
     if (_arSession) {
         // the _cameraBackground will be updated if/when the frame is actually set.
-        _arSession->setOrientation(VROConvert::toCameraOrientation([[UIApplication sharedApplication] statusBarOrientation]));
+        _arSession->setOrientation(VROConvert::toCameraOrientation([self currentInterfaceOrientation]));
     }
 }
 

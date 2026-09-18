@@ -167,6 +167,7 @@ namespace arcore {
         FrameNative(ArFrame *frame, ArSession *session) : _frame(frame), _session(session) {}
         virtual ~FrameNative();
         virtual void getViewMatrix(float *outMatrix);
+        virtual void getCameraPose(float *outMatrix);
         virtual void getProjectionMatrix(float near, float far, float *outMatrix);
         virtual void getImageIntrinsics(float *outFx, float *outFy, float *outCx, float *outCy);
         virtual TrackingState getTrackingState();

@@ -58,6 +58,15 @@ VROARCameraARCore::VROARCameraARCore(arcore::Frame *frame,
     _rotation[12] = 0;
     _rotation[13] = 0;
     _rotation[14] = 0;
+
+    float poseMtx[16];
+    frame->getCameraPose(poseMtx);
+    VROMatrix4f imageMatrix(poseMtx);
+    _imagePosition = { imageMatrix[12], imageMatrix[13], imageMatrix[14] };
+    _imageRotation = imageMatrix;
+    _imageRotation[12] = 0;
+    _imageRotation[13] = 0;
+    _imageRotation[14] = 0;
 }
 
 VROARCameraARCore::~VROARCameraARCore() {
@@ -104,25 +113,38 @@ VROARTrackingStateReason VROARCameraARCore::getLimitedTrackingStateReason() cons
     };
 }
 
-void VROARCameraARCore::getImageIntrinsics(float *outFx, float *outFy, float *outCx, float *outCy) {
-    if (!isImageDataAvailable()) {
-        return;
-    }
+bool VROARCameraARCore::getImageIntrinsics(float *outFx, float *outFy, float *outCx, float *outCy) {
+    // Reports whether it wrote anything. It used to return void and leave the
+    // outputs untouched on every early exit, so a caller could not tell real
+    // intrinsics from whatever it had initialised them to.
+    //
+    // Deliberately not gated on isImageDataAvailable(). ArCamera_getImageIntrinsics
+    // reads the ArCamera and no pixels, while that guard acquired a CPU image
+    // and kept it on this object for the rest of the frame. ARCore hands out
+    // one CPU image at a time, so the guard starved whichever later call
+    // needed the pixels (the snapshot's lazy luma copy), and where a caller
+    // already held the image it made this call answer nothing at all.
     std::shared_ptr<VROARSessionARCore> session = _session.lock();
     if (!session) {
-        return;
+        return false;
     }
-    arcore::TrackingState trackingState = _frame->getTrackingState();
-    if (trackingState == arcore::TrackingState::Tracking) {
-
-        _frame->getImageIntrinsics(outFx, outFy, outCx, outCy);
+    if (_frame->getTrackingState() != arcore::TrackingState::Tracking) {
+        return false;
     }
-
-
+    _frame->getImageIntrinsics(outFx, outFy, outCx, outCy);
+    return true;
 }
 
 VROMatrix4f VROARCameraARCore::getRotation() const {
     return _rotation;
+}
+
+VROMatrix4f VROARCameraARCore::getImageRotation() const {
+    return _imageRotation;
+}
+
+VROVector3f VROARCameraARCore::getImagePosition() const {
+    return _imagePosition;
 }
 
 VROVector3f VROARCameraARCore::getPosition() const {

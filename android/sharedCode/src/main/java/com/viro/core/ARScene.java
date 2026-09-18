@@ -1129,6 +1129,19 @@ public class ARScene extends Scene {
     }
 
     /**
+     * Progress of the resolve currently running, as "progress|message", or an
+     * empty string when none is. Poll it: resolving on a phone is multi-frame
+     * SIFT over a 30 second window and there is no push channel for the states
+     * it passes through.
+     */
+    public String getCloudAnchorStatus() {
+        if (mNativeRef == 0) {
+            return "";
+        }
+        return nativeGetCloudAnchorStatus(mNativeRef);
+    }
+
+    /**
      * Resolve the {@link ARAnchor} with the given cloud identifier. If the given anchor is
      * successfully found in the cloud and synchronized with this client, it will be returned in the
      * provided callback. The ARAnchor received will be associated with a new {@link ARNode}, to
@@ -1154,8 +1167,12 @@ public class ARScene extends Scene {
      */
     public void resolveCloudAnchor(String cloudAnchorId, CloudAnchorResolveListener callback) {
         if (mCloudAnchorResolveCallbacks.containsKey(cloudAnchorId)) {
+            // Answered rather than dropped: returning silently leaves the caller's
+            // promise unsettled forever, which looks identical to a resolve that
+            // is still working.
             Log.e("Viro", "Ignoring redundant cloud anchor resolve request: we are already processing anchor ["
                     + cloudAnchorId + "]");
+            callback.onFailure("A resolve for this anchor is already in progress");
             return;
         }
         mCloudAnchorResolveCallbacks.put(cloudAnchorId, callback);
@@ -1894,6 +1911,7 @@ public class ARScene extends Scene {
     private native void nativeRemoveARImageTargetDeclarative(long sceneControllerRef, long arImageTargetRef);
     private native void nativeHostCloudAnchor(long sceneControllerRef, String anchorId, int ttlDays);
     private native void nativeResolveCloudAnchor(long sceneControllerRef, String cloudAnchorId);
+    private native String nativeGetCloudAnchorStatus(long sceneControllerRef);
     private native void nativeSetReactVisionConfig(long sceneControllerRef, String apiKey, String projectId, String endpoint);
     private native void nativeSetGeospatialAnchorProvider(long sceneControllerRef, String provider);
     private native float nativeGetAmbientLightIntensity(long sceneControllerRef);
