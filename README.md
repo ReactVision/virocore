@@ -29,7 +29,7 @@ ViroCore is MIT licensed and free forever.
 ## Documentation
 
 - ViroReact docs and guides: <https://viro-community.readme.io/docs/overview>
-- Per-feature guides — VPS, co-location, visionOS, Quest, web, shaders, object detection: <https://github.com/ReactVision/viro/tree/main/docs>
+- Per-feature guides — VPS, co-location, visionOS, Quest, web, shaders, object detection: <https://viro-community.readme.io/docs/overview>
 - Engine changes by release: [`CHANGELOG.md`](./CHANGELOG.md)
 
 ## Community
