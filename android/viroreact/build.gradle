@@ -157,3 +157,5 @@ tasks.whenTaskAdded { task ->
 //         }
 //     }
 // }
+
+apply from: "../shaders.gradle"

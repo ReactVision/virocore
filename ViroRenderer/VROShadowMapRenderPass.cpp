@@ -37,7 +37,11 @@
 #include "VROPortalFrame.h"
 #include "VROShaderModifier.h"
 #include "VROPencil.h"
+#if VRO_METAL
+#include "VROBoneUBOMetal.h"
+#else
 #include "VROBoneUBO.h"
+#endif
 #include "VROFieldOfView.h"
 
 // Shader modifier used for writing to depth buffer
@@ -68,7 +72,11 @@ VROShadowMapRenderPass::VROShadowMapRenderPass(const std::shared_ptr<VROLight> l
     _silhouetteSkeletalMaterial->setReadsFromDepthBuffer(true);
     _silhouetteSkeletalMaterial->setCullMode(VROCullMode::None);
     _silhouetteSkeletalMaterial->addShaderModifier(getShadowDepthWritingModifier());
+#if VRO_METAL
+    _silhouetteSkeletalMaterial->addShaderModifier(VROBoneUBOMetal::createSkinningShaderModifier(true));
+#else
     _silhouetteSkeletalMaterial->addShaderModifier(VROBoneUBO::createSkinningShaderModifier(true));
+#endif
 }
 
 VROShadowMapRenderPass::~VROShadowMapRenderPass() {
@@ -181,11 +189,21 @@ VROMatrix4f VROShadowMapRenderPass::computeLightProjectionMatrix() const {
         float right  =  orthographicHalfSize;
         float bottom = -orthographicHalfSize;
         float top    =  orthographicHalfSize;
-        
+
+#if VRO_METAL
+        // Metal clips z < 0, so the shadow map needs a [0, 1] depth range; the OpenGL
+        // convention would throw away half of it.
+        return VROMathComputeOrthographicProjectionZeroToOne(left, right, bottom, top, near, far);
+#else
         return VROMathComputeOrthographicProjection(left, right, bottom, top, near, far);
+#endif
     }
     else if (_light->getType() == VROLightType::Spot) {
+#if VRO_METAL
+        return VROMathComputePerspectiveProjectionZeroToOne(_light->getSpotOuterAngle(), 1, near, far);
+#else
         return VROMathComputePerspectiveProjection(_light->getSpotOuterAngle(), 1, near, far);
+#endif
     }
     else {
         pabort("Light of type %d may not cast shadows", (int)_light->getType());

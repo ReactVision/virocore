@@ -320,7 +320,13 @@
                 return;
             case PHAuthorizationStatusNotDetermined:
                 [PHPhotoLibrary requestAuthorization:^(PHAuthorizationStatus status) {
-                    [self takeScreenshot:fileName saveToCameraRoll:saveToCamera withCompletionHandler:completionHandler];
+                    // The authorization handler runs on a private background queue, and
+                    // the snapshot below re-enters the renderer through drawRect. Off the
+                    // render thread that races the display link for the same frame number
+                    // and aborts in VROPortal::traversePortals.
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        [self takeScreenshot:fileName saveToCameraRoll:saveToCamera withCompletionHandler:completionHandler];
+                    });
                 }];
                 return;
         }

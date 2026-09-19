@@ -371,7 +371,11 @@ void VROMaterialShaderBinding::bindGeometryUniforms(float opacity, const VROGeom
         _alphaUniform->setFloat(material.getTransparency() * opacity);
     }
     if (_alphaCutoffUniform != nullptr) {
-        _alphaCutoffUniform->setFloat(material.getAlphaCutoff());
+        // Only a Mask material cuts fragments out. Bound for every material, the
+        // 0.5 glTF default discarded anything under half alpha, so a node opacity
+        // or an opacity animation vanished at the halfway point instead of fading.
+        bool masks = material.getTransparencyMode() == VROTransparencyMode::Mask;
+        _alphaCutoffUniform->setFloat(masks ? material.getAlphaCutoff() : 0.0f);
     }
     for (auto binder_uniform : _modifierUniformBinders) {
         binder_uniform.first->setForMaterial(binder_uniform.second, &geometry, &material);

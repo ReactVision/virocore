@@ -34,6 +34,7 @@
 #include <Metal/Metal.h>
 #include <MetalKit/MetalKit.h>
 #include <vector>
+#include <map>
 #include "VROMaterialSubstrate.h"
 #include "VROMetalShader.h"
 
@@ -91,6 +92,15 @@ public:
     id <MTLFunction> getFragmentProgram() const {
         return _program->getFragmentProgram();
     }
+
+    /*
+     The fragment function specialised for a render target with the given number of
+     colour attachments. The lighting fragment functions return a struct whose extra
+     members are gated by function constants, so one entry point serves the display pass
+     (1 attachment) and the HDR pass (2, 3 or 4). Returns the unspecialised function for
+     a single attachment, and null if specialisation fails.
+     */
+    id <MTLFunction> getFragmentProgramForAttachments(int colorAttachmentCount);
     const std::vector<std::shared_ptr<VROTexture>> &getTextures() const {
         return _textures;
     }
@@ -123,6 +133,9 @@ private:
     void loadPhongLighting(const VROMaterial &material,
                            id <MTLLibrary> library, id <MTLDevice> device,
                            VRODriverMetal &driver);
+    void loadPBRLighting(const VROMaterial &material,
+                         id <MTLLibrary> library, id <MTLDevice> device,
+                         VRODriverMetal &driver);
     void loadBlinnLighting(const VROMaterial &material,
                            id <MTLLibrary> library, id <MTLDevice> device,
                            VRODriverMetal &driver);
@@ -133,6 +146,11 @@ private:
     VROLightingModel _lightingModel;
     
     std::shared_ptr<VROMetalShader> _program;
+
+    // Fragment functions specialised per colour-attachment count, keyed by that count.
+    std::map<int, id <MTLFunction>> _specializedFragmentPrograms;
+    std::string _fragmentProgramName;
+    id <MTLLibrary> _programLibrary = nil;
     
     VROConcurrentBuffer *_materialUniformsBuffer;
     VROConcurrentBuffer *_lightingUniformsBuffer;

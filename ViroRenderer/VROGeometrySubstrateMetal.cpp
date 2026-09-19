@@ -27,6 +27,9 @@
 #include "VROGeometrySubstrateMetal.h"
 #if VRO_METAL
 
+#include "VRORenderTargetMetal.h"
+
+#include "VROImageUtil.h"
 #include "VROGeometry.h"
 #include "VROGeometrySource.h"
 #include "VROGeometryElement.h"
@@ -38,21 +41,52 @@
 #include "VROSharedStructures.h"
 #include "VROMetalUtils.h"
 #include "VROConcurrentBuffer.h"
+#include "VROBoneUBOMetal.h"
+#include "VROParticleUBOMetal.h"
+#include "VROSkinner.h"
 #include <map>
 
 VROGeometrySubstrateMetal::VROGeometrySubstrateMetal(const VROGeometry &geometry,
-                                                     VRODriverMetal &driver) {
+                                                     VRODriverMetal &driver) :
+    _needsFakeColorBuffer(false),
+    _fakeColorBuffer(nil),
+    _silhouetteDepthState(nil)
+{
     id <MTLDevice> device = driver.getDevice();
 
     readGeometryElements(device, geometry.getGeometryElements());
-    readGeometrySources(device, geometry.getGeometrySources());
+
+    // Augment the source list with bone-index / bone-weight sources when the
+    // geometry is skinned, matching the OpenGL path in VROGeometrySubstrateOpenGL.
+    std::vector<std::shared_ptr<VROGeometrySource>> sources = geometry.getGeometrySources();
+    if (geometry.getSkinner()) {
+        _boneUBO = std::make_unique<VROBoneUBOMetal>(device);
+        if (geometry.getSkinner()->getBoneIndices() != nullptr) {
+            sources.push_back(geometry.getSkinner()->getBoneIndices());
+            sources.push_back(geometry.getSkinner()->getBoneWeights());
+        }
+    }
+
+    readGeometrySources(device, sources);
     updatePipelineStates(geometry, driver);
-    
+
     _viewUniformsBuffer = new VROConcurrentBuffer(sizeof(VROViewUniforms), @"VROViewUniformBuffer", device);
 }
 
 VROGeometrySubstrateMetal::~VROGeometrySubstrateMetal() {
     delete (_viewUniformsBuffer);
+    for (auto &elementCache : _elementPipelineStates) {
+        for (auto &entry : elementCache) {
+            [entry.second release];
+        }
+    }
+    _elementPipelineStates.clear();
+    [_vertexDescriptor release];
+    [_silhouetteDepthState release];
+    for (auto &entry : _silhouettePipelineStates) {
+        [entry.second release];
+    }
+    _silhouettePipelineStates.clear();
 }
 
 void VROGeometrySubstrateMetal::readGeometryElements(id <MTLDevice> device,
@@ -78,71 +112,106 @@ void VROGeometrySubstrateMetal::readGeometryElements(id <MTLDevice> device,
 
 void VROGeometrySubstrateMetal::readGeometrySources(id <MTLDevice> device,
                                                     const std::vector<std::shared_ptr<VROGeometrySource>> &sources) {
-        
-    std::shared_ptr<VROGeometrySource> source = sources.front();
-    std::map<std::shared_ptr<VROData>, std::vector<std::shared_ptr<VROGeometrySource>>> dataMap;
-    
-    /*
-     Sort the sources into groups defined by the data array they're using.
-     */
-    for (std::shared_ptr<VROGeometrySource> source : sources) {
-        std::shared_ptr<VROData> data = source->getData();
-        
-        auto it = dataMap.find(data);
-        if (it == dataMap.end()) {
-            std::vector<std::shared_ptr<VROGeometrySource>> group = { source };
-            dataMap[data] = group;
-        }
-        else {
-            std::vector<std::shared_ptr<VROGeometrySource>> &group = it->second;
-            group.push_back(source);
-        }
+
+    // ARC is off in this target, so the autoreleased descriptor has to be retained.
+    // Without this it survives only until the pool drains — long enough for the pipeline
+    // states built during construction, and a use-after-free for anything that builds a
+    // pipeline later (silhouette passes, a material update on a later frame).
+    _vertexDescriptor = [[MTLVertexDescriptor vertexDescriptor] retain];
+
+    // Partition sources by geometry element index.
+    // Each GLTF primitive becomes one element; sources from different primitives
+    // share buffer views but have different accessor offsets and vertex counts.
+    // We build one interleaved MTL buffer per element so that render(elementIndex)
+    // can bind _vars[elementIndex] at atIndex:0 with no uniform-slot conflicts.
+    std::map<int, std::vector<std::shared_ptr<VROGeometrySource>>> byElement;
+    for (const std::shared_ptr<VROGeometrySource> &src : sources) {
+        byElement[src->getGeometryElementIndex()].push_back(src);
     }
-    
-    _vertexDescriptor = [MTLVertexDescriptor vertexDescriptor];
-    int bufferIndex = 0;
-    
-    /*
-     Our shaders currently only support a single data array, so we abort if we have multiple
-     arrays (i.e. if we have geometry sources that aren't interleaved into a single array).
-     */
-    passert (dataMap.size() == 1);
-    auto iterator = dataMap.begin();
-    
-    std::vector<std::shared_ptr<VROGeometrySource>> group = iterator->second;
-    
-    /*
-     Create an MTLBuffer that wraps over the VROData.
-     */
-    int dataSize = 0;
-    for (std::shared_ptr<VROGeometrySource> source : group) {
-        int size = source->getVertexCount() * source->getDataStride();
-        dataSize = std::max(dataSize, size);
-    }
-    
-    _var.buffer = [device newBufferWithBytes:iterator->first->getData()
-                                     length:dataSize options:0];
-    _var.buffer.label = @"VROGeometryVertexBuffer";
-    
-    /*
-     Create the layout for this MTL buffer.
-     */
-    _vertexDescriptor.layouts[bufferIndex].stepRate = 1;
-    _vertexDescriptor.layouts[bufferIndex].stride = group[0]->getDataStride();
-    _vertexDescriptor.layouts[bufferIndex].stepFunction = MTLVertexStepFunctionPerVertex;
-    
-    /*
-     Create an attribute for each geometry source in this group.
-     */
-    for (int i = 0; i < group.size(); i++) {
-        std::shared_ptr<VROGeometrySource> source = group[i];
-        int attrIdx = VROGeometryUtilParseAttributeIndex(source->getSemantic());
-        
-        _vertexDescriptor.attributes[attrIdx].format = parseVertexFormat(source);
-        _vertexDescriptor.attributes[attrIdx].offset = source->getDataOffset();
-        _vertexDescriptor.attributes[attrIdx].bufferIndex = bufferIndex;
-        
-        passert (source->getDataStride() == _vertexDescriptor.layouts[bufferIndex].stride);
+
+    bool descriptorBuilt = false;
+
+    for (auto &kv : byElement) {
+        const std::vector<std::shared_ptr<VROGeometrySource>> &elemSrcs = kv.second;
+        int vertexCount = elemSrcs.front()->getVertexCount();
+
+        // Assign each source its own contiguous slot in the interleaved stride.
+        // Each source is copied independently so that sources sharing a VROData
+        // but at different byte offsets (packed-sequential non-interleaved GLTF)
+        // are handled correctly.
+        // The slot is the attribute's own size, not the source stride. getDataStride() is the
+        // step between consecutive vertices in the source buffer — for interleaved data that is
+        // the whole vertex, so using it here reserved (and copied) one full vertex per attribute:
+        // four times the memory, and a read past the end of the source on the last vertex, since
+        // an attribute at offset N still asked for a full stride from N. ASan caught that as a
+        // 48-byte read starting at the end of the skybox's 1152-byte buffer.
+        std::vector<int> srcOffset;
+        std::vector<int> srcSize;
+        int totalStride = 0;
+        for (const std::shared_ptr<VROGeometrySource> &src : elemSrcs) {
+            const int size = src->getComponentsPerVertex() * src->getBytesPerComponent();
+            srcOffset.push_back(totalStride);
+            srcSize.push_back(size);
+            totalStride += size;
+        }
+
+        std::vector<uint8_t> buf(vertexCount * totalStride, 0);
+        for (int si = 0; si < (int)elemSrcs.size(); si++) {
+            const std::shared_ptr<VROGeometrySource> &src = elemSrcs[si];
+            std::shared_ptr<VROData> gData = src->getData();
+            if (!gData || src->getDataStride() == 0) continue;
+            int gStride     = src->getDataStride();
+            int gDataOffset = src->getDataOffset();
+            const uint8_t *pSrc = (const uint8_t *)gData->getData() + gDataOffset;
+            for (int v = 0; v < vertexCount; v++) {
+                memcpy(buf.data() + v * totalStride + srcOffset[si],
+                       pSrc + v * gStride, srcSize[si]);
+            }
+        }
+
+        VROVertexArrayMetal var;
+        var.buffer = [device newBufferWithBytes:buf.data() length:buf.size() options:0];
+        var.buffer.label = @"VROGeometryVertexBuffer";
+        _vars.push_back(var);
+
+        // Build the shared vertex descriptor from the first element.
+        // All elements are assumed to have the same attribute layout.
+        if (!descriptorBuilt) {
+            _vertexDescriptor.layouts[0].stepRate     = 1;
+            _vertexDescriptor.layouts[0].stride       = totalStride;
+            _vertexDescriptor.layouts[0].stepFunction = MTLVertexStepFunctionPerVertex;
+
+            bool hasColor = false;
+            for (int si = 0; si < (int)elemSrcs.size(); si++) {
+                std::shared_ptr<VROGeometrySource> src = elemSrcs[si];
+                int attrIdx = VROGeometryUtilParseAttributeIndex(src->getSemantic());
+                _vertexDescriptor.attributes[attrIdx].format      = parseVertexFormat(src);
+                _vertexDescriptor.attributes[attrIdx].offset      = srcOffset[si];
+                _vertexDescriptor.attributes[attrIdx].bufferIndex = 0;
+                if (src->getSemantic() == VROGeometrySourceSemantic::Color) {
+                    hasColor = true;
+                }
+            }
+
+            // Phong shaders require attribute(2) = float4 color. Geometries without
+            // per-vertex colors (VROBox, VROSphere, VROSurface) get a constant white
+            // injected via a single-element buffer at vertex slot 1.
+            if (!hasColor) {
+                _needsFakeColorBuffer = true;
+                _vertexDescriptor.attributes[2].format      = MTLVertexFormatFloat4;
+                _vertexDescriptor.attributes[2].offset      = 0;
+                _vertexDescriptor.attributes[2].bufferIndex = 6;
+                _vertexDescriptor.layouts[6].stride         = sizeof(simd_float4);
+                _vertexDescriptor.layouts[6].stepFunction   = MTLVertexStepFunctionConstant;
+                _vertexDescriptor.layouts[6].stepRate       = 0;
+                simd_float4 white = {1.0f, 1.0f, 1.0f, 1.0f};
+                _fakeColorBuffer = [device newBufferWithBytes:&white
+                                                       length:sizeof(white)
+                                                      options:MTLResourceStorageModeShared];
+                _fakeColorBuffer.label = @"VROFakeColorBuffer";
+            }
+            descriptorBuilt = true;
+        }
     }
 }
 
@@ -152,42 +221,165 @@ void VROGeometrySubstrateMetal::updatePipelineStates(const VROGeometry &geometry
     id <MTLDevice> device = driver.getDevice();
     const std::vector<std::shared_ptr<VROMaterial>> &materials = geometry.getMaterials();
     
+    // Pipelines are built on first draw, once the target being rendered into is known:
+    // its attachment configuration is part of the pipeline and is not knowable here.
     for (int i = 0; i < _elements.size(); i++) {
-        VROGeometryElementMetal element = _elements[i];
         const std::shared_ptr<VROMaterial> &material = materials[i % materials.size()];
-        
-        id <MTLRenderPipelineState> pipelineState = createRenderPipelineState(material, driver);
-        _elementPipelineStates.push_back(pipelineState);
-        
+
+        _elementPipelineStates.push_back({});
+
         id <MTLDepthStencilState> depthStencilState = createDepthStencilState(material, device);
         _elementDepthStates.push_back(depthStencilState);
     }
 }
 
+VROGeometrySubstrateMetal::TargetConfig
+VROGeometrySubstrateMetal::currentTargetConfig(VRODriverMetal &metal) {
+    TargetConfig config;
+    config.colorFormat   = metal.getColorPixelFormat();
+    config.depthFormat   = metal.getDepthPixelFormat();
+    config.stencilFormat = metal.getStencilPixelFormat();
+
+    std::shared_ptr<VRORenderTarget> bound = metal.getRenderTarget();
+    VRORenderTargetMetal *target = dynamic_cast<VRORenderTargetMetal *>(bound.get());
+    if (target && !target->isDisplay()) {
+        config.colorAttachmentCount = target->getColorAttachmentCount();
+        id <MTLTexture> color = target->getMetalTexture(0);
+        id <MTLTexture> depth = target->getMetalDepthTexture();
+        if (color) { config.colorFormat = color.pixelFormat; }
+        config.depthFormat = depth ? depth.pixelFormat : MTLPixelFormatInvalid;
+        config.stencilFormat = (depth && depth.pixelFormat == MTLPixelFormatDepth32Float_Stencil8)
+                                   ? depth.pixelFormat : MTLPixelFormatInvalid;
+    }
+    if (config.colorAttachmentCount < 1) {
+        config.colorAttachmentCount = 1;
+    }
+    return config;
+}
+
+id <MTLRenderPipelineState>
+VROGeometrySubstrateMetal::pipelineStateForElement(int elementIndex,
+                                                  const std::shared_ptr<VROMaterial> &material,
+                                                  VRODriverMetal &metal,
+                                                  const TargetConfig &config) {
+    if (elementIndex < 0 || elementIndex >= (int)_elementPipelineStates.size()) {
+        return nil;
+    }
+    auto &cache = _elementPipelineStates[elementIndex];
+    const uint64_t key = config.key();
+    auto it = cache.find(key);
+    if (it != cache.end()) {
+        return it->second;
+    }
+    id <MTLRenderPipelineState> state = createRenderPipelineState(material, config, metal);
+    cache[key] = state;
+    return state;
+}
+
 id <MTLRenderPipelineState> VROGeometrySubstrateMetal::createRenderPipelineState(const std::shared_ptr<VROMaterial> &material,
+                                                                                 const TargetConfig &config,
                                                                                  VRODriverMetal &driver) {
     
     id <MTLDevice> device = driver.getDevice();
-    std::shared_ptr<VRORenderTarget> renderTarget = driver.getRenderTarget();
-    
-    VROMaterialSubstrateMetal *substrate = static_cast<VROMaterialSubstrateMetal *>(material->getSubstrate(driver));
-    
+    // Non-owning shared_ptr: driver is managed externally (e.g. by VROViewMetal or
+    // the CompositorServices render loop). The null deleter prevents double-free.
+    std::shared_ptr<VRODriver> driverPtr(static_cast<VRODriver *>(&driver), [](VRODriver *) {});
+    VROMaterialSubstrateMetal *substrate = static_cast<VROMaterialSubstrateMetal *>(material->getSubstrate(driverPtr));
+
     MTLRenderPipelineDescriptor *pipelineStateDescriptor = [[MTLRenderPipelineDescriptor alloc] init];
     pipelineStateDescriptor.label = @"VROLayerPipeline";
-    pipelineStateDescriptor.sampleCount = renderTarget->getSampleCount();
+    pipelineStateDescriptor.sampleCount = driver.getSampleCount();
     pipelineStateDescriptor.vertexFunction = substrate->getVertexProgram();
-    pipelineStateDescriptor.fragmentFunction = substrate->getFragmentProgram();
+    id <MTLFunction> fragmentFunction =
+        substrate->getFragmentProgramForAttachments(config.colorAttachmentCount);
+    if (!fragmentFunction) {
+        [pipelineStateDescriptor release];
+        return nil;
+    }
+    pipelineStateDescriptor.fragmentFunction = fragmentFunction;
     pipelineStateDescriptor.vertexDescriptor = _vertexDescriptor;
-    pipelineStateDescriptor.colorAttachments[0].pixelFormat = renderTarget->getColorPixelFormat();
-    pipelineStateDescriptor.colorAttachments[0].blendingEnabled = YES;
-    pipelineStateDescriptor.colorAttachments[0].rgbBlendOperation = MTLBlendOperationAdd;
-    pipelineStateDescriptor.colorAttachments[0].alphaBlendOperation = MTLBlendOperationAdd;
-    pipelineStateDescriptor.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
-    pipelineStateDescriptor.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorSourceAlpha;
-    pipelineStateDescriptor.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
-    pipelineStateDescriptor.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
-    pipelineStateDescriptor.depthAttachmentPixelFormat = renderTarget->getDepthStencilPixelFormat();
-    pipelineStateDescriptor.stencilAttachmentPixelFormat = renderTarget->getDepthStencilPixelFormat();
+    pipelineStateDescriptor.colorAttachments[0].pixelFormat = config.colorFormat;
+    {
+        MTLRenderPipelineColorAttachmentDescriptor *ca = pipelineStateDescriptor.colorAttachments[0];
+        switch (material->getBlendMode()) {
+            case VROBlendMode::None:
+                ca.blendingEnabled = NO;
+                break;
+            case VROBlendMode::Alpha:
+                ca.blendingEnabled = YES;
+                ca.rgbBlendOperation   = MTLBlendOperationAdd;
+                ca.alphaBlendOperation = MTLBlendOperationAdd;
+                ca.sourceRGBBlendFactor        = MTLBlendFactorSourceAlpha;
+                ca.sourceAlphaBlendFactor      = MTLBlendFactorSourceAlpha;
+                ca.destinationRGBBlendFactor   = MTLBlendFactorOneMinusSourceAlpha;
+                ca.destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+                break;
+            case VROBlendMode::Add:
+                ca.blendingEnabled = YES;
+                ca.rgbBlendOperation   = MTLBlendOperationAdd;
+                ca.alphaBlendOperation = MTLBlendOperationAdd;
+                ca.sourceRGBBlendFactor        = MTLBlendFactorSourceAlpha;
+                ca.sourceAlphaBlendFactor      = MTLBlendFactorSourceAlpha;
+                ca.destinationRGBBlendFactor   = MTLBlendFactorOne;
+                ca.destinationAlphaBlendFactor = MTLBlendFactorOne;
+                break;
+            case VROBlendMode::Multiply:
+                ca.blendingEnabled = YES;
+                ca.rgbBlendOperation   = MTLBlendOperationAdd;
+                ca.alphaBlendOperation = MTLBlendOperationAdd;
+                ca.sourceRGBBlendFactor        = MTLBlendFactorDestinationColor;
+                ca.sourceAlphaBlendFactor      = MTLBlendFactorDestinationAlpha;
+                ca.destinationRGBBlendFactor   = MTLBlendFactorZero;
+                ca.destinationAlphaBlendFactor = MTLBlendFactorZero;
+                break;
+            case VROBlendMode::Subtract:
+                ca.blendingEnabled = YES;
+                ca.rgbBlendOperation   = MTLBlendOperationReverseSubtract;
+                ca.alphaBlendOperation = MTLBlendOperationReverseSubtract;
+                ca.sourceRGBBlendFactor        = MTLBlendFactorSourceAlpha;
+                ca.sourceAlphaBlendFactor      = MTLBlendFactorSourceAlpha;
+                ca.destinationRGBBlendFactor   = MTLBlendFactorOne;
+                ca.destinationAlphaBlendFactor = MTLBlendFactorOne;
+                break;
+            case VROBlendMode::Screen:
+                ca.blendingEnabled = YES;
+                ca.rgbBlendOperation   = MTLBlendOperationAdd;
+                ca.alphaBlendOperation = MTLBlendOperationAdd;
+                ca.sourceRGBBlendFactor        = MTLBlendFactorOne;
+                ca.sourceAlphaBlendFactor      = MTLBlendFactorOne;
+                ca.destinationRGBBlendFactor   = MTLBlendFactorOneMinusSourceColor;
+                ca.destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+                break;
+            case VROBlendMode::PremultiplyAlpha:
+                ca.blendingEnabled = YES;
+                ca.rgbBlendOperation   = MTLBlendOperationAdd;
+                ca.alphaBlendOperation = MTLBlendOperationAdd;
+                ca.sourceRGBBlendFactor        = MTLBlendFactorOne;
+                ca.sourceAlphaBlendFactor      = MTLBlendFactorOne;
+                ca.destinationRGBBlendFactor   = MTLBlendFactorOneMinusSourceAlpha;
+                ca.destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+                break;
+        }
+    }
+    // The mask / bloom attachments carry the same blend state as the colour attachment,
+    // so a tone-mapped transparent surface blends its mask the same way it blends its
+    // colour. That is what the OpenGL path relies on to fade between tone-mapped and
+    // untone-mapped regions.
+    for (int i = 1; i < config.colorAttachmentCount; i++) {
+        MTLRenderPipelineColorAttachmentDescriptor *extra = pipelineStateDescriptor.colorAttachments[i];
+        MTLRenderPipelineColorAttachmentDescriptor *base  = pipelineStateDescriptor.colorAttachments[0];
+        extra.pixelFormat                 = config.colorFormat;
+        extra.blendingEnabled             = base.blendingEnabled;
+        extra.rgbBlendOperation           = base.rgbBlendOperation;
+        extra.alphaBlendOperation         = base.alphaBlendOperation;
+        extra.sourceRGBBlendFactor        = base.sourceRGBBlendFactor;
+        extra.sourceAlphaBlendFactor      = base.sourceAlphaBlendFactor;
+        extra.destinationRGBBlendFactor   = base.destinationRGBBlendFactor;
+        extra.destinationAlphaBlendFactor = base.destinationAlphaBlendFactor;
+    }
+
+    pipelineStateDescriptor.depthAttachmentPixelFormat = config.depthFormat;
+    pipelineStateDescriptor.stencilAttachmentPixelFormat = config.stencilFormat;
     
     NSError *error = NULL;
     id <MTLRenderPipelineState> pipelineState = [device newRenderPipelineStateWithDescriptor:pipelineStateDescriptor
@@ -221,22 +413,35 @@ id <MTLDepthStencilState> VROGeometrySubstrateMetal::createDepthStencilState(con
 }
 
 MTLVertexFormat VROGeometrySubstrateMetal::parseVertexFormat(std::shared_ptr<VROGeometrySource> &source) {
-    // Currently assuming floats
     switch (source->getBytesPerComponent()) {
+        // 1-byte integer components (e.g. JOINTS_0 stored as UNSIGNED_BYTE)
+        case 1:
+            switch (source->getComponentsPerVertex()) {
+                case 4: return MTLVertexFormatUChar4;
+                default: pabort(); return MTLVertexFormatUChar4;
+            }
+
         case 2:
+            if (!source->isFloatComponents()) {
+                // 2-byte unsigned integer (e.g. JOINTS_0 stored as UNSIGNED_SHORT)
+                switch (source->getComponentsPerVertex()) {
+                    case 4: return MTLVertexFormatUShort4;
+                    default: pabort(); return MTLVertexFormatUShort4;
+                }
+            }
             switch (source->getComponentsPerVertex()) {
                 case 1:
                     return MTLVertexFormatFloat;
-                    
+
                 case 2:
                     return MTLVertexFormatFloat2;
-                    
+
                 case 3:
                     return MTLVertexFormatFloat3;
-                    
+
                 case 4:
                     return MTLVertexFormatFloat4;
-                    
+
                 default:
                     pabort();
                     return MTLVertexFormatFloat;
@@ -291,12 +496,12 @@ void VROGeometrySubstrateMetal::render(const VROGeometry &geometry,
                                        VROMatrix4f transform,
                                        VROMatrix4f normalMatrix,
                                        float opacity,
-                                       std::shared_ptr<VROMaterial> &material,
+                                       const std::shared_ptr<VROMaterial> &material,
                                        const VRORenderContext &context,
                                        std::shared_ptr<VRODriver> &driver) {
     
-    VRODriverMetal &metal = (VRODriverMetal &)driver;
-    id <MTLRenderCommandEncoder> renderEncoder = metal.getRenderTarget()->getRenderEncoder();
+    VRODriverMetal &metal = (VRODriverMetal &)(*driver);
+    id <MTLRenderCommandEncoder> renderEncoder = metal.getActiveEncoder();
     
     int frame = context.getFrame();
     VROEyeType eyeType = context.getEyeType();
@@ -333,24 +538,396 @@ void VROGeometrySubstrateMetal::render(const VROGeometry &geometry,
      depth states.
      */
     if (material->isUpdated()) {
-        _elementPipelineStates[elementIndex] = createRenderPipelineState(material, metal);
+        for (auto &entry : _elementPipelineStates[elementIndex]) {
+            [entry.second release];
+        }
+        _elementPipelineStates[elementIndex].clear();
         _elementDepthStates[elementIndex] = createDepthStencilState(material, metal.getDevice());
     }
-    
+
     VROMaterialSubstrateMetal *substrate = static_cast<VROMaterialSubstrateMetal *>(material->getSubstrate(driver));
-    id <MTLRenderPipelineState> pipelineState = _elementPipelineStates[elementIndex];
+    const TargetConfig config = currentTargetConfig(metal);
+    id <MTLRenderPipelineState> pipelineState = pipelineStateForElement(elementIndex, material, metal, config);
     id <MTLDepthStencilState> depthState = _elementDepthStates[elementIndex];
     
-    [renderEncoder setVertexBuffer:_var.buffer offset:0 atIndex:0];
-    
+    if (elementIndex < (int)_vars.size()) {
+        [renderEncoder setVertexBuffer:_vars[elementIndex].buffer offset:0 atIndex:0];
+    }
+    if (_needsFakeColorBuffer) {
+        [renderEncoder setVertexBuffer:_fakeColorBuffer offset:0 atIndex:6];
+    }
+
+    // Upload latest bone transforms and bind at buffer(5) for skinned geometry.
+    if (_boneUBO && geometry.getSkinner()) {
+        _boneUBO->update(geometry.getSkinner());
+        [renderEncoder setVertexBuffer:_boneUBO->getBuffer() offset:0 atIndex:5];
+    }
+
+    // Instanced draw path for particle emitters (VROParticleUBOMetal).
+    // Each draw call covers a window of up to kMaxParticlesPerUBO particles.
+    const std::shared_ptr<VROInstancedUBO> &instancedUBO = geometry.getInstancedUBO();
+    if (instancedUBO) {
+        if (VROParticleUBOMetal *metalUBO = dynamic_cast<VROParticleUBOMetal *>(instancedUBO.get())) {
+            metalUBO->setEncoder(renderEncoder);
+            int numDrawCalls = metalUBO->getNumberOfDrawCalls();
+            if (numDrawCalls > 0) {
+                for (int i = 0; i < numDrawCalls; i++) {
+                    int instances = metalUBO->bindDrawData(i);
+                    if (instances > 0) {
+                        renderMaterial(substrate, element, pipelineState, depthState,
+                                       renderEncoder, opacity, context, driver, instances);
+                    }
+                }
+                [renderEncoder popDebugGroup];
+                return;
+            }
+        }
+    }
+
+    // Bind dummy buffers at slot 7 to satisfy Metal validation for any shader compiled
+    // from ViroShadersSource.txt, which declares particle_transforms/particle_colors params
+    // in all lighting functions. The particle path overrides these with real data via
+    // bindDrawData() above; this covers every other draw call.
+    // 64 bytes: large enough for float4x4 (vertex slot) and float4 (fragment slot).
+    static id<MTLBuffer> sParticleDummyBuffer = nil;
+    if (!sParticleDummyBuffer) {
+        uint8_t z[64] = {};
+        sParticleDummyBuffer = [metal.getDevice() newBufferWithBytes:z
+                                                              length:64
+                                                             options:MTLResourceStorageModeShared];
+        sParticleDummyBuffer.label = @"VRODummyParticleBuffer";
+    }
+    [renderEncoder setVertexBuffer:sParticleDummyBuffer offset:0 atIndex:7];
+    [renderEncoder setFragmentBuffer:sParticleDummyBuffer offset:0 atIndex:7];
+
     /*
      Note that outgoing materials share the same pipeline state as their counterparts. This is because
      they always have the same shaders and vertex layouts.
      */
     renderMaterial(substrate, element, pipelineState, depthState, renderEncoder, opacity,
                    context, driver);
-    
+
     [renderEncoder popDebugGroup];
+}
+
+// ── Silhouette rendering ─────────────────────────────────────────────────────
+//
+// Used by the shadow-map pass (depth-only target) and the portal stencil passes
+// (colour target with the write mask disabled). Both cases write depth and nothing
+// else, so the plain pipeline has no fragment stage at all and the textured one has a
+// void fragment stage that only discards cut-out fragments.
+
+id <MTLDepthStencilState> VROGeometrySubstrateMetal::silhouetteDepthState(VRODriverMetal &metal) {
+    if (_silhouetteDepthState) {
+        return _silhouetteDepthState;
+    }
+    MTLDepthStencilDescriptor *descriptor = [MTLDepthStencilDescriptor new];
+    descriptor.depthCompareFunction = MTLCompareFunctionLess;
+    descriptor.depthWriteEnabled    = YES;
+    _silhouetteDepthState = [metal.getDevice() newDepthStencilStateWithDescriptor:descriptor];
+    [descriptor release];
+    return _silhouetteDepthState;
+}
+
+id <MTLRenderPipelineState> VROGeometrySubstrateMetal::silhouettePipelineState(VRODriverMetal &metal,
+                                                                              bool skinned,
+                                                                              bool textured) {
+    // A silhouette is drawn into whatever target is bound: the shadow map's depth-only
+    // target, or a colour target during a portal pass. The pipeline's attachment
+    // formats have to match that target, so they are part of the cache key.
+    MTLPixelFormat colorFormat = MTLPixelFormatInvalid;
+    MTLPixelFormat depthFormat = metal.getDepthPixelFormat();
+
+    std::shared_ptr<VRORenderTarget> boundTarget = metal.getRenderTarget();
+    VRORenderTargetMetal *target = dynamic_cast<VRORenderTargetMetal *>(boundTarget.get());
+    if (target && !target->isDisplay()) {
+        id <MTLTexture> color = target->getMetalTexture(0);
+        id <MTLTexture> depth = target->getMetalDepthTexture();
+        colorFormat = color ? color.pixelFormat : MTLPixelFormatInvalid;
+        depthFormat = depth ? depth.pixelFormat : MTLPixelFormatInvalid;
+    } else {
+        colorFormat = metal.getColorPixelFormat();
+    }
+
+    const uint64_t key = (uint64_t)(skinned ? 1 : 0)
+                       | ((uint64_t)(textured ? 1 : 0) << 1)
+                       | ((uint64_t)colorFormat << 8)
+                       | ((uint64_t)depthFormat << 32);
+    auto it = _silhouettePipelineStates.find(key);
+    if (it != _silhouettePipelineStates.end()) {
+        return it->second;
+    }
+
+    id <MTLLibrary> library = metal.getLibrary();
+    if (!library) {
+        return nil;
+    }
+    id <MTLFunction> vertexFunction =
+        [library newFunctionWithName:skinned ? @"silhouette_skinned_vertex" : @"silhouette_vertex"];
+    id <MTLFunction> fragmentFunction =
+        textured ? [library newFunctionWithName:@"silhouette_fragment_textured"] : nil;
+    if (!vertexFunction || (textured && !fragmentFunction)) {
+        pinfo("VROGeometrySubstrateMetal: missing silhouette shader (skinned=%d textured=%d)",
+              skinned, textured);
+        [vertexFunction release];
+        [fragmentFunction release];
+        return nil;
+    }
+
+    MTLRenderPipelineDescriptor *descriptor = [MTLRenderPipelineDescriptor new];
+    descriptor.vertexFunction   = vertexFunction;
+    descriptor.fragmentFunction = fragmentFunction;
+    descriptor.vertexDescriptor = _vertexDescriptor;
+    descriptor.sampleCount      = 1;
+    descriptor.depthAttachmentPixelFormat = depthFormat;
+    if (depthFormat == MTLPixelFormatDepth32Float_Stencil8) {
+        descriptor.stencilAttachmentPixelFormat = depthFormat;
+    }
+    if (colorFormat != MTLPixelFormatInvalid) {
+        descriptor.colorAttachments[0].pixelFormat = colorFormat;
+        // Depth (and stencil) only — leave the colour buffer untouched. This is the
+        // Metal equivalent of VRODriver::setRenderTargetColorWritingMask(VROColorMaskNone),
+        // which cannot be encoder state here because Metal bakes the mask into the pipeline.
+        descriptor.colorAttachments[0].writeMask = MTLColorWriteMaskNone;
+    }
+
+    NSError *error = nil;
+    id <MTLRenderPipelineState> state =
+        [metal.getDevice() newRenderPipelineStateWithDescriptor:descriptor error:&error];
+    [descriptor release];
+    [vertexFunction release];
+    [fragmentFunction release];
+
+    if (!state) {
+        pinfo("VROGeometrySubstrateMetal: silhouette pipeline failed: %s",
+              error ? [[error localizedDescription] UTF8String] : "unknown");
+        return nil;
+    }
+    _silhouettePipelineStates[key] = state;
+    return state;
+}
+
+id <MTLRenderPipelineState> VROGeometrySubstrateMetal::trackingAreaPipelineState(VRODriverMetal &metal,
+                                                                                bool skinned,
+                                                                                MTLPixelFormat colorFormat,
+                                                                                MTLPixelFormat depthFormat) {
+    const uint64_t key = (uint64_t)(skinned ? 1 : 0)
+                       | ((uint64_t)colorFormat << 8)
+                       | ((uint64_t)depthFormat << 32);
+    auto it = _trackingAreaPipelineStates.find(key);
+    if (it != _trackingAreaPipelineStates.end()) {
+        return it->second;
+    }
+
+    id <MTLLibrary> library = metal.getLibrary();
+    if (!library) {
+        return nil;
+    }
+    id <MTLFunction> vertexProgram = [library newFunctionWithName:
+        skinned ? @"tracking_area_skinned_vertex" : @"tracking_area_vertex"];
+    id <MTLFunction> fragmentProgram = [library newFunctionWithName:@"tracking_area_fragment"];
+    if (!vertexProgram || !fragmentProgram) {
+        pinfo("VROGeometrySubstrateMetal: tracking area shaders missing from the library");
+        return nil;
+    }
+
+    MTLRenderPipelineDescriptor *descriptor = [[MTLRenderPipelineDescriptor alloc] init];
+    descriptor.label = @"VROTrackingArea";
+    descriptor.vertexFunction = vertexProgram;
+    descriptor.fragmentFunction = fragmentProgram;
+    descriptor.vertexDescriptor = _vertexDescriptor;
+    descriptor.colorAttachments[0].pixelFormat = colorFormat;
+    descriptor.depthAttachmentPixelFormat = depthFormat;
+    // No blending: this is an id, not a colour. Blending two ids would produce a third that
+    // belongs to nothing.
+    descriptor.colorAttachments[0].blendingEnabled = NO;
+
+    NSError *error = nil;
+    id <MTLRenderPipelineState> pipelineState =
+        [metal.getDevice() newRenderPipelineStateWithDescriptor:descriptor error:&error];
+    if (!pipelineState) {
+        pinfo("VROGeometrySubstrateMetal: tracking area pipeline failed: %s",
+              error.localizedDescription.UTF8String);
+        return nil;
+    }
+    _trackingAreaPipelineStates[key] = pipelineState;
+    return pipelineState;
+}
+
+void VROGeometrySubstrateMetal::renderTrackingArea(const VROGeometry &geometry,
+                                                   const VROMatrix4f &transform,
+                                                   uint32_t renderValue,
+                                                   const VRORenderContext &context,
+                                                   std::shared_ptr<VRODriver> &driver) {
+    VRODriverMetal &metal = (VRODriverMetal &)(*driver);
+    id <MTLRenderCommandEncoder> renderEncoder = metal.getActiveEncoder();
+    if (!renderEncoder) {
+        return;
+    }
+
+    std::shared_ptr<VRORenderTarget> boundTarget = metal.getRenderTarget();
+    VRORenderTargetMetal *target = dynamic_cast<VRORenderTargetMetal *>(boundTarget.get());
+    if (!target) {
+        return;
+    }
+    id <MTLTexture> color = target->getMetalTexture(0);
+    id <MTLTexture> depth = target->getMetalDepthTexture();
+    if (!color) {
+        return;
+    }
+
+    const bool skinned = geometry.getSkinner() != nullptr;
+    id <MTLRenderPipelineState> pipelineState =
+        trackingAreaPipelineState(metal, skinned, color.pixelFormat,
+                                  depth ? depth.pixelFormat : MTLPixelFormatInvalid);
+    if (!pipelineState) {
+        return;
+    }
+
+    VROMatrix4f viewMatrix = context.getViewMatrix();
+    const VROMatrix4f projectionMatrix = context.getProjectionMatrix();
+    if (geometry.isCameraEnclosure()) {
+        viewMatrix = context.getEnclosureViewMatrix();
+    }
+    const VROMatrix4f modelview = viewMatrix.multiply(transform);
+
+    // setVertexBytes rather than the shared uniforms buffer, for the reason documented on the
+    // silhouette path: this is a second draw of the same geometry within one frame, and a shared
+    // slot would be overwritten before the command buffer executes.
+    VROViewUniforms viewUniforms = {};
+    viewUniforms.normal_matrix = toMatrixFloat4x4(transform.invert().transpose());
+    viewUniforms.model_matrix = toMatrixFloat4x4(transform);
+    viewUniforms.modelview_matrix = toMatrixFloat4x4(modelview);
+    viewUniforms.modelview_projection_matrix = toMatrixFloat4x4(projectionMatrix.multiply(modelview));
+    viewUniforms.view_matrix = toMatrixFloat4x4(viewMatrix);
+    viewUniforms.projection_matrix = toMatrixFloat4x4(projectionMatrix);
+    viewUniforms.camera_position = toVectorFloat3(context.getCamera().getPosition());
+
+    [renderEncoder pushDebugGroup:@"VROTrackingArea"];
+    [renderEncoder setRenderPipelineState:pipelineState];
+    [renderEncoder setDepthStencilState:silhouetteDepthState(metal)];
+    [renderEncoder setVertexBytes:&viewUniforms length:sizeof(viewUniforms) atIndex:1];
+
+    const uint32_t value = renderValue;
+    [renderEncoder setFragmentBytes:&value length:sizeof(value) atIndex:2];
+
+    if (skinned && _boneUBO) {
+        _boneUBO->update(geometry.getSkinner());
+        [renderEncoder setVertexBuffer:_boneUBO->getBuffer() offset:0 atIndex:5];
+    }
+
+    for (int i = 0; i < (int)_elements.size(); i++) {
+        if (i < (int)_vars.size()) {
+            [renderEncoder setVertexBuffer:_vars[i].buffer offset:0 atIndex:0];
+        }
+        VROGeometryElementMetal &metalElement = _elements[i];
+        [renderEncoder drawIndexedPrimitives:metalElement.primitiveType
+                                  indexCount:metalElement.indexCount
+                                   indexType:metalElement.indexType
+                                 indexBuffer:metalElement.buffer
+                           indexBufferOffset:0];
+    }
+    [renderEncoder popDebugGroup];
+}
+
+void VROGeometrySubstrateMetal::drawSilhouette(const VROGeometry &geometry,
+                                               int element,
+                                               VROMatrix4f transform,
+                                               std::shared_ptr<VROMaterial> &material,
+                                               bool textured,
+                                               const VRORenderContext &context,
+                                               std::shared_ptr<VRODriver> &driver) {
+    VRODriverMetal &metal = (VRODriverMetal &)(*driver);
+    id <MTLRenderCommandEncoder> renderEncoder = metal.getActiveEncoder();
+    if (!renderEncoder) {
+        return;
+    }
+
+    const bool skinned = geometry.getSkinner() != nullptr;
+    id <MTLRenderPipelineState> pipelineState = silhouettePipelineState(metal, skinned, textured);
+    if (!pipelineState) {
+        return;
+    }
+
+    // The silhouette is rendered from the light's point of view, so the projection and
+    // view matrices here are the shadow pass's, not the camera's.
+    VROMatrix4f viewMatrix = context.getViewMatrix();
+    const VROMatrix4f projectionMatrix = context.getProjectionMatrix();
+    if (geometry.isCameraEnclosure()) {
+        viewMatrix = context.getEnclosureViewMatrix();
+    }
+    const VROMatrix4f modelview = viewMatrix.multiply(transform);
+
+    // Deliberately NOT _viewUniformsBuffer: that buffer has a single slot per
+    // (eye, frame), so the silhouette pass and the main pass would share it. Metal
+    // executes the command buffer after both have written, so the shadow map would be
+    // rendered with whichever matrices were written last — the camera's, not the
+    // light's. setVertexBytes copies into the command buffer at encode time, which is
+    // what a second draw of the same geometry in one frame needs. VROViewUniforms is a
+    // few hundred bytes, far below the setVertexBytes limit.
+    VROViewUniforms viewUniforms = {};
+    viewUniforms.normal_matrix = toMatrixFloat4x4(transform.invert().transpose());
+    viewUniforms.model_matrix = toMatrixFloat4x4(transform);
+    viewUniforms.modelview_matrix = toMatrixFloat4x4(modelview);
+    viewUniforms.modelview_projection_matrix = toMatrixFloat4x4(projectionMatrix.multiply(modelview));
+    viewUniforms.view_matrix = toMatrixFloat4x4(viewMatrix);
+    viewUniforms.projection_matrix = toMatrixFloat4x4(projectionMatrix);
+    viewUniforms.camera_position = toVectorFloat3(context.getCamera().getPosition());
+
+    [renderEncoder pushDebugGroup:@"VROSilhouette"];
+    [renderEncoder setRenderPipelineState:pipelineState];
+    [renderEncoder setDepthStencilState:silhouetteDepthState(metal)];
+    [renderEncoder setVertexBytes:&viewUniforms length:sizeof(viewUniforms) atIndex:1];
+
+    if (skinned && _boneUBO) {
+        _boneUBO->update(geometry.getSkinner());
+        [renderEncoder setVertexBuffer:_boneUBO->getBuffer() offset:0 atIndex:5];
+    }
+
+    if (textured && material) {
+        VROMaterialSubstrateMetal *substrate =
+            static_cast<VROMaterialSubstrateMetal *>(material->getSubstrate(driver));
+        const std::vector<std::shared_ptr<VROTexture>> &textures = substrate->getTextures();
+        if (!textures.empty() && textures[0]) {
+            VROTextureSubstrateMetal *textureSubstrate =
+                (VROTextureSubstrateMetal *)textures[0]->getSubstrate(0, driver, true);
+            if (textureSubstrate) {
+                [renderEncoder setFragmentTexture:textureSubstrate->getTexture() atIndex:0];
+            }
+        }
+    }
+
+    const int first = (element < 0) ? 0 : element;
+    const int last  = (element < 0) ? (int)_elements.size() : (element + 1);
+    for (int i = first; i < last && i < (int)_elements.size(); i++) {
+        if (i < (int)_vars.size()) {
+            [renderEncoder setVertexBuffer:_vars[i].buffer offset:0 atIndex:0];
+        }
+        VROGeometryElementMetal &metalElement = _elements[i];
+        [renderEncoder drawIndexedPrimitives:metalElement.primitiveType
+                                  indexCount:metalElement.indexCount
+                                   indexType:metalElement.indexType
+                                 indexBuffer:metalElement.buffer
+                           indexBufferOffset:0];
+    }
+    [renderEncoder popDebugGroup];
+}
+
+void VROGeometrySubstrateMetal::renderSilhouette(const VROGeometry &geometry,
+                                                 VROMatrix4f transform,
+                                                 std::shared_ptr<VROMaterial> &material,
+                                                 const VRORenderContext &context,
+                                                 std::shared_ptr<VRODriver> &driver) {
+    drawSilhouette(geometry, -1, transform, material, false, context, driver);
+}
+
+void VROGeometrySubstrateMetal::renderSilhouetteTextured(const VROGeometry &geometry,
+                                                         int element,
+                                                         VROMatrix4f transform,
+                                                         std::shared_ptr<VROMaterial> &material,
+                                                         const VRORenderContext &context,
+                                                         std::shared_ptr<VRODriver> &driver) {
+    drawSilhouette(geometry, element, transform, material, true, context, driver);
 }
 
 void VROGeometrySubstrateMetal::renderMaterial(VROMaterialSubstrateMetal *material,
@@ -360,11 +937,16 @@ void VROGeometrySubstrateMetal::renderMaterial(VROMaterialSubstrateMetal *materi
                                                id <MTLRenderCommandEncoder> renderEncoder,
                                                float opacity,
                                                const VRORenderContext &renderContext,
-                                               std::shared_ptr<VRODriver> &driver) {
+                                               std::shared_ptr<VRODriver> &driver,
+                                               int instanceCount) {
     
     int frame = renderContext.getFrame();
     VROEyeType eyeType = renderContext.getEyeType();
     
+    if (!pipelineState) {
+        NSLog(@"[Viro] nil pipelineState for element, skipping draw call");
+        return;
+    }
     [renderEncoder setRenderPipelineState:pipelineState];
     [renderEncoder setDepthStencilState:depthStencilState];
     
@@ -389,12 +971,12 @@ void VROGeometrySubstrateMetal::renderMaterial(VROMaterialSubstrateMetal *materi
     
     const std::vector<std::shared_ptr<VROTexture>> &textures = material->getTextures();
     for (int j = 0; j < textures.size(); ++j) {
-        VROTextureSubstrateMetal *substrate = (VROTextureSubstrateMetal *) textures[j]->getSubstrate(driver);
+        VROTextureSubstrateMetal *substrate = (VROTextureSubstrateMetal *) textures[j]->getSubstrate(0, driver, true);
         if (!substrate) {
             // Use a blank placeholder if a texture is not yet available (i.e.
             // during video texture loading)
-            std::shared_ptr<VROTexture> blank = getBlankTexture();
-            substrate = (VROTextureSubstrateMetal *) blank->getSubstrate(driver);
+            std::shared_ptr<VROTexture> blank = getBlankTexture(VROTextureType::Texture2D);
+            substrate = (VROTextureSubstrateMetal *) blank->getSubstrate(0, driver, true);
         }
         
         [renderEncoder setFragmentTexture:substrate->getTexture() atIndex:j];
@@ -404,7 +986,8 @@ void VROGeometrySubstrateMetal::renderMaterial(VROMaterialSubstrateMetal *materi
                               indexCount:element.indexCount
                                indexType:element.indexType
                              indexBuffer:element.buffer
-                       indexBufferOffset:0];
+                       indexBufferOffset:0
+                           instanceCount:instanceCount];
 }
 
 #endif

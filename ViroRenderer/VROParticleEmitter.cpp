@@ -29,10 +29,14 @@
 #include "VROSurface.h"
 #include "VRONode.h"
 #include "VROBillboardConstraint.h"
-#include "VROParticleUBO.h"
 #include "VROMaterial.h"
-#include "VRODriverOpenGL.h"
 #include "VROPlatformUtil.h"
+#if VRO_METAL
+#  include "VROParticleUBOMetal.h"
+#else
+#  include "VROParticleUBO.h"
+#  include "VRODriverOpenGL.h"
+#endif
 
 VROParticleEmitter::VROParticleEmitter(std::shared_ptr<VRODriver> driver,
                                        std::shared_ptr<VROSurface> particleGeometry) {
@@ -60,7 +64,11 @@ void VROParticleEmitter::initEmitter(std::shared_ptr<VRODriver> driver,
 void VROParticleEmitter::initParticleUBO(std::shared_ptr<VROSurface> particleGeometry,
                                          std::shared_ptr<VRODriver> driver){
     // Create a particleUBO through which to batch particle information to the GPU.
-    std::shared_ptr<VROParticleUBO> particleUBO = std::make_shared<VROParticleUBO>(driver);
+#if VRO_METAL
+    std::shared_ptr<VROInstancedUBO> particleUBO = VROParticleUBOMetal::create(driver);
+#else
+    std::shared_ptr<VROInstancedUBO> particleUBO = std::make_shared<VROParticleUBO>(driver);
+#endif
 
     // Grab shader modifiers defined by the UBO for processing batched data.
     std::vector<std::shared_ptr<VROShaderModifier>> shaderModifiers = particleUBO->createInstanceShaderModifier();
@@ -291,7 +299,11 @@ void VROParticleEmitter::updateParticles(double currentTime,
         box = VROBoundingBox(0, 0, 0, 0, 0, 0);
     }
     std::shared_ptr<VROInstancedUBO> instancedUBO = _particleGeometry->getInstancedUBO();
+#if VRO_METAL
+    std::static_pointer_cast<VROParticleUBOMetal>(instancedUBO)->update(_particles, box);
+#else
     std::static_pointer_cast<VROParticleUBO>(instancedUBO)->update(_particles, box);
+#endif
 }
 
 void VROParticleEmitter::updateParticlePhysics(double currentTime) {

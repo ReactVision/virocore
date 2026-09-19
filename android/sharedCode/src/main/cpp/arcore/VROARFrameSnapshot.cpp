@@ -7,6 +7,7 @@
 //
 
 #include "VROARFrameSnapshot.h"
+#include "VROARCameraARCore.h"
 
 std::shared_ptr<VROARFrame> VROARFrameSnapshot::fromFrame(VROARFrame& src)
 {
@@ -19,6 +20,16 @@ std::shared_ptr<VROARFrame> VROARFrameSnapshot::fromFrame(VROARFrame& src)
     snapCam->_trackingReason = cam->getLimitedTrackingStateReason();
     snapCam->_rotation       = cam->getRotation();
     snapCam->_position       = cam->getPosition();
+    // The feature extractor pairs this pose with the landscape CPU image, and
+    // getRotation() is ARCore's display-oriented pose: on a portrait phone that
+    // is rolled 90 degrees about the optical axis relative to the image, so
+    // rays were cast rotated and only near-axis points survived triangulation
+    // (8% against iOS's 32%, measured 16 Sep 2026). ARKit's camera transform
+    // is the sensor pose, which is why iOS never had this.
+    if (auto *arcoreCam = dynamic_cast<VROARCameraARCore *>(cam.get())) {
+        snapCam->_rotation = arcoreCam->getImageRotation();
+        snapCam->_position = arcoreCam->getImagePosition();
+    }
     // NOTE: Do NOT call cam->getImageSize() here.  On ARCore it triggers
     // acquireCameraImage() which holds a CPU image buffer.  ARCore's default
     // concurrent-image limit is 1, so holding one here prevents the later
@@ -30,6 +41,11 @@ std::shared_ptr<VROARFrame> VROARFrameSnapshot::fromFrame(VROARFrame& src)
     // dummy viewport below gives the same matrix as any real viewport.
     snapCam->_projection = cam->getProjection(VROViewport(0, 0, 1, 1),
                                                0.01f, 100.0f, nullptr);
+
+    // Safe beside the note above: the ARCore override reads the ArCamera and
+    // acquires no image.
+    snapCam->_hasIntrinsics = cam->getImageIntrinsics(&snapCam->_fx, &snapCam->_fy,
+                                                      &snapCam->_cx, &snapCam->_cy);
 
     // ── Point cloud snapshot (deep copy) ─────────────────────────────────────
     std::shared_ptr<VROARPointCloud> snapPc;

@@ -27,6 +27,9 @@
 #ifndef VRODisplayOpenGL_h
 #define VRODisplayOpenGL_h
 
+#include "VRODefines.h"
+#if !VRO_METAL
+
 #include "VRORenderTargetOpenGL.h"
 #include "VROOpenGL.h"
 
@@ -62,4 +65,5 @@ public:
     
 };
 
+#endif  // !VRO_METAL
 #endif /* VRODisplayOpenGL_h */

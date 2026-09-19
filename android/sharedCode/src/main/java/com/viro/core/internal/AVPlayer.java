@@ -35,6 +35,7 @@ import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
+import androidx.media3.common.VideoSize;
 import androidx.media3.common.util.Util;
 import androidx.media3.datasource.DataSource;
 import androidx.media3.datasource.DefaultDataSourceFactory;
@@ -157,6 +158,20 @@ public class AVPlayer {
                         }
                         if (!mDestroyed) nativeOnFinished(mNativeReference);
                         break;
+                }
+            }
+
+            @Override
+            public void onVideoSizeChanged(@NonNull VideoSize videoSize) {
+                if (videoSize.width == 0 || videoSize.height == 0) {
+                    return;
+                }
+                // width is the coded width; anamorphic content displays at
+                // width * pixelWidthHeightRatio. Rotation is already applied.
+                if (!mDestroyed) {
+                    nativeOnVideoSizeChanged(mNativeReference,
+                            videoSize.width * videoSize.pixelWidthHeightRatio,
+                            videoSize.height);
                 }
             }
 
@@ -452,5 +467,7 @@ public class AVPlayer {
     private native void nativeDidBuffer(long ref);
 
     private native void nativeOnError(long ref, String error);
+
+    private native void nativeOnVideoSizeChanged(long ref, float width, float height);
 }
 

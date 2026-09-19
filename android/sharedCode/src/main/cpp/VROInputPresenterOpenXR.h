@@ -121,6 +121,10 @@ private:
         laser.node->setName("AimLaser");
         laser.node->setGeometry(laser.geom);
         laser.node->setHidden(true);  // hidden until first updateAimRay()
+        // The beam's AABB spans controller to hit point, so its own ray runs
+        // through it corner to corner and would out-sort the aimed node.
+        laser.node->setSelectable(false);
+        laser.node->setIgnoreEventHandling(true);
         _rootNode->addChildNode(laser.node);
 
         return _lasers.emplace(source, std::move(laser)).first->second;

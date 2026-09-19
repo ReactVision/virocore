@@ -112,6 +112,37 @@ VROMatrix4f VROMathComputePerspectiveProjection(float fovyInDegrees, float aspec
     return result;
 }
 
+VROMatrix4f VROMathComputePerspectiveProjectionZeroToOne(float fovyInDegrees, float aspect,
+                                                        float zNear, float zFar) {
+    float rad = degrees_to_radians(fovyInDegrees);
+    float tanHalfFovy = tan(rad / 2);
+
+    VROMatrix4f result;
+    result[0]  = 1 / (aspect * tanHalfFovy);
+    result[5]  = 1 / (tanHalfFovy);
+    result[11] = -1;
+
+    result[10] = -zFar / (zFar - zNear);
+    result[14] = -(zFar * zNear) / (zFar - zNear);
+    result[15] = 0;
+
+    return result;
+}
+
+VROMatrix4f VROMathComputeOrthographicProjectionZeroToOne(float left, float right,
+                                                         float bottom, float top,
+                                                         float near, float far) {
+    VROMatrix4f projection;
+    projection[0]  =  2.0 / (right - left);
+    projection[5]  =  2.0 / (top - bottom);
+    projection[10] = -1.0 / (far - near);
+    projection[12] = -(right + left) / (right - left);
+    projection[13] = -(top + bottom) / (top - bottom);
+    projection[14] = -near / (far - near);
+
+    return projection;
+}
+
 VROMatrix4f VROMathComputeOrthographicProjection(float left, float right, float bottom, float top,
                                                  float near, float far) {
     VROMatrix4f projection;

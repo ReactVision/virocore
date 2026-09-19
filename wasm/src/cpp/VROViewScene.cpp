@@ -84,7 +84,8 @@ void VROViewScene::drawFrame() {
     }
     
     VROFieldOfView fov = _renderer->computeUserFieldOfView(viewport.getWidth(), viewport.getHeight());
-    VROMatrix4f projection = fov.toPerspectiveProjection(kZNear, _renderer->getFarClippingPlane());
+    VROMatrix4f projection = _renderer->computeProjection(viewport.getWidth(), viewport.getHeight(),
+                                                         kZNear, _renderer->getFarClippingPlane());
     
     _renderer->setClearColor({0.8, 0.8, 0.8, 1.0}, _driver);
     

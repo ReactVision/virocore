@@ -29,6 +29,8 @@
 
 #include <functional>
 #include <memory>
+#include <utility>
+#include <vector>
 #include <openxr/openxr.h>
 #include "VROInputControllerBase.h"
 
@@ -103,7 +105,21 @@ protected:
     std::shared_ptr<VROInputPresenter> createPresenter(
         std::shared_ptr<VRODriver> driver) override;
 
+    /*
+     * Buttons ride their hand's aim ray: grip / A / thumbstick → Controller,
+     * grip / X / Y / thumbstick → LeftController. BackButton is shared by B
+     * and Menu, so it stays unmapped.
+     */
+    int rayForSource(int source) const override;
+
 private:
+    /*
+     * Buttons and gestures are polled before this frame's hit update, so
+     * their edges are queued and flushed at the end of onProcess.
+     */
+    void queueButtonEvent(int source, VROEventDelegate::ClickState state);
+    std::vector<std::pair<int, VROEventDelegate::ClickState>> _pendingButtons;
+
     // ── Action set ────────────────────────────────────────────────────────────
     XrActionSet _actionSet = XR_NULL_HANDLE;
 

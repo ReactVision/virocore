@@ -99,12 +99,20 @@ public:
     virtual void onPrepared();
     virtual void onFinished();
     virtual void onError(std::string error);
+    virtual void onVideoSizeChanged(float width, float height);
 
 private:
 
     VROAVPlayer *_player;
     GLuint _textureId;
     std::weak_ptr<VRODriverOpenGL> _driver;
+
+    /*
+     Last size the player reported, held because it can arrive before a delegate
+     is attached. Zero until the source is prepared.
+     */
+    float _videoWidth = 0;
+    float _videoHeight = 0;
 
 };
 

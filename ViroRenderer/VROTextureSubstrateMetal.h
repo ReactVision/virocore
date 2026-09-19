@@ -28,12 +28,12 @@
 #define VROTextureSubstrateMetal_h
 
 #include "VRODefines.h"
-#if VRO_METAL
+#if VRO_METAL && defined(__OBJC__)
 
-#include <UIKit/UIKit.h>
 #include <Metal/Metal.h>
 #include <vector>
 #include "VROTextureSubstrate.h"
+#include "VROTexture.h"
 #include "VROAllocationTracker.h"
 
 enum class VROTextureType;
@@ -75,7 +75,11 @@ public:
     void setTexture(id <MTLTexture> texture) {
         _texture = texture;
     }
-    
+
+    void updateWrapMode(VROWrapMode wrapModeS, VROWrapMode wrapModeT) override {
+        // Metal wrap modes are baked into the MTLSamplerState at pipeline creation time.
+    }
+
 private:
   
     id <MTLTexture> _texture;

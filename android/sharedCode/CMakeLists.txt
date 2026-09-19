@@ -16,7 +16,6 @@ include_directories(${VIRO_RENDERER_SRC}
                     ${VIRO_CAPI_SRC}
                     ${VIRO_ANDROID_SRC}
                     ${VIRO_ANDROID_SRC}/jni
-                    ${VIRO_ANDROID_SRC}/include        # OpenXR headers (bundled fallback)
                     ${VIRO_ANDROID_INCLUDES}/gvr/include
                     ${VIRO_ANDROID_INCLUDES}/ovr/include
                     ${VIRO_ANDROID_INCLUDES}/freetype/include
@@ -29,6 +28,8 @@ include_directories(${VIRO_RENDERER_SRC}
 # AAR is sourced from Khronos GitHub releases (openxr_sdk/maven local repo).
 # Prefab package name: OpenXR  |  module: openxr_loader
 # Requires buildFeatures { prefab true } in viroreact/build.gradle
+# Keep src/main/cpp/include off the include path: prefab contributes its headers
+# as -isystem, so any -I copy of openxr/ shadows them at whatever version it froze at.
 find_package(OpenXR REQUIRED CONFIG)
 set(OPENXR_LINK_LIB OpenXR::openxr_loader)
 message(STATUS "OpenXR loader: FOUND via Prefab (OpenXR::openxr_loader)")
@@ -59,6 +60,8 @@ add_library( # Sets the name of the library.
              # dependency, which was not 16 KB-page compliant (see viro#491).
              ${VIRO_ANDROID_SRC}/VROSceneRendererOpenXR.cpp
              ${VIRO_ANDROID_SRC}/VROARSessionOpenXR.cpp
+             ${VIRO_ANDROID_SRC}/VROARSessionOpenXRSharedFrame.cpp
+             ${VIRO_ANDROID_SRC}/Colocation_JNI.cpp
              ${VIRO_ANDROID_SRC}/VROSceneRendererSceneView.cpp
              ${VIRO_ANDROID_SRC}/VROSample.cpp
              ${VIRO_ANDROID_SRC}/VROImageAndroid.cpp
@@ -195,6 +198,7 @@ add_library( # Sets the name of the library.
              ${VIRO_RENDERER_SRC}/VROBoneConstraint.cpp
              ${VIRO_RENDERER_SRC}/VROTransformConstraint.cpp
              ${VIRO_RENDERER_SRC}/VRORenderer.cpp
+             ${VIRO_RENDERER_SRC}/VROColocationSession.cpp
              ${VIRO_RENDERER_SRC}/VROFrameSynchronizerInternal.cpp
              ${VIRO_RENDERER_SRC}/VROPortalTraversalListener.cpp
              ${VIRO_RENDERER_SRC}/VROGeometrySubstrate.cpp

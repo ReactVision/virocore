@@ -71,7 +71,17 @@ void VROImageWasm::initFromData(void *data, int length, const char *ext) {
         }
     }
 
-    _format = bytesPerPixel <= 3 ? VROTextureFormat::RGB8 : VROTextureFormat::RGBA8;
+    /*
+     RGBA8 either way, because by here the surface is RGBA8 either way: anything
+     that arrived with three bytes per pixel went through convertToRGBA8 just
+     above. Saying RGB8 here used to be the one thing that made a JPEG different
+     from a PNG, and it was not a label — VROImage::getData reports the buffer as
+     width * height * 3 for RGB8, so glTexImage2D read width * height * 4 out of
+     a buffer declared a quarter shorter and textured the model with whatever
+     followed it on the heap. Only JPEGs hit it: a PNG with alpha already has
+     four bytes and skips the conversion entirely.
+     */
+    _format = VROTextureFormat::RGBA8;
     _internalFormat = VROTextureInternalFormat::RGBA8;
 }
 

@@ -132,6 +132,30 @@ VRO_METHOD(void, nativeSetFieldOfView)(VRO_ARGS
     });
 }
 
+VRO_METHOD(void, nativeSetProjectionType)(VRO_ARGS
+                                         VRO_REF(VRONodeCamera) camera_j, VRO_BOOL orthographic) {
+    std::weak_ptr<VRONodeCamera> camera_w = VRO_REF_GET(VRONodeCamera, camera_j);
+    VROPlatformDispatchAsyncRenderer([camera_w, orthographic] {
+        std::shared_ptr<VRONodeCamera> camera = camera_w.lock();
+        if (camera) {
+            camera->setProjectionType(orthographic ? VROCameraProjectionType::Orthographic
+                                                   : VROCameraProjectionType::Perspective);
+        }
+    });
+}
+
+VRO_METHOD(void, nativeSetOrthographicScale)(VRO_ARGS
+                                             VRO_REF(VRONodeCamera) camera_j, VRO_FLOAT scale) {
+    std::weak_ptr<VRONodeCamera> camera_w = VRO_REF_GET(VRONodeCamera, camera_j);
+    VROPlatformDispatchAsyncRenderer([camera_w, scale] {
+        std::shared_ptr<VRONodeCamera> camera = camera_w.lock();
+        if (camera) {
+            // The height alone; the renderer derives the width from the viewport aspect ratio.
+            camera->setOrthographicHeight(scale);
+        }
+    });
+}
+
 VRO_METHOD(void, nativeSetRefNodeToCopyRotation)(VRO_ARGS VRO_REF(VRONodeCamera) camera_j, VRO_REF(VRONode) node_j) {
     std::weak_ptr<VRONodeCamera> camera_w = VRO_REF_GET(VRONodeCamera, camera_j);
     VROPlatformDispatchAsyncRenderer([camera_w, node_j] {

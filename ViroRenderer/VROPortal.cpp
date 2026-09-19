@@ -104,7 +104,7 @@ void VROPortal::traversePortals(int frame, int recursionLevel,
 void VROPortal::sortNodesBySortKeys() {
     _keys.clear();
     getSortKeysForVisibleNodes(&_keys);
-    
+
     std::sort(_keys.begin(), _keys.end());
 }
 

@@ -600,6 +600,17 @@ namespace arcore {
         ArCamera_release(camera);
     }
 
+    void FrameNative::getCameraPose(float *outMatrix) {
+        ArCamera *camera;
+        ArFrame_acquireCamera(_session, _frame, &camera);
+        ArPose *pose;
+        ArPose_create(_session, nullptr, &pose);
+        ArCamera_getPose(_session, camera, pose);
+        ArPose_getMatrix(_session, pose, outMatrix);
+        ArPose_destroy(pose);
+        ArCamera_release(camera);
+    }
+
     void FrameNative::getProjectionMatrix(float near, float far, float *outMatrix) {
         ArCamera *camera;
         ArFrame_acquireCamera(_session, _frame, &camera);

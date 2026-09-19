@@ -1,5 +1,41 @@
 # ViroRenderer on WebAssembly
 
+## Building the shipped renderer
+
+`build_web.sh` is the one that matters: it produces the three files
+`@reactvision/viro-web-renderer` publishes, and through that package everything
+Viro renders on the web.
+
+```sh
+source ~/emsdk/emsdk_env.sh
+./build_web.sh
+# → products/build/viro-web.{js,wasm,data}
+```
+
+Then, from the package beside this checkout:
+
+```sh
+cd ../../viro-web-renderer && npm run copy-wasm && npm test
+```
+
+Its test suite is what catches the two ways this goes wrong: a binary older than
+the TypeScript declared over it, and a preloaded font the package may not
+redistribute.
+
+Build from a clean tree. The script stamps the commit into the binary and
+appends `-dirty` when the working copy has changes, which is the difference
+between an artifact someone else can reproduce and one only your machine ever
+had.
+
+### What gets baked in
+
+`preload/` is embedded into `viro-web.data` with emscripten's `--preload-file`,
+so **everything in that directory is redistributed with the package**. It holds
+the GLSL the renderer loads at runtime and one font, `Roboto.ttf` — Apache 2.0,
+with its licence beside it, and the same face Viro renders text in on Android
+and Quest. A font that cannot be redistributed cannot go in there; that mistake
+held the package at unpublished for weeks.
+
 ## Command line builds
 
 1. Download Emscripten

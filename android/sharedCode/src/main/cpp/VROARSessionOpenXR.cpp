@@ -195,6 +195,16 @@ bool VROARSessionOpenXR::initSceneDetection(XrInstance instance, XrSession sessi
     }
     _sceneAvailable = true;
     ALOGV("XR_FB_scene initialised (room model from Space Setup)");
+
+    // Shared coordinate frames (CL-H) ride on the same extension family. Loaded
+    // best-effort and separately from `ok`: a runtime without group sharing must
+    // still get the room model, which is the thing most Quest apps actually use.
+    bool sharing = true;
+    sharing &= loadFn("xrCreateSpatialAnchorFB", (void **)&_pfnCreateSpatialAnchor);
+    sharing &= loadFn("xrShareSpacesMETA",       (void **)&_pfnShareSpaces);
+    _sharingAvailable = sharing;
+    ALOGV("shared coordinate frames: %s", sharing ? "available" : "unavailable");
+
     return true;
 }
 
@@ -492,11 +502,27 @@ void VROARSessionOpenXR::onSpatialEvent(const XrEventDataBuffer &event) {
     switch (event.type) {
         case XR_TYPE_EVENT_DATA_SPACE_QUERY_RESULTS_AVAILABLE_FB: {
             auto *ev = reinterpret_cast<const XrEventDataSpaceQueryResultsAvailableFB *>(&event);
-            processSceneQueryResults(ev->requestId);
+            // Both the room-model query and the shared-frame group query land
+            // here; the request id is what tells them apart.
+            if (_sharedFrame.phase == SharedFrameOp::Phase::Querying &&
+                ev->requestId == _sharedFrame.requestId) {
+                processSharedFrameQueryResults(ev->requestId);
+            } else {
+                processSceneQueryResults(ev->requestId);
+            }
             break;
         }
         case XR_TYPE_EVENT_DATA_SPACE_QUERY_COMPLETE_FB: {
             auto *ev = reinterpret_cast<const XrEventDataSpaceQueryCompleteFB *>(&event);
+            if (_sharedFrame.phase == SharedFrameOp::Phase::Querying &&
+                ev->requestId == _sharedFrame.requestId) {
+                // Completing while still in Querying means the results event
+                // never produced a space — nobody has shared to this group yet.
+                finishSharedFrame(false, XR_FAILED(ev->result)
+                    ? "group query failed: " + std::to_string((int)ev->result)
+                    : "no shared frame published to this group yet");
+                break;
+            }
             if (XR_FAILED(ev->result)) {
                 ALOGW("space query completed with error: %d", (int)ev->result);
             }
@@ -504,12 +530,101 @@ void VROARSessionOpenXR::onSpatialEvent(const XrEventDataBuffer &event) {
             break;
         }
         case XR_TYPE_EVENT_DATA_SPACE_SET_STATUS_COMPLETE_FB: {
+            auto *ev = reinterpret_cast<const XrEventDataSpaceSetStatusCompleteFB *>(&event);
+
+            // Shared-frame path owns this event while an operation is running on
+            // the space it names; the scene path re-arms for everything else.
+            if (_sharedFrame.phase == SharedFrameOp::Phase::EnablingComponents &&
+                ev->space == _sharedFrame.space) {
+                if (XR_FAILED(ev->result)) {
+                    finishSharedFrame(false, "enabling anchor component failed: " +
+                                              std::to_string((int)ev->result));
+                    break;
+                }
+                if (--_sharedFrame.pendingComponents > 0) break;
+
+                if (_sharedFrame.joining) {
+                    locateAndReportSharedFrame();
+                } else {
+                    XrShareSpacesRecipientGroupsMETA recipients{
+                        (XrStructureType)XR_TYPE_SHARE_SPACES_RECIPIENT_GROUPS_META };
+                    recipients.groupCount = 1;
+                    recipients.groups     = &_sharedFrame.groupUuid;
+
+                    XrShareSpacesInfoMETA share{
+                        (XrStructureType)XR_TYPE_SHARE_SPACES_INFO_META };
+                    share.spaceCount    = 1;
+                    share.spaces        = &_sharedFrame.space;
+                    share.recipientInfo =
+                        reinterpret_cast<const XrShareSpacesRecipientBaseHeaderMETA *>(&recipients);
+
+                    XrAsyncRequestIdFB requestId = 0;
+                    XrResult r = _pfnShareSpaces(_session, &share, &requestId);
+                    if (XR_FAILED(r)) {
+                        finishSharedFrame(false, "xrShareSpacesMETA failed: " +
+                                                  std::to_string((int)r));
+                        break;
+                    }
+                    _sharedFrame.requestId = requestId;
+                    _sharedFrame.phase     = SharedFrameOp::Phase::Sharing;
+                }
+                break;
+            }
+
             // A component (LOCATABLE) finished enabling — re-query promptly so the
             // now-locatable plane gets built without waiting the full cadence.
-            auto *ev = reinterpret_cast<const XrEventDataSpaceSetStatusCompleteFB *>(&event);
             if (!XR_FAILED(ev->result) && !_sceneQueryInFlight) {
                 _lastSceneQuery = std::chrono::steady_clock::time_point{};  // re-arm next frame
             }
+            break;
+        }
+
+        case XR_TYPE_EVENT_DATA_SPATIAL_ANCHOR_CREATE_COMPLETE_FB: {
+            auto *ev = reinterpret_cast<const XrEventDataSpatialAnchorCreateCompleteFB *>(&event);
+            if (_sharedFrame.phase != SharedFrameOp::Phase::Creating ||
+                ev->requestId != _sharedFrame.requestId) break;
+
+            if (XR_FAILED(ev->result)) {
+                finishSharedFrame(false, "anchor creation failed: " +
+                                          std::to_string((int)ev->result));
+                break;
+            }
+
+            _sharedFrame.space     = ev->space;
+            _sharedFrame.spaceUuid = ev->uuid;
+            _sharedFrame.phase     = SharedFrameOp::Phase::EnablingComponents;
+
+            // STORABLE before SHARABLE: an anchor that is not saved locally has
+            // nothing to hand over. Each returns true only when it will actually
+            // raise a completion event, so already-enabled does not hang the count.
+            int pending = 0;
+            if (enableSharedFrameComponent(ev->space, XR_SPACE_COMPONENT_TYPE_STORABLE_FB)) pending++;
+            if (enableSharedFrameComponent(ev->space, XR_SPACE_COMPONENT_TYPE_SHARABLE_FB)) pending++;
+            _sharedFrame.pendingComponents = pending;
+
+            // Nothing to wait for — both were already enabled.
+            if (pending == 0) {
+                _sharedFrame.pendingComponents = 1;
+                XrEventDataSpaceSetStatusCompleteFB synthetic{
+                    XR_TYPE_EVENT_DATA_SPACE_SET_STATUS_COMPLETE_FB };
+                synthetic.result = XR_SUCCESS;
+                synthetic.space  = ev->space;
+                onSpatialEvent(*reinterpret_cast<const XrEventDataBuffer *>(&synthetic));
+            }
+            break;
+        }
+
+        case XR_TYPE_EVENT_DATA_SHARE_SPACES_COMPLETE_META: {
+            auto *ev = reinterpret_cast<const XrEventDataShareSpacesCompleteMETA *>(&event);
+            if (_sharedFrame.phase != SharedFrameOp::Phase::Sharing ||
+                ev->requestId != _sharedFrame.requestId) break;
+
+            if (XR_FAILED(ev->result)) {
+                finishSharedFrame(false, "sharing the frame failed: " +
+                                          std::to_string((int)ev->result));
+                break;
+            }
+            locateAndReportSharedFrame();
             break;
         }
         default:

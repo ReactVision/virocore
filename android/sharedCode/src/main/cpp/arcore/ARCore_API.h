@@ -321,6 +321,14 @@ namespace arcore {
     public:
         virtual ~Frame() {}
         virtual void getViewMatrix(float *outMatrix) = 0;
+        /*
+         Pose of the physical camera, column-major, axes aligned with the CPU
+         image (+X along a readout row, +Y up the image, -Z forward). The view
+         matrix above inverts the *display-oriented* pose, which is this rotated
+         by the display rotation: on a portrait phone the two differ by a 90
+         degree roll about the optical axis.
+         */
+        virtual void getCameraPose(float *outMatrix) = 0;
         virtual void getProjectionMatrix(float near, float far, float *outMatrix) = 0;
         virtual void getImageIntrinsics(float *outFx, float *outFy, float *outCx, float *outCy) = 0;
         virtual TrackingState getTrackingState() = 0;

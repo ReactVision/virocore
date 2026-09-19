@@ -121,6 +121,21 @@ void VROARScene::setARSession(std::shared_ptr<VROARSession> arSession) {
     }
 
     arSession->setAnchorDetection(_detectionTypes);
+
+    std::vector<std::function<void(std::shared_ptr<VROARSession>)>> tasks;
+    tasks.swap(_sessionReadyTasks);
+    for (auto &task : tasks) {
+        task(arSession);
+    }
+}
+
+void VROARScene::runWhenARSessionReady(std::function<void(std::shared_ptr<VROARSession>)> task) {
+    std::shared_ptr<VROARSession> arSession = _arSession.lock();
+    if (arSession) {
+        task(arSession);
+    } else {
+        _sessionReadyTasks.push_back(std::move(task));
+    }
 }
 
 void VROARScene::setDriver(std::shared_ptr<VRODriver> driver) {

@@ -81,6 +81,18 @@ extern "C" {
         }
     }
 
+    VRO_METHOD(void, nativeOnVideoSizeChanged)(JNIEnv *env,
+                                               jclass clazz,
+                                               jlong nativePlayerRef,
+                                               jfloat width,
+                                               jfloat height) {
+        std::weak_ptr<VROAVPlayerDelegate> delegateWeak
+                = native(nativePlayerRef)->getDelegate();
+        if(auto tmp = delegateWeak.lock()){
+            tmp->onVideoSizeChanged(width, height);
+        }
+    }
+
     VRO_METHOD(void, nativeOnError)(JNIEnv *env,
                                     jclass clazz,
                                     jlong nativePlayerRef,

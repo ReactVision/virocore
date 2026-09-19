@@ -71,6 +71,15 @@ public:
     /* Forward FB spatial-query events (polled by the renderer's xrPollEvent loop). */
     void onSpatialEvent(const XrEventDataBuffer &event);
 
+    // ── Shared coordinate frame (CL-H) ─────────────────────────────────────────
+    bool rvSupportsSharedFrame() override;
+    void rvCreateSharedFrame(
+        std::string groupId,
+        std::function<void(bool, std::string, std::string, std::string)> callback) override;
+    void rvJoinSharedFrame(
+        std::string groupId,
+        std::function<void(bool, std::string, std::string, std::string)> callback) override;
+
     /* Tear down detectors. Call from the renderer's destroySession(). */
     void destroyPlaneDetector();
 
@@ -154,6 +163,42 @@ private:
     std::map<uint64_t, std::shared_ptr<VROARPlaneAnchor>> _scenePlanes; // FB path (XrSpace handle)
 
     std::unique_ptr<VROARFrame> _currentFrame;
+
+    // ── Shared frame: XR_FB_spatial_entity + XR_META_spatial_entity_group_sharing
+    //
+    // Group sharing rather than XR_FB_spatial_entity_sharing on purpose: the FB
+    // path shares to XrSpaceUserFB handles built from Meta account ids, which
+    // only the Meta Platform SDK can supply and which this repo does not carry.
+    // Group sharing keys off an app-chosen UUID instead, so the whole flow stays
+    // inside OpenXR — and that UUID doubles as the co-location room key.
+    bool _sharingAvailable = false;
+    PFN_xrCreateSpatialAnchorFB _pfnCreateSpatialAnchor = nullptr;
+    PFN_xrShareSpacesMETA       _pfnShareSpaces         = nullptr;
+
+    using SharedFrameCallback =
+        std::function<void(bool, std::string, std::string, std::string)>;
+
+    // One shared-frame operation at a time. Two in flight would race on the
+    // component-enable events, which carry no correlation back to the request
+    // that asked for them — only the XrSpace they apply to.
+    struct SharedFrameOp {
+        enum class Phase { Idle, Creating, EnablingComponents, Sharing, Querying, Locating };
+        Phase             phase = Phase::Idle;
+        bool              joining = false;      // join vs create
+        XrUuid            groupUuid{};
+        XrSpace           space = XR_NULL_HANDLE;
+        XrUuidEXT         spaceUuid{};
+        XrAsyncRequestIdFB requestId = 0;
+        int               pendingComponents = 0;
+        SharedFrameCallback callback;
+    };
+    SharedFrameOp _sharedFrame;
+
+    void finishSharedFrame(bool success, const std::string &error);
+    bool enableSharedFrameComponent(XrSpace space, XrSpaceComponentTypeFB component);
+    void locateAndReportSharedFrame();
+    void beginGroupQuery();
+    void processSharedFrameQueryResults(XrAsyncRequestIdFB requestId);
 
     // ── EXT helpers ─────────────────────────────────────────────────────────
     void beginDetectionSweep();

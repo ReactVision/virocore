@@ -132,6 +132,9 @@ void VROVideoTextureiOS::setDelegate(std::shared_ptr<VROVideoDelegateInternal> d
     if (_videoNotificationListener) {
         [_videoNotificationListener setDelegate:delegate];
     }
+    // The delegate is usually set after loadVideo, so a player that is already
+    // ready has nothing left to fire.
+    notifyVideoSize();
 }
 
 void VROVideoTextureiOS::playerWillBuffer() {
@@ -146,6 +149,21 @@ void VROVideoTextureiOS::playerDidBuffer() {
     if (delegate) {
         delegate->videoDidBuffer();
     }
+}
+
+void VROVideoTextureiOS::notifyVideoSize() {
+    std::shared_ptr<VROVideoDelegateInternal> delegate = _delegate.lock();
+    if (!delegate) {
+        return;
+    }
+
+    // Zero until the asset's tracks have loaded, which for a remote URL is well
+    // after loadVideo returns.
+    VROVector3f dimensions = getVideoDimensions();
+    if (dimensions.x <= 0 || dimensions.y <= 0) {
+        return;
+    }
+    delegate->videoDidChangeSize(dimensions.x, dimensions.y);
 }
 
 VROVector3f VROVideoTextureiOS::getVideoDimensions() {
@@ -504,6 +522,7 @@ CMSampleBufferRef VROVideoTextureiOS::getSampleBuffer() const {
             // so return to main
             dispatch_async(dispatch_get_main_queue(), ^{
                 [self attachVideoOutput];
+                self->_texture->notifyVideoSize();
             });
 
         }

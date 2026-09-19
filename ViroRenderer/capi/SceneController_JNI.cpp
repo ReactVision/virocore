@@ -240,6 +240,22 @@ VRO_METHOD(void, nativeSetPhysicsWorldGravity)(VRO_ARGS
     });
 }
 
+// PBR requires HDR (VROChoreographer::isPBREnabled is _hdrEnabled && _pbrEnabled),
+// so an app that wants untouched colours cannot get them by switching HDR off
+// without losing every PBR material. This is the other lever: keep HDR on and put
+// the tone mapping pass in Disabled, which passes the HDR colour straight through.
+VRO_METHOD(void, nativeSetToneMappingEnabled)(VRO_ARGS
+                                              VRO_REF(VROSceneController) sceneRef,
+                                              VRO_BOOL enabled) {
+    std::weak_ptr<VROSceneController> sceneController_w = VRO_REF_GET(VROSceneController, sceneRef);
+    VROPlatformDispatchAsyncRenderer([sceneController_w, enabled] {
+        std::shared_ptr<VROSceneController> sceneController = sceneController_w.lock();
+        if (sceneController && sceneController->getScene()) {
+            sceneController->getScene()->setToneMappingEnabled(enabled);
+        }
+    });
+}
+
 VRO_METHOD(void, nativeSetPhysicsWorldDebugDraw)(VRO_ARGS
                                                  VRO_REF(VROSceneController) sceneRef,
                                                  VRO_BOOL debugDraw) {

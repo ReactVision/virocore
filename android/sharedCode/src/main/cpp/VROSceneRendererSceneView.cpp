@@ -86,7 +86,8 @@ void VROSceneRendererSceneView::renderFrame() {
 
     VROViewport viewport(0, 0, _surfaceSize.width, _surfaceSize.height);
     VROFieldOfView fov = _renderer->computeUserFieldOfView(viewport.getWidth(), viewport.getHeight());
-    VROMatrix4f projection = fov.toPerspectiveProjection(kZNear, _renderer->getFarClippingPlane());
+    VROMatrix4f projection = _renderer->computeProjection(viewport.getWidth(), viewport.getHeight(),
+                                                         kZNear, _renderer->getFarClippingPlane());
 
     _renderer->prepareFrame(_frame, viewport, fov, VROMatrix4f::identity(), projection, _driver);
     _renderer->renderEye(VROEyeType::Monocular, _renderer->getLookAtMatrix(), projection, viewport, _driver);

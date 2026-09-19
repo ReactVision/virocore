@@ -896,10 +896,31 @@ void VROARSessionARCore::hostCloudAnchor(
   }
 
   if (_cloudAnchorMode == arcore::CloudAnchorMode::Disabled) {
-    pwarn("Cloud anchors are disabled, ignoring anchor host request");
+    // Answered, not dropped: a silent return leaves the caller's promise open.
+    if (onFailure) onFailure("Cloud anchors are disabled: set cloudAnchorProvider, and the API key for reactvision");
     return;
   }
   _cloudAnchorProvider->hostCloudAnchor(anchor, ttlDays, onSuccess, onFailure);
+}
+
+bool VROARSessionARCore::getCloudAnchorStatus(std::string &message, float &progress) {
+#if RVCCA_AVAILABLE
+  if (!_cloudAnchorProviderRV) return false;
+  auto provider = _cloudAnchorProviderRV->getProvider();
+  if (!provider) return false;
+
+  // One operation at a time in practice, and the first is the one a caller is
+  // waiting on: a second resolve of the same anchor replaces nothing, it queues.
+  std::vector<std::string> ids = provider->getActiveOperations();
+  if (ids.empty()) return false;
+
+  auto status = provider->getOperationStatus(ids.front());
+  message  = status.message;
+  progress = status.progress;
+  return true;
+#else
+  return false;
+#endif
 }
 
 void VROARSessionARCore::resolveCloudAnchor(
@@ -914,7 +935,8 @@ void VROARSessionARCore::resolveCloudAnchor(
   }
 
   if (_cloudAnchorMode == arcore::CloudAnchorMode::Disabled) {
-    pwarn("Cloud anchors are disabled, ignoring anchor resolve request");
+    // Answered, not dropped: a silent return leaves the caller's promise open.
+    if (onFailure) onFailure("Cloud anchors are disabled: set cloudAnchorProvider, and the API key for reactvision");
     return;
   }
   _cloudAnchorProvider->resolveCloudAnchor(cloudAnchorId, onSuccess, onFailure);

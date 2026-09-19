@@ -196,7 +196,8 @@ VRO_METHOD(VRO_REF(VROMaterial), nativeCreateImmutableMaterial)(VRO_ARGS
                                                    VRO_STRING lightingModel, VRO_LONG diffuseColor, VRO_REF(VROTexture) diffuseTexture,
                                                    VRO_FLOAT diffuseIntensity, VRO_REF(VROTexture) specularTexture,
                                                    VRO_FLOAT shininess, VRO_FLOAT fresnelExponent, VRO_REF(VROTexture) normalMap, VRO_STRING cullMode,
-                                                   VRO_STRING transparencyMode, VRO_STRING blendMode, VRO_FLOAT bloomThreshold,
+                                                   VRO_STRING transparencyMode, VRO_STRING blendMode, VRO_FLOAT transparency,
+                                                   VRO_FLOAT bloomThreshold,
                                                    VRO_BOOL writesToDepthBuffer, VRO_BOOL readsFromDepthBuffer,
                                                    VRO_STRING_ARRAY colorWriteMask) {
     VRO_METHOD_PREAMBLE;
@@ -215,6 +216,7 @@ VRO_METHOD(VRO_REF(VROMaterial), nativeCreateImmutableMaterial)(VRO_ARGS
     material->setCullMode(parseCullMode(VRO_STRING_STL(cullMode)));
     material->setTransparencyMode(parseTransparencyMode(VRO_STRING_STL(transparencyMode)));
     material->setBlendMode(parseBlendMode(VRO_STRING_STL(blendMode)));
+    material->setTransparency(transparency);
     material->setBloomThreshold(bloomThreshold);
     material->setWritesToDepthBuffer(writesToDepthBuffer);
     material->setReadsFromDepthBuffer(readsFromDepthBuffer);
@@ -244,6 +246,84 @@ VRO_METHOD(void, nativeSetReadsFromDepthBuffer)(VRO_ARGS
         std::shared_ptr<VROMaterial> material = material_w.lock();
         if (material) {
             material->setReadsFromDepthBuffer(readsFromDepthBuffer);
+        }
+    });
+}
+
+// The facet a material property name writes to. Every name but roughness and
+// metalness says which of the two it means, and those take either a number or a
+// texture source, so the caller states which it was handed.
+static VROMaterialVisual *visualForMaterialProperty(const std::shared_ptr<VROMaterial> &material,
+                                                    const std::string &name) {
+    if (VROStringUtil::strcmpinsensitive(name, "diffuseColor") ||
+        VROStringUtil::strcmpinsensitive(name, "diffuseTexture") ||
+        VROStringUtil::strcmpinsensitive(name, "diffuseIntensity")) {
+        return &material->getDiffuse();
+    } else if (VROStringUtil::strcmpinsensitive(name, "specularColor") ||
+               VROStringUtil::strcmpinsensitive(name, "specularTexture")) {
+        return &material->getSpecular();
+    } else if (VROStringUtil::strcmpinsensitive(name, "normalColor") ||
+               VROStringUtil::strcmpinsensitive(name, "normalTexture")) {
+        return &material->getNormal();
+    } else if (VROStringUtil::strcmpinsensitive(name, "reflectiveColor") ||
+               VROStringUtil::strcmpinsensitive(name, "reflectiveTexture")) {
+        return &material->getReflective();
+    } else if (VROStringUtil::strcmpinsensitive(name, "emissionColor") ||
+               VROStringUtil::strcmpinsensitive(name, "emissionTexture")) {
+        return &material->getEmission();
+    } else if (VROStringUtil::strcmpinsensitive(name, "multiplyColor") ||
+               VROStringUtil::strcmpinsensitive(name, "multiplyTexture")) {
+        return &material->getMultiply();
+    } else if (VROStringUtil::strcmpinsensitive(name, "ambientOcclusionColor") ||
+               VROStringUtil::strcmpinsensitive(name, "ambientOcclusionTexture")) {
+        return &material->getAmbientOcclusion();
+    } else if (VROStringUtil::strcmpinsensitive(name, "selfIlluminationColor") ||
+               VROStringUtil::strcmpinsensitive(name, "selfIlluminationTexture")) {
+        return &material->getSelfIllumination();
+    } else if (VROStringUtil::strcmpinsensitive(name, "roughness") ||
+               VROStringUtil::strcmpinsensitive(name, "roughnessTexture")) {
+        return &material->getRoughness();
+    } else if (VROStringUtil::strcmpinsensitive(name, "metalness") ||
+               VROStringUtil::strcmpinsensitive(name, "metalnessTexture")) {
+        return &material->getMetalness();
+    }
+    return nullptr;
+}
+
+// Moves one facet from one material to another. A texture has no route through Java,
+// because MaterialManager disposes the Java Texture handle as soon as it has built the
+// material, so the handle it could hand back carries a native ref of zero.
+VRO_METHOD(void, nativeCopyProperty)(VRO_ARGS
+                                     VRO_REF(VROMaterial) material_j,
+                                     VRO_REF(VROMaterial) source_j,
+                                     VRO_STRING materialPropertyName,
+                                     VRO_BOOL asTexture) {
+    VRO_METHOD_PREAMBLE;
+    std::string strName = VRO_STRING_STL(materialPropertyName);
+    bool copyTexture = asTexture;
+
+    std::weak_ptr<VROMaterial> material_w = VRO_REF_GET(VROMaterial, material_j);
+    std::weak_ptr<VROMaterial> source_w = VRO_REF_GET(VROMaterial, source_j);
+
+    VROPlatformDispatchAsyncRenderer([material_w, source_w, strName, copyTexture] {
+        std::shared_ptr<VROMaterial> material = material_w.lock();
+        std::shared_ptr<VROMaterial> source = source_w.lock();
+        if (!material || !source) {
+            return;
+        }
+
+        VROMaterialVisual *destVisual = visualForMaterialProperty(material, strName);
+        VROMaterialVisual *sourceVisual = visualForMaterialProperty(source, strName);
+        if (destVisual == nullptr || sourceVisual == nullptr) {
+            return;
+        }
+
+        if (copyTexture) {
+            destVisual->setTexture(sourceVisual->getTexture());
+        } else if (VROStringUtil::strcmpinsensitive(strName, "diffuseIntensity")) {
+            destVisual->setIntensity(sourceVisual->getIntensity());
+        } else {
+            destVisual->setColor(sourceVisual->getColor());
         }
     });
 }
@@ -354,6 +434,20 @@ VRO_METHOD(void, nativeSetShininess)(VRO_ARGS
         std::shared_ptr<VROMaterial> material = material_w.lock();
         if (material) {
             material->setShininess(shininess);
+        }
+    });
+}
+
+VRO_METHOD(void, nativeSetTransparency)(VRO_ARGS
+                                        VRO_REF(VROMaterial) material_j,
+                                        VRO_FLOAT transparency) {
+    VRO_METHOD_PREAMBLE;
+
+    std::weak_ptr<VROMaterial> material_w = VRO_REF_GET(VROMaterial, material_j);
+    VROPlatformDispatchAsyncRenderer([material_w, transparency] {
+        std::shared_ptr<VROMaterial> material = material_w.lock();
+        if (material) {
+            material->setTransparency(transparency);
         }
     });
 }

@@ -27,6 +27,9 @@
 #ifndef VROGeometrySubstrateOpenGL_h
 #define VROGeometrySubstrateOpenGL_h
 
+#include "VRODefines.h"
+#if !VRO_METAL
+
 #include <map>
 #include "VROGeometrySubstrate.h"
 #include "VROOpenGL.h"
@@ -53,6 +56,9 @@ struct VROVertexAttributeOpenGL {
     GLint size;
     GLenum type;
     uintptr_t offset;
+    // Integer data the shader reads as a float, which is a colour stored as bytes or
+    // shorts. Bone indices are the other integer attribute and are genuinely integral.
+    bool normalized;
 };
 
 struct VROVertexDescriptorOpenGL {
@@ -157,7 +163,8 @@ private:
                         float opacity,
                         const VRORenderContext &renderContext,
                         std::shared_ptr<VRODriver> &driver);
-    
+
 };
 
+#endif  // !VRO_METAL
 #endif /* VROGeometrySubstrateOpenGL_h */

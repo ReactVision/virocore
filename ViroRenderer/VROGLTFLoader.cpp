@@ -47,6 +47,9 @@
 #include "VROSkeletalAnimation.h"
 #include "VROSkeleton.h"
 #include "VROBoneUBO.h"
+#if VRO_METAL
+#include "VROBoneUBOMetal.h"
+#endif
 #include "VROLog.h"
 #include "VROShaderFactory.h"
 #include "VROShaderModifier.h"
@@ -1857,7 +1860,11 @@ bool VROGLTFLoader::processNode(const tinygltf::Model &gModel, std::shared_ptr<V
         skinner->setSkinnerNode(node);
         geom->setSkinner(skinner);
         for (const std::shared_ptr<VROMaterial> &material : geom->getMaterials()) {
+#if VRO_METAL
+            material->addShaderModifier(VROBoneUBOMetal::createSkinningShaderModifier(false));
+#else
             material->addShaderModifier(VROBoneUBO::createSkinningShaderModifier(false));
+#endif
         }
 
         // The bone UBO already encodes world-space vertex positions including all ancestor
@@ -2974,6 +2981,14 @@ std::shared_ptr<VROMaterial> VROGLTFLoader::getMaterial(const tinygltf::Model &g
     // Unlit materials ignore lighting and use baseColor directly
     if (gMat.extensions.find("KHR_materials_unlit") != gMat.extensions.end()) {
         vroMat->setLightingModel(VROLightingModel::Constant);
+    }
+
+    // doubleSided defaults to false, which is the Back cull mode VROMaterial opens on.
+    // This tinygltf predates the typed Material fields, so every key it does not know
+    // by name lands in additionalValues, a boolean in bool_value.
+    if (gAdditionalMap.find("doubleSided") != gAdditionalMap.end() &&
+        gAdditionalMap["doubleSided"].bool_value) {
+        vroMat->setCullMode(VROCullMode::None);
     }
 
     vroMat->setName(gMat.name);

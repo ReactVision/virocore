@@ -119,16 +119,41 @@ void initBlankTexture(const VRORenderContext &context) {
     NSBundle *bundle = [NSBundle bundleWithIdentifier:@"com.viro.ViroKit"];
     NSString *path = [bundle pathForResource:@"blank" ofType:@"png"];
     NSImage *image = [[NSImage alloc] initWithContentsOfFile:path];
-    
+
     std::shared_ptr<VROImage> wrapper = std::make_shared<VROImageMacOS>(image, VROTextureInternalFormat::RGBA8);
     staticBlankTexture = std::make_shared<VROTexture>(true, VROMipmapMode::None, wrapper);
-    
+
     std::vector<std::shared_ptr<VROImage>> cubeImages = { wrapper, wrapper, wrapper, wrapper, wrapper, wrapper };
     staticBlankCubeTexture = std::make_shared<VROTexture>(true, cubeImages);
 }
 
 void initPointCloudTexture() {
-    
+
+}
+
+#elif VRO_PLATFORM_VISION
+
+namespace {
+    struct VROImageRaw : public VROImage {
+        std::vector<uint8_t> _px;
+        VROImageRaw() : _px(4, 0xFF) { _internalFormat = VROTextureInternalFormat::RGBA8; }
+        int getWidth()  const override { return 1; }
+        int getHeight() const override { return 1; }
+        unsigned char *getData(size_t *len) override { *len = 4; return _px.data(); }
+    };
+}
+
+void initBlankTexture(const VRORenderContext &context) {
+    auto img = std::make_shared<VROImageRaw>();
+    staticBlankTexture = std::make_shared<VROTexture>(true, VROMipmapMode::None, img);
+    std::vector<std::shared_ptr<VROImage>> cubeImages = { img, img, img, img, img, img };
+    staticBlankCubeTexture = std::make_shared<VROTexture>(true, cubeImages);
+}
+
+void initPointCloudTexture() {
+    if (staticPointCloudTexture) return;
+    auto img = std::make_shared<VROImageRaw>();
+    staticPointCloudTexture = std::make_shared<VROTexture>(true, VROMipmapMode::None, img);
 }
 
 #endif

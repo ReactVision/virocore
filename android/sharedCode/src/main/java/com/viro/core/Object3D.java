@@ -360,7 +360,7 @@ public class Object3D extends Node {
      *
      * @hide
      */
-    void nodeDidFinishCreation(Material[] materials, int modelType, long geometryRef) {
+    void nodeDidFinishCreation(Material[] materials, int modelType, Geometry geometry) {
         if (mDestroyed) {
             return;
         }
@@ -368,11 +368,12 @@ public class Object3D extends Node {
         Type type = Type.valueOf(modelType);
 
         /*
-         If the model loaded is OBJ, create a Java Geometry to wrap the native Geometry.
-         This enables developers to set/manipulate materials on the Geometry.
+         An OBJ keeps its geometry on this node rather than on children, so JNI hands it
+         up here, already carrying its materials. This enables developers to
+         set/manipulate materials on the Geometry.
          */
-        if (type == Type.OBJ && geometryRef != 0) {
-            setGeometry(new Geometry(geometryRef));
+        if (geometry != null) {
+            setGeometry(geometry);
         }
 
         mMaterialList = Arrays.asList(materials);

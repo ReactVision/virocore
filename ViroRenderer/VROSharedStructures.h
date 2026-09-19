@@ -44,6 +44,16 @@ typedef struct {
     
     float spot_inner_angle;
     float spot_outer_angle;
+
+    // Photometric intensity, used by the physically based model to turn a colour into
+    // radiance. The Lambert/Phong/Blinn models ignore it.
+    float intensity;
+
+    // Shadowing. shadow_map_index is the slice of the shadow map texture array this
+    // light rendered into, or -1 when the light casts no shadow.
+    int   shadow_map_index;
+    float shadow_bias;
+    float shadow_opacity;
 } VROLightUniforms;
 
 typedef struct {
@@ -64,6 +74,12 @@ typedef struct {
     float            roughness;
     float            metalness;
     float            ao;
+
+    // Written to the HDR target's extra colour attachments when the choreographer runs
+    // the HDR path. tone_mapping_mask is 1 for a material that should be tone-mapped and
+    // 0 otherwise; bloom_threshold is negative when the material contributes no bloom.
+    float            tone_mapping_mask;
+    float            bloom_threshold;
 } VROMaterialUniforms;
 
 typedef struct {
@@ -72,6 +88,8 @@ typedef struct {
     simd_float2 texcoord;
     simd_float4 color;
     simd_float3 tangent;
+    simd_float4 bone_weights;
+    simd_uint4  bone_indices;
 } VROShaderGeometry;
 
 typedef struct {
@@ -90,6 +108,7 @@ typedef struct {
     simd_float2 diffuse_texcoord;
     simd_float2 specular_texcoord;
     float alpha;
+    simd_float3 position;
 } VROSurface;
 
 typedef struct {
@@ -104,6 +123,16 @@ typedef struct {
     vector_float3    ambient_light_color;
     VROLightUniforms lights[8];
     int              num_lights;
+
+    // Per-light shadow transforms, indexed the same way as lights[]. The vertex stage
+    // uses them to project each vertex into every shadow-casting light's clip space.
+    matrix_float4x4  shadow_view_matrices[8];
+    matrix_float4x4  shadow_projection_matrices[8];
+
+    // Non-zero once VROIBLPreprocess has produced the irradiance, prefiltered and BRDF
+    // maps. Until then the physically based model falls back to a flat ambient term,
+    // because the bound IBL textures are 1x1 placeholders.
+    int              has_ibl;
 } VROSceneLightingUniforms;
 
 typedef struct {
