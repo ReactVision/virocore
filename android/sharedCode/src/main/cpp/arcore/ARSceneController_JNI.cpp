@@ -25,6 +25,7 @@
 
 #include <jni/ARImageDatabaseLoaderDelegate.h>
 #include <cstdlib>
+#include <sstream>
 #include "ARSceneController_JNI.h"
 #include "ARDeclarativePlane_JNI.h"
 #include "ARDeclarativeNode_JNI.h"
@@ -760,6 +761,42 @@ VRO_METHOD(void, nativeRvGetScanDiagnostics)(VRO_ARGS
                                              VRO_REF(VROARSceneController) arSceneControllerPtr,
                                              jstring key_j) {
     rvDispatchScanJson(env, obj, arSceneControllerPtr, key_j, true);
+}
+
+// Mesh stats ride the same callback as the scan getters. Scene-level, so unlike those it does
+// not wait on an AR session: a scene with world mesh off is an answer, not a not-ready.
+VRO_METHOD(void, nativeRvGetWorldMeshStats)(VRO_ARGS
+                                            VRO_REF(VROARSceneController) arSceneControllerPtr,
+                                            jstring key_j) {
+    std::string keyStr = VRO_STRING_STL(key_j);
+    std::weak_ptr<VROARScene> arScene_w = std::dynamic_pointer_cast<VROARScene>(
+        VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
+    VRO_WEAK weakObj = VRO_NEW_WEAK_GLOBAL_REF(obj);
+    VROPlatformDispatchAsyncRenderer([arScene_w, weakObj, keyStr] {
+        std::shared_ptr<VROARScene> arScene = arScene_w.lock();
+        if (!arScene) {
+            rvFireScanJson(weakObj, keyStr,
+                           "{\"available\":false,\"reason\":\"No AR scene is mounted\"}");
+            return;
+        }
+        if (!arScene->getWorldMesh()) {
+            rvFireScanJson(weakObj, keyStr,
+                           "{\"available\":false,\"enabled\":false,"
+                           "\"reason\":\"World mesh capture is off - set worldMeshEnabled\"}");
+            return;
+        }
+        VROWorldMeshStats stats = arScene->getWorldMeshStats();
+        std::ostringstream ss;
+        ss << "{\"available\":true"
+           << ",\"enabled\":" << (arScene->isWorldMeshEnabled() ? "true" : "false")
+           << ",\"vertexCount\":" << stats.vertexCount
+           << ",\"triangleCount\":" << stats.triangleCount
+           << ",\"averageConfidence\":" << stats.averageConfidence
+           << ",\"lastUpdateTimeMs\":" << stats.lastUpdateTimeMs
+           << ",\"isStale\":" << (stats.isStale ? "true" : "false")
+           << "}";
+        rvFireScanJson(weakObj, keyStr, ss.str());
+    });
 }
 
 VRO_METHOD(void, nativeRvStartScan)(VRO_ARGS

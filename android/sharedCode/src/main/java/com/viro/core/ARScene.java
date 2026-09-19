@@ -1542,6 +1542,19 @@ public class ARScene extends Scene {
         nativeRvGetScanStatus(mNativeRef, key);
     }
 
+    /**
+     * Whether a world mesh exists and how big it is, as JSON.
+     *
+     * Polled rather than pushed: {@code VROARScene} does fire a delegate on every mesh update,
+     * but that call is not forwarded to the bridge on either platform, so nothing reaches the
+     * app. Until it is, this is how a caller learns the mesh is ready to snapshot.
+     */
+    public void rvGetWorldMeshStats(RvScanJsonCallback callback) {
+        String key = java.util.UUID.randomUUID().toString();
+        mRvScanJsonCallbacks.put(key, callback);
+        nativeRvGetWorldMeshStats(mNativeRef, key);
+    }
+
     /** The numbers behind the last scan-based host, as JSON. */
     public void rvGetScanDiagnostics(RvScanJsonCallback callback) {
         String key = java.util.UUID.randomUUID().toString();
@@ -1998,6 +2011,7 @@ public class ARScene extends Scene {
 
     // Cloud anchor management native methods
     private native void nativeRvStartScan(long sceneControllerRef);
+    private native void nativeRvGetWorldMeshStats(long sceneControllerRef, String key);
     private native void nativeRvGetScanStatus(long sceneControllerRef, String key);
     private native void nativeRvGetScanDiagnostics(long sceneControllerRef, String key);
     private native void nativeRvFinishScan(long sceneControllerRef, String key, int ttlDays);
