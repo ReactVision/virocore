@@ -2,6 +2,10 @@
 
 ## v3.0.0 — 19 September 2026
 
+### Added
+
+- **Scan and world-mesh state are readable from the bridge (`VROARSession`, `VROARSceneiOS`, `VROARSessionARCore`, `ARSceneController_JNI`, `ARScene.java`).** `rvGetScanStatusJson()` and `rvGetScanDiagnosticsJson()` expose how a scan in progress is doing and why the last one ended as it did; the JSON shape is defined once on `VROARSession` rather than restated in each bridge, so the two platforms cannot drift. `nativeRvGetWorldMeshStats` does the same for the world mesh over JNI, sharing the scan getters' callback. All are read-only snapshots taken on the render thread, cheap enough to poll.
+
 ### Fixed
 
 - **visionOS: the renderer archive referenced ReactVisionCCA without carrying it (`ios/build_visionos.sh`).** `VROColocationSession.o` is in `libViroKitVisionOS.a` and `-ObjC` pulls it into every link, so an app failed on symbols it never asked for and the failure could not be avoided from the consumer side. The xros device and simulator slices are now merged in alongside freetype and bullet. `VROColocationBridge.h` is staged with them: the class was in the binary, the header was not, so the one module that is plain Objective-C precisely so it can cross to visionOS could not be imported there.
