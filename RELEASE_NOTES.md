@@ -1,5 +1,47 @@
 # Release Notes
 
+## v3.0.0
+
+The renderer half of ViroReact 3.0.0. Shipped inside `@reactvision/react-viro`
+as prebuilt binaries — the AARs and `ViroKit.framework` — rather than published
+on its own.
+
+### Added
+
+- **Co-location.** `VROColocationSession` as the platform-neutral holder,
+  `Colocation_JNI` on Android, `VROColocationBridge` for iOS and visionOS, and
+  shared spatial anchors on Quest through `xrShareSpacesMETA`.
+- **The web target.** The WebAssembly build under `wasm/`: the C API that
+  `@reactvision/viro-web-renderer` drives, the scene bindings, and the renderer
+  work behind them.
+- **Quest.** Plane detection via `XR_EXT_plane_detection`, per-ray drag
+  ownership, passthrough, and the input controller work.
+
+### Changed
+
+- **Web text renders in Roboto.** `wasm/preload/Helvetica.ttc` could not be
+  redistributed inside `viro-web.data`, which is what held the web renderer
+  package at unpublished. Roboto is Apache 2.0 and is the face Android and Quest
+  already use, so the three now agree. The preloaded data drops from 2.3 MB to
+  389 KB.
+- **Android shader assets are generated at build time.** `android/shaders.gradle`
+  regenerates `sharedCode/src/main/assets/*.glsl` from `ViroRenderer/` during
+  `preBuild`. They stay committed, so a build after a shader change modifies the
+  working tree — that is the mechanism, not a defect. Keeping the copy in step by
+  hand is how it fell four years behind.
+- **iOS pods build at deployment target 15.0.** A `post_install` hook rewrites
+  every pod target, because Xcode 26 and later reject anything lower outright.
+
+### Fixed
+
+- Compound physics shapes distribute mass by child volume, and a compound built
+  from given parts no longer drifts on every physics update.
+- Alpha cutoff binds only for `Mask` transparency mode; every other mode fades
+  continuously instead of vanishing at half alpha.
+- Vertex colours and glTF `doubleSided` are honoured.
+- A `FixedToPlane` drag no longer snaps to the aim point on float noise, and
+  aiming square at the plane no longer produces a NaN world transform.
+
 ## v2.58.1
 
 ### Highlights
