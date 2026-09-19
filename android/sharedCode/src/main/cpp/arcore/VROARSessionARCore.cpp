@@ -25,6 +25,7 @@
 //  SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #include "VROARSessionARCore.h"
+#include <sstream>
 #include "VROARCameraARCore.h"
 #include "VROARAnchor.h"
 #include "VROGeospatialAnchor.h"
@@ -2503,9 +2504,65 @@ void VROARSessionARCore::rvStartScan() {
         auto p = _cloudAnchorProviderRV->getProvider();
         if (p) {
             p->startScan();
+            return;
         }
     }
 #endif
+    // Said out loud rather than returned silently. startScan() has no callback, so a missing
+    // provider used to be indistinguishable from a scan that started — the app would only find
+    // out at finishScan(), a walk around the room later.
+    pwarn("rvStartScan: no ReactVision cloud anchor provider — set com.reactvision.RVApiKey and "
+          "com.reactvision.RVProjectId in AndroidManifest and provider=\"reactvision\" on the "
+          "navigator. Nothing was scanned.");
+}
+
+std::string VROARSessionARCore::rvGetScanStatusJson() {
+#if RVCCA_AVAILABLE
+    if (_cloudAnchorProviderRV) {
+        auto p = _cloudAnchorProviderRV->getProvider();
+        if (p) {
+            auto st = p->getScanStatus();
+            std::ostringstream os;
+            os << "{\"available\":true"
+               << ",\"scanning\":"            << (st.scanning ? "true" : "false")
+               << ",\"keyframes\":"           << st.keyframes
+               << ",\"viewpointPairs\":"      << st.viewpointPairs
+               << ",\"cameraSpreadMeters\":"  << st.cameraSpreadMeters
+               << ",\"minKeyframes\":"        << st.minKeyframes
+               << ",\"minViewpointPairs\":"   << st.minViewpointPairs
+               << ",\"minSpreadMeters\":"     << st.minSpreadMeters
+               << ",\"meetsKeyframes\":"      << (st.meetsKeyframes ? "true" : "false")
+               << ",\"meetsViewpointPairs\":" << (st.meetsViewpointPairs ? "true" : "false")
+               << ",\"meetsSpread\":"         << (st.meetsSpread ? "true" : "false")
+               << "}";
+            return os.str();
+        }
+    }
+#endif
+    return "{\"available\":false}";
+}
+
+std::string VROARSessionARCore::rvGetScanDiagnosticsJson() {
+#if RVCCA_AVAILABLE
+    if (_cloudAnchorProviderRV) {
+        auto p = _cloudAnchorProviderRV->getProvider();
+        if (p) {
+            auto d = p->getLastScanDiagnostics();
+            std::ostringstream os;
+            os << "{\"valid\":"               << (d.valid ? "true" : "false")
+               << ",\"keyframes\":"           << d.keyframes
+               << ",\"triangulatedPoints\":"  << d.triangulatedPoints
+               << ",\"viewpointPairs\":"      << d.viewpointPairs
+               << ",\"spreadMeters\":"        << d.spreadMeters
+               << ",\"minPoints\":"           << d.minPoints
+               << ",\"minViewpointPairs\":"   << d.minViewpointPairs
+               << ",\"minSpreadMeters\":"     << d.minSpreadMeters
+               << "}";
+            return os.str();
+        }
+    }
+#endif
+    return "{\"valid\":false}";
 }
 
 void VROARSessionARCore::rvFinishScan(

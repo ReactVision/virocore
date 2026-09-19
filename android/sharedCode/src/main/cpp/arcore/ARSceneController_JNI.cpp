@@ -707,6 +707,61 @@ static void rvFireFinishScanResult(VRO_WEAK weakObj, std::string keyStr,
     });
 }
 
+static void rvFireScanJson(VRO_WEAK weakObj, std::string keyStr, std::string json) {
+    VROPlatformDispatchAsyncApplication([weakObj, keyStr, json] {
+        VRO_ENV env = VROPlatformGetJNIEnv();
+        VRO_OBJECT localObj = VRO_NEW_LOCAL_REF(weakObj);
+        if (VRO_IS_OBJECT_NULL(localObj)) {
+            VRO_DELETE_LOCAL_REF(localObj);
+            VRO_DELETE_WEAK_GLOBAL_REF(weakObj);
+            return;
+        }
+        VRO_STRING jKey  = VRO_NEW_STRING(keyStr.c_str());
+        VRO_STRING jJson = VRO_NEW_STRING(json.c_str());
+        VROPlatformCallHostFunction(localObj, "onRvScanJson",
+            "(Ljava/lang/String;Ljava/lang/String;)V", jKey, jJson);
+        VRO_DELETE_LOCAL_REF(jKey);
+        VRO_DELETE_LOCAL_REF(jJson);
+        VRO_DELETE_LOCAL_REF(localObj);
+        VRO_DELETE_WEAK_GLOBAL_REF(weakObj);
+    });
+}
+
+// Both getters answer over the same callback: they are read-only snapshots taken on the render
+// thread, and the AR session may not exist yet, which is an answer rather than an error.
+static void rvDispatchScanJson(JNIEnv *env, jobject obj,
+                               VRO_REF(VROARSceneController) ptr,
+                               jstring key_j, bool diagnostics) {
+    std::string keyStr = VRO_STRING_STL(key_j);
+    std::weak_ptr<VROARScene> arScene_w = std::dynamic_pointer_cast<VROARScene>(
+        VRO_REF_GET(VROARSceneController, ptr)->getScene());
+    VRO_WEAK weakObj = VRO_NEW_WEAK_GLOBAL_REF(obj);
+    VROPlatformDispatchAsyncRenderer([arScene_w, weakObj, keyStr, diagnostics] {
+        std::shared_ptr<VROARScene> arScene = arScene_w.lock();
+        if (!arScene) {
+            rvFireScanJson(weakObj, keyStr, diagnostics ? "{\"valid\":false}"
+                                                        : "{\"available\":false}");
+            return;
+        }
+        arScene->runWhenARSessionReady([weakObj, keyStr, diagnostics](std::shared_ptr<VROARSession> arSession) {
+            rvFireScanJson(weakObj, keyStr, diagnostics ? arSession->rvGetScanDiagnosticsJson()
+                                                        : arSession->rvGetScanStatusJson());
+        });
+    });
+}
+
+VRO_METHOD(void, nativeRvGetScanStatus)(VRO_ARGS
+                                        VRO_REF(VROARSceneController) arSceneControllerPtr,
+                                        jstring key_j) {
+    rvDispatchScanJson(env, obj, arSceneControllerPtr, key_j, false);
+}
+
+VRO_METHOD(void, nativeRvGetScanDiagnostics)(VRO_ARGS
+                                             VRO_REF(VROARSceneController) arSceneControllerPtr,
+                                             jstring key_j) {
+    rvDispatchScanJson(env, obj, arSceneControllerPtr, key_j, true);
+}
+
 VRO_METHOD(void, nativeRvStartScan)(VRO_ARGS
                                     VRO_REF(VROARSceneController) arSceneControllerPtr) {
     std::weak_ptr<VROARScene> arScene_w = std::dynamic_pointer_cast<VROARScene>(

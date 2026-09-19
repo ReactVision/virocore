@@ -1518,6 +1518,37 @@ public class ARScene extends Scene {
         if (cb != null) cb.onResult(success, cloudAnchorId, locationTransformCsv, error);
     }
 
+    /** Receives a scan status or diagnostics snapshot, as JSON. */
+    public interface RvScanJsonCallback {
+        void onResult(String json);
+    }
+
+    private Map<String, RvScanJsonCallback> mRvScanJsonCallbacks = new HashMap<>();
+
+    void onRvScanJson(String key, String json) {
+        RvScanJsonCallback cb = mRvScanJsonCallbacks.remove(key);
+        if (cb != null) cb.onResult(json);
+    }
+
+    /**
+     * How the scan in progress is doing, as JSON.
+     *
+     * Cheap enough to poll while scanning: the renderer reads the keyframe buffer's poses and
+     * triangulates nothing. See {@code VROARSession::rvGetScanStatusJson} for the keys.
+     */
+    public void rvGetScanStatus(RvScanJsonCallback callback) {
+        String key = java.util.UUID.randomUUID().toString();
+        mRvScanJsonCallbacks.put(key, callback);
+        nativeRvGetScanStatus(mNativeRef, key);
+    }
+
+    /** The numbers behind the last scan-based host, as JSON. */
+    public void rvGetScanDiagnostics(RvScanJsonCallback callback) {
+        String key = java.util.UUID.randomUUID().toString();
+        mRvScanJsonCallbacks.put(key, callback);
+        nativeRvGetScanDiagnostics(mNativeRef, key);
+    }
+
     /**
      * CL-H: result of establishing a platform-native shared coordinate frame.
      * Same shape as {@link RvFinishScanCallback} on purpose — a shared frame and
@@ -1967,6 +1998,8 @@ public class ARScene extends Scene {
 
     // Cloud anchor management native methods
     private native void nativeRvStartScan(long sceneControllerRef);
+    private native void nativeRvGetScanStatus(long sceneControllerRef, String key);
+    private native void nativeRvGetScanDiagnostics(long sceneControllerRef, String key);
     private native void nativeRvFinishScan(long sceneControllerRef, String key, int ttlDays);
     private native void nativeRvCreateSharedFrame(long sceneControllerRef, String key, String groupId);
     private native void nativeRvJoinSharedFrame(long sceneControllerRef, String key, String groupId);
