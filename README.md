@@ -12,7 +12,15 @@
 
 # ViroCore, By ReactVision
 
-ViroCore is the high-performance 3D rendering engine behind [ViroReact](https://github.com/ReactVision/viro) — a cross-platform C++ renderer (OpenGL ES on Android, Metal on iOS/visionOS) with a descriptive Java API for building 3D, AR, and VR experiences. It handles scene rendering, PBR lighting, animation, physics, and AR integration so you can focus on the experience rather than low-level graphics.
+ViroCore is the high-performance 3D rendering engine behind [ViroReact](https://github.com/ReactVision/viro) — one cross-platform C++ renderer, with a descriptive Java API, for building 3D, AR and VR experiences. It handles scene rendering, PBR lighting, animation, physics and AR integration so you can focus on the experience rather than low-level graphics.
+
+| Platform | Graphics backend |
+| --- | --- |
+| Android | OpenGL ES |
+| iOS | Metal |
+| Apple visionOS | Metal, through a CompositorServices immersive space |
+| Meta Horizon OS (Quest 3 / 3S) | OpenGL ES through OpenXR |
+| Web | WebGL2, compiled to WebAssembly and shipped as [`@reactvision/viro-web-renderer`](https://github.com/ReactVision/viro-web-renderer) |
 
 ViroCore is MIT licensed and free forever.
 
@@ -21,7 +29,8 @@ ViroCore is MIT licensed and free forever.
 ## Documentation
 
 - ViroReact docs and guides: <https://viro-community.readme.io/docs/overview>
-- `ViroObjectDetector` (on-device detection): <https://github.com/ReactVision/viro/blob/main/docs/ViroObjectDetector.md>
+- Per-feature guides — VPS, co-location, visionOS, Quest, web, shaders, object detection: <https://github.com/ReactVision/viro/tree/main/docs>
+- Engine changes by release: [`CHANGELOG.md`](./CHANGELOG.md)
 
 ## Community
 
