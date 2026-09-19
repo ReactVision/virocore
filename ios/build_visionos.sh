@@ -72,6 +72,11 @@ cp "$SCRIPT_DIR/ViroKit/VROImageiOS.h"                "$HEADERS_STAGING/"
 cp "$SCRIPT_DIR/ViroKit/VROVideoTextureCache.h"       "$HEADERS_STAGING/"
 cp "$SCRIPT_DIR/ViroKit/VROVideoTextureCacheMetal.h"  "$HEADERS_STAGING/"
 
+# The co-location channel is plain Objective-C precisely so it can cross to visionOS, where the
+# AR subsystem does not exist. Its class is in this target; only the header had been left behind,
+# which failed VRTColocationModule.mm in ViroReact on a header it could not find.
+cp "$SCRIPT_DIR/ViroKit/VROColocationBridge.h"        "$HEADERS_STAGING/"
+
 # visionOS-specific driver headers
 cp "$SCRIPT_DIR/ViroKit/VisionOS/VRODriverVisionOS.h"      "$HEADERS_STAGING/"
 cp "$SCRIPT_DIR/ViroKit/VisionOS/VRORenderTargetMetal.h"   "$HEADERS_STAGING/"
@@ -187,6 +192,11 @@ VENDORED_LIBS=(
   "bullet/%s/libLinearMath.a"
   "bullet/%s/libBulletCollision.a"
   "bullet/%s/libBulletDynamics.a"
+  # ReactVisionCCA, built by reactvisioncca/scripts/build_ios.sh with RVCCA_BUILD_VISIONOS=1.
+  # Not optional here the way it is on iOS: VROColocationSession.o lives in this target and is
+  # pulled into every link by -ObjC, so without these slices an app fails to link on a symbol
+  # it never asked for.
+  "reactvisioncca/%s/libreactvisioncca.a"
 )
 
 merge_vendored() {
