@@ -8,6 +8,8 @@ on its own.
 
 ### Added
 
+- **Scan and world-mesh state are readable from the bridge.** `rvGetScanStatusJson()` and `rvGetScanDiagnosticsJson()` on `VROARSession` expose how a scan in progress is doing and why the last one ended as it did; `nativeRvGetWorldMeshStats` does the same for the world mesh over JNI. The JSON shape is defined once on `VROARSession` rather than restated in each bridge, so iOS and Android cannot drift. All are read-only snapshots taken on the render thread, cheap enough to poll.
+
 - **Co-location.** `VROColocationSession` as the platform-neutral holder,
   `Colocation_JNI` on Android, `VROColocationBridge` for iOS and visionOS, and
   shared spatial anchors on Quest through `xrShareSpacesMETA`.
