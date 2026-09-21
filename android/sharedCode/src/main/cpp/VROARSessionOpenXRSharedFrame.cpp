@@ -196,11 +196,18 @@ void VROARSessionOpenXR::beginGroupQuery() {
         (XrStructureType)XR_TYPE_SPACE_GROUP_UUID_FILTER_INFO_META };
     groupFilter.groupUuid = _sharedFrame.groupUuid;
 
+    // Chained on `next`, not handed to `filter`. `filter` takes the FB filter
+    // types — uuid, component — and the runtime rejects an unrecognised one with
+    // XR_ERROR_VALIDATION_FAILURE, which is what it did with the group filter
+    // there. The group filter is an extension struct: it has `type` and `next`
+    // and chains, exactly like every other META addition to an FB call. The
+    // scene query next to this one passes `filter = nullptr` for the same reason.
     XrSpaceQueryInfoFB query{ XR_TYPE_SPACE_QUERY_INFO_FB };
+    query.next         = &groupFilter;
     query.queryAction  = XR_SPACE_QUERY_ACTION_LOAD_FB;
     query.maxResultCount = 16;
     query.timeout      = 0;
-    query.filter       = reinterpret_cast<const XrSpaceFilterInfoBaseHeaderFB *>(&groupFilter);
+    query.filter       = nullptr;
     query.excludeFilter = nullptr;
 
     XrAsyncRequestIdFB requestId = 0;
