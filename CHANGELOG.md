@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## v3.0.1 — 21 September 2026
+
+### Fixed
+
+- **Shared coordinate frames on Meta Quest never reached the runtime (`VROSceneRendererOpenXR`, `VROARSessionOpenXRSharedFrame`).** Four faults in one call path, each hidden behind the one before it, and none of which produced an error.
+
+  Four OpenXR extensions were not requested at instance creation: `XR_FB_spatial_entity_storage`, `XR_FB_spatial_entity_sharing`, `XR_META_spatial_entity_sharing` and `XR_META_spatial_entity_group_sharing`. `xrGetInstanceProcAddr` refuses a function whose extension was not enabled, so `xrShareSpacesMETA` never loaded and the capability flag stayed false. The last two are distinct extensions and the distinction is easy to miss — the function is declared by *sharing*, while *group_sharing* only adds the group-uuid recipient and filter, so enabling the group one alone loads nothing and reports the wrong extension as absent. `static_assert`s now fail the build if any of the four leaves the list.
+
+  The `xrPollEvent` loop forwarded three of the five event types `onSpatialEvent` handles, dropping `XR_TYPE_EVENT_DATA_SPATIAL_ANCHOR_CREATE_COMPLETE_FB` and `XR_TYPE_EVENT_DATA_SHARE_SPACES_COMPLETE_META` into `default`. Every spatial-entity call answers through an event, so an event that is not forwarded is a call that never completes: on device the anchor was created successfully and nothing was ever told about it.
+
+  The group filter was passed as `XrSpaceQueryInfoFB::filter` rather than chained on `::next`. `filter` takes the FB filter types and rejects an unrecognised one with `XR_ERROR_VALIDATION_FAILURE`, which reads as a broken query rather than a misplaced filter.
+
+  Verified on a Quest 3: `xrCreateSpatialAnchorFB` → STORABLE and SHARABLE → `xrShareSpacesMETA` round-trips, and a group query recovers the frame. Requires `horizonos.permission.IMPORT_EXPORT_IOT_MAP_DATA` in the app manifest, which `@reactvision/react-viro` 3.0.1's config plugin adds — without it the Meta runtime hides the extension from enumeration rather than failing the call.
+
 ## v3.0.0 — 19 September 2026
 
 ### Added
