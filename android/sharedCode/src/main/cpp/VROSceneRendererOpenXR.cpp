@@ -63,7 +63,8 @@ static constexpr const char *const kOptionalExtensions[] = {
     // group_sharing not present" on a headset that supports it perfectly well.
     XR_FB_SPATIAL_ENTITY_STORAGE_EXTENSION_NAME,      // CL-H: persist the anchor (STORABLE)
     XR_FB_SPATIAL_ENTITY_SHARING_EXTENSION_NAME,      // CL-H: mark it shareable (SHARABLE)
-    XR_META_SPATIAL_ENTITY_GROUP_SHARING_EXTENSION_NAME, // CL-H: xrShareSpacesMETA to a group uuid
+    XR_META_SPATIAL_ENTITY_SHARING_EXTENSION_NAME,       // CL-H: declares xrShareSpacesMETA itself
+    XR_META_SPATIAL_ENTITY_GROUP_SHARING_EXTENSION_NAME, // CL-H: the group-uuid recipient and filter
 };
 static constexpr size_t kOptionalExtensionCount =
     sizeof(kOptionalExtensions) / sizeof(kOptionalExtensions[0]);
@@ -90,6 +91,10 @@ static_assert(xrListHas(kOptionalExtensions, kOptionalExtensionCount,
 static_assert(xrListHas(kOptionalExtensions, kOptionalExtensionCount,
                         XR_FB_SPATIAL_ENTITY_SHARING_EXTENSION_NAME),
               "co-location: the SHARABLE component needs XR_FB_spatial_entity_sharing");
+static_assert(xrListHas(kOptionalExtensions, kOptionalExtensionCount,
+                        XR_META_SPATIAL_ENTITY_SHARING_EXTENSION_NAME),
+              "co-location: xrShareSpacesMETA is declared by XR_META_spatial_entity_sharing, not "
+              "by the group-sharing extension \u2014 enabling only the latter loads no function");
 static_assert(xrListHas(kOptionalExtensions, kOptionalExtensionCount,
                         XR_META_SPATIAL_ENTITY_GROUP_SHARING_EXTENSION_NAME),
               "co-location: xrShareSpacesMETA is unreachable unless this is enabled at "
