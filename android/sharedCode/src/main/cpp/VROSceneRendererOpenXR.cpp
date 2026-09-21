@@ -1079,7 +1079,17 @@ void VROSceneRendererOpenXR::pollEvents() {
             case XR_TYPE_EVENT_DATA_SPACE_QUERY_RESULTS_AVAILABLE_FB:
             case XR_TYPE_EVENT_DATA_SPACE_QUERY_COMPLETE_FB:
             case XR_TYPE_EVENT_DATA_SPACE_SET_STATUS_COMPLETE_FB:
-                // XR_FB_scene room-entity query + component-enable events.
+            // CL-H. Every spatial-entity call is asynchronous and answers through
+            // an event here, so an event this switch does not forward is a call
+            // that never completes — no error, no timeout, just a callback that
+            // is never invoked. These two were falling into `default` while
+            // onSpatialEvent had handlers waiting for them, which is why
+            // xrCreateSpatialAnchorFB succeeded on device and co-location still
+            // hung: the anchor existed and nothing was told about it.
+            case XR_TYPE_EVENT_DATA_SPATIAL_ANCHOR_CREATE_COMPLETE_FB:
+            case XR_TYPE_EVENT_DATA_SHARE_SPACES_COMPLETE_META:
+                // XR_FB_scene room-entity query + component-enable events, and
+                // the anchor create / share completions co-location waits on.
                 if (_arSession) {
                     _arSession->onSpatialEvent(event);
                 }
