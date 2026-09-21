@@ -41,7 +41,7 @@ static const char *const kRequiredExtensions[] = {
 static constexpr uint32_t kRequiredExtensionCount =
     sizeof(kRequiredExtensions) / sizeof(kRequiredExtensions[0]);
 
-static const char *const kOptionalExtensions[] = {
+static constexpr const char *const kOptionalExtensions[] = {
     XR_FB_PASSTHROUGH_EXTENSION_NAME,           // mixed reality (Quest 2 BW, Quest 3 color)
     XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME,  // 90 / 120 Hz mode
     XR_EXT_HAND_TRACKING_EXTENSION_NAME,        // M3: skeletal hand tracking (26 joints)
@@ -51,7 +51,49 @@ static const char *const kOptionalExtensions[] = {
     XR_FB_SPATIAL_ENTITY_EXTENSION_NAME,        // M5: spatial entity components
     XR_FB_SPATIAL_ENTITY_QUERY_EXTENSION_NAME,  // M5: query stored room entities
     XR_EXT_EYE_GAZE_INTERACTION_EXTENSION_NAME, // eye-gaze ray as an onHover source (Quest Pro only)
+
+    // CL-H: co-location. All three are needed and none of them is optional to
+    // each other — an anchor has to be STORABLE before it can be SHARABLE, and
+    // sharing to a group needs the META extension on top of the FB pair.
+    //
+    // Requesting them here is not a formality. xrGetInstanceProcAddr refuses a
+    // function whose extension was not enabled at instance creation, so without
+    // these three lines `loadFn("xrShareSpacesMETA", …)` fails, _sharingAvailable
+    // stays false, and every shared-frame call answers "XR_META_spatial_entity_
+    // group_sharing not present" on a headset that supports it perfectly well.
+    XR_FB_SPATIAL_ENTITY_STORAGE_EXTENSION_NAME,      // CL-H: persist the anchor (STORABLE)
+    XR_FB_SPATIAL_ENTITY_SHARING_EXTENSION_NAME,      // CL-H: mark it shareable (SHARABLE)
+    XR_META_SPATIAL_ENTITY_GROUP_SHARING_EXTENSION_NAME, // CL-H: xrShareSpacesMETA to a group uuid
 };
+static constexpr size_t kOptionalExtensionCount =
+    sizeof(kOptionalExtensions) / sizeof(kOptionalExtensions[0]);
+
+// Checked here rather than trusted, because the failure has no symptom on this
+// side of the bridge. An extension missing from the list above is not a compile
+// error and not a runtime warning: xrGetInstanceProcAddr simply refuses the
+// function, the capability flag stays false, and the feature reports itself
+// unsupported on hardware that supports it. Co-location shipped that way once —
+// every layer beneath was finished and three names were absent from this array.
+//
+// Recursive rather than looping: this has to be a constant expression under
+// -std=c++14, which is what the Android build uses.
+constexpr bool xrSameName(const char *a, const char *b) {
+    return *a == *b && (*a == '\0' || xrSameName(a + 1, b + 1));
+}
+constexpr bool xrListHas(const char *const *list, size_t n, const char *needle) {
+    return n != 0 && (xrSameName(list[n - 1], needle) || xrListHas(list, n - 1, needle));
+}
+
+static_assert(xrListHas(kOptionalExtensions, kOptionalExtensionCount,
+                        XR_FB_SPATIAL_ENTITY_STORAGE_EXTENSION_NAME),
+              "co-location: an anchor must be STORABLE before it can be shared");
+static_assert(xrListHas(kOptionalExtensions, kOptionalExtensionCount,
+                        XR_FB_SPATIAL_ENTITY_SHARING_EXTENSION_NAME),
+              "co-location: the SHARABLE component needs XR_FB_spatial_entity_sharing");
+static_assert(xrListHas(kOptionalExtensions, kOptionalExtensionCount,
+                        XR_META_SPATIAL_ENTITY_GROUP_SHARING_EXTENSION_NAME),
+              "co-location: xrShareSpacesMETA is unreachable unless this is enabled at "
+              "instance creation — see VROARSessionOpenXRSharedFrame.cpp");
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Utility macros
