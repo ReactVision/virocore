@@ -338,6 +338,9 @@ static inline VROMatrix4f viroGLConvTransform(VROMatrix4f t) {
 }
 
 - (void)handleRotate:(UIRotationGestureRecognizer *)recognizer {
+    if (!_inputController) {
+        return;
+    }
     // locationInView was `recognizer.self` but if view is created after app initialization, then it location x and y is 0
     CGPoint location = [recognizer locationInView:nil];
     VROVector3f viewportTouchPos = VROVector3f(location.x * self.contentScaleFactor, location.y * self.contentScaleFactor);
@@ -353,6 +356,9 @@ static inline VROMatrix4f viroGLConvTransform(VROMatrix4f t) {
 }
 
 - (void)handlePinch:(UIPinchGestureRecognizer *)recognizer {
+    if (!_inputController) {
+        return;
+    }
     // locationInView was `recognizer.self` but if view is created after app initialization, then it location x and y is 0
     CGPoint location = [recognizer locationInView:nil];
     VROVector3f viewportTouchPos = VROVector3f(location.x * self.contentScaleFactor, location.y * self.contentScaleFactor);
@@ -367,6 +373,9 @@ static inline VROMatrix4f viroGLConvTransform(VROMatrix4f t) {
 }
 
 - (void)handleLongPress:(UIPanGestureRecognizer *)recognizer {
+    if (!_inputController) {
+        return;
+    }
     // locationInView was `recognizer.self` but if view is created after app initialization, then it location x and y is 0
     CGPoint location = [recognizer locationInView:nil];
     
@@ -382,6 +391,9 @@ static inline VROMatrix4f viroGLConvTransform(VROMatrix4f t) {
 }
 
 - (void)handleTap:(UITapGestureRecognizer *)recognizer {
+    if (!_inputController) {
+        return;
+    }
     // locationInView was `recognizer.self` but if view is created after app initialization, then it location x and y is 0
     CGPoint location = [recognizer locationInView:nil];
     
@@ -421,6 +433,15 @@ static inline VROMatrix4f viroGLConvTransform(VROMatrix4f t) {
     // "unrecognized selector sent to deallocated instance" (GitHub #399). dealloc also
     // removes observers; removeObserver:self is idempotent so the double-remove is safe.
     [[NSNotificationCenter defaultCenter] removeObserver:self];
+
+    // Likewise stop delivering gesture actions. The recognizers added in initRenderer target
+    // self and every handler dereferences _inputController, which is reset below. A gesture
+    // still in flight when the view is torn down (a pan cancelled by the removal, a tap that
+    // lands during the same run loop) would otherwise call into a null controller:
+    // EXC_BAD_ACCESS in handleLongPress: / VROInputControllerAR::onScreenTouchDown.
+    for (UIGestureRecognizer *recognizer in [self.gestureRecognizers copy]) {
+        [self removeGestureRecognizer:recognizer];
+    }
 
     // Clean up view recorder first
     [self.viewRecorder deleteGL];
