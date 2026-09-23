@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## Unreleased
+
+### Added
+
+- **Quest: the left-palm menu pinch now reaches the app with hand tracking (`VROInputControllerOpenXR`).** Meta's runtime reports it as `XR_HAND_TRACKING_AIM_MENU_PRESSED_BIT_FB` on the left hand's `XrHandTrackingAimStateFB`, which `processHands` already chained into `xrLocateHandJointsEXT` but only ever read for the computed-aim bit, so with no controllers in use an app had no way to open its menu. The gesture is now routed exactly like the left controller Menu button: a rising edge queues `BackButton` ClickDown and calls the back-button callback (`ViroViewOpenXR.onNativeBackButton()` → `Activity.onBackPressed()`, which React Native surfaces as `hardwareBackPress`), and a falling edge queues ClickUp, so a held gesture fires once. If the left hand stops being located while the gesture is held, the ClickUp is emitted then, so the next gesture still sees a rising edge. No JS change is needed. The right-palm gesture is the system menu and is not reported to apps. B and the controller Menu button are unchanged.
+
 ## v3.0.1 — 21 September 2026
 
 ### Fixed

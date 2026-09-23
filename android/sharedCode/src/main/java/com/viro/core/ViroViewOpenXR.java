@@ -646,8 +646,9 @@ public class ViroViewOpenXR extends ViroView {
 
     /**
      * Called by native code (render thread) when the B or Menu controller button
-     * is pressed. Posts Activity.onBackPressed() to the UI thread so React Native's
-     * BackHandler receives the event in VRActivity.
+     * is pressed, or the left-palm menu pinch is made with hand tracking. Posts
+     * Activity.onBackPressed() to the UI thread so React Native's BackHandler
+     * receives the event in VRActivity.
      *
      * @hide
      */

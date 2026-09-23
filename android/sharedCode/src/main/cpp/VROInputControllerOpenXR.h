@@ -191,6 +191,9 @@ private:
     bool _prevPinchRight = false;
     bool _prevGrabLeft   = false;
     bool _prevGrabRight  = false;
+    // Left-palm menu pinch (XR_HAND_TRACKING_AIM_MENU_PRESSED_BIT_FB). Left
+    // hand only: the right-palm gesture is the OS system menu.
+    bool _prevMenuGestureLeft = false;
 
     // ── Pose hysteresis (B18) ─────────────────────────────────────────────────
     // OpenXR pose probes (`xrLocateSpace`, FB hand-aim) routinely report
