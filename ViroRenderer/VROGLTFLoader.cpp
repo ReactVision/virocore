@@ -3080,13 +3080,13 @@ std::shared_ptr<VROTexture> VROGLTFLoader::getTexture(const tinygltf::Model &gMo
         return VROGLTFLoader::_textureCache[key];
     }
 
-    // Grab the GLTF image data of for this texture.
-    tinygltf::Image gImg = gModel.images[imageIndex];
-    std::string imgName = gImg.name;
+    // Grab the GLTF image data of for this texture. By reference: the encoded
+    // bytes are decoded straight out of the model, never copied first.
+    const tinygltf::Image &gImg = gModel.images[imageIndex];
+    const std::string &imgName = gImg.name;
 
     // Decode the GLTF image data / raw bytes into a VROImage data.
-    std::vector<unsigned char> data = gImg.rawByteVec;
-    std::shared_ptr<VROImage> image = VROPlatformLoadImageWithBufferedData(data, VROTextureInternalFormat::RGBA8);
+    std::shared_ptr<VROImage> image = VROPlatformLoadImageWithBufferedData(gImg.rawByteVec, VROTextureInternalFormat::RGBA8);
     if (image == nullptr){
         perr("Error when parsing texture for image %s.", imgName.c_str());
         return nullptr;
