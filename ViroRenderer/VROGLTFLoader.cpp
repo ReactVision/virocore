@@ -480,8 +480,15 @@ void VROGLTFLoader::loadGLTFFromResource(std::string gltfManifestFilePath, const
                     }
 
                     // Once the manifest has been parsed, start constructing our Viro 3D Model.
-                    const tinygltf::Model &model = gModel;
-                    VROPlatformDispatchAsyncRenderer([rootNode, model, driver, onFinish] {
+                    // The model is moved into a shared_ptr the lambda shares, not captured by
+                    // value: a by-value capture copied every buffer and image in the file, and
+                    // being const it was copied again into the std::function. On WASM, where
+                    // the dispatch is synchronous, those copies sat beside the original and
+                    // tripled a large GLB's footprint at exactly the moment it peaked.
+                    std::shared_ptr<const tinygltf::Model> modelPtr =
+                        std::make_shared<tinygltf::Model>(std::move(gModel));
+                    VROPlatformDispatchAsyncRenderer([rootNode, modelPtr, driver, onFinish] {
+                        const tinygltf::Model &model = *modelPtr;
                         clearCachedData();
 
                         // Process and cache skinner and skeletal data needed for skeletal animation
