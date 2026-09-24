@@ -227,6 +227,8 @@ void VROSceneWeb::buildEmptyScene() {
 void VROSceneWeb::initAR() {
     _arSession = std::make_shared<VROARSessionWeb>();
     _arSession->run();
+    _hasARPose = false;
+    _lastARRotation = VROMatrix4f::identity();
 }
 
 std::shared_ptr<VROARSessionWeb> VROSceneWeb::getARSession() {
@@ -351,16 +353,23 @@ void VROSceneWeb::drawFrameAR(VROViewport viewport) {
 
     // Always render so the live camera feed is visible even before tracking
     // converges (mirrors native ARCore, which shows the camera while waiting).
-    // The pose is applied only once tracking is Normal; before that the scene
-    // renders at the default point of view.
+    // Until the first Normal pose the scene renders at the default point of view.
+    // After it, a dropout never goes back there: Limited means the rotation is
+    // still sound (the tracker keeps it from the gyro) and only the position is
+    // held; Unavailable holds both. Resetting to identity on every such frame
+    // swung the content to a default pose and back through each dropout burst.
     VROFieldOfView fov;
     VROMatrix4f projection = camera->getProjection(viewport, kZNear,
                                                    _renderer->getFarClippingPlane(), &fov);
-    VROMatrix4f rotation = VROMatrix4f::identity();
-    if (camera->getTrackingState() == VROARTrackingState::Normal) {
-        rotation = camera->getRotation();
+    VROARTrackingState trackingState = camera->getTrackingState();
+    if (trackingState == VROARTrackingState::Normal) {
+        _lastARRotation = camera->getRotation();
         _cameraNode->getCamera()->setPosition(camera->getPosition());
+        _hasARPose = true;
+    } else if (trackingState == VROARTrackingState::Limited && _hasARPose) {
+        _lastARRotation = camera->getRotation();
     }
+    VROMatrix4f rotation = _hasARPose ? _lastARRotation : VROMatrix4f::identity();
 
     _inputController->setRenderState(_renderer->getLookAtMatrix(), projection, _width, _height);
 
