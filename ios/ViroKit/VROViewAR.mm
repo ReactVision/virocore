@@ -667,10 +667,17 @@ static inline VROMatrix4f viroGLConvTransform(VROMatrix4f t) {
 }
 
 - (NSString *)getHeadset {
+    // nil after deleteGL, which resets the controller; a late call from JS must not crash.
+    if (!_inputController) {
+        return nil;
+    }
     return [NSString stringWithUTF8String:_inputController->getHeadset().c_str()];
 }
 
 - (NSString *)getController {
+    if (!_inputController) {
+        return nil;
+    }
     return [NSString stringWithUTF8String:_inputController->getController().c_str()];
 }
 
