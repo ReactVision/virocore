@@ -821,6 +821,15 @@ void VROInputControllerOpenXR::processHands(XrSpace baseSpace, XrTime time,
                 pinched = (sqrtf(dx*dx + dy*dy + dz*dz) < 0.02f);
             }
         }
+        // A pinch made with the palm turned toward the user is a system gesture
+        // (the left one is the menu pinch routed to BackButton above), not a
+        // select. Without this the menu pinch would also click whatever the
+        // left hand's aim was resting on.
+        if (_aimExtEnabled &&
+            (aimState.status & (XR_HAND_TRACKING_AIM_SYSTEM_GESTURE_BIT_FB |
+                                XR_HAND_TRACKING_AIM_MENU_PRESSED_BIT_FB))) {
+            pinched = false;
+        }
         if (pinched && !prevPinch)
             queueButtonEvent(source, VROEventDelegate::ClickState::ClickDown);
         else if (!pinched && prevPinch)
