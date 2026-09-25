@@ -122,12 +122,19 @@ public:
      session tracks. See VROARSessionOpenXR::performARHitTest for how it resolves.
      Empty if there is no AR session — a plain VR scene has no surfaces to hit.
 
-     This is the only overload, where VROSceneRendererARCore has three: a headset
-     has no screen to take a 2D tap from, and the ray a caller holds is a
-     controller's aim rather than the camera's forward.
+     There is no 2D-point overload, where VROSceneRendererARCore has one: a
+     headset has no screen to take a tap from.
      */
     std::vector<std::shared_ptr<VROARHitTestResult>>
     performARHitTest(VROVector3f rayOrigin, VROVector3f rayDestination);
+
+    /*
+     The same test along `ray` from the camera's current position, for callers
+     that hold a direction rather than two points (ARCore's
+     performARHitTestWithRay(ray) shape). Renderer thread only.
+     */
+    std::vector<std::shared_ptr<VROARHitTestResult>>
+    performARHitTestWithRay(VROVector3f ray);
 
 private:
 

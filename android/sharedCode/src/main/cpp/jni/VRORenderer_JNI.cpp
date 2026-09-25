@@ -187,6 +187,60 @@ VRO_METHOD(jint, nativeGetEyeHeight)(VRO_ARGS
     return xrRenderer ? (jint)xrRenderer->getEyeHeight() : 0;
 }
 
+// Defined in VRORendererARCore_JNI.cpp: convert AR hit results to
+// com.viro.core.ARHitTestResult[] and deliver them on the application thread.
+void invokeARResultsCallback(std::vector<std::shared_ptr<VROARHitTestResult>> &results, jweak weakCallback);
+void invokeEmptyARResultsCallback(jweak weakCallback);
+
+// AR hit test on Quest, against the planes the OpenXR AR session tracks. Runs on
+// the renderer thread, where those planes are updated. `origin` null means the
+// ray starts at the camera and `destination` is a direction, as ARCore's
+// performARHitTestWithRay(ray) takes it.
+static void performARHitTestOpenXR(JNIEnv *env, jlong rendererRef, jfloatArray origin,
+                                   jfloatArray destination, jobject callback) {
+    jweak weakCallback = env->NewWeakGlobalRef(callback);
+    auto xrRenderer_w = std::weak_ptr<VROSceneRendererOpenXR>(
+            std::dynamic_pointer_cast<VROSceneRendererOpenXR>(Renderer::native(rendererRef)));
+
+    bool fromCamera = (origin == nullptr);
+    VROVector3f originVec;
+    if (!fromCamera) {
+        VRO_FLOAT *o = VRO_FLOAT_ARRAY_GET_ELEMENTS(origin);
+        originVec = VROVector3f(o[0], o[1], o[2]);
+        VRO_FLOAT_ARRAY_RELEASE_ELEMENTS(origin, o);
+    }
+    VRO_FLOAT *d = VRO_FLOAT_ARRAY_GET_ELEMENTS(destination);
+    VROVector3f destVec = VROVector3f(d[0], d[1], d[2]);
+    VRO_FLOAT_ARRAY_RELEASE_ELEMENTS(destination, d);
+
+    VROPlatformDispatchAsyncRenderer([xrRenderer_w, weakCallback, fromCamera, originVec, destVec] {
+        std::shared_ptr<VROSceneRendererOpenXR> xrRenderer = xrRenderer_w.lock();
+        if (!xrRenderer) {
+            invokeEmptyARResultsCallback(weakCallback);
+            return;
+        }
+        std::vector<std::shared_ptr<VROARHitTestResult>> results = fromCamera
+                ? xrRenderer->performARHitTestWithRay(destVec)
+                : xrRenderer->performARHitTest(originVec, destVec);
+        invokeARResultsCallback(results, weakCallback);
+    });
+}
+
+VRO_METHOD(void, nativePerformARHitTestWithRayOpenXR)(VRO_ARGS
+                                                      jlong rendererRef,
+                                                      jfloatArray ray,
+                                                      jobject callback) {
+    performARHitTestOpenXR(env, rendererRef, nullptr, ray, callback);
+}
+
+VRO_METHOD(void, nativePerformARHitTestWithOriginDestOpenXR)(VRO_ARGS
+                                                             jlong rendererRef,
+                                                             jfloatArray origin,
+                                                             jfloatArray destination,
+                                                             jobject callback) {
+    performARHitTestOpenXR(env, rendererRef, origin, destination, callback);
+}
+
 VRO_METHOD(jlong, nativeCreateRendererSceneView)(VRO_ARGS
                                                  jobject class_loader,
                                                  jobject android_context,

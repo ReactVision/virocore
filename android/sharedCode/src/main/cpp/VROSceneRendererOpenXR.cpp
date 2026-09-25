@@ -807,6 +807,14 @@ VROSceneRendererOpenXR::performARHitTest(VROVector3f rayOrigin, VROVector3f rayD
     return _arSession->performARHitTest(rayOrigin, rayDestination - rayOrigin);
 }
 
+std::vector<std::shared_ptr<VROARHitTestResult>>
+VROSceneRendererOpenXR::performARHitTestWithRay(VROVector3f ray) {
+    if (!_arSession || !_renderer) {
+        return {};
+    }
+    return _arSession->performARHitTest(_renderer->getCamera().getPosition(), ray);
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // Teardown
 // ──────────────────────────────────────────────────────────────────────────────

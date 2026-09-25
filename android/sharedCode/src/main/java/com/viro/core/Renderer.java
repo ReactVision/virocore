@@ -151,6 +151,19 @@ public class Renderer {
         return nativeGetEyeHeight(mNativeRef);
     }
 
+    /**
+     * AR hit test on Quest from the camera along {@code ray}, against the planes
+     * the OpenXR AR session tracks. Reports no results on other renderers.
+     */
+    public void performARHitTestWithRayOpenXR(float[] ray, ARHitTestListener callback) {
+        nativePerformARHitTestWithRayOpenXR(mNativeRef, ray, callback);
+    }
+
+    /** AR hit test on Quest from {@code origin} to {@code destination}. */
+    public void performARHitTestWithRayOpenXR(float[] origin, float[] destination, ARHitTestListener callback) {
+        nativePerformARHitTestWithOriginDestOpenXR(mNativeRef, origin, destination, callback);
+    }
+
     /* ----------     Common lifecycle methods    ---------- */
 
     public void destroy() {
@@ -375,6 +388,8 @@ public class Renderer {
     private native void nativeSetHandTrackingEnabled(long nativeRenderer, boolean enabled);
     private native int nativeGetEyeWidth(long nativeRenderer);
     private native int nativeGetEyeHeight(long nativeRenderer);
+    private native void nativePerformARHitTestWithRayOpenXR(long nativeRenderer, float[] ray, ARHitTestListener callback);
+    private native void nativePerformARHitTestWithOriginDestOpenXR(long nativeRenderer, float[] origin, float[] destination, ARHitTestListener callback);
     private native void nativeSetClearColor(long sceneRef, int color);
     private native void nativeSetShadowsEnabled(long nativeRef, boolean enabled);
     private native void nativeSetHDREnabled(long nativeRef, boolean enabled);

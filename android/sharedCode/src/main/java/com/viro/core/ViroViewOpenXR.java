@@ -450,6 +450,40 @@ public class ViroViewOpenXR extends ViroView {
     }
 
     /**
+     * Performs an AR hit test from the camera's position in the direction of the given
+     * ray, against the real-world planes the headset tracks (plane detection or the Space
+     * Setup room model). Results arrive nearest first. There are none in a scene with no
+     * AR session, and none before the renderer has started.
+     *
+     * @param ray      Direction of the test, from the camera's current position.
+     * @param callback Receives the {@link ARHitTestResult} results.
+     */
+    public void performARHitTestWithRay(Vector ray, ARHitTestListener callback) {
+        if (mDestroyed || mNativeRenderer == null) {
+            callback.onHitTestFinished(new ARHitTestResult[0]);
+            return;
+        }
+        mNativeRenderer.performARHitTestWithRayOpenXR(ray.toArray(), callback);
+    }
+
+    /**
+     * Performs an AR hit test along the ray from <i>origin</i> to <i>destination</i> in
+     * world coordinates, typically a controller's aim. See
+     * {@link #performARHitTestWithRay(Vector, ARHitTestListener)}.
+     *
+     * @param origin      The ray origin in world coordinates.
+     * @param destination The ray destination in world coordinates.
+     * @param callback    Receives the {@link ARHitTestResult} results.
+     */
+    public void performARHitTestWithRay(Vector origin, Vector destination, ARHitTestListener callback) {
+        if (mDestroyed || mNativeRenderer == null) {
+            callback.onHitTestFinished(new ARHitTestResult[0]);
+            return;
+        }
+        mNativeRenderer.performARHitTestWithRayOpenXR(origin.toArray(), destination.toArray(), callback);
+    }
+
+    /**
      * Recorder for capturing the rendered scene. Created on first use, because the
      * XR session has to exist before its swapchains have a size to record at.
      *
