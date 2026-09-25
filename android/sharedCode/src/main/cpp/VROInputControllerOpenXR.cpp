@@ -581,6 +581,7 @@ void VROInputControllerOpenXR::onProcess(XrSession session, XrSpace baseSpace,
     // Head pose is the coarser signal, but it is the one every headset has, and it
     // is what "look at the object" means to the person wearing it. It is also what
     // the Cardboard and Daydream controllers in this renderer have always done.
+    bool eyeGazeLocated = false;
     if (_eyeGazeEnabled && _eyeGazeSpace != XR_NULL_HANDLE) {
         XrSpaceLocation loc = { XR_TYPE_SPACE_LOCATION };
         XrResult r = xrLocateSpace(_eyeGazeSpace, baseSpace, time, &loc);
@@ -593,16 +594,21 @@ void VROInputControllerOpenXR::onProcess(XrSession session, XrSpace baseSpace,
             VROInputControllerBase::updateHitNode(ViroOculus::EyeGaze, camera, gazePos, gazeForward);
             VROInputControllerBase::onMove(ViroOculus::EyeGaze, gazePos, gazeRot, gazeForward);
             VROInputControllerBase::processGazeEvent(ViroOculus::EyeGaze);
+            eyeGazeLocated = true;
         }
-    } else {
-        // The camera holds this frame's HMD pose, already in the reference space the
-        // controller rays above were located in, so no conversion is needed and the
-        // two hover sources agree about where things are.
-        const VROVector3f   gazePos     = camera.getPosition();
-        const VROVector3f   gazeForward = camera.getForward();
-        const VROQuaternion gazeRot     = camera.getRotation();
-        VROInputControllerBase::updateHitNode(ViroOculus::EyeGaze, camera, gazePos, gazeForward);
-        VROInputControllerBase::onMove(ViroOculus::EyeGaze, gazePos, gazeRot, gazeForward);
+    }
+    if (!eyeGazeLocated) {
+        // Head pose, when there is no eye tracker or it lost the eyes this frame.
+        // The camera holds this frame's HMD pose, already in the reference space
+        // the controller rays above were located in.
+        //
+        // Hover and the reticle only. The hit is kept under EyeGaze alone rather
+        // than mirrored into the shared slot, and onMove is not called: this runs
+        // on every frame of every scene, and either would hand fuse, pinch, rotate
+        // and drag to wherever the head points instead of the controller in use.
+        VROInputControllerBase::updateHitNode(ViroOculus::EyeGaze, camera,
+                                              camera.getPosition(), camera.getForward(),
+                                              /*mirrorToLegacy=*/false);
         VROInputControllerBase::processGazeEvent(ViroOculus::EyeGaze);
     }
 
