@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## Unreleased
+
+### Fixed
+
+- **iOS: a gesture in flight during AR teardown no longer crashes (`VROViewAR`).** `deleteGL` reset the input controller but left the pan, pinch, rotate and tap recognizers attached, so a gesture still in flight when `ViroARSceneNavigator` unmounted delivered its action to a null controller: `EXC_BAD_ACCESS` in `handleLongPress:` → `VROInputControllerAR::onScreenTouchDown`, seen in production on 2.50.1 and still reachable in 3.0.x. `deleteGL` now removes the recognizers, and each handler, `getHeadset` and `getController` return early once the controller is gone.
+
 ## v3.0.2 — 24 September 2026
 
 ### Fixed
