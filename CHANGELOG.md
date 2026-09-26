@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- **iOS: a gesture in flight during AR teardown no longer crashes (`VROViewAR`).** `deleteGL` reset the input controller but left the pan, pinch, rotate and tap recognizers attached, so a gesture still in flight when `ViroARSceneNavigator` unmounted delivered its action to a null controller: `EXC_BAD_ACCESS` in `handleLongPress:` → `VROInputControllerAR::onScreenTouchDown`, seen in production on 2.50.1 and still reachable in 3.0.x. `deleteGL` now removes the recognizers, and each handler, `getHeadset` and `getController` return early once the controller is gone.
+
 ### Added
 
 - **Quest: the left-palm menu pinch now reaches the app with hand tracking (`VROInputControllerOpenXR`).** Meta's runtime reports it as `XR_HAND_TRACKING_AIM_MENU_PRESSED_BIT_FB` on the left hand's `XrHandTrackingAimStateFB`, which `processHands` already chained into `xrLocateHandJointsEXT` but only ever read for the computed-aim bit, so with no controllers in use an app had no way to open its menu. The gesture is now routed exactly like the left controller Menu button: a rising edge queues `BackButton` ClickDown and calls the back-button callback (`ViroViewOpenXR.onNativeBackButton()` → `Activity.onBackPressed()`, which React Native surfaces as `hardwareBackPress`), and a falling edge queues ClickUp, so a held gesture fires once. If the left hand stops being located while the gesture is held, the ClickUp is emitted then, so the next gesture still sees a rising edge. No JS change is needed. The right-palm gesture is the system menu and is not reported to apps. While the runtime reports a system gesture (`XR_HAND_TRACKING_AIM_SYSTEM_GESTURE_BIT_FB`, or the menu bit itself) the hand's pinch is not treated as a select, so the menu pinch no longer also clicks whatever the left hand was aiming at. B and the controller Menu button are unchanged.
