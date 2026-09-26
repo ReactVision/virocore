@@ -725,7 +725,26 @@ void VROInputControllerOpenXR::processHands(XrSpace baseSpace, XrTime time,
                                               VROVector3f &leftAimForwardOut) {
     rightAimValidOut = false;
     leftAimValidOut  = false;
-    if (!_pfnLocateHandJoints || !_handTrackingEnabled) return;
+
+    // Left-palm menu gesture (XR_HAND_TRACKING_AIM_MENU_PRESSED_BIT_FB) is
+    // routed exactly like the controller Menu button: BackButton down/up plus
+    // _backButtonCallback on the rising edge. If the hand stops being located
+    // (tracking lost, hand tracking disabled) while the gesture is held, emit
+    // the matching ClickUp so the next gesture still sees a rising edge.
+    auto updateMenuGesture = [this](bool pressed) {
+        if (pressed && !_prevMenuGestureLeft) {
+            queueButtonEvent(ViroOculus::BackButton, VROEventDelegate::ClickState::ClickDown);
+            if (_backButtonCallback) _backButtonCallback();
+        } else if (!pressed && _prevMenuGestureLeft) {
+            queueButtonEvent(ViroOculus::BackButton, VROEventDelegate::ClickState::ClickUp);
+        }
+        _prevMenuGestureLeft = pressed;
+    };
+
+    if (!_pfnLocateHandJoints || !_handTrackingEnabled) {
+        updateMenuGesture(false);
+        return;
+    }
 
     for (int hand = 0; hand < 2; ++hand) {
         XrHandTrackerEXT tracker = (hand == 0) ? _leftHandTracker : _rightHandTracker;
@@ -750,7 +769,20 @@ void VROInputControllerOpenXR::processHands(XrSpace baseSpace, XrTime time,
         locateInfo.time      = time;
 
         XrResult r = _pfnLocateHandJoints(tracker, &locateInfo, &locations);
-        if (!XR_SUCCEEDED(r) || !locations.isActive) continue;
+        if (!XR_SUCCEEDED(r) || !locations.isActive) {
+            if (hand == 0) updateMenuGesture(false);
+            continue;
+        }
+
+        // ── Menu gesture (left palm pinch → BackButton) ──────────────────────
+        // Meta's runtime reports the left-hand system "menu" pinch through the
+        // FB aim state; it is the hands-only equivalent of the left controller
+        // Menu button, so it is routed the same way. The right-palm gesture is
+        // reserved by the OS and never reaches the app.
+        if (hand == 0) {
+            updateMenuGesture(_aimExtEnabled &&
+                              (aimState.status & XR_HAND_TRACKING_AIM_MENU_PRESSED_BIT_FB));
+        }
 
         // ── Source IDs for this hand ──────────────────────────────────────────
         int  source     = (hand == 0) ? ViroOculus::LeftController : ViroOculus::Controller;
@@ -828,6 +860,15 @@ void VROInputControllerOpenXR::processHands(XrSpace baseSpace, XrTime time,
                 float dz = thumbTip.pose.position.z - indexTip.pose.position.z;
                 pinched = (sqrtf(dx*dx + dy*dy + dz*dz) < 0.02f);
             }
+        }
+        // A pinch made with the palm turned toward the user is a system gesture
+        // (the left one is the menu pinch routed to BackButton above), not a
+        // select. Without this the menu pinch would also click whatever the
+        // left hand's aim was resting on.
+        if (_aimExtEnabled &&
+            (aimState.status & (XR_HAND_TRACKING_AIM_SYSTEM_GESTURE_BIT_FB |
+                                XR_HAND_TRACKING_AIM_MENU_PRESSED_BIT_FB))) {
+            pinched = false;
         }
         if (pinched && !prevPinch)
             queueButtonEvent(source, VROEventDelegate::ClickState::ClickDown);
