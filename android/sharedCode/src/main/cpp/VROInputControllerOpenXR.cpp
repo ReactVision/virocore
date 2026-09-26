@@ -569,10 +569,19 @@ void VROInputControllerOpenXR::onProcess(XrSession session, XrSpace baseSpace,
     dispatchSide(rightValid, ViroOculus::Controller,     rightPos, rightRot, rightForward);
     dispatchSide(leftValid,  ViroOculus::LeftController, leftPos,  leftRot,  leftForward);
 
-    // ── Eye gaze (Quest Pro) — additive onHover source ──────────────────────
-    // Locate the eye-gaze pose and feed it through the same hit-test/onHover path
-    // as the controllers, under its own source id. No laser line is drawn (a gaze
-    // ray shouldn't render a beam); the reticle still follows via processGazeEvent.
+    // ── Gaze — additive onHover source ──────────────────────────────────────
+    // Feed a gaze pose through the same hit-test/onHover path as the controllers,
+    // under its own source id. No laser line is drawn (a gaze ray shouldn't render
+    // a beam); the reticle still follows via processGazeEvent.
+    //
+    // Eye gaze where the headset tracks eyes, head pose where it does not. Only the
+    // Quest Pro reports supportsEyeGazeInteraction, so before the fallback On Gaze
+    // was inert on every Quest actually being sold: an author who bound a gaze
+    // trigger and tested it on a Quest 3 saw nothing happen, and no error either.
+    // Head pose is the coarser signal, but it is the one every headset has, and it
+    // is what "look at the object" means to the person wearing it. It is also what
+    // the Cardboard and Daydream controllers in this renderer have always done.
+    bool eyeGazeLocated = false;
     if (_eyeGazeEnabled && _eyeGazeSpace != XR_NULL_HANDLE) {
         XrSpaceLocation loc = { XR_TYPE_SPACE_LOCATION };
         XrResult r = xrLocateSpace(_eyeGazeSpace, baseSpace, time, &loc);
@@ -585,11 +594,42 @@ void VROInputControllerOpenXR::onProcess(XrSession session, XrSpace baseSpace,
             VROInputControllerBase::updateHitNode(ViroOculus::EyeGaze, camera, gazePos, gazeForward);
             VROInputControllerBase::onMove(ViroOculus::EyeGaze, gazePos, gazeRot, gazeForward);
             VROInputControllerBase::processGazeEvent(ViroOculus::EyeGaze);
+            eyeGazeLocated = true;
         }
+    }
+    if (!eyeGazeLocated) {
+        // Head pose, when there is no eye tracker or it lost the eyes this frame.
+        // The camera holds this frame's HMD pose, already in the reference space
+        // the controller rays above were located in.
+        //
+        // Hover and the reticle only. The hit is kept under EyeGaze alone rather
+        // than mirrored into the shared slot, and onMove is not called: this runs
+        // on every frame of every scene, and either would hand fuse, pinch, rotate
+        // and drag to wherever the head points instead of the controller in use.
+        VROInputControllerBase::updateHitNode(ViroOculus::EyeGaze, camera,
+                                              camera.getPosition(), camera.getForward(),
+                                              /*mirrorToLegacy=*/false);
+        VROInputControllerBase::processGazeEvent(ViroOculus::EyeGaze);
     }
 
     for (const auto &edge : _pendingButtons) {
         VROInputControllerBase::onButtonEvent(edge.first, edge.second);
+
+        // A short pulse on press, so a click reads as having landed. The left and
+        // right vibration output actions have been bound since this controller was
+        // written but had no caller anywhere, which is why every click, drag and
+        // collision in a Quest scene was silent.
+        //
+        // Only on the ClickDown edge: buzzing on release would read as a second
+        // press. BackButton is excluded for two reasons — it has no attributable
+        // hand (B on the right and Menu on the left share the source id, so
+        // rayForSource returns neither controller), and its callback finishes the
+        // VR activity, so the pulse would be cut off or land after the scene is gone.
+        if (edge.second == VROEventDelegate::ClickState::ClickDown &&
+            edge.first != ViroOculus::BackButton) {
+            const bool leftHand = rayForSource(edge.first) == ViroOculus::LeftController;
+            triggerHaptic(session, leftHand ? 0 : 1);
+        }
     }
     _pendingButtons.clear();
 
