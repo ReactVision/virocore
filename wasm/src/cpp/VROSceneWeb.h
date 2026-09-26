@@ -20,6 +20,7 @@
 #include <string>
 #include "emscripten.h"
 #include "emscripten/html5.h"
+#include "VROMatrix4f.h"
 
 class VRORenderer;
 class VROInputControllerWasm;
@@ -95,6 +96,10 @@ private:
     std::shared_ptr<VRONode> _cameraNode;
     // Non-null when in AR mode (pose/background injected from JS).
     std::shared_ptr<VROARSessionWeb> _arSession;
+    // The last rotation drawn from a tracked pose, and whether there has been
+    // one this session. A dropout holds it instead of snapping to identity.
+    VROMatrix4f _lastARRotation;
+    bool _hasARPose = false;
     // Screen-space surface that draws the live camera feed behind the scene.
     // Created lazily on the first AR frame; its diffuse is the JS-uploaded texture.
     std::shared_ptr<VROSurface> _cameraBackground;

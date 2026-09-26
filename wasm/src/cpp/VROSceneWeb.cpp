@@ -11,6 +11,7 @@
 #include "VROSceneWeb.h"
 
 #include <emscripten/bind.h>
+#include <emscripten/em_js.h>
 
 #include "VROLog.h"
 #include "VRORenderer.h"
@@ -50,6 +51,7 @@
 #include "VROMaterialVisual.h"
 #include "VROShaderModifier.h"
 #include "VROTexture.h"
+#include "VROTextureSubstrateOpenGL.h"
 #include "VROData.h"
 #include "VROTransaction.h"
 #include "VROEventDelegate.h"
@@ -227,6 +229,8 @@ void VROSceneWeb::buildEmptyScene() {
 void VROSceneWeb::initAR() {
     _arSession = std::make_shared<VROARSessionWeb>();
     _arSession->run();
+    _hasARPose = false;
+    _lastARRotation = VROMatrix4f::identity();
 }
 
 std::shared_ptr<VROARSessionWeb> VROSceneWeb::getARSession() {
@@ -338,9 +342,11 @@ void VROSceneWeb::drawFrameAR(VROViewport viewport) {
             material->setNeedsToneMapping(false);
         }
         _cameraBackground->getMaterials()[0]->getDiffuse().setTexture(cameraTexture);
-        // JS uploads a fresh VROTexture each frame; force its GPU upload now so
-        // the background samples real pixels this frame (otherwise the one-shot
-        // texture is replaced before it hydrates, sampling empty → blank feed).
+        // A byte-uploaded (viroCreateTextureRGBA) feed is a fresh VROTexture each
+        // frame; force its GPU upload now so the background samples real pixels
+        // this frame (otherwise the one-shot texture is replaced before it
+        // hydrates, sampling empty → blank feed). A source texture is already on
+        // the GPU, and this is a no-op for it.
         cameraTexture->prewarm(_driver);
         _renderer->setCameraBackgroundTexture(cameraTexture);
         if (!_scene->getRootNode()->getBackground()) {
@@ -351,16 +357,23 @@ void VROSceneWeb::drawFrameAR(VROViewport viewport) {
 
     // Always render so the live camera feed is visible even before tracking
     // converges (mirrors native ARCore, which shows the camera while waiting).
-    // The pose is applied only once tracking is Normal; before that the scene
-    // renders at the default point of view.
+    // Until the first Normal pose the scene renders at the default point of view.
+    // After it, a dropout never goes back there: Limited means the rotation is
+    // still sound (the tracker keeps it from the gyro) and only the position is
+    // held; Unavailable holds both. Resetting to identity on every such frame
+    // swung the content to a default pose and back through each dropout burst.
     VROFieldOfView fov;
     VROMatrix4f projection = camera->getProjection(viewport, kZNear,
                                                    _renderer->getFarClippingPlane(), &fov);
-    VROMatrix4f rotation = VROMatrix4f::identity();
-    if (camera->getTrackingState() == VROARTrackingState::Normal) {
-        rotation = camera->getRotation();
+    VROARTrackingState trackingState = camera->getTrackingState();
+    if (trackingState == VROARTrackingState::Normal) {
+        _lastARRotation = camera->getRotation();
         _cameraNode->getCamera()->setPosition(camera->getPosition());
+        _hasARPose = true;
+    } else if (trackingState == VROARTrackingState::Limited && _hasARPose) {
+        _lastARRotation = camera->getRotation();
     }
+    VROMatrix4f rotation = _hasARPose ? _lastARRotation : VROMatrix4f::identity();
 
     _inputController->setRenderState(_renderer->getLookAtMatrix(), projection, _width, _height);
 
@@ -1373,6 +1386,94 @@ static int viroCreateTextureRGBA(emscripten::val pixels, int width, int height, 
         dataVec, width, height, std::vector<uint32_t>());
     return h;
 }
+// --- Source textures (a <video>, <canvas>, ImageBitmap or VideoFrame, uploaded
+// by the GPU) ---
+//
+// viroCreateTextureRGBA takes bytes, so a camera frame used to reach the GPU by
+// way of a 2D canvas, a getImageData readback, two copies into this heap and a
+// fresh texture every frame. A source texture is one GL texture for the session
+// that the browser fills straight from the element: no readback, no copies in
+// the heap, and the feed at the stream's own resolution.
+
+struct WebSourceTexture {
+    GLuint name;
+    bool sRGB;
+    int width;
+    int height;
+};
+static std::unordered_map<int, WebSourceTexture> sSourceTextures;
+
+// Upload `source` into GL texture `name`, reallocating only when the size
+// changed. Rows go top-first, as the RGBA path uploads them. The 2D binding on
+// the active unit is restored, because VRODriverOpenGL caches bindings and would
+// otherwise skip a bind it believes is already in place.
+EM_JS_DEPS(viro_source_texture, "$GL,$Emval");
+EM_JS(int, viro_upload_texture_source, (GLuint name, emscripten::EM_VAL sourceHandle, bool sRGB,
+                                        int prevWidth, int prevHeight), {
+    var source = Emval.toValue(sourceHandle);
+    var w = source.videoWidth || source.displayWidth || source.width || 0;
+    var h = source.videoHeight || source.displayHeight || source.height || 0;
+    if (!w || !h) return 0;
+    var gl = GLctx;
+    var previous = gl.getParameter(gl.TEXTURE_BINDING_2D);
+    gl.bindTexture(gl.TEXTURE_2D, GL.textures[name]);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+    if (w !== prevWidth || h !== prevHeight) {
+        gl.texImage2D(gl.TEXTURE_2D, 0, sRGB ? gl.SRGB8_ALPHA8 : gl.RGBA8,
+                      gl.RGBA, gl.UNSIGNED_BYTE, source);
+    } else {
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, source);
+    }
+    gl.bindTexture(gl.TEXTURE_2D, previous);
+    // Both sizes fit in 16 bits; pack them so one call answers both.
+    return (w << 16) | h;
+});
+
+// Create an empty source texture. sRGB as for viroCreateTextureRGBA: true for a
+// camera feed or any other color image.
+static int viroCreateSourceTexture(bool sRGB) {
+    if (!sScene) return 0;
+    std::shared_ptr<VRODriverOpenGL> driver = sScene->getDriver();
+
+    GLuint name = 0;
+    glGenTextures(1, &name);
+    GLint previous = 0;
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &previous);
+    glBindTexture(GL_TEXTURE_2D, name);
+    // No mipmaps: the default minification filter would leave it incomplete.
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glBindTexture(GL_TEXTURE_2D, (GLuint) previous);
+
+    // sRGB decode is the GL internal format's job (SRGB8_ALPHA8 on upload).
+    auto texture = std::make_shared<VROTexture>(VROTextureType::Texture2D,
+                                                VROTextureInternalFormat::RGBA8);
+    texture->setSubstrate(0, std::unique_ptr<VROTextureSubstrate>(
+        new VROTextureSubstrateOpenGL(GL_TEXTURE_2D, name, driver, true)));
+
+    int h = sNextHandle++;
+    sTextures[h] = texture;
+    sSourceTextures[h] = { name, sRGB, 0, 0 };
+    return h;
+}
+
+// Fill a source texture from `source`. Returns false when the texture is not a
+// source texture or the source has no frame yet (a video before loadeddata).
+static bool viroUpdateTextureFromSource(int texture, emscripten::val source) {
+    auto it = sSourceTextures.find(texture);
+    if (it == sSourceTextures.end()) return false;
+    WebSourceTexture &t = it->second;
+    int packed = viro_upload_texture_source(t.name, source.as_handle(), t.sRGB,
+                                            t.width, t.height);
+    if (packed == 0) return false;
+    t.width = (packed >> 16) & 0xFFFF;
+    t.height = packed & 0xFFFF;
+    return true;
+}
+
 // mode: 0=Clamp,1=Repeat,2=ClampToBorder,3=Mirror
 static VROWrapMode wrapModeValue(int mode) {
     switch (mode) {
@@ -1419,6 +1520,7 @@ static void viroSetMaterialTexture(int material, int channel, int texture) {
 }
 static void viroDestroyTexture(int texture) {
     sTextures.erase(texture);
+    sSourceTextures.erase(texture);
 }
 // sampler2D shader uniform. texture may be VIRO_INVALID_HANDLE (0) to clear it.
 static void viroSetMaterialShaderUniformTexture(int material, std::string name, int texture) {
@@ -2057,6 +2159,8 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroSetTextureFilter", &viroSetTextureFilter);
     emscripten::function("viroSetMaterialTexture", &viroSetMaterialTexture);
     emscripten::function("viroDestroyTexture", &viroDestroyTexture);
+    emscripten::function("viroCreateSourceTexture", &viroCreateSourceTexture);
+    emscripten::function("viroUpdateTextureFromSource", &viroUpdateTextureFromSource);
     emscripten::function("viroSetMaterialShaderUniformTexture", &viroSetMaterialShaderUniformTexture);
     emscripten::function("viroCreateTextureCubeRGBA", &viroCreateTextureCubeRGBA);
     emscripten::function("viroLoadRadianceHDRTexture", &viroLoadRadianceHDRTexture);

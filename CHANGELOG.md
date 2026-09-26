@@ -6,6 +6,22 @@
 
 - **Quest: the left-palm menu pinch now reaches the app with hand tracking (`VROInputControllerOpenXR`).** Meta's runtime reports it as `XR_HAND_TRACKING_AIM_MENU_PRESSED_BIT_FB` on the left hand's `XrHandTrackingAimStateFB`, which `processHands` already chained into `xrLocateHandJointsEXT` but only ever read for the computed-aim bit, so with no controllers in use an app had no way to open its menu. The gesture is now routed exactly like the left controller Menu button: a rising edge queues `BackButton` ClickDown and calls the back-button callback (`ViroViewOpenXR.onNativeBackButton()` → `Activity.onBackPressed()`, which React Native surfaces as `hardwareBackPress`), and a falling edge queues ClickUp, so a held gesture fires once. If the left hand stops being located while the gesture is held, the ClickUp is emitted then, so the next gesture still sees a rising edge. No JS change is needed. The right-palm gesture is the system menu and is not reported to apps. While the runtime reports a system gesture (`XR_HAND_TRACKING_AIM_SYSTEM_GESTURE_BIT_FB`, or the menu bit itself) the hand's pinch is not treated as a select, so the menu pinch no longer also clicks whatever the left hand was aiming at. B and the controller Menu button are unchanged.
 
+## v3.0.2 — 24 September 2026
+
+### Fixed
+
+- **Web: the WASM heap grows (`wasm/CMakeLists.txt`).** It was fixed at 256 MB, and one 29 MB GLB with a 4096x4096 texture crossed it. `abort("OOM")` is permanent in Emscripten, so the renderer died rather than the one model: the main loop stopped, every later call threw and the canvas stayed black. `-sALLOW_MEMORY_GROWTH=1` with `-sMAXIMUM_MEMORY=2GB`; a failure past the ceiling still aborts, and `viro-web-renderer` now reports it through `Module.onAbort`.
+
+- **Loading a glTF no longer copies the whole model, three times over for its images (`VROGLTFLoader`, `VROPlatformUtil`).** The parsed `tinygltf::Model` was captured by value into the renderer dispatch and, being const, copied again into the `std::function`; each embedded image was copied twice more before decoding, and once again by `VROPlatformLoadImageWithBufferedData` taking its buffer by value. The model now moves into a shared pointer and the image bytes are read in place. On WASM, where the dispatch is synchronous, those copies coexisted with the original at the load's peak. The signature change to `const std::vector<unsigned char> &` touches every platform.
+
+- **Web: taps were mirrored about the horizontal axis (`VROInputControllerWasm`).** `calculateCameraRay` flipped Y and `VROProjector::unproject` flips it again, so the two cancelled: a clickable image in the top of the view could only be hit in empty space at its mirror position. The touch position now goes straight to `unproject`, as `VROInputControllerAR` does.
+
+- **Web AR: a tracking dropout snapped the scene to a default orientation (`VROSceneWeb::drawFrameAR`).** Every frame not reported Normal rendered with identity rotation, so content swung away and back through each dropout. The last tracked pose is now held; Limited applies the new rotation and holds the position. Identity is used only before the first tracked pose.
+
+### Added
+
+- **Web: source textures (`viroCreateSourceTexture`, `viroUpdateTextureFromSource`).** A texture the GPU fills straight from a `<video>`, `<canvas>`, `ImageBitmap` or `VideoFrame`, reallocating only when the size changes. The camera feed used to arrive as bytes: a 2D-canvas readback, two copies into the heap and a new texture every frame.
+
 ## v3.0.1 — 21 September 2026
 
 ### Fixed
