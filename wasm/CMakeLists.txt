@@ -369,6 +369,12 @@ TARGET_LINK_LIBRARIES(viro_pbr_test ${VIRO_LINK_LIBS})
 #
 # Only the base renderer assets are preloaded (shaders + blank.png + font),
 # not the per-test assets.
+#
+# The heap grows. A fixed 256MB used to be the ceiling, and one 29MB GLB with a
+# 4K texture crossed it: abort("OOM") is permanent in Emscripten, so the whole
+# renderer died rather than the one model. MAXIMUM_MEMORY is stated so the
+# ceiling is a decision; a failure past it still aborts, and viro-web-renderer
+# reports that through Module.onAbort.
 # ---------------------------------------------------------------------------
 SET(VIRO_WEB_LINK_FLAGS "-Oz \
                      -sSTACK_SIZE=5MB \
@@ -383,6 +389,8 @@ SET(VIRO_WEB_LINK_FLAGS "-Oz \
                      -sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2 \
                      -sFULL_ES3=1 \
                      -sINITIAL_MEMORY=256MB \
+                     -sALLOW_MEMORY_GROWTH=1 \
+                     -sMAXIMUM_MEMORY=2GB \
                      -sTEXTDECODER=1 \
                      -sEXPORTED_RUNTIME_METHODS=[ccall,cwrap,FS] \
                      --bind \

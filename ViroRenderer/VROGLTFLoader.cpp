@@ -480,8 +480,15 @@ void VROGLTFLoader::loadGLTFFromResource(std::string gltfManifestFilePath, const
                     }
 
                     // Once the manifest has been parsed, start constructing our Viro 3D Model.
-                    const tinygltf::Model &model = gModel;
-                    VROPlatformDispatchAsyncRenderer([rootNode, model, driver, onFinish] {
+                    // The model is moved into a shared_ptr the lambda shares, not captured by
+                    // value: a by-value capture copied every buffer and image in the file, and
+                    // being const it was copied again into the std::function. On WASM, where
+                    // the dispatch is synchronous, those copies sat beside the original and
+                    // tripled a large GLB's footprint at exactly the moment it peaked.
+                    std::shared_ptr<const tinygltf::Model> modelPtr =
+                        std::make_shared<tinygltf::Model>(std::move(gModel));
+                    VROPlatformDispatchAsyncRenderer([rootNode, modelPtr, driver, onFinish] {
+                        const tinygltf::Model &model = *modelPtr;
                         clearCachedData();
 
                         // Process and cache skinner and skeletal data needed for skeletal animation
@@ -3073,13 +3080,13 @@ std::shared_ptr<VROTexture> VROGLTFLoader::getTexture(const tinygltf::Model &gMo
         return VROGLTFLoader::_textureCache[key];
     }
 
-    // Grab the GLTF image data of for this texture.
-    tinygltf::Image gImg = gModel.images[imageIndex];
-    std::string imgName = gImg.name;
+    // Grab the GLTF image data of for this texture. By reference: the encoded
+    // bytes are decoded straight out of the model, never copied first.
+    const tinygltf::Image &gImg = gModel.images[imageIndex];
+    const std::string &imgName = gImg.name;
 
     // Decode the GLTF image data / raw bytes into a VROImage data.
-    std::vector<unsigned char> data = gImg.rawByteVec;
-    std::shared_ptr<VROImage> image = VROPlatformLoadImageWithBufferedData(data, VROTextureInternalFormat::RGBA8);
+    std::shared_ptr<VROImage> image = VROPlatformLoadImageWithBufferedData(gImg.rawByteVec, VROTextureInternalFormat::RGBA8);
     if (image == nullptr){
         perr("Error when parsing texture for image %s.", imgName.c_str());
         return nullptr;

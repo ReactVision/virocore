@@ -313,7 +313,7 @@ std::shared_ptr<VROImage> VROPlatformLoadImageFromFile(std::string filename,
     return std::make_shared<VROImageiOS>(image, format);
 }
 
-std::shared_ptr<VROImage> VROPlatformLoadImageWithBufferedData(std::vector<unsigned char> rawData, VROTextureInternalFormat format) {
+std::shared_ptr<VROImage> VROPlatformLoadImageWithBufferedData(const std::vector<unsigned char> &rawData, VROTextureInternalFormat format) {
     NSData *data = [NSData dataWithBytes:rawData.data() length:rawData.size()];
     if (!data) {
         pwarn("Error when processing buffered image data.");
@@ -444,7 +444,7 @@ std::shared_ptr<VROImage> VROPlatformLoadImageFromFile(std::string filename,
     return std::make_shared<VROImageMacOS>(image, format);
 }
 
-std::shared_ptr<VROImage> VROPlatformLoadImageWithBufferedData(std::vector<unsigned char> rawData,
+std::shared_ptr<VROImage> VROPlatformLoadImageWithBufferedData(const std::vector<unsigned char> &rawData,
                                                                VROTextureInternalFormat format) {
     return nullptr;
 }
@@ -510,7 +510,7 @@ std::shared_ptr<VROImage> VROPlatformLoadImageFromFile(std::string filename,
     return std::make_shared<VROImageiOS>(image, format);
 }
 
-std::shared_ptr<VROImage> VROPlatformLoadImageWithBufferedData(std::vector<unsigned char> rawData,
+std::shared_ptr<VROImage> VROPlatformLoadImageWithBufferedData(const std::vector<unsigned char> &rawData,
                                                                VROTextureInternalFormat format) {
     NSData *data = [NSData dataWithBytes:rawData.data() length:rawData.size()];
     if (!data) {
@@ -917,7 +917,7 @@ jobject VROPlatformLoadBitmapFromFile(std::string path, VROTextureInternalFormat
 }
 
 
-std::shared_ptr<VROImage> VROPlatformLoadImageWithBufferedData(std::vector<unsigned char> rawData,
+std::shared_ptr<VROImage> VROPlatformLoadImageWithBufferedData(const std::vector<unsigned char> &rawData,
                                                                VROTextureInternalFormat format) {
     if (sPlatformUtil == NULL) {
         pinfo("Platform not initialized, will not load image from buffered data");
@@ -1514,7 +1514,7 @@ std::shared_ptr<VROImage> VROPlatformLoadImageFromFile(std::string filename,
     return std::make_shared<VROImageWasm>(filename, format);
 }
 
-std::shared_ptr<VROImage> VROPlatformLoadImageWithBufferedData(std::vector<unsigned char> rawData,
+std::shared_ptr<VROImage> VROPlatformLoadImageWithBufferedData(const std::vector<unsigned char> &rawData,
                                                                VROTextureInternalFormat format) {
     // Encoded image bytes (e.g. a texture embedded in a GLB/VRX). VROImageWasm
     // auto-detects the format (PNG/JPEG) from the buffer.
