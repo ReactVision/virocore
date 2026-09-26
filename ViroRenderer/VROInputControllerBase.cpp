@@ -496,15 +496,20 @@ void VROInputControllerBase::updateHitNode(const VROCamera &camera, VROVector3f 
 }
 
 void VROInputControllerBase::updateHitNode(int source, const VROCamera &camera,
-                                           VROVector3f origin, VROVector3f ray) {
+                                           VROVector3f origin, VROVector3f ray,
+                                           bool mirrorToLegacy) {
     if (_scene == nullptr || _lastDraggedNode != nullptr) {
         return;
     }
     auto hit = std::make_shared<VROHitTestResult>(hitTest(camera, origin, ray, true));
     _hitResultsBySource[source] = hit;
     // Mirror to the legacy single-source slot so subsystems that don't carry
-    // a source ID (fuse, pinch, rotate) keep functioning.
-    _hitResult = hit;
+    // a source ID (fuse, pinch, rotate) keep functioning. A passive source that
+    // runs every frame (head gaze) opts out, or it would take that slot from
+    // the pointer the user is actually aiming.
+    if (mirrorToLegacy) {
+        _hitResult = hit;
+    }
 }
 
 std::shared_ptr<VROHitTestResult>
