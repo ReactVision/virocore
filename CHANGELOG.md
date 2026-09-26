@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- **iOS: a gesture in flight during AR teardown no longer crashes (`VROViewAR`).** `deleteGL` reset the input controller but left the pan, pinch, rotate and tap recognizers attached, so a gesture still in flight when `ViroARSceneNavigator` unmounted delivered its action to a null controller: `EXC_BAD_ACCESS` in `handleLongPress:` → `VROInputControllerAR::onScreenTouchDown`, seen in production on 2.50.1 and still reachable in 3.0.x. `deleteGL` now removes the recognizers, and each handler, `getHeadset` and `getController` return early once the controller is gone.
+
 ### Added
 
 - **On Gaze works on every Quest, not just the Quest Pro (`VROInputControllerOpenXR`).** The eye-gaze input source is gated on the system reporting `supportsEyeGazeInteraction`, which only the Quest Pro does — so a gaze binding was inert on Quest 2, 3 and 3S, the headsets actually being sold. An author who bound a gaze trigger and tested it on a Quest 3 saw nothing happen and got no error, because nothing was wrong: the source simply never produced a pose. The gaze source now falls back to the head pose when the headset has no eye tracker, under the same `EyeGaze` source id, so hover fires and the reticle follows with no change above the renderer. It also takes over for a frame the eye tracker loses. The head-pose hit drives hover and the reticle only: it is not mirrored into the shared hit slot and does not call `onMove`, because it runs every frame and would otherwise hand fuse, pinch, rotate and drag to wherever the head points instead of the controller in use. Head pose is the coarser signal, but it is the one every headset has, it is what "look at the object" means to the person wearing it, and it is what the Cardboard and Daydream controllers in this renderer have always done. Eye gaze is still preferred wherever it exists.
