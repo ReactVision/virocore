@@ -16,6 +16,7 @@ Web renderer fixes, Quest input and capture, and cloud anchors and co-location t
 - **Gaze works on every Quest.** Where there is no eye tracker it falls back to the head pose. The head-pose hit drives hover and the reticle only, so it never takes fuse, pinch, rotate or drag away from the controller in use.
 - **Screen capture.** `ViroViewOpenXR` now creates a `ViroMediaRecorder`, sized to one eye's swapchain. A passthrough capture holds the virtual content on transparency, since the OS composites the room underneath.
 - **AR hit test** against the planes the session tracks, reachable through `ViroViewOpenXR.performARHitTestWithRay` from the camera along a ray or from an origin to a destination.
+- **Two drags at once, one per hand.** Each hand drags its own node and releases it independently. A hand can't grab a node the other one holds, and its own `onMove` and fuse stay on what it points at. Single-pointer platforms behave as before.
 - **Controllers vibrate on click**, on the hand that pressed.
 - **The left-palm menu pinch** with hand tracking reaches the app as the Menu button does. A pinch made during a system gesture no longer also counts as a select.
 
