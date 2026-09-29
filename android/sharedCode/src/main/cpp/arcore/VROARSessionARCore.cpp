@@ -50,6 +50,7 @@
 #include "VROFrameSynchronizer.h"
 #include "VROLog.h"
 #include "VROPlatformUtil.h"
+#include "VROReactVisionAuth.h"
 #include "VROScene.h"
 #include "VROStringUtil.h"
 #include "VROTexture.h"
@@ -306,6 +307,10 @@ void VROARSessionARCore::setReactVisionConfig(const std::string &apiKey,
 #endif
 }
 
+bool VROARSessionARCore::rvHasCredentials() const {
+  return VROReactVisionAuth::get().hasCredentials(_rvApiKey);
+}
+
 void VROARSessionARCore::setCloudAnchorProvider(
     VROCloudAnchorProvider provider) {
 
@@ -317,7 +322,11 @@ void VROARSessionARCore::setCloudAnchorProvider(
     // ARCore, and an unnecessary Pause/Configure/Resume resets VIO — causing
     // "Insufficient visual features" when hostCloudAnchor runs in the same
     // renderer-task batch.
-    if (!_cloudAnchorProviderRV && !_rvApiKey.empty() && !_rvProjectId.empty()) {
+    bool hasKey = !_rvApiKey.empty() && !_rvProjectId.empty();
+    if (!hasKey && !VROReactVisionAuth::get().hasSession()) {
+      pwarn("VROARSessionARCore: no ReactVision API key and project id from "
+            "setReactVisionConfig() and no session: ReactVision Cloud Anchors unavailable.");
+    } else if (!_cloudAnchorProviderRV) {
       _cloudAnchorProviderRV = std::make_shared<VROCloudAnchorProviderReactVision>(
           shared_from_this(), _rvApiKey, _rvProjectId, _rvEndpoint);
       // Improvement 1 + 6B: register as frame listener so onFrameDidRender()
@@ -325,9 +334,6 @@ void VROARSessionARCore::setCloudAnchorProvider(
       if (_synchronizer) {
         _synchronizer->addFrameListener(_cloudAnchorProviderRV);
       }
-    } else if (_rvApiKey.empty()) {
-      pwarn("VROARSessionARCore: setReactVisionConfig() has not been called — "
-            "ReactVision Cloud Anchors unavailable.");
     }
     return;
   }
@@ -892,6 +898,12 @@ void VROARSessionARCore::hostCloudAnchor(
 
   // ReactVision path — bypasses ARCore cloud anchors entirely
   if (_cloudAnchorProviderRV) {
+    if (!rvHasCredentials()) {
+      // Before the request, not after it: a provider built on a session that
+      // has since been cleared would send it unauthenticated.
+      if (onFailure) onFailure(std::string(VROReactVisionAuth::kNoCredentialsError) + "|ErrorNotAuthorized");
+      return;
+    }
     _cloudAnchorProviderRV->hostCloudAnchor(anchor, ttlDays, onSuccess, onFailure);
     return;
   }
@@ -931,6 +943,12 @@ void VROARSessionARCore::resolveCloudAnchor(
 
   // ReactVision path — bypasses ARCore cloud anchors entirely
   if (_cloudAnchorProviderRV) {
+    if (!rvHasCredentials()) {
+      // Before the request, not after it: a provider built on a session that
+      // has since been cleared would send it unauthenticated.
+      if (onFailure) onFailure(std::string(VROReactVisionAuth::kNoCredentialsError) + "|ErrorNotAuthorized");
+      return;
+    }
     _cloudAnchorProviderRV->resolveCloudAnchor(cloudAnchorId, onSuccess, onFailure);
     return;
   }
@@ -2498,11 +2516,27 @@ static std::string rvCloudAnchorToJsonARC(const ReactVisionCCA::CloudAnchorRecor
 }
 #endif // RVCCA_AVAILABLE
 
+void VROARSessionARCore::rvCancelOperations() {
+#if RVCCA_AVAILABLE
+    if (_cloudAnchorProviderRV) {
+        auto p = _cloudAnchorProviderRV->getProvider();
+        if (p) {
+            p->cancelAllOperations();
+            p->cancelScan();
+        }
+    }
+#endif
+}
+
 void VROARSessionARCore::rvStartScan() {
 #if RVCCA_AVAILABLE
     if (_cloudAnchorProviderRV) {
         auto p = _cloudAnchorProviderRV->getProvider();
         if (p) {
+            if (!rvHasCredentials()) {
+                pwarn("rvStartScan: %s. Nothing was scanned.", VROReactVisionAuth::kNoCredentialsError);
+                return;
+            }
             p->startScan();
             return;
         }
@@ -2511,9 +2545,9 @@ void VROARSessionARCore::rvStartScan() {
     // Said out loud rather than returned silently. startScan() has no callback, so a missing
     // provider used to be indistinguishable from a scan that started — the app would only find
     // out at finishScan(), a walk around the room later.
-    pwarn("rvStartScan: no ReactVision cloud anchor provider — set com.reactvision.RVApiKey and "
-          "com.reactvision.RVProjectId in AndroidManifest and provider=\"reactvision\" on the "
-          "navigator. Nothing was scanned.");
+    pwarn("rvStartScan: no ReactVision cloud anchor provider. Set com.reactvision.RVApiKey and "
+          "com.reactvision.RVProjectId in AndroidManifest or a session, and "
+          "provider=\"reactvision\" on the navigator. Nothing was scanned.");
 }
 
 std::string VROARSessionARCore::rvGetScanStatusJson() {
@@ -2534,6 +2568,8 @@ std::string VROARSessionARCore::rvGetScanStatusJson() {
                << ",\"meetsKeyframes\":"      << (st.meetsKeyframes ? "true" : "false")
                << ",\"meetsViewpointPairs\":" << (st.meetsViewpointPairs ? "true" : "false")
                << ",\"meetsSpread\":"         << (st.meetsSpread ? "true" : "false")
+               << ",\"triangulatedPoints\":"  << st.triangulatedPoints
+               << ",\"minTriangulatedPoints\":" << st.minTriangulatedPoints
                << "}";
             return os.str();
         }
@@ -2572,6 +2608,10 @@ void VROARSessionARCore::rvFinishScan(
     if (_cloudAnchorProviderRV) {
         auto p = _cloudAnchorProviderRV->getProvider();
         if (p) {
+            if (!rvHasCredentials()) {
+                if (callback) callback(false, "", "", VROReactVisionAuth::kNoCredentialsError);
+                return;
+            }
             p->finishScan(ttlDays,
                 [callback](const std::string& cloudAnchorId, const VROMatrix4f& locationTransform) {
                     if (callback) callback(true, cloudAnchorId, rvMatrixToCsvARC(locationTransform), "");
@@ -2593,6 +2633,10 @@ void VROARSessionARCore::rvGetCloudAnchor(
     if (_cloudAnchorProviderRV) {
         auto p = _cloudAnchorProviderRV->getProvider();
         if (p) {
+            if (!rvHasCredentials()) {
+                if (callback) callback(false, "", VROReactVisionAuth::kNoCredentialsError);
+                return;
+            }
             p->getCloudAnchor(anchorId,
                 [callback](ReactVisionCCA::ApiResult<ReactVisionCCA::CloudAnchorRecord> r) {
                 if (callback) {
@@ -2614,6 +2658,10 @@ void VROARSessionARCore::rvListCloudAnchors(
     if (_cloudAnchorProviderRV) {
         auto p = _cloudAnchorProviderRV->getProvider();
         if (p) {
+            if (!rvHasCredentials()) {
+                if (callback) callback(false, "", VROReactVisionAuth::kNoCredentialsError);
+                return;
+            }
             p->listCloudAnchors(limit, offset,
                 [callback](ReactVisionCCA::ApiResult<std::vector<ReactVisionCCA::CloudAnchorRecord>> r) {
                 if (callback) {
@@ -2647,6 +2695,10 @@ void VROARSessionARCore::rvUpdateCloudAnchor(
     if (_cloudAnchorProviderRV) {
         auto p = _cloudAnchorProviderRV->getProvider();
         if (p) {
+            if (!rvHasCredentials()) {
+                if (callback) callback(false, "", VROReactVisionAuth::kNoCredentialsError);
+                return;
+            }
             p->updateCloudAnchor(anchorId, name, description, isPublic,
                 [callback](ReactVisionCCA::ApiResult<ReactVisionCCA::CloudAnchorRecord> r) {
                 if (callback) {
@@ -2668,6 +2720,10 @@ void VROARSessionARCore::rvDeleteCloudAnchor(
     if (_cloudAnchorProviderRV) {
         auto p = _cloudAnchorProviderRV->getProvider();
         if (p) {
+            if (!rvHasCredentials()) {
+                if (callback) callback(false, VROReactVisionAuth::kNoCredentialsError);
+                return;
+            }
             p->deleteCloudAnchor(anchorId,
                 [callback](bool success, ReactVisionCCA::ApiError err) {
                 if (callback) callback(success, success ? "" : err.message);
@@ -2686,6 +2742,10 @@ void VROARSessionARCore::rvFindNearbyCloudAnchors(
     if (_cloudAnchorProviderRV) {
         auto p = _cloudAnchorProviderRV->getProvider();
         if (p) {
+            if (!rvHasCredentials()) {
+                if (callback) callback(false, "", VROReactVisionAuth::kNoCredentialsError);
+                return;
+            }
             p->findNearbyCloudAnchors(lat, lng, radius, limit,
                 [callback](ReactVisionCCA::ApiResult<std::vector<ReactVisionCCA::CloudAnchorRecord>> r) {
                 if (callback) {
@@ -2721,6 +2781,10 @@ void VROARSessionARCore::rvAttachAssetToCloudAnchor(
     if (_cloudAnchorProviderRV) {
         auto p = _cloudAnchorProviderRV->getProvider();
         if (p) {
+            if (!rvHasCredentials()) {
+                if (callback) callback(false, VROReactVisionAuth::kNoCredentialsError);
+                return;
+            }
             p->attachAssetToCloudAnchor(anchorId, fileUrl, fileSize, name, assetType, externalUserId,
                 [callback](bool success, ReactVisionCCA::ApiError err) {
                 if (callback) callback(success, success ? "" : err.message);
@@ -2740,6 +2804,10 @@ void VROARSessionARCore::rvRemoveAssetFromCloudAnchor(
     if (_cloudAnchorProviderRV) {
         auto p = _cloudAnchorProviderRV->getProvider();
         if (p) {
+            if (!rvHasCredentials()) {
+                if (callback) callback(false, VROReactVisionAuth::kNoCredentialsError);
+                return;
+            }
             p->removeAssetFromCloudAnchor(anchorId, assetId,
                 [callback](bool success, ReactVisionCCA::ApiError err) {
                 if (callback) callback(success, success ? "" : err.message);
@@ -2765,6 +2833,10 @@ void VROARSessionARCore::rvTrackCloudAnchorResolution(
     if (_cloudAnchorProviderRV) {
         auto p = _cloudAnchorProviderRV->getProvider();
         if (p) {
+            if (!rvHasCredentials()) {
+                if (callback) callback(false, VROReactVisionAuth::kNoCredentialsError);
+                return;
+            }
             p->trackResolution(anchorId, success, confidence, matchCount, inlierCount,
                 processingTimeMs, platform, externalUserId,
                 [callback](bool ok, ReactVisionCCA::ApiError err) {
@@ -2784,6 +2856,10 @@ void VROARSessionARCore::rvGetProject(
     if (_cloudAnchorProviderRV) {
         auto p = _cloudAnchorProviderRV->getProvider();
         if (p) {
+            if (!rvHasCredentials()) {
+                if (callback) callback(false, "", VROReactVisionAuth::kNoCredentialsError);
+                return;
+            }
             p->getProject(projectId,
                 [callback](ReactVisionCCA::ApiResult<std::string> r) {
                 if (callback) {
@@ -2804,6 +2880,10 @@ void VROARSessionARCore::rvGetScene(
     if (_cloudAnchorProviderRV) {
         auto p = _cloudAnchorProviderRV->getProvider();
         if (p) {
+            if (!rvHasCredentials()) {
+                if (callback) callback(false, "", VROReactVisionAuth::kNoCredentialsError);
+                return;
+            }
             p->getScene(sceneId,
                 [callback](ReactVisionCCA::ApiResult<std::string> r) {
                 if (callback) {
@@ -2824,6 +2904,10 @@ void VROARSessionARCore::rvGetSceneAssets(
     if (_cloudAnchorProviderRV) {
         auto p = _cloudAnchorProviderRV->getProvider();
         if (p) {
+            if (!rvHasCredentials()) {
+                if (callback) callback(false, "", VROReactVisionAuth::kNoCredentialsError);
+                return;
+            }
             p->getSceneAssets(sceneId,
                 [callback](ReactVisionCCA::ApiResult<std::vector<ReactVisionCCA::SceneAPIAsset>> r) {
                 if (callback) {

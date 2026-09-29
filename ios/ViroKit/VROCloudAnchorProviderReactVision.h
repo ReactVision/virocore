@@ -37,12 +37,15 @@ NS_ASSUME_NONNULL_BEGIN
 /**
  * Designated initialiser.
  *
+ * `apiKey` and `projectId` may be nil for a session-only app; see
+ * VROReactVisionAuth.
+ *
  * @param apiKey    ReactVision API key (from platform.reactvision.xyz dashboard)
  * @param projectId ReactVision project UUID
  * @param endpoint  Optional custom base URL; pass nil to use the default
  */
-- (nullable instancetype)initWithApiKey:(NSString *)apiKey
-                              projectId:(NSString *)projectId
+- (nullable instancetype)initWithApiKey:(nullable NSString *)apiKey
+                              projectId:(nullable NSString *)projectId
                                endpoint:(nullable NSString *)endpoint;
 
 /**

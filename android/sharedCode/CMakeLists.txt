@@ -62,6 +62,7 @@ add_library( # Sets the name of the library.
              ${VIRO_ANDROID_SRC}/VROARSessionOpenXR.cpp
              ${VIRO_ANDROID_SRC}/VROARSessionOpenXRSharedFrame.cpp
              ${VIRO_ANDROID_SRC}/Colocation_JNI.cpp
+             ${VIRO_ANDROID_SRC}/ReactVisionAuth_JNI.cpp
              ${VIRO_ANDROID_SRC}/VROSceneRendererSceneView.cpp
              ${VIRO_ANDROID_SRC}/VROSample.cpp
              ${VIRO_ANDROID_SRC}/VROImageAndroid.cpp
