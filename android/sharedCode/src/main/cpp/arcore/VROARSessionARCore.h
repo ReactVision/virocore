@@ -79,9 +79,10 @@ public:
     void setCloudAnchorProvider(VROCloudAnchorProvider provider);
 
     /*
-     Configure the ReactVision backend credentials.
-     Must be called before setCloudAnchorProvider(ReactVision).
-     Reads RVApiKey / RVProjectId from AndroidManifest meta-data if not called.
+     Configure the ReactVision backend credentials, then activate the ReactVision
+     cloud anchor provider. Nothing reads the manifest here: the caller passes what
+     it found, empty strings included. The key and project id may be empty while a
+     VROReactVisionAuth session exists; the geospatial provider still needs both.
      */
     void setReactVisionConfig(const std::string &apiKey, const std::string &projectId,
                               const std::string &endpoint = "");

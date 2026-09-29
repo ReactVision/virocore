@@ -7,6 +7,7 @@
 
 #include "VROColocationSession.h"
 #include "VROLog.h"
+#include "VROReactVisionAuth.h"
 
 // ReactVisionCCA is optional. Without it this compiles to a holder that always
 // reports unavailable, so an open-source build links and runs — it simply has
@@ -56,8 +57,12 @@ void VROColocationSession::join(const std::string &roomId,
         if (callback) callback(false, "roomId is required");
         return;
     }
-    if (apiKey.empty() || projectId.empty()) {
-        if (callback) callback(false, "apiKey and projectId are required");
+    if (apiKey.empty() && !VROReactVisionAuth::get().hasSession()) {
+        if (callback) callback(false, "No API key or session");
+        return;
+    }
+    if (projectId.empty()) {
+        if (callback) callback(false, "projectId is required");
         return;
     }
 
@@ -65,6 +70,11 @@ void VROColocationSession::join(const std::string &roomId,
     cfg.apiKey    = apiKey;
     cfg.projectId = projectId;
     if (!endpoint.empty()) cfg.endpoint = endpoint;
+    if (apiKey.empty()) {
+        cfg.headersProvider = []() {
+            return VROReactVisionAuth::get().sessionHeaders();
+        };
+    }
 
     // Rebuilt rather than reused: Config is read at construction, so switching
     // rooms with a different endpoint or key would otherwise keep the old one.

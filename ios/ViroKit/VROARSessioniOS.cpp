@@ -45,6 +45,7 @@
 #include "VROPlatformUtil.h"
 #include "VROPortal.h"
 #include "VROProjector.h"
+#include "VROReactVisionAuth.h"
 #include "VROScene.h"
 #include "VROData.h"
 #include "VROTexture.h"
@@ -611,22 +612,26 @@ void VROARSessioniOS::setCloudAnchorProvider(VROCloudAnchorProvider provider) {
       [_cloudAnchorProviderARCore cancelAllOperations];
       _cloudAnchorProviderARCore = nil;
     }
-    // Initialize ReactVision cloud anchor provider; reads credentials from Info.plist
     NSString *apiKey    = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"RVApiKey"];
     NSString *projectId = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"RVProjectId"];
     NSString *endpoint  = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"RVEndpoint"];
+    BOOL hasManifestCredentials = apiKey.length && projectId.length;
 
-    if (apiKey.length && projectId.length) {
-      if (_cloudAnchorProviderRV == nil) {
-        _cloudAnchorProviderRV = [[VROCloudAnchorProviderReactVision alloc]
-            initWithApiKey:apiKey projectId:projectId endpoint:endpoint];
-        if (_cloudAnchorProviderRV) {
-          pinfo("ReactVision Cloud Anchor provider initialized successfully");
-        } else {
-          pwarn("Failed to initialize ReactVision Cloud Anchor provider.");
-        }
+    if (!hasManifestCredentials && !VROReactVisionAuth::get().hasSession()) {
+      pwarn("RVApiKey or RVProjectId missing from Info.plist and no session set: ReactVision unavailable.");
+    } else if (_cloudAnchorProviderRV == nil) {
+      _cloudAnchorProviderRV = [[VROCloudAnchorProviderReactVision alloc]
+          initWithApiKey:apiKey projectId:projectId endpoint:endpoint];
+      if (_cloudAnchorProviderRV) {
+        pinfo("ReactVision Cloud Anchor provider initialized successfully");
+      } else {
+        pwarn("Failed to initialize ReactVision Cloud Anchor provider.");
       }
+    }
+
 #if RVCCA_AVAILABLE
+    // The geospatial provider stays on the key.
+    if (hasManifestCredentials) {
       // Also initialize the geospatial metadata provider so rvFindNearbyGeospatialAnchors,
       // rvGetGeospatialAnchor, etc. work whenever provider="reactvision" is set.
       // Do NOT enable ARCore/GAR geospatial mode — that belongs to provider="arcore".
@@ -639,16 +644,15 @@ void VROARSessioniOS::setCloudAnchorProvider(VROCloudAnchorProvider provider) {
         _geospatialProviderRV = std::make_shared<ReactVisionCCA::RVCCAGeospatialProvider>(cfg);
         pinfo("ReactVision Geospatial provider initialized via setCloudAnchorProvider");
       }
-      // Start GPS updates for getCameraGeospatialPose()
-      if (!_rvLocationDelegate) {
-        _rvLocationDelegate = [[VROLocationDelegate alloc]
-                                initWithPosePtr:&_lastKnownGPSPose];
-        [(VROLocationDelegate *)_rvLocationDelegate start];
-      }
-#endif
-    } else {
-      pwarn("RVApiKey or RVProjectId missing from Info.plist — ReactVision unavailable.");
     }
+    // GPS for getCameraGeospatialPose(), and the fix a hosted anchor records, on a
+    // session as on a key. It asks for location permission the first time.
+    if ((hasManifestCredentials || VROReactVisionAuth::get().hasSession()) && !_rvLocationDelegate) {
+      _rvLocationDelegate = [[VROLocationDelegate alloc]
+                              initWithPosePtr:&_lastKnownGPSPose];
+      [(VROLocationDelegate *)_rvLocationDelegate start];
+    }
+#endif
 
   } else {
     // VROCloudAnchorProvider::None — tear down all providers
@@ -2524,8 +2528,9 @@ void VROARSessioniOS::rvStartScan() {
   // Said out loud rather than returned silently. startScan() has no callback, so a missing
   // provider used to be indistinguishable from a scan that started — the app would only find out
   // at finishScan(), a walk around the room later.
-  pwarn("rvStartScan: no ReactVision cloud anchor provider — set RVApiKey and RVProjectId in "
-        "Info.plist and provider=\"reactvision\" on the navigator. Nothing was scanned.");
+  pwarn("rvStartScan: no ReactVision cloud anchor provider. Set RVApiKey and RVProjectId in "
+        "Info.plist or a session, and provider=\"reactvision\" on the navigator. Nothing was "
+        "scanned.");
 }
 
 std::string VROARSessioniOS::rvGetScanStatusJson() {

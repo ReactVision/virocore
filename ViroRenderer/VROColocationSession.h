@@ -67,6 +67,7 @@ public:
      * visionOS session id that already names the shared frame.
      *
      * Leaves any room already joined. `endpoint` may be empty for the default.
+     * An empty `apiKey` authenticates with the VROReactVisionAuth session.
      */
     void join(const std::string &roomId,
               const std::string &apiKey,

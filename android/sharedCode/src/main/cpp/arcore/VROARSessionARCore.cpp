@@ -50,6 +50,7 @@
 #include "VROFrameSynchronizer.h"
 #include "VROLog.h"
 #include "VROPlatformUtil.h"
+#include "VROReactVisionAuth.h"
 #include "VROScene.h"
 #include "VROStringUtil.h"
 #include "VROTexture.h"
@@ -317,7 +318,11 @@ void VROARSessionARCore::setCloudAnchorProvider(
     // ARCore, and an unnecessary Pause/Configure/Resume resets VIO — causing
     // "Insufficient visual features" when hostCloudAnchor runs in the same
     // renderer-task batch.
-    if (!_cloudAnchorProviderRV && !_rvApiKey.empty() && !_rvProjectId.empty()) {
+    bool hasKey = !_rvApiKey.empty() && !_rvProjectId.empty();
+    if (!hasKey && !VROReactVisionAuth::get().hasSession()) {
+      pwarn("VROARSessionARCore: no ReactVision API key and project id from "
+            "setReactVisionConfig() and no session: ReactVision Cloud Anchors unavailable.");
+    } else if (!_cloudAnchorProviderRV) {
       _cloudAnchorProviderRV = std::make_shared<VROCloudAnchorProviderReactVision>(
           shared_from_this(), _rvApiKey, _rvProjectId, _rvEndpoint);
       // Improvement 1 + 6B: register as frame listener so onFrameDidRender()
@@ -325,9 +330,6 @@ void VROARSessionARCore::setCloudAnchorProvider(
       if (_synchronizer) {
         _synchronizer->addFrameListener(_cloudAnchorProviderRV);
       }
-    } else if (_rvApiKey.empty()) {
-      pwarn("VROARSessionARCore: setReactVisionConfig() has not been called — "
-            "ReactVision Cloud Anchors unavailable.");
     }
     return;
   }
@@ -2511,9 +2513,9 @@ void VROARSessionARCore::rvStartScan() {
     // Said out loud rather than returned silently. startScan() has no callback, so a missing
     // provider used to be indistinguishable from a scan that started — the app would only find
     // out at finishScan(), a walk around the room later.
-    pwarn("rvStartScan: no ReactVision cloud anchor provider — set com.reactvision.RVApiKey and "
-          "com.reactvision.RVProjectId in AndroidManifest and provider=\"reactvision\" on the "
-          "navigator. Nothing was scanned.");
+    pwarn("rvStartScan: no ReactVision cloud anchor provider. Set com.reactvision.RVApiKey and "
+          "com.reactvision.RVProjectId in AndroidManifest or a session, and "
+          "provider=\"reactvision\" on the navigator. Nothing was scanned.");
 }
 
 std::string VROARSessionARCore::rvGetScanStatusJson() {
