@@ -88,6 +88,13 @@ public:
                               const std::string &endpoint = "");
 
     /*
+     True when a ReactVision request could authenticate: a VROReactVisionAuth
+     session or the key from setReactVisionConfig(). Checked per request, so a
+     cleared session fails fast instead of sending unauthenticated requests.
+     */
+    bool rvHasCredentials() const;
+
+    /*
      Update the cached GPS pose used by getCameraGeospatialPose() when the
      ReactVision geospatial provider is active. Called from Java via JNI each
      time the Android LocationManager delivers a new fix.

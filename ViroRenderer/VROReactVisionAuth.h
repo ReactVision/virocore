@@ -54,6 +54,18 @@ public:
         return !_accessToken.empty();
     }
 
+    /**
+     * What a request fails with, before it is sent, when there is neither a
+     * session nor a key — after clearSession() on a session-only app, say.
+     */
+    static constexpr const char *kNoCredentialsError =
+        "Not signed in: no ReactVision session or API key";
+
+    /** True when a request could authenticate: a session, or `apiKey`. */
+    bool hasCredentials(const std::string &apiKey) const {
+        return !apiKey.empty() || hasSession();
+    }
+
     /** No trailing slash. Empty without a session. */
     std::string sessionBaseUrl() const {
         std::lock_guard<std::mutex> lock(_mutex);

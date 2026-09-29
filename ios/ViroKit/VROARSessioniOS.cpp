@@ -665,9 +665,16 @@ VROCloudAnchorProviderReactVision *VROARSessioniOS::ensureReactVisionProvider(st
   NSString *projectId = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"RVProjectId"];
   bool hasSession = VROReactVisionAuth::get().hasSession();
 
+  // Checked on every request, not only at creation: after clearSession() a
+  // provider built on the session would otherwise send unauthenticated requests.
+  if (!VROReactVisionAuth::get().hasCredentials(apiKey.length ? apiKey.UTF8String : "")) {
+    error = VROReactVisionAuth::kNoCredentialsError;
+    return nil;
+  }
+
   if (_cloudAnchorProviderRV == nil) {
-    if (!hasSession && !(apiKey.length && projectId.length)) {
-      error = "RVApiKey or RVProjectId missing from Info.plist and no session set";
+    if (!hasSession && !projectId.length) {
+      error = "RVProjectId missing from Info.plist and no session set";
       return nil;
     }
     NSString *endpoint = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"RVEndpoint"];
@@ -742,6 +749,9 @@ void VROARSessioniOS::hostCloudAnchor(
   if (_cloudAnchorProvider == VROCloudAnchorProvider::ReactVision) {
     std::string rvError;
     if (ensureReactVisionProvider(rvError) == nil) {
+      // The state suffix lets the bridge report ErrorNotAuthorized rather than
+      // ErrorInternal when the app is signed out.
+      if (rvError == VROReactVisionAuth::kNoCredentialsError) rvError += "|ErrorNotAuthorized";
       if (onFailure) onFailure(rvError);
       return;
     }
@@ -888,6 +898,9 @@ void VROARSessioniOS::resolveCloudAnchor(
   if (_cloudAnchorProvider == VROCloudAnchorProvider::ReactVision) {
     std::string rvError;
     if (ensureReactVisionProvider(rvError) == nil) {
+      // The state suffix lets the bridge report ErrorNotAuthorized rather than
+      // ErrorInternal when the app is signed out.
+      if (rvError == VROReactVisionAuth::kNoCredentialsError) rvError += "|ErrorNotAuthorized";
       if (onFailure) onFailure(rvError);
       return;
     }
