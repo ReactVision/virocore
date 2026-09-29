@@ -349,6 +349,13 @@ void VROInputControllerOpenXR::onProcess(XrSession session, XrSpace baseSpace,
             else if (!pressed && _prevTriggerRight)
                 queueButtonEvent(ViroOculus::Controller, VROEventDelegate::ClickState::ClickUp);
             _prevTriggerRight = pressed;
+        } else if (_prevTriggerRight) {
+            // The action went inactive while held (controller set down or
+            // switched off, profile handed to hand tracking): release it, or
+            // a drag this press started would stay open and keep that hand's
+            // ray frozen until the controller came back.
+            queueButtonEvent(ViroOculus::Controller, VROEventDelegate::ClickState::ClickUp);
+            _prevTriggerRight = false;
         }
     }
 
@@ -365,6 +372,10 @@ void VROInputControllerOpenXR::onProcess(XrSession session, XrSpace baseSpace,
             else if (!pressed && _prevTriggerLeft)
                 queueButtonEvent(ViroOculus::LeftController, VROEventDelegate::ClickState::ClickUp);
             _prevTriggerLeft = pressed;
+        } else if (_prevTriggerLeft) {
+            // Inactive while held: release (see right trigger).
+            queueButtonEvent(ViroOculus::LeftController, VROEventDelegate::ClickState::ClickUp);
+            _prevTriggerLeft = false;
         }
     }
 
@@ -381,6 +392,10 @@ void VROInputControllerOpenXR::onProcess(XrSession session, XrSpace baseSpace,
             else if (!pressed && _prevGripRight)
                 queueButtonEvent(ViroOculus::RightGrip, VROEventDelegate::ClickState::ClickUp);
             _prevGripRight = pressed;
+        } else if (_prevGripRight) {
+            // Inactive while held: release (see right trigger).
+            queueButtonEvent(ViroOculus::RightGrip, VROEventDelegate::ClickState::ClickUp);
+            _prevGripRight = false;
         }
     }
 
@@ -397,6 +412,10 @@ void VROInputControllerOpenXR::onProcess(XrSession session, XrSpace baseSpace,
             else if (!pressed && _prevGripLeft)
                 queueButtonEvent(ViroOculus::LeftGrip, VROEventDelegate::ClickState::ClickUp);
             _prevGripLeft = pressed;
+        } else if (_prevGripLeft) {
+            // Inactive while held: release (see right trigger).
+            queueButtonEvent(ViroOculus::LeftGrip, VROEventDelegate::ClickState::ClickUp);
+            _prevGripLeft = false;
         }
     }
 

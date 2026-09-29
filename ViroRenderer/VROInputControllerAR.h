@@ -166,7 +166,8 @@ private:
     /*
      Given a vector a VROARHitTestResults, returns the next position we should move the object to.
      */
-    VROVector3f getNextDragPosition(std::vector<std::shared_ptr<VROARHitTestResult>> results);
+    VROVector3f getNextDragPosition(const std::shared_ptr<VRODraggedObject> &drag,
+                                    std::vector<std::shared_ptr<VROARHitTestResult>> results);
 
     /*
      True/false if distance between the two points are > kARMinDragDistance and < kARMaxDragDistance

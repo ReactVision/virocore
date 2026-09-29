@@ -108,7 +108,7 @@ void VROInputControllerAR::onScreenTouchUp(VROVector3f touchPos) {
     VROInputControllerBase::onButtonEvent(ViroCardBoard::ViewerButton, VROEventDelegate::ClickState::ClickUp);
     
     // on touch up, we should invoke processDragging once more in case
-    if (_lastDraggedNode) {
+    if (isDragging()) {
         // in AR, source is always the controller.
         processDragging(ViroCardBoard::InputSource::Controller, true);
     }
@@ -119,7 +119,11 @@ void VROInputControllerAR::processDragging(int source) {
 }
 
 void VROInputControllerAR::processDragging(int source, bool alwaysRun) {
-        std::shared_ptr<VRONode> draggedNode = _lastDraggedNode->_draggedNode;
+    std::shared_ptr<VRODraggedObject> drag = getDraggedObject(source);
+    if (drag == nullptr) {
+        return;
+    }
+    std::shared_ptr<VRONode> draggedNode = drag->_draggedNode;
 
     if (draggedNode->getDragType() != VRODragType::FixedToWorld) {
         VROInputControllerBase::processDragging(source);
@@ -146,7 +150,7 @@ void VROInputControllerAR::processDragging(int source, bool alwaysRun) {
         // if alwaysRun is true.
         if ((VROTimeCurrentMillis() - _lastProcessDragTimeMillis > kARProcessDragInterval) || alwaysRun) {
 
-            VROVector3f position = getNextDragPosition(results);
+            VROVector3f position = getNextDragPosition(drag, results);
             
             // TODO: since we're animating position... the position passed back below won't necessarily
             // reflect its real position.
@@ -154,7 +158,7 @@ void VROInputControllerAR::processDragging(int source, bool alwaysRun) {
              * To avoid spamming the JNI / JS bridge, throttle the notification
              * of onDrag delegates to a certain degree of accuracy.
              */
-            float distance = position.distance(_lastDraggedNodePosition);
+            float distance = position.distance(drag->_lastNotifiedPosition);
             if (distance < ON_DRAG_DISTANCE_THRESHOLD) {
                 return;
             }
@@ -169,7 +173,7 @@ void VROInputControllerAR::processDragging(int source, bool alwaysRun) {
             // create new transaction to the new location
             VROTransaction::begin();
             VROTransaction::setAnimationDuration(.1);
-            draggedNode->setWorldTransform(position, _lastDraggedNode->_originalDraggedNodeRotation, true);
+            draggedNode->setWorldTransform(position, drag->_originalDraggedNodeRotation, true);
 
             std::weak_ptr<VRONode> weakNode = draggedNode;
             VROTransaction::setFinishCallback([weakNode](bool terminate) {
@@ -181,8 +185,9 @@ void VROInputControllerAR::processDragging(int source, bool alwaysRun) {
             VROTransaction::commit();
             
             // Update last known dragged position, distance to controller and notify delegates
+            drag->_lastNotifiedPosition = position;
             _lastDraggedNodePosition = position;
-            _lastDraggedNode->_draggedDistanceFromController = position.distanceAccurate(_latestCamera.getPosition());
+            drag->_draggedDistanceFromController = position.distanceAccurate(_latestCamera.getPosition());
             
             draggedNode->getEventDelegate()->onDrag(source, draggedNode, position);
             for (std::shared_ptr<VROEventDelegate> delegate : _delegates) {
@@ -208,7 +213,8 @@ void VROInputControllerAR::processDragging(int source, bool alwaysRun) {
 
  Note: This function returns the position in WORLD coordinates, NOT dragged-node coordinates
  */
-VROVector3f VROInputControllerAR::getNextDragPosition(std::vector<std::shared_ptr<VROARHitTestResult>> results) {
+VROVector3f VROInputControllerAR::getNextDragPosition(const std::shared_ptr<VRODraggedObject> &drag,
+                                                      std::vector<std::shared_ptr<VROARHitTestResult>> results) {
     VROVector3f cameraPos = _latestCamera.getPosition();
     
     // first, bucket the points, if we find an ExistingPlaneUsingExtent, then just return that (highest confidence)
@@ -244,11 +250,12 @@ VROVector3f VROInputControllerAR::getNextDragPosition(std::vector<std::shared_pt
     //   moving close to the user, but not by a large amount.
     if (featurePoints.size() > 0) {
         // Sort them by distance from the last dragged point.
-        std::sort(featurePoints.begin(), featurePoints.end(), [this](std::shared_ptr<VROARHitTestResult> &a, std::shared_ptr<VROARHitTestResult> &b) {
+        VROVector3f lastDragged = drag->_lastNotifiedPosition;
+        std::sort(featurePoints.begin(), featurePoints.end(), [lastDragged](std::shared_ptr<VROARHitTestResult> &a, std::shared_ptr<VROARHitTestResult> &b) {
             VROVector3f posA = a->getWorldTransform().extractTranslation();
             VROVector3f posB = b->getWorldTransform().extractTranslation();
-            float distALast = posA.distance(this->_lastDraggedNodePosition);
-            float distBLast = posB.distance(this->_lastDraggedNodePosition);
+            float distALast = posA.distance(lastDragged);
+            float distBLast = posB.distance(lastDragged);
             return distALast < distBLast;
         });
 
@@ -258,9 +265,9 @@ VROVector3f VROInputControllerAR::getNextDragPosition(std::vector<std::shared_pt
             // ensure the position is within bounds and is foward wrt the camera forward
             if (isDistanceWithinBounds(cameraPos, featurePointPos) && _latestCamera.getForward().dot(ray) > 0) {
                 float candDistance = _latestCamera.getPosition().distance(featurePointPos);
-                float distanceDiff = fabs(_lastDraggedNode->_draggedDistanceFromController - candDistance);
-                if (candDistance > 2 || distanceDiff > _lastDraggedNode->_draggedDistanceFromController
-                    || distanceDiff / _lastDraggedNode->_draggedDistanceFromController < .33) {
+                float distanceDiff = fabs(drag->_draggedDistanceFromController - candDistance);
+                if (candDistance > 2 || distanceDiff > drag->_draggedDistanceFromController
+                    || distanceDiff / drag->_draggedDistanceFromController < .33) {
                     return featurePointPos;
                 }
             }
@@ -277,7 +284,7 @@ VROVector3f VROInputControllerAR::getNextDragPosition(std::vector<std::shared_pt
 //    }
 
     // base case is to simply take the last dragged distance and keep the object that distance away from the controller.
-    float distance = _lastDraggedNode->_draggedDistanceFromController;
+    float distance = drag->_draggedDistanceFromController;
     distance = fmin(distance, kARMaxDragDistance);
     distance = fmax(distance, kARMinDragDistance);
     VROVector3f touchForward = (results[0]->getWorldTransform().extractTranslation() - cameraPos).normalize();
