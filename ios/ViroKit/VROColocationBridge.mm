@@ -8,6 +8,7 @@
 #import "VROColocationBridge.h"
 #include "VROColocationSession.h"
 #include "VROMatrix4f.h"
+#include "VROReactVisionAuth.h"
 
 #include <string>
 
@@ -40,6 +41,19 @@ bool parseMatrixCsv(NSString *csv, VROMatrix4f *out) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{ instance = [[VROColocationBridge alloc] init]; });
     return instance;
+}
+
++ (void)setStudioSessionBaseUrl:(NSString *)baseUrl
+                    accessToken:(NSString *)accessToken
+                      clientTag:(NSString *)clientTag {
+    VROReactVisionAuth::get().setSession(
+        std::string(baseUrl.UTF8String     ?: ""),
+        std::string(accessToken.UTF8String ?: ""),
+        std::string(clientTag.UTF8String   ?: ""));
+}
+
++ (void)setCloudAnchorProjectId:(NSString *)projectId {
+    VROReactVisionAuth::get().setProjectId(std::string(projectId.UTF8String ?: ""));
 }
 
 - (BOOL)isAvailable {

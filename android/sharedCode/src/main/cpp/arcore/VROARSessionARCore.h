@@ -79,12 +79,20 @@ public:
     void setCloudAnchorProvider(VROCloudAnchorProvider provider);
 
     /*
-     Configure the ReactVision backend credentials.
-     Must be called before setCloudAnchorProvider(ReactVision).
-     Reads RVApiKey / RVProjectId from AndroidManifest meta-data if not called.
+     Configure the ReactVision backend credentials, then activate the ReactVision
+     cloud anchor provider. Nothing reads the manifest here: the caller passes what
+     it found, empty strings included. The key and project id may be empty while a
+     VROReactVisionAuth session exists; the geospatial provider still needs both.
      */
     void setReactVisionConfig(const std::string &apiKey, const std::string &projectId,
                               const std::string &endpoint = "");
+
+    /*
+     True when a ReactVision request could authenticate: a VROReactVisionAuth
+     session or the key from setReactVisionConfig(). Checked per request, so a
+     cleared session fails fast instead of sending unauthenticated requests.
+     */
+    bool rvHasCredentials() const;
 
     /*
      Update the cached GPS pose used by getCameraGeospatialPose() when the
@@ -218,6 +226,7 @@ public:
 
     // Cloud anchor management
     void rvStartScan() override;
+    void rvCancelOperations() override;
     std::string rvGetScanStatusJson() override;
     std::string rvGetScanDiagnosticsJson() override;
     void rvFinishScan(int ttlDays,

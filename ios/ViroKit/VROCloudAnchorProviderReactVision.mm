@@ -48,6 +48,7 @@
 #include "VROVector3f.h"
 #include "VROVector4f.h"
 #include "VROViewport.h"
+#include "VROReactVisionAuth.h"
 
 // ── Helpers: ARKit ↔ ReactVisionCCA type conversion ──────────────────────────
 
@@ -87,6 +88,7 @@ static std::string encodeError(
         case EC::AnchorNotFound:       state = "ErrorCloudIdNotFound";                   break;
         case EC::AnchorExpired:        state = "ErrorAnchorExpired";                     break;
         case EC::Timeout:              state = "ErrorNetworkFailure";                    break;
+        case EC::Cancelled:            state = "ErrorCancelled";                         break;
         default:                       state = "ErrorInternal";                          break;
     }
     return msg + "|" + state;
@@ -288,17 +290,29 @@ private:
     return YES;
 }
 
-- (nullable instancetype)initWithApiKey:(NSString *)apiKey
-                              projectId:(NSString *)projectId
+- (nullable instancetype)initWithApiKey:(nullable NSString *)apiKey
+                              projectId:(nullable NSString *)projectId
                                endpoint:(nullable NSString *)endpoint {
     self = [super init];
     if (!self) return nil;
 
     ReactVisionCCA::RVCCACloudAnchorProvider::Config cfg;
-    cfg.apiKey    = apiKey.UTF8String;
-    cfg.projectId = projectId.UTF8String;
+    cfg.apiKey    = apiKey.UTF8String ?: "";
+    cfg.projectId = projectId.UTF8String ?: "";
     if (endpoint.length) cfg.endpoint = endpoint.UTF8String;
     cfg.enableLogging = YES;  // DEBUG: enable to trace SIFT pipeline
+
+    std::string key = cfg.apiKey;
+    cfg.authProvider = [key]() -> ReactVisionCCA::RequestAuth {
+        ReactVisionCCA::RequestAuth auth;
+        if (!VROReactVisionAuth::get().getSession(auth.baseUrl, auth.headers) && !key.empty()) {
+            auth.headers["x-api-key"] = key;
+        }
+        return auth;
+    };
+    cfg.projectIdProvider = []() -> std::string {
+        return VROReactVisionAuth::get().projectId();
+    };
 
     try {
         _provider = std::make_shared<ReactVisionCCA::RVCCACloudAnchorProvider>(cfg);
@@ -404,8 +418,8 @@ private:
     return NO;
 }
 
-- (nullable instancetype)initWithApiKey:(NSString *)apiKey
-                              projectId:(NSString *)projectId
+- (nullable instancetype)initWithApiKey:(nullable NSString *)apiKey
+                              projectId:(nullable NSString *)projectId
                                endpoint:(nullable NSString *)endpoint {
     NSLog(@"[ViroKit] ReactVision Cloud Anchors not available: "
           @"ReactVisionCCA library not linked. "

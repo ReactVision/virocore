@@ -48,6 +48,7 @@ namespace ReactVisionCCA { class RVCCACloudAnchorProvider; }
 class VROCloudAnchorProviderReactVision : public VROFrameListener {
 public:
 
+    /** `apiKey` and `projectId` may be empty for a session-only app; see VROReactVisionAuth. */
     VROCloudAnchorProviderReactVision(
         std::shared_ptr<VROARSessionARCore> session,
         const std::string &apiKey,
