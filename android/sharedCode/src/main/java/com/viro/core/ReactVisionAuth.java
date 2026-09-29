@@ -2,6 +2,8 @@
 
 package com.viro.core;
 
+import android.util.Log;
+
 /**
  * @hide
  */
@@ -9,7 +11,11 @@ public final class ReactVisionAuth {
 
     // Loaded here for the reason ColocationSession gives: this is called at
     // sign-in, before any AR view has loaded the renderer.
+    private static final String TAG = "Viro";
+
+    private static Throwable sLoadError;
     private static final boolean sNativeLoaded = loadNativeLibraries();
+    private static boolean sWarned;
 
     private static boolean loadNativeLibraries() {
         try {
@@ -18,26 +24,41 @@ public final class ReactVisionAuth {
             System.loadLibrary("viro_renderer");
             return true;
         } catch (Throwable t) {
+            sLoadError = t;
             return false;
         }
+    }
+
+    // Once, not per call: a sign-in flow can set and clear the session many times,
+    // and the cause does not change. Without it the session was dropped silently
+    // and the next cloud anchor or co-location call failed as "not signed in".
+    private static synchronized boolean nativeReady() {
+        if (sNativeLoaded) return true;
+        if (!sWarned) {
+            sWarned = true;
+            Log.w(TAG, "ReactVisionAuth: the Viro native libraries failed to load, so the "
+                    + "ReactVision session was not set. Cloud anchors and co-location will run "
+                    + "without it.", sLoadError);
+        }
+        return false;
     }
 
     private ReactVisionAuth() {}
 
     /** A null or empty {@code baseUrl} or {@code accessToken} clears the session. */
     public static void setSession(String baseUrl, String accessToken, String clientTag) {
-        if (!sNativeLoaded) return;
+        if (!nativeReady()) return;
         nativeSetSession(baseUrl, accessToken, clientTag);
     }
 
     public static void clearSession() {
-        if (!sNativeLoaded) return;
+        if (!nativeReady()) return;
         nativeClearSession();
     }
 
     /** Overrides the manifest project id for cloud anchors. Null or empty clears the override. */
     public static void setProjectId(String projectId) {
-        if (!sNativeLoaded) return;
+        if (!nativeReady()) return;
         nativeSetProjectId(projectId);
     }
 
