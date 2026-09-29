@@ -57,8 +57,8 @@ void VROColocationSession::join(const std::string &roomId,
         if (callback) callback(false, "roomId is required");
         return;
     }
-    if (apiKey.empty() && !VROReactVisionAuth::get().hasSession()) {
-        if (callback) callback(false, "No API key or session");
+    if (!VROReactVisionAuth::get().hasCredentials(apiKey)) {
+        if (callback) callback(false, VROReactVisionAuth::kNoCredentialsError);
         return;
     }
     if (projectId.empty()) {
@@ -95,12 +95,28 @@ void VROColocationSession::join(const std::string &roomId,
             if (callback) callback(true, "");
         }
     };
-    cb.onError = [callback, done](const std::string &error) {
+    // A session cleared between the check above and the handshake leaves the
+    // connect with no credential, and the relay's 401 would read as a bad
+    // token. With neither a session nor a key now, say that instead.
+    cb.onError = [callback, done, apiKey](const std::string &error) {
         if (*done) return;
         *done = true;
-        if (callback) callback(false, error);
+        if (!callback) return;
+        if (!VROReactVisionAuth::get().hasCredentials(apiKey)) {
+            callback(false, VROReactVisionAuth::kNoCredentialsError);
+        } else {
+            callback(false, error);
+        }
     };
 
+    // Checked again at the last moment before connecting: nothing above waits,
+    // but a sign-out on another thread can land in between.
+    if (!VROReactVisionAuth::get().hasCredentials(apiKey)) {
+        _impl->session.reset();
+        _impl->roomId.clear();
+        if (callback) callback(false, VROReactVisionAuth::kNoCredentialsError);
+        return;
+    }
     _impl->session->join(roomId, std::move(cb));
 #else
     (void)roomId; (void)apiKey; (void)projectId; (void)endpoint;
