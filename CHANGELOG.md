@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- **Leaving a cloud anchor operation cancels it (`VROARSession::rvCancelOperations`, `ARScene.rvCancelOperations()`).** There was no way to stop a ReactVision host, resolve or scan once started, so a caller that gave up could only ignore the result. The new call cancels every pending host and resolve and closes an open scan window. Each pending operation reports once with the new `ErrorCancelled` state. An upload already in flight can still leave an anchor, which expires with its TTL.
 - **iOS: a gesture in flight during AR teardown no longer crashes (`VROViewAR`).** `deleteGL` reset the input controller but left the pan, pinch, rotate and tap recognizers attached, so a gesture still in flight when `ViroARSceneNavigator` unmounted delivered its action to a null controller: `EXC_BAD_ACCESS` in `handleLongPress:` → `VROInputControllerAR::onScreenTouchDown`, seen in production on 2.50.1 and still reachable in 3.0.x. `deleteGL` now removes the recognizers, and each handler, `getHeadset` and `getController` return early once the controller is gone.
 
 ### Added

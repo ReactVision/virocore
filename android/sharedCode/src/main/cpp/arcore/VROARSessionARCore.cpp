@@ -2516,6 +2516,18 @@ static std::string rvCloudAnchorToJsonARC(const ReactVisionCCA::CloudAnchorRecor
 }
 #endif // RVCCA_AVAILABLE
 
+void VROARSessionARCore::rvCancelOperations() {
+#if RVCCA_AVAILABLE
+    if (_cloudAnchorProviderRV) {
+        auto p = _cloudAnchorProviderRV->getProvider();
+        if (p) {
+            p->cancelAllOperations();
+            p->cancelScan();
+        }
+    }
+#endif
+}
+
 void VROARSessionARCore::rvStartScan() {
 #if RVCCA_AVAILABLE
     if (_cloudAnchorProviderRV) {

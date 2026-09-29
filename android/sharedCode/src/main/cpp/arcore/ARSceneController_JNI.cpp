@@ -812,6 +812,20 @@ VRO_METHOD(void, nativeRvStartScan)(VRO_ARGS
     });
 }
 
+VRO_METHOD(void, nativeRvCancelOperations)(VRO_ARGS
+                                           VRO_REF(VROARSceneController) arSceneControllerPtr) {
+    std::weak_ptr<VROARScene> arScene_w = std::dynamic_pointer_cast<VROARScene>(
+        VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
+    VROPlatformDispatchAsyncRenderer([arScene_w] {
+        std::shared_ptr<VROARScene> arScene = arScene_w.lock();
+        if (!arScene) return;
+        // Not runWhenARSessionReady: with no session yet there is nothing to cancel, and a
+        // queued cancel would fire into whatever the next session starts.
+        std::shared_ptr<VROARSession> arSession = arScene->getARSession();
+        if (arSession) arSession->rvCancelOperations();
+    });
+}
+
 VRO_METHOD(void, nativeRvFinishScan)(VRO_ARGS
                                      VRO_REF(VROARSceneController) arSceneControllerPtr,
                                      jstring key_j, jint ttlDays) {

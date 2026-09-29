@@ -88,6 +88,7 @@ static std::string encodeError(
         case EC::AnchorNotFound:       state = "ErrorCloudIdNotFound";                   break;
         case EC::AnchorExpired:        state = "ErrorAnchorExpired";                     break;
         case EC::Timeout:              state = "ErrorNetworkFailure";                    break;
+        case EC::Cancelled:            state = "ErrorCancelled";                         break;
         default:                       state = "ErrorInternal";                          break;
     }
     return msg + "|" + state;

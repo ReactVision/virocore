@@ -2557,6 +2557,19 @@ static std::string rvCloudAnchorToJson(const ReactVisionCCA::CloudAnchorRecord& 
 }
 #endif // RVCCA_AVAILABLE
 
+void VROARSessioniOS::rvCancelOperations() {
+#if RVCCA_AVAILABLE
+  // Never creates the provider: with none there is nothing to cancel.
+  if (_cloudAnchorProviderRV) {
+    auto p = [_cloudAnchorProviderRV cppProvider];
+    if (p) {
+      p->cancelAllOperations();
+      p->cancelScan();
+    }
+  }
+#endif
+}
+
 void VROARSessioniOS::rvStartScan() {
   std::string rvError;
 #if RVCCA_AVAILABLE
