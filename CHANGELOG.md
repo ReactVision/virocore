@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## Unreleased
+
+### Added
+
+- **Quest: two drags at once, one per hand (`VROInputControllerBase`, `VROInputControllerAR`, `VROInputControllerOpenXR`).** The input controller kept a single drag slot, `_lastDraggedNode`, and since the 3.0.0 drag fix a second button during a drag was ignored, so on a headset one hand could drag and the other could not grab anything until it let go. The slot is now a map of drags keyed by the ray that owns each one, so the left and right hand (controller or hand tracking) can each drag a different node at the same time and release them in either order. Each hand's `onMove` moves only its own drag from its own pose, its release ends only its own drag, and `onDrag` reports the owning source as before, so no JS change is needed. Only the dragging ray's hit is frozen now; the other hand keeps hit-testing, hovering and clicking. One node follows one ray: a second hand grabbing a node the first is already dragging, or an ancestor or descendant of it, is ignored, matching the old "neither restarts nor steals" rule. The `onDrag` throttle is kept per drag, so two drags do not suppress each other's notifications. Single-pointer backends (ARKit, ARCore, Cardboard, Daydream, web) still hold at most one drag, under the unowned key, and behave as before. Drags are now also ended when the input controller is detached from its scene or attached to a different one, instead of carrying a node from the old scene into the new one. On Quest, a trigger or grip that goes inactive while held (controller set down or switched off, input handed to hand tracking) now emits its ClickUp, so a drag it started does not stay open and keep that hand's ray frozen.
+
 ## v3.0.2 — 29 September 2026
 
 ### Added
