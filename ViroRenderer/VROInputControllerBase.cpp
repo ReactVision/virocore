@@ -274,15 +274,19 @@ void VROInputControllerBase::onMove(int source, VROVector3f position, VROQuatern
     _lastKnownPosition = position;
     _lastKnownForward = forward;
     _lastKnownPoseBySource[source] = { position, forward };
-    if (_hitResult == nullptr) {
+    // This source's own hit, not the shared one: with one hand dragging, the shared hit
+    // follows the other hand, and fuse and onMove would go to what that hand points at.
+    // Single-pointer backends have no per-source hits and get the shared one as before.
+    std::shared_ptr<VROHitTestResult> hit = getHitResultForSource(source);
+    if (hit == nullptr) {
         return;
     }
 
     // Trigger orientation delegate callbacks within the scene.
-    processOnFuseEvent(source, _hitResult->getNode());
+    processOnFuseEvent(source, hit->getNode());
 
     std::shared_ptr<VRONode> movableNode = getNodeToHandleEvent(VROEventDelegate::EventAction::OnMove,
-                                                                _hitResult->getNode());
+                                                                hit->getNode());
     for (std::shared_ptr<VROEventDelegate> delegate : _delegates) {
         delegate->onMove(source, movableNode, _lastKnownRotation.toEuler(), _lastKnownPosition, _lastKnownForward);
     }
