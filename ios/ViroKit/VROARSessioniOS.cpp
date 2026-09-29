@@ -2593,6 +2593,8 @@ std::string VROARSessioniOS::rvGetScanStatusJson() {
        << ",\"meetsKeyframes\":"      << (st.meetsKeyframes ? "true" : "false")
        << ",\"meetsViewpointPairs\":" << (st.meetsViewpointPairs ? "true" : "false")
        << ",\"meetsSpread\":"         << (st.meetsSpread ? "true" : "false")
+       << ",\"triangulatedPoints\":"  << st.triangulatedPoints
+       << ",\"minTriangulatedPoints\":" << st.minTriangulatedPoints
        << "}";
     return os.str();
   }
