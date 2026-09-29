@@ -69,12 +69,15 @@ void VROColocationSession::join(const std::string &roomId,
     ReactVisionCCA::RVCCAColocationSession::Config cfg;
     cfg.apiKey    = apiKey;
     cfg.projectId = projectId;
+    // The endpoint is the relay, a different host from the session's platform
+    // base URL, so the session has nothing to say about it.
     if (!endpoint.empty()) cfg.endpoint = endpoint;
-    if (apiKey.empty()) {
-        cfg.headersProvider = []() {
-            return VROReactVisionAuth::get().sessionHeaders();
-        };
-    }
+    // Always set, so a session wins over a key whenever one exists, as it does
+    // for cloud anchors: the channel sends the key only on a handshake whose
+    // headers carry no Authorization. Read at every connect, reconnects included.
+    cfg.headersProvider = []() {
+        return VROReactVisionAuth::get().sessionHeaders();
+    };
 
     // Rebuilt rather than reused: Config is read at construction, so switching
     // rooms with a different endpoint or key would otherwise keep the old one.
