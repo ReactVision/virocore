@@ -426,6 +426,16 @@ static inline VROMatrix4f viroGLConvTransform(VROMatrix4f t) {
 }
 
 - (void)deleteGL {
+    // Everything below deletes GL objects, and GL deletes act on whatever context is current.
+    // When a navigator is remounted, the new view has already made its own context current by
+    // the time this one is torn down, so without the switch these deletes freed the new view's
+    // textures and buffers that share a name (glyph atlases first: the text came back garbled).
+    EAGLContext *previousContext = [EAGLContext currentContext];
+    BOOL switchContext = self.context != nil && previousContext != self.context;
+    if (switchContext) {
+        [EAGLContext setCurrentContext:self.context];
+    }
+
     // Stop receiving UIApplication lifecycle notifications as soon as teardown begins.
     // Otherwise a background/foreground transition after the AR scene is navigated away
     // (but before this view is fully deallocated) delivers applicationWillResignActive: to
@@ -443,8 +453,10 @@ static inline VROMatrix4f viroGLConvTransform(VROMatrix4f t) {
         [self removeGestureRecognizer:recognizer];
     }
 
-    // Clean up view recorder first
+    // Clean up view recorder first. Release it too: it holds the renderer and driver, and
+    // anything left to .cxx_destruct is deleted after the context is restored below.
     [self.viewRecorder deleteGL];
+    self.viewRecorder = nil;
 
     // Reset shader modifiers to release GPU shader resources
     _depthDebugModifier.reset();
@@ -490,6 +502,10 @@ static inline VROMatrix4f viroGLConvTransform(VROMatrix4f t) {
     // Reset driver LAST as other objects may have dependencies on it
     // The driver holds the OpenGL context state, texture caches, and GPU resources
     _driver.reset();
+
+    if (switchContext) {
+        [EAGLContext setCurrentContext:previousContext];
+    }
 }
 
 - (void)setPaused:(BOOL)paused {
