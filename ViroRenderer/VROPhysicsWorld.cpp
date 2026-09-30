@@ -54,6 +54,14 @@ VROPhysicsWorld::VROPhysicsWorld() {
 }
 
 VROPhysicsWorld::~VROPhysicsWorld() {
+    // Take every object out of the world before letting go of the bodies: clearing
+    // _activePhysicsBodies can drop the last reference to a VROPhysicsBody, which deletes its
+    // btRigidBody while it is still in the world.
+    if (_dynamicsWorld) {
+        for (int i = _dynamicsWorld->getNumCollisionObjects() - 1; i >= 0; i--) {
+            _dynamicsWorld->removeCollisionObject(_dynamicsWorld->getCollisionObjectArray()[i]);
+        }
+    }
     _activePhysicsBodies.clear();
     delete _dynamicsWorld;
     delete _constraintSolver;
@@ -108,11 +116,13 @@ void VROPhysicsWorld::removePhysicsBody(std::shared_ptr<VROPhysicsBody> body) {
     }
 
     _activePhysicsBodies.erase(body->getKey());
+    // Remove by what Bullet holds, not by getIsSimulated(): setIsSimulated(false) only takes
+    // effect at the next computePhysics(), so a body hidden and then detached in the same frame
+    // is still in the world with the flag already off. Skipping it here freed a btRigidBody the
+    // world still pointed to.
     btRigidBody* bulletBody = body->getBulletRigidBody();
-    if (bulletBody && body->getIsSimulated()){
+    if (bulletBody && bulletBody->getBroadphaseHandle() != nullptr) {
         _dynamicsWorld->removeRigidBody(bulletBody);
-    } else {
-        perror("Attempted to remove a VROPhysics body with a mis-configured bulletBody!");
     }
 }
 
