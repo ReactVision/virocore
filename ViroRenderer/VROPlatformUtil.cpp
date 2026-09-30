@@ -573,12 +573,25 @@ void getJNIEnv(JNIEnv **jenv) {
     }
 }
 
+/*
+ One count per renderer. The env is process-wide, but renderers overlap: a remounted navigator
+ creates its renderer before the old one is destroyed, and the old one's release used to null
+ sAssetMgr under the new one, which then crashed loading its first shader
+ (AAssetManager_open on a null manager). Only the last renderer out releases it.
+ */
+static int sEnvRefCount = 0;
+static std::mutex sEnvMutex;
+
 void VROPlatformSetEnv(JNIEnv *env, jobject appContext, jobject assetManager, jobject platformUtil) {
-    env->GetJavaVM(&sVM);
-    sJavaAppContext = env->NewGlobalRef(appContext);
-    sJavaAssetMgr = env->NewGlobalRef(assetManager);
-    sPlatformUtil = env->NewGlobalRef(platformUtil);
-    sAssetMgr = AAssetManager_fromJava(env, assetManager);
+    {
+        std::lock_guard<std::mutex> lock(sEnvMutex);
+        env->GetJavaVM(&sVM);
+        sJavaAppContext = env->NewGlobalRef(appContext);
+        sJavaAssetMgr = env->NewGlobalRef(assetManager);
+        sPlatformUtil = env->NewGlobalRef(platformUtil);
+        sAssetMgr = AAssetManager_fromJava(env, assetManager);
+        sEnvRefCount++;
+    }
 
     // Now that we've properly setup VROPlatformUtil, flush the task queues.
     VROPlatformFlushTaskQueues();
@@ -611,11 +624,19 @@ AAssetManager *VROPlatformGetAssetManager() {
 }
 
 void VROPlatformReleaseEnv() {
+    std::lock_guard<std::mutex> lock(sEnvMutex);
+    if (sEnvRefCount > 0) {
+        sEnvRefCount--;
+    }
+    if (sEnvRefCount > 0) {
+        return;
+    }
+
     JNIEnv *env;
     getJNIEnv(&env);
 
-    env->DeleteGlobalRef(sJavaAssetMgr);
-    env->DeleteGlobalRef(sPlatformUtil);
+    if (sJavaAssetMgr) env->DeleteGlobalRef(sJavaAssetMgr);
+    if (sPlatformUtil) env->DeleteGlobalRef(sPlatformUtil);
 
     sJavaAssetMgr = nullptr;
     sPlatformUtil = nullptr;
