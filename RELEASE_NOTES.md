@@ -30,4 +30,6 @@ Web renderer fixes, Quest input and capture, and cloud anchors and co-location t
 ### All platforms
 
 - **Loading a glTF no longer copies the model.** It moves into a shared pointer and images decode in place, which lowers peak memory on large files. `VROPlatformLoadImageWithBufferedData` takes its buffer by `const &`.
+- **Remounting a navigator with physics no longer crashes** (`btDbvtBroadphase::destroyProxy` on teardown).
+- **iOS: text no longer comes back garbled after a navigator remounts.** The old view's GL cleanup ran in the new view's context.
 - **iOS: a gesture in flight during AR teardown no longer crashes** (`EXC_BAD_ACCESS` in `handleLongPress:`).
