@@ -657,7 +657,14 @@ void VRONode::setWorldTransform(VROVector3f finalPosition, VROQuaternion finalRo
 
     // Calculate local transformations needed to achieve the desired final compute transform
     // by applying: Parent_Trans_INV * FinalCompute = Local_Trans
-    VROMatrix4f parentTransform = getParentNode()->getWorldTransform();
+    std::shared_ptr<VRONode> parent = getParentNode();
+    VROMatrix4f parentTransform;
+    if (parent) {
+        parentTransform = parent->getWorldTransform();
+    } else {
+        // A detached node: its local transform is its world transform.
+        parentTransform.toIdentity();
+    }
     VROMatrix4f currentTransform = parentTransform.invert() * finalWorldTransform;
 
     if (!animated) {

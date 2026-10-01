@@ -361,6 +361,14 @@ void VROInputControllerBase::processDragging(int source) {
     }
     std::shared_ptr<VRONode> draggedNode = drag->_draggedNode;
 
+    // The node can leave the tree mid-drag: a scene change or a remount detaches it while the
+    // hand is still holding it. Its world transform has no parent to be relative to then
+    // (setWorldTransform dereferenced a null parent on Quest), so the drag ends here.
+    if (draggedNode == nullptr || draggedNode->getParentNode() == nullptr) {
+        endDrag(drag->_source);
+        return;
+    }
+
     // Calculate starting pre-drag properties if needed (hit locations, offsets, etc).
     if (drag->_dragState == VROEventDelegate::DragState::Start) {
         if (draggedNode->getDragType() == VRODragType::FixedDistanceOrigin) {
