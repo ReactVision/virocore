@@ -1000,7 +1000,15 @@ void VROInputControllerOpenXR::updateLaserViz(int source,
     constexpr float kNoHitRange = 4.0f;  // meters
     VROVector3f hitPoint;
     auto hit = getHitResultForSource(source);
-    if (hit) {
+    // While this source drags, its hit is frozen on purpose (it anchors the drag), so ending
+    // the laser there pinned it to where the drag began while the hand moved on. Follow the
+    // dragged node instead.
+    auto drag = getDraggedObject(source);
+    if (drag && drag->_draggedNode) {
+        hitPoint = drag->_draggedNode->getWorldPosition();
+    } else if (drag) {
+        hitPoint = origin + forward.scale(drag->_draggedDistanceFromController);
+    } else if (hit) {
         hitPoint = hit->getLocation();
     } else {
         hitPoint = origin + forward.scale(kNoHitRange);
