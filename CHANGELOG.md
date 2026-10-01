@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## Unreleased
+
+### Fixed
+
+- **iOS: a session-only app no longer asks for location when it opens an AR scene (`VROARSessioniOS`).** Since 3.0.2 the Core Location feed started whenever the ReactVision provider was created, and on a session that happens as the AR view mounts, so an app with no manifest key asked for location on its first AR scene of any kind. The feed now starts only when `RVApiKey` and `RVProjectId` are set, as before 3.0.2. The geospatial provider already required the key, so geospatial behaviour is unchanged; the cost is that an anchor hosted on a session records no GPS fix. Android never requested the permission and is unchanged.
+
 ## v3.0.2 — 29 September 2026
 
 ### Added
