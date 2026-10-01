@@ -1288,6 +1288,30 @@ jclass VROPlatformFindClass(JNIEnv *jni, jobject javaObject, const char *classNa
     return cls;
 }
 
+jclass VROPlatformFindHostClass(JNIEnv *env, const char *className) {
+    jclass cls = env->FindClass(className);
+    if (cls != nullptr && !env->ExceptionCheck()) {
+        return cls;
+    }
+    env->ExceptionClear();
+
+    jobject context = VROPlatformGetJavaAppContext();
+    if (context == nullptr) {
+        perr("Failed to locate class %s: no app context for its class loader", className);
+        return nullptr;
+    }
+    // ClassLoader.loadClass takes the binary name, with dots.
+    std::string binaryName(className);
+    std::replace(binaryName.begin(), binaryName.end(), '/', '.');
+    cls = VROPlatformFindClass(env, context, binaryName.c_str());
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        perr("Failed to locate class %s through the app class loader", className);
+        return nullptr;
+    }
+    return cls;
+}
+
 void VROPlatformSetBool(JNIEnv *env, jobject jObj, const char *fieldName, jboolean value) {
     if (jObj == nullptr) {
         pinfo("Attempted to set bool on null object");
