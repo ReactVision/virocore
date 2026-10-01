@@ -46,10 +46,18 @@ bool parseMatrixCsv(NSString *csv, VROMatrix4f *out) {
 + (void)setStudioSessionBaseUrl:(NSString *)baseUrl
                     accessToken:(NSString *)accessToken
                       clientTag:(NSString *)clientTag {
+    [self setStudioSessionBaseUrl:baseUrl accessToken:accessToken clientTag:clientTag functionRegion:nil];
+}
+
++ (void)setStudioSessionBaseUrl:(NSString *)baseUrl
+                    accessToken:(NSString *)accessToken
+                      clientTag:(NSString *)clientTag
+                 functionRegion:(NSString *)functionRegion {
     VROReactVisionAuth::get().setSession(
-        std::string(baseUrl.UTF8String     ?: ""),
-        std::string(accessToken.UTF8String ?: ""),
-        std::string(clientTag.UTF8String   ?: ""));
+        std::string(baseUrl.UTF8String        ?: ""),
+        std::string(accessToken.UTF8String    ?: ""),
+        std::string(clientTag.UTF8String      ?: ""),
+        std::string(functionRegion.UTF8String ?: ""));
 }
 
 + (void)setCloudAnchorProjectId:(NSString *)projectId {

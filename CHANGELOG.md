@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## Unreleased
+
+### Added
+
+- **A session can carry the region its platform's edge functions should run in (`VROReactVisionAuth`, `VROColocationBridge`, `ReactVisionAuth`).** Edge functions run in the region nearest the caller unless told otherwise, so a device far from the platform's database paid the distance on every query a function made. `setSession` takes an optional `functionRegion`, and the cloud-anchor providers send it as `x-region`; the co-location relay, which is not an edge function, does not receive it. iOS adds `+setStudioSessionBaseUrl:accessToken:clientTag:functionRegion:` and Android a four-argument `ReactVisionAuth.setSession`; the three-argument forms still work and pass none. With none, ReactVisionCCA still pins a session on the default platform URL to that platform's region, from the ReactVisionCCA build that adds the pin.
+
 ## v3.0.2 — 29 September 2026
 
 ### Added
