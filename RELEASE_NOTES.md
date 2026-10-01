@@ -33,4 +33,6 @@ Web renderer fixes, Quest input and capture, and cloud anchors and co-location t
 - **Remounting a navigator with physics no longer crashes** (`btDbvtBroadphase::destroyProxy` on teardown).
 - **iOS: text no longer comes back garbled after a navigator remounts.** The old view's GL cleanup ran in the new view's context.
 - **Android: remounting a navigator no longer crashes** (`AAssetManager_open` on a null manager in the new renderer's first frame).
+- **Quest: hit tests, screenshots and recordings work.** A hit test from JS crashed on the OpenXR thread, a screenshot aborted on an assertion, and every recording after the first came out black.
+- **Quest: the laser follows a dragged object,** and a drag whose node leaves the scene (a scene change mid-drag) ends instead of crashing.
 - **iOS: a gesture in flight during AR teardown no longer crashes** (`EXC_BAD_ACCESS` in `handleLongPress:`).

@@ -39,7 +39,6 @@
 
 VROImagePostProcessOpenGL::VROImagePostProcessOpenGL(std::shared_ptr<VROShaderProgram> shader) :
     _shader(shader),
-    _quadVAO(0),
     _quadVBO(0) {
     buildQuadFSVAR(false);
         
@@ -137,26 +136,35 @@ bool VROImagePostProcessOpenGL::bind(std::vector<std::shared_ptr<VROTexture>> te
 }
 
 void VROImagePostProcessOpenGL::drawScreenSpaceVAR() {
-    if (_quadVAO == 0) {
+    /*
+     No cached VAO. A post-process can run in more than one EGL context: the Android recorder
+     blits from the encoder's own context, which is created anew for every recording. Buffers
+     are shared between those contexts, VAOs are not, so a VAO made in the first context does
+     not exist in the next one and the draw did nothing: every recording after the first came
+     out black on Quest. One quad's attribute setup per blit costs next to nothing.
+     */
+    if (_quadVBO == 0) {
         GL( glGenBuffers(1, &_quadVBO));
         GL( glBindBuffer(GL_ARRAY_BUFFER, _quadVBO) );
         GL( glBufferData(GL_ARRAY_BUFFER, sizeof(_quadFSVAR), _quadFSVAR, GL_STATIC_DRAW) );
-        
-        GL( glGenVertexArrays(1, &_quadVAO) );
-        GL( glBindVertexArray(_quadVAO) );
-        
-        int verticesIndex = VROGeometryUtilParseAttributeIndex(VROGeometrySourceSemantic::Vertex);
-        GL( glEnableVertexAttribArray(verticesIndex) );
-        GL( glVertexAttribPointer(verticesIndex, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void *) 0) );
-        
-        int texcoordIndex = VROGeometryUtilParseAttributeIndex(VROGeometrySourceSemantic::Texcoord);
-        GL( glEnableVertexAttribArray(texcoordIndex) );
-        GL( glVertexAttribPointer(texcoordIndex, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void *) (2 * sizeof(float))) );
     }
-    
-    GL( glBindVertexArray(_quadVAO) );
-    GL( glDrawArrays(GL_TRIANGLE_STRIP, 0, 4) );
+
     GL( glBindVertexArray(0) );
+    GL( glBindBuffer(GL_ARRAY_BUFFER, _quadVBO) );
+
+    int verticesIndex = VROGeometryUtilParseAttributeIndex(VROGeometrySourceSemantic::Vertex);
+    GL( glEnableVertexAttribArray(verticesIndex) );
+    GL( glVertexAttribPointer(verticesIndex, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void *) 0) );
+
+    int texcoordIndex = VROGeometryUtilParseAttributeIndex(VROGeometrySourceSemantic::Texcoord);
+    GL( glEnableVertexAttribArray(texcoordIndex) );
+    GL( glVertexAttribPointer(texcoordIndex, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void *) (2 * sizeof(float))) );
+
+    GL( glDrawArrays(GL_TRIANGLE_STRIP, 0, 4) );
+
+    GL( glDisableVertexAttribArray(verticesIndex) );
+    GL( glDisableVertexAttribArray(texcoordIndex) );
+    GL( glBindBuffer(GL_ARRAY_BUFFER, 0) );
 }
 
 void VROImagePostProcessOpenGL::buildQuadFSVAR(bool flipped) {

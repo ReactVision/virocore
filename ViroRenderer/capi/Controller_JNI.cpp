@@ -43,6 +43,11 @@ extern "C" {
 VRO_METHOD(void, nativeSetEventDelegate)(VRO_ARGS
                                          VRO_REF(ViroContext) render_context_ref,
                                          VRO_REF(EventDelegate_JNI) native_delegate_ref) {
+    // A ViroContext disposed by a renderer teardown hands us 0 (seen on Quest when a
+    // scene remounts); dereferencing it crashed in VRO_REF_GET.
+    if (render_context_ref == 0) {
+        return;
+    }
     std::weak_ptr<ViroContext> nativeContext_w = VRO_REF_GET(ViroContext,  render_context_ref);
     std::weak_ptr<EventDelegate_JNI> delegate_w = VRO_REF_GET(EventDelegate_JNI, native_delegate_ref);
 
@@ -61,6 +66,9 @@ VRO_METHOD(void, nativeSetEventDelegate)(VRO_ARGS
 VRO_METHOD(void, nativeEnableReticle)(VRO_ARGS
                                       VRO_REF(ViroContext) render_context_ref,
                                       VRO_BOOL enable) {
+    if (render_context_ref == 0) {
+        return;
+    }
     std::weak_ptr<ViroContext> nativeContext_w = VRO_REF_GET(ViroContext, render_context_ref);
 
     VROPlatformDispatchAsyncRenderer([nativeContext_w, enable] {
@@ -80,6 +88,9 @@ VRO_METHOD(void, nativeEnableReticle)(VRO_ARGS
 VRO_METHOD(void, nativeEnableController)(VRO_ARGS
                                          VRO_REF(ViroContext) render_context_ref,
                                          VRO_BOOL enable) {
+    if (render_context_ref == 0) {
+        return;
+    }
     std::weak_ptr<ViroContext> nativeContext_w = VRO_REF_GET(ViroContext, render_context_ref);
 
     VROPlatformDispatchAsyncRenderer([nativeContext_w, enable] {
@@ -95,6 +106,9 @@ VRO_METHOD(void, nativeEnableController)(VRO_ARGS
 
 VRO_METHOD(VRO_FLOAT_ARRAY, nativeGetControllerForwardVector)(VRO_ARGS
                                                               VRO_REF(ViroContext) context_j) {
+    if (context_j == 0) {
+        return ARUtilsCreateFloatArrayFromVector3f(VROVector3f());
+    }
     std::shared_ptr<ViroContext> context = VRO_REF_GET(ViroContext, context_j);
     VROVector3f position = context->getInputController()->getPresenter()->getLastKnownForward();
     return ARUtilsCreateFloatArrayFromVector3f(position);
@@ -103,6 +117,9 @@ VRO_METHOD(VRO_FLOAT_ARRAY, nativeGetControllerForwardVector)(VRO_ARGS
 VRO_METHOD(void, nativeGetControllerForwardVectorAsync)(VRO_ARGS
                                                         VRO_REF(ViroContext) native_render_context_ref,
                                                         VRO_OBJECT callback) {
+    if (native_render_context_ref == 0) {
+        return;
+    }
     VRO_WEAK weakCallback = VRO_NEW_WEAK_GLOBAL_REF(callback);
     std::weak_ptr<ViroContext> helperContext_w = VRO_REF_GET(ViroContext, native_render_context_ref);
 
