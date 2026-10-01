@@ -6,7 +6,7 @@ Web renderer fixes, Quest input and capture, and cloud anchors and co-location t
 
 ### Web
 
-- **The heap grows.** It was fixed at 256 MB, and a single generated or photogrammetry GLB of 30 to 40 MB crossed it once decoded. `abort("OOM")` is permanent in Emscripten, so the whole renderer died rather than the one model. The heap now grows to 2 GB. A failure past that still aborts, and `viro-web-renderer` reports it through `onAbort`.
+- **The heap grows.** It was fixed at 256 MB, and a single generated or photogrammetry GLB of 29 to 40 MB crossed it once decoded. `abort("OOM")` is permanent in Emscripten, so the whole renderer died rather than the one model. The heap now grows to 2 GB. A failure past that still aborts, and `viro-web-renderer` reports it through `onAbort`.
 - **Taps are no longer mirrored vertically.** Y was flipped twice on the way to `unproject`.
 - **AR holds the last pose through a tracking dropout** instead of snapping the scene to identity rotation. Limited applies the new rotation and holds the position.
 - **Source textures** (`viroCreateSourceTexture`, `viroUpdateTextureFromSource`) are filled by the GPU straight from a `<video>`, `<canvas>`, `ImageBitmap` or `VideoFrame`. The AR camera feed uses them instead of a per-frame readback and upload.

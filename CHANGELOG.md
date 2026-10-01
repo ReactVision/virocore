@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## v3.0.2 — 29 September 2026
+## v3.0.2 — 30 September 2026
 
 ### Added
 
@@ -324,7 +324,7 @@
   The Android 2025 ABI requires all shipped `.so` files to align to 16 KB
   pages. `libvrapi.so` is now repackaged with
   `-Wl,-z,max-page-size=16384`, resolving load failures on devices with the
-  new page size.
+  new page size. (Incomplete — see v2.57.2/v2.57.3.)
 
 - **AR Image Markers — children pin to screen coordinates after re-detection**
   *(Android, [GitHub viro#465](https://github.com/ReactVision/viro/issues/465))*
