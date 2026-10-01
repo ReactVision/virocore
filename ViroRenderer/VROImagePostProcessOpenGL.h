@@ -57,7 +57,6 @@ private:
      */
     float _quadFSVAR[24];
     unsigned int _quadVBO;
-    unsigned int _quadVAO;
     
     /*
      The shader that will run on the input texture to produce the
