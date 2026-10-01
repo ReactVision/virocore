@@ -12,6 +12,7 @@
 #include "VROARAnchor.h"
 #include "VROARFrameSnapshot.h"
 #include "VROLog.h"
+#include "VROReactVisionAuth.h"
 
 // ReactVisionCCA is an optional proprietary library.
 // CMakeLists.txt defines RVCCA_AVAILABLE=1 automatically when the prebuilt
@@ -48,6 +49,17 @@ public:
         cfg.apiKey    = apiKey;
         cfg.projectId = projectId;
         if (!endpoint.empty()) cfg.endpoint = endpoint;
+        cfg.authProvider = [apiKey]() -> ReactVisionCCA::RequestAuth {
+            ReactVisionCCA::RequestAuth auth;
+            if (!VROReactVisionAuth::get().getSession(auth.baseUrl, auth.headers) &&
+                !apiKey.empty()) {
+                auth.headers["x-api-key"] = apiKey;
+            }
+            return auth;
+        };
+        cfg.projectIdProvider = []() -> std::string {
+            return VROReactVisionAuth::get().projectId();
+        };
 
         // ARCore feature points have much lower confidence values than ARKit (typically
         // 0.1–0.5 vs 0.8–1.0). The default minPointConfidence of 0.5 discards the
@@ -81,6 +93,7 @@ static std::string encodeError(
         case EC::AnchorNotFound:       state = "ErrorCloudIdNotFound";                       break;
         case EC::AnchorExpired:        state = "ErrorAnchorExpired";                         break;
         case EC::Timeout:              state = "ErrorNetworkFailure";                        break;
+        case EC::Cancelled:            state = "ErrorCancelled";                         break;
         default:                       state = "ErrorInternal";                              break;
     }
     return msg + "|" + state;

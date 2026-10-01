@@ -30,12 +30,12 @@ VROVector3f VROInputControllerWasm::calculateCameraRay(float x, float y) {
     int viewport[4] = { 0, 0, _viewportWidth, _viewportHeight };
     VROMatrix4f mvp = _projection.multiply(_view);
 
-    // DOM events use a top-left origin; GL/unproject expect bottom-left.
-    float glY = (float) _viewportHeight - y;
-
+    // Top-left origin in, as DOM events arrive: VROProjector::unproject flips Y
+    // itself, the same convention VROInputControllerAR relies on. Flipping here
+    // too cancelled that out and mirrored every tap about the horizontal midline.
     VROVector3f resultNear, resultFar;
-    VROProjector::unproject(VROVector3f(x, glY, 0), mvp.getArray(), viewport, &resultNear);
-    VROProjector::unproject(VROVector3f(x, glY, 1), mvp.getArray(), viewport, &resultFar);
+    VROProjector::unproject(VROVector3f(x, y, 0), mvp.getArray(), viewport, &resultNear);
+    VROProjector::unproject(VROVector3f(x, y, 1), mvp.getArray(), viewport, &resultFar);
 
     return (resultFar - resultNear).normalize();
 }

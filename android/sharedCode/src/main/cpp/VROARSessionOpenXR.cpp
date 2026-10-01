@@ -7,7 +7,9 @@
 #include "VROARSessionOpenXR.h"
 
 #include <android/log.h>
+#include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <string>
 #include <vector>
 #include <set>
@@ -464,6 +466,93 @@ void VROARSessionOpenXR::updateAnchor(std::shared_ptr<VROARAnchor> anchor) {
     if (delegate) {
         delegate->anchorDidUpdate(anchor);
     }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Hit testing — software ray vs. the planes we already track
+// ──────────────────────────────────────────────────────────────────────────────
+
+std::vector<std::shared_ptr<VROARHitTestResult>>
+VROARSessionOpenXR::performARHitTest(VROVector3f rayOrigin, VROVector3f rayDirection) const {
+    std::vector<std::shared_ptr<VROARHitTestResult>> results;
+
+    // rayIntersectPlane() requires a normalized direction, and normalizing also
+    // makes the intersection distance come out in metres.
+    static const float kMinRayLength = 1e-6f;
+    if (rayDirection.magnitude() < kMinRayLength) {
+        return results;
+    }
+    const VROVector3f dir = rayDirection.normalize();
+
+    auto testPlane = [&](const std::shared_ptr<VROARPlaneAnchor> &plane) {
+        if (!plane) {
+            return;
+        }
+        const VROMatrix4f transform = plane->getTransform();
+        const float *m = transform.getArray();
+
+        // Plane-local +Y is the surface normal: populatePlaneAnchor() rotates the
+        // OpenXR pose by planeAxisCorrection(), which lays the plane in local XZ.
+        // The matrix is column-major, so m[4..6] is that Y basis vector.
+        const VROVector3f normal       = VROVector3f(m[4], m[5], m[6]).normalize();
+        const VROVector3f pointOnPlane = transform.extractTranslation();
+
+        VROVector3f hit;
+        if (!dir.rayIntersectPlane(pointOnPlane, normal, rayOrigin, &hit)) {
+            return;  // exactly parallel to the surface, or the plane is behind us
+        }
+
+        // Bound the hit to the plane's extent, measured about its centre. The room
+        // model reports a centre offset from the pose origin (see the bbox handling
+        // in buildPlaneFromSpace), so testing about the origin would accept hits
+        // hanging off the end of a desk or past the edge of a wall.
+        const VROVector3f local  = transform.invert().multiply(hit);
+        const VROVector3f centre = plane->getCenter();
+        const VROVector3f extent = plane->getExtent();
+        if (std::fabs(local.x - centre.x) > extent.x * 0.5f ||
+            std::fabs(local.z - centre.z) > extent.z * 0.5f) {
+            return;
+        }
+
+        // The world transform carries the plane's orientation with its position
+        // replaced by the hit point. Callers place content with this, so dropping
+        // the rotation would leave everything axis-aligned on a slanted surface.
+        float world[16];
+        memcpy(world, m, sizeof(world));
+        world[12] = hit.x;
+        world[13] = hit.y;
+        world[14] = hit.z;
+
+        // The local transform is that same point in the anchor's own space, which
+        // is what VROARHitTestResult documents getLocalTransform() to return.
+        const float localMtx[16] = { 1, 0, 0, 0,
+                                     0, 1, 0, 0,
+                                     0, 0, 1, 0,
+                                     local.x, local.y, local.z, 1 };
+
+        results.push_back(std::make_shared<VROARHitTestResult>(
+                VROARHitTestResultType::ExistingPlaneUsingExtent,
+                plane,
+                (hit - rayOrigin).magnitude(),
+                VROMatrix4f(world),
+                VROMatrix4f(localMtx)));
+    };
+
+    // Both sources: initPlaneDetection() and initSceneDetection() are independent
+    // and a runtime may expose either or both.
+    for (const auto &entry : _planes) {
+        testPlane(entry.second);
+    }
+    for (const auto &entry : _scenePlanes) {
+        testPlane(entry.second);
+    }
+
+    std::sort(results.begin(), results.end(),
+              [](const std::shared_ptr<VROARHitTestResult> &a,
+                 const std::shared_ptr<VROARHitTestResult> &b) {
+                  return a->getDistance() < b->getDistance();
+              });
+    return results;
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

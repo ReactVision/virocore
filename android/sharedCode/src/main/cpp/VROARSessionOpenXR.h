@@ -33,6 +33,7 @@
 
 #include "VROARSession.h"
 #include "VROARPlaneAnchor.h"
+#include "VROARHitTestResult.h"
 
 #include <openxr/openxr.h>
 
@@ -70,6 +71,25 @@ public:
 
     /* Forward FB spatial-query events (polled by the renderer's xrPollEvent loop). */
     void onSpatialEvent(const XrEventDataBuffer &event);
+
+    // ── Hit testing ────────────────────────────────────────────────────────────
+    /*
+     Ray-vs-plane hit test against the planes this session already tracks, done in
+     software. The Meta runtime exposes no hit-test extension — Android XR has
+     XR_ANDROID_hit_test and Quest does not — so rather than wait for one, the test
+     runs against the room model that Space Setup already gave us and that
+     buildPlaneFromSpace() already parses into VROARPlaneAnchors.
+
+     `rayOrigin` and `rayDirection` are in the reference space the plane poses are
+     reported in, which is the renderer's stage space; `rayDirection` need not be
+     normalized. Hits are bounded by each plane's extent, so a controller pointing
+     past the end of a desk misses it rather than landing on its infinite plane.
+
+     Results are sorted nearest-first, so callers placing content can take front().
+     Empty when no plane source initialised or nothing was hit.
+     */
+    std::vector<std::shared_ptr<VROARHitTestResult>>
+    performARHitTest(VROVector3f rayOrigin, VROVector3f rayDirection) const;
 
     // ── Shared coordinate frame (CL-H) ─────────────────────────────────────────
     bool rvSupportsSharedFrame() override;

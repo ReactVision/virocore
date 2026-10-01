@@ -313,7 +313,7 @@ std::shared_ptr<VROImage> VROPlatformLoadImageFromFile(std::string filename,
     return std::make_shared<VROImageiOS>(image, format);
 }
 
-std::shared_ptr<VROImage> VROPlatformLoadImageWithBufferedData(std::vector<unsigned char> rawData, VROTextureInternalFormat format) {
+std::shared_ptr<VROImage> VROPlatformLoadImageWithBufferedData(const std::vector<unsigned char> &rawData, VROTextureInternalFormat format) {
     NSData *data = [NSData dataWithBytes:rawData.data() length:rawData.size()];
     if (!data) {
         pwarn("Error when processing buffered image data.");
@@ -444,7 +444,7 @@ std::shared_ptr<VROImage> VROPlatformLoadImageFromFile(std::string filename,
     return std::make_shared<VROImageMacOS>(image, format);
 }
 
-std::shared_ptr<VROImage> VROPlatformLoadImageWithBufferedData(std::vector<unsigned char> rawData,
+std::shared_ptr<VROImage> VROPlatformLoadImageWithBufferedData(const std::vector<unsigned char> &rawData,
                                                                VROTextureInternalFormat format) {
     return nullptr;
 }
@@ -510,7 +510,7 @@ std::shared_ptr<VROImage> VROPlatformLoadImageFromFile(std::string filename,
     return std::make_shared<VROImageiOS>(image, format);
 }
 
-std::shared_ptr<VROImage> VROPlatformLoadImageWithBufferedData(std::vector<unsigned char> rawData,
+std::shared_ptr<VROImage> VROPlatformLoadImageWithBufferedData(const std::vector<unsigned char> &rawData,
                                                                VROTextureInternalFormat format) {
     NSData *data = [NSData dataWithBytes:rawData.data() length:rawData.size()];
     if (!data) {
@@ -573,12 +573,25 @@ void getJNIEnv(JNIEnv **jenv) {
     }
 }
 
+/*
+ One count per renderer. The env is process-wide, but renderers overlap: a remounted navigator
+ creates its renderer before the old one is destroyed, and the old one's release used to null
+ sAssetMgr under the new one, which then crashed loading its first shader
+ (AAssetManager_open on a null manager). Only the last renderer out releases it.
+ */
+static int sEnvRefCount = 0;
+static std::mutex sEnvMutex;
+
 void VROPlatformSetEnv(JNIEnv *env, jobject appContext, jobject assetManager, jobject platformUtil) {
-    env->GetJavaVM(&sVM);
-    sJavaAppContext = env->NewGlobalRef(appContext);
-    sJavaAssetMgr = env->NewGlobalRef(assetManager);
-    sPlatformUtil = env->NewGlobalRef(platformUtil);
-    sAssetMgr = AAssetManager_fromJava(env, assetManager);
+    {
+        std::lock_guard<std::mutex> lock(sEnvMutex);
+        env->GetJavaVM(&sVM);
+        sJavaAppContext = env->NewGlobalRef(appContext);
+        sJavaAssetMgr = env->NewGlobalRef(assetManager);
+        sPlatformUtil = env->NewGlobalRef(platformUtil);
+        sAssetMgr = AAssetManager_fromJava(env, assetManager);
+        sEnvRefCount++;
+    }
 
     // Now that we've properly setup VROPlatformUtil, flush the task queues.
     VROPlatformFlushTaskQueues();
@@ -611,11 +624,19 @@ AAssetManager *VROPlatformGetAssetManager() {
 }
 
 void VROPlatformReleaseEnv() {
+    std::lock_guard<std::mutex> lock(sEnvMutex);
+    if (sEnvRefCount > 0) {
+        sEnvRefCount--;
+    }
+    if (sEnvRefCount > 0) {
+        return;
+    }
+
     JNIEnv *env;
     getJNIEnv(&env);
 
-    env->DeleteGlobalRef(sJavaAssetMgr);
-    env->DeleteGlobalRef(sPlatformUtil);
+    if (sJavaAssetMgr) env->DeleteGlobalRef(sJavaAssetMgr);
+    if (sPlatformUtil) env->DeleteGlobalRef(sPlatformUtil);
 
     sJavaAssetMgr = nullptr;
     sPlatformUtil = nullptr;
@@ -917,7 +938,7 @@ jobject VROPlatformLoadBitmapFromFile(std::string path, VROTextureInternalFormat
 }
 
 
-std::shared_ptr<VROImage> VROPlatformLoadImageWithBufferedData(std::vector<unsigned char> rawData,
+std::shared_ptr<VROImage> VROPlatformLoadImageWithBufferedData(const std::vector<unsigned char> &rawData,
                                                                VROTextureInternalFormat format) {
     if (sPlatformUtil == NULL) {
         pinfo("Platform not initialized, will not load image from buffered data");
@@ -1267,6 +1288,30 @@ jclass VROPlatformFindClass(JNIEnv *jni, jobject javaObject, const char *classNa
     return cls;
 }
 
+jclass VROPlatformFindHostClass(JNIEnv *env, const char *className) {
+    jclass cls = env->FindClass(className);
+    if (cls != nullptr && !env->ExceptionCheck()) {
+        return cls;
+    }
+    env->ExceptionClear();
+
+    jobject context = VROPlatformGetJavaAppContext();
+    if (context == nullptr) {
+        perr("Failed to locate class %s: no app context for its class loader", className);
+        return nullptr;
+    }
+    // ClassLoader.loadClass takes the binary name, with dots.
+    std::string binaryName(className);
+    std::replace(binaryName.begin(), binaryName.end(), '/', '.');
+    cls = VROPlatformFindClass(env, context, binaryName.c_str());
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        perr("Failed to locate class %s through the app class loader", className);
+        return nullptr;
+    }
+    return cls;
+}
+
 void VROPlatformSetBool(JNIEnv *env, jobject jObj, const char *fieldName, jboolean value) {
     if (jObj == nullptr) {
         pinfo("Attempted to set bool on null object");
@@ -1514,7 +1559,7 @@ std::shared_ptr<VROImage> VROPlatformLoadImageFromFile(std::string filename,
     return std::make_shared<VROImageWasm>(filename, format);
 }
 
-std::shared_ptr<VROImage> VROPlatformLoadImageWithBufferedData(std::vector<unsigned char> rawData,
+std::shared_ptr<VROImage> VROPlatformLoadImageWithBufferedData(const std::vector<unsigned char> &rawData,
                                                                VROTextureInternalFormat format) {
     // Encoded image bytes (e.g. a texture embedded in a GLB/VRX). VROImageWasm
     // auto-detects the format (PNG/JPEG) from the buffer.

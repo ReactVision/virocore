@@ -115,9 +115,17 @@ VRO_METHOD(void, nativeSetAnchorDetectionTypes)(VRO_ARGS
 
 }
 
+void invokeEmptyARResultsCallback(jweak weakCallback);
+
 void invokeARResultsCallback(std::vector<std::shared_ptr<VROARHitTestResult>> &results, jweak weakCallback) {
     JNIEnv *env = VROPlatformGetJNIEnv();
-    jclass arHitTestResultClass = env->FindClass("com/viro/core/ARHitTestResult");
+    // Runs on the renderer thread, which on Quest is a native OpenXR thread: plain FindClass
+    // does not see app classes there, and the pending ClassNotFoundException aborted the app.
+    jclass arHitTestResultClass = VROPlatformFindHostClass(env, "com/viro/core/ARHitTestResult");
+    if (arHitTestResultClass == nullptr) {
+        invokeEmptyARResultsCallback(weakCallback);
+        return;
+    }
 
     jobjectArray resultsArray = env->NewObjectArray(results.size(), arHitTestResultClass, NULL);
     for (int i = 0; i < results.size(); i++) {

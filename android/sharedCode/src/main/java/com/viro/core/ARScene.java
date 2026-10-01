@@ -1609,6 +1609,15 @@ public class ARScene extends Scene {
     }
 
     /**
+     * Cancel pending ReactVision cloud anchor hosts and resolves, and close a scan started
+     * with {@link #rvStartScan} without hosting it. Each pending operation reports
+     * {@code ErrorCancelled} to its callback once.
+     */
+    public void rvCancelOperations() {
+        nativeRvCancelOperations(mNativeRef);
+    }
+
+    /**
      * WS-A: finish a scan started with {@link #rvStartScan} and host it to the
      * cloud. Same pipeline as a placed-anchor host, but positions content in
      * the scan's own location frame instead of relative to an anchor.
@@ -2011,6 +2020,7 @@ public class ARScene extends Scene {
 
     // Cloud anchor management native methods
     private native void nativeRvStartScan(long sceneControllerRef);
+    private native void nativeRvCancelOperations(long sceneControllerRef);
     private native void nativeRvGetWorldMeshStats(long sceneControllerRef, String key);
     private native void nativeRvGetScanStatus(long sceneControllerRef, String key);
     private native void nativeRvGetScanDiagnostics(long sceneControllerRef, String key);

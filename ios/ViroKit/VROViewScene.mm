@@ -257,12 +257,38 @@ static VROVector3f const kZeroVector = VROVector3f();
     if (_displayLink) {
         [_displayLink invalidate];
     }
+
+    // Release the GL-owning members here, in this view's context, instead of leaving them to
+    // .cxx_destruct: by then another view's context may be current, and GL deletes act on the
+    // current context (see VROViewAR's deleteGL).
+    EAGLContext *previousContext = [EAGLContext currentContext];
+    BOOL switchContext = self.context != nil && previousContext != self.context;
+    if (switchContext) {
+        [EAGLContext setCurrentContext:self.context];
+    }
+    self.viewRecorder = nil;
+    _sceneController.reset();
+    _inputController.reset();
+    _renderDelegateWrapper.reset();
+    _renderer.reset();
+    _driver.reset();
+    if (switchContext) {
+        [EAGLContext setCurrentContext:previousContext];
+    }
 }
 
 - (void)deleteGL {
+    EAGLContext *previousContext = [EAGLContext currentContext];
+    BOOL switchContext = self.context != nil && previousContext != self.context;
+    if (switchContext) {
+        [EAGLContext setCurrentContext:self.context];
+    }
     [self.viewRecorder deleteGL];
     if (_sceneController) {
         _sceneController->getScene()->getRootNode()->deleteGL();
+    }
+    if (switchContext) {
+        [EAGLContext setCurrentContext:previousContext];
     }
 }
 

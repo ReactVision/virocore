@@ -40,7 +40,47 @@
 #include "VROStringUtil.h"
 #include "vr/gvr/capi/include/gvr_audio.h"
 
-class VRODriverOpenGLiOS : public VRODriverOpenGL {
+/*
+ Restores the GL context that was current before the driver started tearing down. It is a base
+ class listed before VRODriverOpenGL so that it is destroyed after it: ~VRODriverOpenGLiOS makes
+ the driver's own context current, VRODriverOpenGL's destructor and members delete their GL
+ objects there, and only then does this put the previous context back.
+
+ This matters because the driver usually outlives its view: every VRTView holds it, so it can
+ die after another view's context has been made current, and GL deletes act on the current
+ context. On a navigator remount that deleted the new view's glyph atlas and garbled its text.
+ */
+class VROEAGLContextRestorer {
+protected:
+    ~VROEAGLContextRestorer() {
+        if (_switched) {
+            [EAGLContext setCurrentContext:(__bridge EAGLContext *) _previous];
+        }
+        if (_previous) {
+            CFRelease(_previous);
+        }
+        if (_own) {
+            CFRelease(_own);
+        }
+    }
+
+    void makeCurrent(EAGLContext *context) {
+        EAGLContext *previous = [EAGLContext currentContext];
+        if (context == nil || context == previous) {
+            return;
+        }
+        _previous = previous ? CFBridgingRetain(previous) : nullptr;
+        _own = CFBridgingRetain(context);
+        _switched = [EAGLContext setCurrentContext:context];
+    }
+
+private:
+    CFTypeRef _previous = nullptr;
+    CFTypeRef _own = nullptr;
+    bool _switched = false;
+};
+
+class VRODriverOpenGLiOS : private VROEAGLContextRestorer, public VRODriverOpenGL {
     
 public:
     
@@ -56,6 +96,7 @@ public:
     }
     
     virtual ~VRODriverOpenGLiOS() {
+        makeCurrent(_eaglContext);
         if (_ft != nullptr) {
             FT_Done_FreeType(_ft);
             _ft = nullptr;

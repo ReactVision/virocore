@@ -338,6 +338,9 @@ static inline VROMatrix4f viroGLConvTransform(VROMatrix4f t) {
 }
 
 - (void)handleRotate:(UIRotationGestureRecognizer *)recognizer {
+    if (!_inputController) {
+        return;
+    }
     // locationInView was `recognizer.self` but if view is created after app initialization, then it location x and y is 0
     CGPoint location = [recognizer locationInView:nil];
     VROVector3f viewportTouchPos = VROVector3f(location.x * self.contentScaleFactor, location.y * self.contentScaleFactor);
@@ -353,6 +356,9 @@ static inline VROMatrix4f viroGLConvTransform(VROMatrix4f t) {
 }
 
 - (void)handlePinch:(UIPinchGestureRecognizer *)recognizer {
+    if (!_inputController) {
+        return;
+    }
     // locationInView was `recognizer.self` but if view is created after app initialization, then it location x and y is 0
     CGPoint location = [recognizer locationInView:nil];
     VROVector3f viewportTouchPos = VROVector3f(location.x * self.contentScaleFactor, location.y * self.contentScaleFactor);
@@ -367,6 +373,9 @@ static inline VROMatrix4f viroGLConvTransform(VROMatrix4f t) {
 }
 
 - (void)handleLongPress:(UIPanGestureRecognizer *)recognizer {
+    if (!_inputController) {
+        return;
+    }
     // locationInView was `recognizer.self` but if view is created after app initialization, then it location x and y is 0
     CGPoint location = [recognizer locationInView:nil];
     
@@ -382,6 +391,9 @@ static inline VROMatrix4f viroGLConvTransform(VROMatrix4f t) {
 }
 
 - (void)handleTap:(UITapGestureRecognizer *)recognizer {
+    if (!_inputController) {
+        return;
+    }
     // locationInView was `recognizer.self` but if view is created after app initialization, then it location x and y is 0
     CGPoint location = [recognizer locationInView:nil];
     
@@ -414,6 +426,16 @@ static inline VROMatrix4f viroGLConvTransform(VROMatrix4f t) {
 }
 
 - (void)deleteGL {
+    // Everything below deletes GL objects, and GL deletes act on whatever context is current.
+    // When a navigator is remounted, the new view has already made its own context current by
+    // the time this one is torn down, so without the switch these deletes freed the new view's
+    // textures and buffers that share a name (glyph atlases first: the text came back garbled).
+    EAGLContext *previousContext = [EAGLContext currentContext];
+    BOOL switchContext = self.context != nil && previousContext != self.context;
+    if (switchContext) {
+        [EAGLContext setCurrentContext:self.context];
+    }
+
     // Stop receiving UIApplication lifecycle notifications as soon as teardown begins.
     // Otherwise a background/foreground transition after the AR scene is navigated away
     // (but before this view is fully deallocated) delivers applicationWillResignActive: to
@@ -422,8 +444,19 @@ static inline VROMatrix4f viroGLConvTransform(VROMatrix4f t) {
     // removes observers; removeObserver:self is idempotent so the double-remove is safe.
     [[NSNotificationCenter defaultCenter] removeObserver:self];
 
-    // Clean up view recorder first
+    // Likewise stop delivering gesture actions. The recognizers added in initRenderer target
+    // self and every handler dereferences _inputController, which is reset below. A gesture
+    // still in flight when the view is torn down (a pan cancelled by the removal, a tap that
+    // lands during the same run loop) would otherwise call into a null controller:
+    // EXC_BAD_ACCESS in handleLongPress: / VROInputControllerAR::onScreenTouchDown.
+    for (UIGestureRecognizer *recognizer in [self.gestureRecognizers copy]) {
+        [self removeGestureRecognizer:recognizer];
+    }
+
+    // Clean up view recorder first. Release it too: it holds the renderer and driver, and
+    // anything left to .cxx_destruct is deleted after the context is restored below.
     [self.viewRecorder deleteGL];
+    self.viewRecorder = nil;
 
     // Reset shader modifiers to release GPU shader resources
     _depthDebugModifier.reset();
@@ -469,6 +502,10 @@ static inline VROMatrix4f viroGLConvTransform(VROMatrix4f t) {
     // Reset driver LAST as other objects may have dependencies on it
     // The driver holds the OpenGL context state, texture caches, and GPU resources
     _driver.reset();
+
+    if (switchContext) {
+        [EAGLContext setCurrentContext:previousContext];
+    }
 }
 
 - (void)setPaused:(BOOL)paused {
@@ -646,10 +683,17 @@ static inline VROMatrix4f viroGLConvTransform(VROMatrix4f t) {
 }
 
 - (NSString *)getHeadset {
+    // nil after deleteGL, which resets the controller; a late call from JS must not crash.
+    if (!_inputController) {
+        return nil;
+    }
     return [NSString stringWithUTF8String:_inputController->getHeadset().c_str()];
 }
 
 - (NSString *)getController {
+    if (!_inputController) {
+        return nil;
+    }
     return [NSString stringWithUTF8String:_inputController->getController().c_str()];
 }
 

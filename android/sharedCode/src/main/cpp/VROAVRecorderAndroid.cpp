@@ -162,7 +162,12 @@ bool VROAVRecorderAndroid::onRenderedFrameTexture(std::shared_ptr<VRORenderTarge
     if (_scheduledScreenShot) {
         std::shared_ptr<MediaRecorder_JNI> jRecorder = _w_mediaRecorderJNI.lock();
         if (jRecorder) {
-            passert (driver->getRenderTarget() == input);
+            // On Quest the bound target is OpenXR's, or the recorder's while a recording runs, so
+            // this used to abort (and _pabort then crashed formatting the message). Both branches
+            // below bind what they read from explicitly, so the read does not depend on it.
+            if (driver->getRenderTarget() != input) {
+                pinfo("Screenshot: bound render target is not the scene target; reading the scene target directly");
+            }
 
             // The input target is LDR and has already been tone-mapped, but may need gamma correction.
             // We need gamma correction if we're in linear color space.

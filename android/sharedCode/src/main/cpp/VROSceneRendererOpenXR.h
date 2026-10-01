@@ -24,6 +24,7 @@
 #define ANDROID_VROSCENERENDEREROPENBXR_H
 
 #include "VROSceneRenderer.h"
+#include "VROARHitTestResult.h"
 #include <memory>
 #include <thread>
 #include <atomic>
@@ -96,6 +97,17 @@ public:
      */
     void setPassthroughStyle(float opacity, float edgeR, float edgeG, float edgeB, float edgeA);
     void setHandTrackingEnabled(bool enabled);
+
+    /*
+     Per-eye swapchain dimensions, or 0 until the session has created them.
+
+     These are what a frame captured off this renderer measures: there is no
+     Android surface to ask, so ViroViewOpenXR has no width or height of its own
+     and the recorder has to be sized from here instead.
+     */
+    uint32_t getEyeWidth()  const { return _swapchains[0].width;  }
+    uint32_t getEyeHeight() const { return _swapchains[0].height; }
+
     void onStart();
     void onResume();
     void onPause();
@@ -104,6 +116,25 @@ public:
     void onSurfaceCreated(jobject surface)  {}  // OpenXR owns the display surface
     void onSurfaceChanged(jobject surface, VRO_INT w, VRO_INT h) {}
     void onSurfaceDestroyed() {}
+
+    /*
+     AR hit test from a ray origin to a destination, against the planes the AR
+     session tracks. See VROARSessionOpenXR::performARHitTest for how it resolves.
+     Empty if there is no AR session — a plain VR scene has no surfaces to hit.
+
+     There is no 2D-point overload, where VROSceneRendererARCore has one: a
+     headset has no screen to take a tap from.
+     */
+    std::vector<std::shared_ptr<VROARHitTestResult>>
+    performARHitTest(VROVector3f rayOrigin, VROVector3f rayDestination);
+
+    /*
+     The same test along `ray` from the camera's current position, for callers
+     that hold a direction rather than two points (ARCore's
+     performARHitTestWithRay(ray) shape). Renderer thread only.
+     */
+    std::vector<std::shared_ptr<VROARHitTestResult>>
+    performARHitTestWithRay(VROVector3f ray);
 
 private:
 

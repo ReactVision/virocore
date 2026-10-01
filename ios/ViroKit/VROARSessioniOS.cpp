@@ -45,6 +45,7 @@
 #include "VROPlatformUtil.h"
 #include "VROPortal.h"
 #include "VROProjector.h"
+#include "VROReactVisionAuth.h"
 #include "VROScene.h"
 #include "VROData.h"
 #include "VROTexture.h"
@@ -611,22 +612,21 @@ void VROARSessioniOS::setCloudAnchorProvider(VROCloudAnchorProvider provider) {
       [_cloudAnchorProviderARCore cancelAllOperations];
       _cloudAnchorProviderARCore = nil;
     }
-    // Initialize ReactVision cloud anchor provider; reads credentials from Info.plist
     NSString *apiKey    = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"RVApiKey"];
     NSString *projectId = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"RVProjectId"];
     NSString *endpoint  = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"RVEndpoint"];
+    BOOL hasManifestCredentials = apiKey.length && projectId.length;
 
-    if (apiKey.length && projectId.length) {
-      if (_cloudAnchorProviderRV == nil) {
-        _cloudAnchorProviderRV = [[VROCloudAnchorProviderReactVision alloc]
-            initWithApiKey:apiKey projectId:projectId endpoint:endpoint];
-        if (_cloudAnchorProviderRV) {
-          pinfo("ReactVision Cloud Anchor provider initialized successfully");
-        } else {
-          pwarn("Failed to initialize ReactVision Cloud Anchor provider.");
-        }
-      }
+    // Not fatal: a session set later creates the provider on the next request.
+    std::string rvError;
+    if (ensureReactVisionProvider(rvError) == nil) {
+      pwarn("ReactVision Cloud Anchors unavailable until a session or key exists: %s",
+            rvError.c_str());
+    }
+
 #if RVCCA_AVAILABLE
+    // The geospatial provider stays on the key.
+    if (hasManifestCredentials) {
       // Also initialize the geospatial metadata provider so rvFindNearbyGeospatialAnchors,
       // rvGetGeospatialAnchor, etc. work whenever provider="reactvision" is set.
       // Do NOT enable ARCore/GAR geospatial mode — that belongs to provider="arcore".
@@ -639,16 +639,8 @@ void VROARSessioniOS::setCloudAnchorProvider(VROCloudAnchorProvider provider) {
         _geospatialProviderRV = std::make_shared<ReactVisionCCA::RVCCAGeospatialProvider>(cfg);
         pinfo("ReactVision Geospatial provider initialized via setCloudAnchorProvider");
       }
-      // Start GPS updates for getCameraGeospatialPose()
-      if (!_rvLocationDelegate) {
-        _rvLocationDelegate = [[VROLocationDelegate alloc]
-                                initWithPosePtr:&_lastKnownGPSPose];
-        [(VROLocationDelegate *)_rvLocationDelegate start];
-      }
-#endif
-    } else {
-      pwarn("RVApiKey or RVProjectId missing from Info.plist — ReactVision unavailable.");
     }
+#endif
 
   } else {
     // VROCloudAnchorProvider::None — tear down all providers
@@ -661,6 +653,50 @@ void VROARSessioniOS::setCloudAnchorProvider(VROCloudAnchorProvider provider) {
       _cloudAnchorProviderRV = nil;
     }
   }
+}
+
+VROCloudAnchorProviderReactVision *VROARSessioniOS::ensureReactVisionProvider(std::string &error) {
+  if (_cloudAnchorProvider != VROCloudAnchorProvider::ReactVision) {
+    error = "ReactVision cloud anchor provider not selected: set provider=\"reactvision\" on the navigator";
+    return nil;
+  }
+
+  NSString *apiKey    = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"RVApiKey"];
+  NSString *projectId = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"RVProjectId"];
+  bool hasSession = VROReactVisionAuth::get().hasSession();
+
+  // Checked on every request, not only at creation: after clearSession() a
+  // provider built on the session would otherwise send unauthenticated requests.
+  if (!VROReactVisionAuth::get().hasCredentials(apiKey.length ? apiKey.UTF8String : "")) {
+    error = VROReactVisionAuth::kNoCredentialsError;
+    return nil;
+  }
+
+  if (_cloudAnchorProviderRV == nil) {
+    if (!hasSession && !projectId.length) {
+      error = "RVProjectId missing from Info.plist and no session set";
+      return nil;
+    }
+    NSString *endpoint = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"RVEndpoint"];
+    _cloudAnchorProviderRV = [[VROCloudAnchorProviderReactVision alloc]
+        initWithApiKey:apiKey projectId:projectId endpoint:endpoint];
+    if (_cloudAnchorProviderRV == nil) {
+      error = "ReactVision cloud anchor provider not available";
+      return nil;
+    }
+    pinfo("ReactVision Cloud Anchor provider initialized successfully");
+
+#if RVCCA_AVAILABLE
+    // GPS for getCameraGeospatialPose(), and the fix a hosted anchor records, on a
+    // session as on a key. It asks for location permission the first time.
+    if (!_rvLocationDelegate) {
+      _rvLocationDelegate = [[VROLocationDelegate alloc]
+                              initWithPosePtr:&_lastKnownGPSPose];
+      [(VROLocationDelegate *)_rvLocationDelegate start];
+    }
+#endif
+  }
+  return _cloudAnchorProviderRV;
 }
 
 void VROARSessioniOS::addAnchor(std::shared_ptr<VROARAnchor> anchor) {
@@ -711,8 +747,12 @@ void VROARSessioniOS::hostCloudAnchor(
 
   // ---- ReactVision path ----
   if (_cloudAnchorProvider == VROCloudAnchorProvider::ReactVision) {
-    if (_cloudAnchorProviderRV == nil) {
-      if (onFailure) onFailure("ReactVision Cloud Anchor provider not initialized.");
+    std::string rvError;
+    if (ensureReactVisionProvider(rvError) == nil) {
+      // The state suffix lets the bridge report ErrorNotAuthorized rather than
+      // ErrorInternal when the app is signed out.
+      if (rvError == VROReactVisionAuth::kNoCredentialsError) rvError += "|ErrorNotAuthorized";
+      if (onFailure) onFailure(rvError);
       return;
     }
 
@@ -856,8 +896,12 @@ void VROARSessioniOS::resolveCloudAnchor(
 
   // ---- ReactVision path ----
   if (_cloudAnchorProvider == VROCloudAnchorProvider::ReactVision) {
-    if (_cloudAnchorProviderRV == nil) {
-      if (onFailure) onFailure("ReactVision Cloud Anchor provider not initialized.");
+    std::string rvError;
+    if (ensureReactVisionProvider(rvError) == nil) {
+      // The state suffix lets the bridge report ErrorNotAuthorized rather than
+      // ErrorInternal when the app is signed out.
+      if (rvError == VROReactVisionAuth::kNoCredentialsError) rvError += "|ErrorNotAuthorized";
+      if (onFailure) onFailure(rvError);
       return;
     }
 
@@ -2513,9 +2557,23 @@ static std::string rvCloudAnchorToJson(const ReactVisionCCA::CloudAnchorRecord& 
 }
 #endif // RVCCA_AVAILABLE
 
-void VROARSessioniOS::rvStartScan() {
+void VROARSessioniOS::rvCancelOperations() {
 #if RVCCA_AVAILABLE
-  auto p = [_cloudAnchorProviderRV cppProvider];
+  // Never creates the provider: with none there is nothing to cancel.
+  if (_cloudAnchorProviderRV) {
+    auto p = [_cloudAnchorProviderRV cppProvider];
+    if (p) {
+      p->cancelAllOperations();
+      p->cancelScan();
+    }
+  }
+#endif
+}
+
+void VROARSessioniOS::rvStartScan() {
+  std::string rvError;
+#if RVCCA_AVAILABLE
+  auto p = [ensureReactVisionProvider(rvError) cppProvider];
   if (p) {
     p->startScan();
     return;
@@ -2524,8 +2582,11 @@ void VROARSessioniOS::rvStartScan() {
   // Said out loud rather than returned silently. startScan() has no callback, so a missing
   // provider used to be indistinguishable from a scan that started — the app would only find out
   // at finishScan(), a walk around the room later.
-  pwarn("rvStartScan: no ReactVision cloud anchor provider — set RVApiKey and RVProjectId in "
-        "Info.plist and provider=\"reactvision\" on the navigator. Nothing was scanned.");
+#if !RVCCA_AVAILABLE
+  rvError = "ReactVisionCCA library not linked";
+#endif
+  pwarn("rvStartScan: %s. Set RVApiKey and RVProjectId in Info.plist or a session, and "
+        "provider=\"reactvision\" on the navigator. Nothing was scanned.", rvError.c_str());
 }
 
 std::string VROARSessioniOS::rvGetScanStatusJson() {
@@ -2545,6 +2606,8 @@ std::string VROARSessioniOS::rvGetScanStatusJson() {
        << ",\"meetsKeyframes\":"      << (st.meetsKeyframes ? "true" : "false")
        << ",\"meetsViewpointPairs\":" << (st.meetsViewpointPairs ? "true" : "false")
        << ",\"meetsSpread\":"         << (st.meetsSpread ? "true" : "false")
+       << ",\"triangulatedPoints\":"  << st.triangulatedPoints
+       << ",\"minTriangulatedPoints\":" << st.minTriangulatedPoints
        << "}";
     return os.str();
   }
@@ -2576,8 +2639,9 @@ std::string VROARSessioniOS::rvGetScanDiagnosticsJson() {
 void VROARSessioniOS::rvFinishScan(
     int ttlDays,
     std::function<void(bool, std::string, std::string, std::string)> callback) {
+  std::string rvError;
 #if RVCCA_AVAILABLE
-  auto p = [_cloudAnchorProviderRV cppProvider];
+  auto p = [ensureReactVisionProvider(rvError) cppProvider];
   if (p) {
     p->finishScan(ttlDays,
         [callback](const std::string& cloudAnchorId, const VROMatrix4f& locationTransform) {
@@ -2589,14 +2653,15 @@ void VROARSessioniOS::rvFinishScan(
     return;
   }
 #endif
-  if (callback) callback(false, "", "", "ReactVision cloud anchor provider not available");
+  if (callback) callback(false, "", "", rvError.empty() ? "ReactVision cloud anchor provider not available" : rvError);
 }
 
 void VROARSessioniOS::rvGetCloudAnchor(
     const std::string& anchorId,
     std::function<void(bool, std::string, std::string)> callback) {
+  std::string rvError;
 #if RVCCA_AVAILABLE
-  auto p = [_cloudAnchorProviderRV cppProvider];
+  auto p = [ensureReactVisionProvider(rvError) cppProvider];
   if (p) {
     p->getCloudAnchor(anchorId,
         [callback](ReactVisionCCA::ApiResult<ReactVisionCCA::CloudAnchorRecord> r) {
@@ -2608,14 +2673,15 @@ void VROARSessioniOS::rvGetCloudAnchor(
     return;
   }
 #endif
-  if (callback) callback(false, "", "ReactVision cloud anchor provider not available");
+  if (callback) callback(false, "", rvError.empty() ? "ReactVision cloud anchor provider not available" : rvError);
 }
 
 void VROARSessioniOS::rvListCloudAnchors(
     int limit, int offset,
     std::function<void(bool, std::string, std::string)> callback) {
+  std::string rvError;
 #if RVCCA_AVAILABLE
-  auto p = [_cloudAnchorProviderRV cppProvider];
+  auto p = [ensureReactVisionProvider(rvError) cppProvider];
   if (p) {
     p->listCloudAnchors(limit, offset,
         [callback](ReactVisionCCA::ApiResult<std::vector<ReactVisionCCA::CloudAnchorRecord>> r) {
@@ -2636,7 +2702,7 @@ void VROARSessioniOS::rvListCloudAnchors(
     return;
   }
 #endif
-  if (callback) callback(false, "", "ReactVision cloud anchor provider not available");
+  if (callback) callback(false, "", rvError.empty() ? "ReactVision cloud anchor provider not available" : rvError);
 }
 
 void VROARSessioniOS::rvUpdateCloudAnchor(
@@ -2645,8 +2711,9 @@ void VROARSessioniOS::rvUpdateCloudAnchor(
     const std::string& description,
     bool isPublic,
     std::function<void(bool, std::string, std::string)> callback) {
+  std::string rvError;
 #if RVCCA_AVAILABLE
-  auto p = [_cloudAnchorProviderRV cppProvider];
+  auto p = [ensureReactVisionProvider(rvError) cppProvider];
   if (p) {
     p->updateCloudAnchor(anchorId, name, description, isPublic,
         [callback](ReactVisionCCA::ApiResult<ReactVisionCCA::CloudAnchorRecord> r) {
@@ -2658,14 +2725,15 @@ void VROARSessioniOS::rvUpdateCloudAnchor(
     return;
   }
 #endif
-  if (callback) callback(false, "", "ReactVision cloud anchor provider not available");
+  if (callback) callback(false, "", rvError.empty() ? "ReactVision cloud anchor provider not available" : rvError);
 }
 
 void VROARSessioniOS::rvDeleteCloudAnchor(
     const std::string& anchorId,
     std::function<void(bool, std::string)> callback) {
+  std::string rvError;
 #if RVCCA_AVAILABLE
-  auto p = [_cloudAnchorProviderRV cppProvider];
+  auto p = [ensureReactVisionProvider(rvError) cppProvider];
   if (p) {
     p->deleteCloudAnchor(anchorId,
         [callback](bool success, ReactVisionCCA::ApiError err) {
@@ -2674,14 +2742,15 @@ void VROARSessioniOS::rvDeleteCloudAnchor(
     return;
   }
 #endif
-  if (callback) callback(false, "ReactVision cloud anchor provider not available");
+  if (callback) callback(false, rvError.empty() ? "ReactVision cloud anchor provider not available" : rvError);
 }
 
 void VROARSessioniOS::rvFindNearbyCloudAnchors(
     double lat, double lng, double radius, int limit,
     std::function<void(bool, std::string, std::string)> callback) {
+  std::string rvError;
 #if RVCCA_AVAILABLE
-  auto p = [_cloudAnchorProviderRV cppProvider];
+  auto p = [ensureReactVisionProvider(rvError) cppProvider];
   if (p) {
     p->findNearbyCloudAnchors(lat, lng, radius, limit,
         [callback](ReactVisionCCA::ApiResult<std::vector<ReactVisionCCA::CloudAnchorRecord>> r) {
@@ -2702,7 +2771,7 @@ void VROARSessioniOS::rvFindNearbyCloudAnchors(
     return;
   }
 #endif
-  if (callback) callback(false, "", "ReactVision cloud anchor provider not available");
+  if (callback) callback(false, "", rvError.empty() ? "ReactVision cloud anchor provider not available" : rvError);
 }
 
 void VROARSessioniOS::rvAttachAssetToCloudAnchor(
@@ -2713,8 +2782,9 @@ void VROARSessioniOS::rvAttachAssetToCloudAnchor(
     const std::string& assetType,
     const std::string& externalUserId,
     std::function<void(bool, std::string)> callback) {
+  std::string rvError;
 #if RVCCA_AVAILABLE
-  auto p = [_cloudAnchorProviderRV cppProvider];
+  auto p = [ensureReactVisionProvider(rvError) cppProvider];
   if (p) {
     p->attachAssetToCloudAnchor(anchorId, fileUrl, fileSize, name, assetType, externalUserId,
         [callback](bool success, ReactVisionCCA::ApiError err) {
@@ -2723,15 +2793,16 @@ void VROARSessioniOS::rvAttachAssetToCloudAnchor(
     return;
   }
 #endif
-  if (callback) callback(false, "ReactVision cloud anchor provider not available");
+  if (callback) callback(false, rvError.empty() ? "ReactVision cloud anchor provider not available" : rvError);
 }
 
 void VROARSessioniOS::rvRemoveAssetFromCloudAnchor(
     const std::string& anchorId,
     const std::string& assetId,
     std::function<void(bool, std::string)> callback) {
+  std::string rvError;
 #if RVCCA_AVAILABLE
-  auto p = [_cloudAnchorProviderRV cppProvider];
+  auto p = [ensureReactVisionProvider(rvError) cppProvider];
   if (p) {
     p->removeAssetFromCloudAnchor(anchorId, assetId,
         [callback](bool success, ReactVisionCCA::ApiError err) {
@@ -2740,7 +2811,7 @@ void VROARSessioniOS::rvRemoveAssetFromCloudAnchor(
     return;
   }
 #endif
-  if (callback) callback(false, "ReactVision cloud anchor provider not available");
+  if (callback) callback(false, rvError.empty() ? "ReactVision cloud anchor provider not available" : rvError);
 }
 
 void VROARSessioniOS::rvTrackCloudAnchorResolution(
@@ -2753,8 +2824,9 @@ void VROARSessioniOS::rvTrackCloudAnchorResolution(
     const std::string& platform,
     const std::string& externalUserId,
     std::function<void(bool, std::string)> callback) {
+  std::string rvError;
 #if RVCCA_AVAILABLE
-  auto p = [_cloudAnchorProviderRV cppProvider];
+  auto p = [ensureReactVisionProvider(rvError) cppProvider];
   if (p) {
     p->trackResolution(anchorId, success, confidence, matchCount, inlierCount,
         processingTimeMs, platform, externalUserId,
@@ -2764,14 +2836,15 @@ void VROARSessioniOS::rvTrackCloudAnchorResolution(
     return;
   }
 #endif
-  if (callback) callback(false, "ReactVision cloud anchor provider not available");
+  if (callback) callback(false, rvError.empty() ? "ReactVision cloud anchor provider not available" : rvError);
 }
 
 void VROARSessioniOS::rvGetProject(
     const std::string& projectId,
     std::function<void(bool, std::string, std::string)> callback) {
+  std::string rvError;
 #if RVCCA_AVAILABLE
-  auto p = [_cloudAnchorProviderRV cppProvider];
+  auto p = [ensureReactVisionProvider(rvError) cppProvider];
   if (p) {
     p->getProject(projectId,
         [callback](ReactVisionCCA::ApiResult<std::string> r) {
@@ -2782,14 +2855,15 @@ void VROARSessioniOS::rvGetProject(
     return;
   }
 #endif
-  if (callback) callback(false, "", "ReactVision cloud anchor provider not available");
+  if (callback) callback(false, "", rvError.empty() ? "ReactVision cloud anchor provider not available" : rvError);
 }
 
 void VROARSessioniOS::rvGetScene(
     const std::string& sceneId,
     std::function<void(bool, std::string, std::string)> callback) {
+  std::string rvError;
 #if RVCCA_AVAILABLE
-  auto p = [_cloudAnchorProviderRV cppProvider];
+  auto p = [ensureReactVisionProvider(rvError) cppProvider];
   if (p) {
     p->getScene(sceneId,
         [callback](ReactVisionCCA::ApiResult<std::string> r) {
@@ -2800,14 +2874,15 @@ void VROARSessioniOS::rvGetScene(
     return;
   }
 #endif
-  if (callback) callback(false, "", "ReactVision cloud anchor provider not available");
+  if (callback) callback(false, "", rvError.empty() ? "ReactVision cloud anchor provider not available" : rvError);
 }
 
 void VROARSessioniOS::rvGetSceneAssets(
     const std::string& sceneId,
     std::function<void(bool, std::string, std::string)> callback) {
+  std::string rvError;
 #if RVCCA_AVAILABLE
-  auto p = [_cloudAnchorProviderRV cppProvider];
+  auto p = [ensureReactVisionProvider(rvError) cppProvider];
   if (p) {
     p->getSceneAssets(sceneId,
         [callback](ReactVisionCCA::ApiResult<std::vector<ReactVisionCCA::SceneAPIAsset>> r) {
@@ -2828,7 +2903,7 @@ void VROARSessioniOS::rvGetSceneAssets(
     return;
   }
 #endif
-  if (callback) callback(false, "", "ReactVision cloud anchor provider not available");
+  if (callback) callback(false, "", rvError.empty() ? "ReactVision cloud anchor provider not available" : rvError);
 }
 
 #pragma mark - Scene Semantics API

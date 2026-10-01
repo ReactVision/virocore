@@ -104,7 +104,9 @@ public class ColocationSession {
 
     /**
      * Join the room named by {@code roomId} — the cloud anchor id, Meta group
-     * id or visionOS session id that already names the shared frame.
+     * id or visionOS session id that already names the shared frame. The
+     * {@code ReactVisionAuth} session wins over {@code apiKey} when both exist;
+     * an empty {@code apiKey} joins on the session alone.
      */
     public void join(String roomId, String apiKey, String projectId,
                      String endpoint, JoinCallback callback) {

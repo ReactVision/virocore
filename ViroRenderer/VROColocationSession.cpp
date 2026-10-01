@@ -7,6 +7,7 @@
 
 #include "VROColocationSession.h"
 #include "VROLog.h"
+#include "VROReactVisionAuth.h"
 
 // ReactVisionCCA is optional. Without it this compiles to a holder that always
 // reports unavailable, so an open-source build links and runs — it simply has
@@ -56,15 +57,27 @@ void VROColocationSession::join(const std::string &roomId,
         if (callback) callback(false, "roomId is required");
         return;
     }
-    if (apiKey.empty() || projectId.empty()) {
-        if (callback) callback(false, "apiKey and projectId are required");
+    if (!VROReactVisionAuth::get().hasCredentials(apiKey)) {
+        if (callback) callback(false, VROReactVisionAuth::kNoCredentialsError);
+        return;
+    }
+    if (projectId.empty()) {
+        if (callback) callback(false, "projectId is required");
         return;
     }
 
     ReactVisionCCA::RVCCAColocationSession::Config cfg;
     cfg.apiKey    = apiKey;
     cfg.projectId = projectId;
+    // The endpoint is the relay, a different host from the session's platform
+    // base URL, so the session has nothing to say about it.
     if (!endpoint.empty()) cfg.endpoint = endpoint;
+    // Always set, so a session wins over a key whenever one exists, as it does
+    // for cloud anchors: the channel sends the key only on a handshake whose
+    // headers carry no Authorization. Read at every connect, reconnects included.
+    cfg.headersProvider = []() {
+        return VROReactVisionAuth::get().sessionHeaders();
+    };
 
     // Rebuilt rather than reused: Config is read at construction, so switching
     // rooms with a different endpoint or key would otherwise keep the old one.
@@ -82,12 +95,28 @@ void VROColocationSession::join(const std::string &roomId,
             if (callback) callback(true, "");
         }
     };
-    cb.onError = [callback, done](const std::string &error) {
+    // A session cleared between the check above and the handshake leaves the
+    // connect with no credential, and the relay's 401 would read as a bad
+    // token. With neither a session nor a key now, say that instead.
+    cb.onError = [callback, done, apiKey](const std::string &error) {
         if (*done) return;
         *done = true;
-        if (callback) callback(false, error);
+        if (!callback) return;
+        if (!VROReactVisionAuth::get().hasCredentials(apiKey)) {
+            callback(false, VROReactVisionAuth::kNoCredentialsError);
+        } else {
+            callback(false, error);
+        }
     };
 
+    // Checked again at the last moment before connecting: nothing above waits,
+    // but a sign-out on another thread can land in between.
+    if (!VROReactVisionAuth::get().hasCredentials(apiKey)) {
+        _impl->session.reset();
+        _impl->roomId.clear();
+        if (callback) callback(false, VROReactVisionAuth::kNoCredentialsError);
+        return;
+    }
     _impl->session->join(roomId, std::move(cb));
 #else
     (void)roomId; (void)apiKey; (void)projectId; (void)endpoint;
