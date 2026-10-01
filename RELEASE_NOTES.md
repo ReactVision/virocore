@@ -2,7 +2,7 @@
 
 ## v3.0.2
 
-Web renderer fixes, Quest input and capture, and cloud anchors and co-location that work with a signed-in user instead of an API key. The web build ships inside `@reactvision/viro-web-renderer` 1.0.1, and the native build inside `@reactvision/react-viro` 3.0.2.
+Web renderer fixes, Quest input and capture, and cloud anchors and co-location that work with a signed-in user instead of an API key. The web build ships inside `@reactvision/viro-web-renderer` 1.0.1, and the native build inside `@reactvision/react-viro` 3.0.2. It links ReactVisionCCA 1.3.0 on every platform, visionOS included.
 
 ### Web
 
