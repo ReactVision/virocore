@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## Unreleased
+
+### Fixed
+
+- **Quest: a scene opened after another AR scene now gets the room's planes (`VROARSessionOpenXR`).** The session publishes each plane once, to the scene attached when the plane is first located, and never told a scene attached later. In an app whose first scene is an AR scene, that scene took every plane within a second of launch, and a plane scene opened from it never fired `onAnchorFound`. `setDelegate` now hands a new scene every plane found so far, as `VROARSessionARCore` does.
+
 ## v3.0.2 — 29 September 2026
 
 ### Added
