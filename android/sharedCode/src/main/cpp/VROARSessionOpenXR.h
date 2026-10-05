@@ -104,6 +104,7 @@ public:
     void destroyPlaneDetector();
 
     // ── VROARSession: implemented ──────────────────────────────────────────────
+    void setDelegate(std::shared_ptr<VROARSessionDelegate> delegate) override;
     void addAnchor(std::shared_ptr<VROARAnchor> anchor) override;
     void removeAnchor(std::shared_ptr<VROARAnchor> anchor) override;
     void updateAnchor(std::shared_ptr<VROARAnchor> anchor) override;
