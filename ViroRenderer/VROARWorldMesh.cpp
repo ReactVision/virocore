@@ -232,6 +232,13 @@ void VROARWorldMesh::applyMeshToPhysics(std::shared_ptr<VROARDepthMesh> mesh) {
             self->_rigidBody->setCollisionFlags(
                 self->_rigidBody->getCollisionFlags() | btCollisionObject::CF_STATIC_OBJECT);
 
+            // Make the body nameable from the physics world. There is no VROPhysicsBody here, so
+            // the user index says what this is and the user pointer carries the tag to report;
+            // VROPhysicsWorld::computeCollisions checks the index before reading either. The
+            // string is owned by _config, which outlives the body it is attached to.
+            self->_rigidBody->setUserIndex(kVROPhysicsUserIndexWorldMesh);
+            self->_rigidBody->setUserPointer(&self->_config.collisionTag);
+
             self->addToPhysicsWorld();
         });
     });
