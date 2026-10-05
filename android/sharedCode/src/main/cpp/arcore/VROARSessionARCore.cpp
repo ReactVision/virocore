@@ -1712,7 +1712,7 @@ VROEarthTrackingState VROARSessionARCore::getEarthTrackingState() const {
         bool accurate = _lastKnownGPSPose.isValid() &&
                         _lastKnownGPSPose.horizontalAccuracy > 0 &&
                         _lastKnownGPSPose.horizontalAccuracy < kVROGeospatialAccuracyThresholdMeters;
-        return accurate ? VROEarthTrackingState::Tracking
+        return accurate ? VROEarthTrackingState::Enabled
                         : VROEarthTrackingState::Localizing;
     }
 #endif
@@ -1721,7 +1721,7 @@ VROEarthTrackingState VROARSessionARCore::getEarthTrackingState() const {
     arcore::TrackingState state = _session->getEarthTrackingState();
     switch (state) {
         case arcore::TrackingState::Tracking:
-            return VROEarthTrackingState::Tracking;
+            return VROEarthTrackingState::Enabled;
         case arcore::TrackingState::Paused:
             return VROEarthTrackingState::Paused;
         case arcore::TrackingState::Stopped:
