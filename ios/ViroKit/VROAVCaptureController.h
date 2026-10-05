@@ -121,6 +121,13 @@ private:
      Movie file output — added during startRecording, removed after stopRecording.
      */
     AVCaptureMovieFileOutput *_movieOutput;
+
+    /*
+     The microphone input, added only while recording. The session carries a video input alone the
+     rest of the time, so the mic — and the privacy indicator that comes with it — stays off until
+     a recording actually starts.
+     */
+    AVCaptureDeviceInput *_audioInput;
     NSString *_recordingPath;
     bool _isRecording;
 
