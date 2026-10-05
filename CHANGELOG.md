@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- **Quest: the boundary is hidden while passthrough is on (`VROSceneRendererOpenXR`).** With passthrough the wearer sees the room, and the boundary drawn in the headset's setup was drawn over it whenever they stood near or outside it. The renderer now enables `XR_META_boundary_visibility` when the runtime offers it, asks for the boundary to be suppressed while a passthrough layer is submitted, and asks for it back when none is, so a fully virtual scene keeps it. The runtime refuses suppression until a frame with passthrough has ended, so the request is made after each frame and repeated at most every 45 frames until accepted. The extension's declarations are in `VROOpenXRBoundaryVisibility.h`, since the OpenXR headers this build uses predate it (it arrived in 1.1.59). The app has to declare `com.oculus.permission.BOUNDARY_VISIBILITY`: without it Horizon OS leaves the extension out of `xrEnumerateInstanceExtensionProperties` and logs "skipping extension=`XR_META_boundary_visibility` due to: missing uses-permission string".
+
 ### Fixed
 
 - **Quest: a scene opened after another AR scene now gets the room's planes (`VROARSessionOpenXR`).** The session publishes each plane once, to the scene attached when the plane is first located, and never told a scene attached later. In an app whose first scene is an AR scene, that scene took every plane within a second of launch, and a plane scene opened from it never fired `onAnchorFound`. `setDelegate` now hands a new scene every plane found so far, as `VROARSessionARCore` does.
