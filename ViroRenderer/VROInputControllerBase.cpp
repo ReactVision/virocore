@@ -135,12 +135,20 @@ void VROInputControllerBase::onButtonEvent(int source, VROEventDelegate::ClickSt
 
     // Press capture: ClickUp goes to the node that took this button's
     // ClickDown; Clicked fires only when the release still resolves there.
+    // A press and release where no node takes clicks (open space) is still a
+    // click for the controller's own delegates, as ViroController's onClick
+    // documents.
     bool completed = false;
-    if (clickState == VROEventDelegate::ClickUp && lastClicked != nullptr) {
-        completed = (focusedNode == lastClicked);
-        if (!completed) {
-            focusedNode = lastClicked;
-            pos.clear();
+    if (clickState == VROEventDelegate::ClickUp) {
+        bool pressed = _pressedSources.erase(source) > 0;
+        if (lastClicked != nullptr) {
+            completed = (focusedNode == lastClicked);
+            if (!completed) {
+                focusedNode = lastClicked;
+                pos.clear();
+            }
+        } else {
+            completed = pressed && focusedNode == nullptr;
         }
     }
 
@@ -156,7 +164,7 @@ void VROInputControllerBase::onButtonEvent(int source, VROEventDelegate::ClickSt
             for (std::shared_ptr<VROEventDelegate> delegate : _delegates){
                 delegate->onClick(source, focusedNode, VROEventDelegate::ClickState::Clicked, pos);
             }
-            if (focusedNode->getEventDelegate()) {
+            if (focusedNode != nullptr && focusedNode->getEventDelegate()) {
                 focusedNode->getEventDelegate()->onClick(source, focusedNode,
                                                          VROEventDelegate::ClickState::Clicked,
                                                          pos);
@@ -172,6 +180,7 @@ void VROInputControllerBase::onButtonEvent(int source, VROEventDelegate::ClickSt
         }
     } else if (clickState == VROEventDelegate::ClickDown){
         lastClicked = focusedNode;
+        _pressedSources.insert(source);
 
         // A second button on a ray that is already dragging neither restarts
         // its drag (the frozen hit would re-seed it with a stale offset) nor

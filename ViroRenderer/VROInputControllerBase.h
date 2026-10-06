@@ -413,6 +413,12 @@ private:
     std::map<int, std::shared_ptr<VRONode>> _lastClickedNodesBySource;
 
     /*
+     Sources whose ClickDown has not been released yet, including a press where
+     no node takes clicks, which the last clicked node cannot record.
+     */
+    std::set<int> _pressedSources;
+
+    /*
      Last known that was successfully hovered upon.
      */
     std::shared_ptr<VRONode> _lastHoveredNode;
