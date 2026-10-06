@@ -15,7 +15,7 @@
 //   A button (right)  → ViroOculus::AButton
 //   B button (right)  → ViroOculus::BackButton  (back navigation)
 //   X button (left)   → ViroOculus::XButton
-//   Y button (left)   → ViroOculus::YButton
+//   Y button (left)   → ViroOculus::YButton, and back navigation as B
 //   Menu (left)       → ViroOculus::MenuButton  (the app's menu, as is the palm menu pinch)
 //   Right thumbstick  → ViroOculus::RightThumbstick via onScroll
 //   Left thumbstick   → ViroOculus::LeftThumbstick  via onScroll
@@ -93,7 +93,7 @@ public:
     std::string getController() override { return "touch"; }
 
     /*
-     * Set a callback invoked on the render thread when the B button is
+     * Set a callback invoked on the render thread when the B or Y button is
      * pressed (ClickDown). Used to dispatch KEYCODE_BACK to the host Activity
      * so React Native's BackHandler fires in VRActivity.
      */

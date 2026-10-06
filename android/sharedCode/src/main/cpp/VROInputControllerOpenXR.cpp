@@ -445,7 +445,7 @@ void VROInputControllerOpenXR::onProcess(XrSession session, XrSpace baseSpace,
             bool pressed = (state.currentState == XR_TRUE);
             if (pressed && !_prevBButton) {
                 queueButtonEvent(ViroOculus::BackButton, VROEventDelegate::ClickState::ClickDown);
-                if (_backButtonCallback) _backButtonCallback();
+                if (_backButtonCallback && !_prevYButton) _backButtonCallback();
             } else if (!pressed && _prevBButton) {
                 queueButtonEvent(ViroOculus::BackButton, VROEventDelegate::ClickState::ClickUp);
             }
@@ -469,7 +469,9 @@ void VROInputControllerOpenXR::onProcess(XrSession session, XrSpace baseSpace,
         }
     }
 
-    // ── Y button (left hand) ─────────────────────────────────────────────────
+    // ── Y button (left hand, also back) ──────────────────────────────────────
+    // Meta's platform treats Y as a back button, as it does B. Pressing both
+    // at once sends one back, not two.
     {
         XrActionStateBoolean state  = { XR_TYPE_ACTION_STATE_BOOLEAN };
         XrActionStateGetInfo info   = { XR_TYPE_ACTION_STATE_GET_INFO };
@@ -477,9 +479,10 @@ void VROInputControllerOpenXR::onProcess(XrSession session, XrSpace baseSpace,
         xrGetActionStateBoolean(session, &info, &state);
         if (state.isActive) {
             bool pressed = (state.currentState == XR_TRUE);
-            if (pressed && !_prevYButton)
+            if (pressed && !_prevYButton) {
                 queueButtonEvent(ViroOculus::YButton, VROEventDelegate::ClickState::ClickDown);
-            else if (!pressed && _prevYButton)
+                if (_backButtonCallback && !_prevBButton) _backButtonCallback();
+            } else if (!pressed && _prevYButton)
                 queueButtonEvent(ViroOculus::YButton, VROEventDelegate::ClickState::ClickUp);
             _prevYButton = pressed;
         }
