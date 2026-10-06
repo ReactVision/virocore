@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## Unreleased
+## v3.0.3 — 5 October 2026
 
 ### Added
 
@@ -9,11 +9,15 @@
 ### Changed
 
 - **Quest: the boundary is hidden while passthrough is on (`VROSceneRendererOpenXR`).** With passthrough the wearer sees the room, and the boundary drawn in the headset's setup was drawn over it whenever they stood near or outside it. The renderer now enables `XR_META_boundary_visibility` when the runtime offers it, asks for the boundary to be suppressed while a passthrough layer is submitted, and asks for it back when none is, so a fully virtual scene keeps it. The runtime refuses suppression until a frame with passthrough has ended, so the request is made after each frame and repeated at most every 45 frames until accepted. The extension's declarations are in `VROOpenXRBoundaryVisibility.h`, since the OpenXR headers this build uses predate it (it arrived in 1.1.59). The app has to declare `com.oculus.permission.BOUNDARY_VISIBILITY`: without it Horizon OS leaves the extension out of `xrEnumerateInstanceExtensionProperties` and logs "skipping extension=`XR_META_boundary_visibility` due to: missing uses-permission string".
+- **The two copies of `VROGeospatial.h` are identical.** The renderer copy named the earth-tracking state `Tracking` (and `"TRACKING"` in `VROEarthTrackingStateToString`) where the iOS copy, Java and JS use `Enabled`. JS already received `"Enabled"` on both platforms, so nothing changes at runtime.
 
 ### Fixed
 
 - **iOS: a session-only app no longer asks for location when it opens an AR scene (`VROARSessioniOS`).** Since 3.0.2 the Core Location feed started whenever the ReactVision provider was created, and on a session that happens as the AR view mounts, so an app with no manifest key asked for location on its first AR scene of any kind. The feed now starts only when `RVApiKey` and `RVProjectId` are set, as before 3.0.2. The geospatial provider already required the key, so geospatial behaviour is unchanged; the cost is that an anchor hosted on a session records no GPS fix. Android never requested the permission and is unchanged.
 - **Quest: a scene opened after another AR scene now gets the room's planes (`VROARSessionOpenXR`).** The session publishes each plane once, to the scene attached when the plane is first located, and never told a scene attached later. In an app whose first scene is an AR scene, that scene took every plane within a second of launch, and a plane scene opened from it never fired `onAnchorFound`. `setDelegate` now hands a new scene every plane found so far, as `VROARSessionARCore` does.
+- **`onCollision` fires against the AR world mesh (`VROPhysicsWorld`, `VROARWorldMesh`).** The mesh's bodies are raw `btRigidBody`s without a `VROPhysicsBody`, and `computeCollisions` dropped every manifold that had one, although `collisionTag` was configurable and defaulted to `"world"`. The mesh body now carries `kVROPhysicsUserIndexWorldMesh` and its tag, and the body that hit it is notified with that tag. The ray tests, the hit test and `VROPhysicsContactResultCallback` check the index before casting, so they skip the mesh as before.
+- **Android: `startRecording` on a camera texture always settles (`CameraTexture`).** Without `RECORD_AUDIO`, `setAudioSource` threw a `SecurityException` outside the `try`, the callback never ran and the JS promise stayed pending. The permission is checked first, every `MediaRecorder` call is inside the `try` (`RuntimeException` included), and camera-open and device errors reach a waiting caller.
+- **iOS: camera texture recordings carry audio (`VROAVCaptureController`).** The session had a video input only. The microphone is added when recording starts and removed when it stops, so the privacy indicator is on only while recording; a device without a usable microphone still records video.
 
 ## v3.0.2 — 30 September 2026
 
