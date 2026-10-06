@@ -17,6 +17,7 @@
 - **Quest: a fist made during a palm pinch is no longer a grip press (`VROInputControllerOpenXR`).** The grab (middle fingertip within 6 cm of the palm) ignored the system and menu gesture flags that the pinch honours. A grab made with the palm turned toward the user, or during a palm pinch, is now ignored until the hand opens, read at 7 cm.
 - **Quest: a hand and a controller on one side press once (`VROInputControllerOpenXR`).** The trigger and the pinch both press `Controller` or `LeftController`, and the squeeze and the grab both press a grip, so with both a hand and a controller active on one side each sent its own ClickDown and ClickUp. A source is now pressed while either input is held, with one ClickDown and one ClickUp.
 - **Quest: a pinch read from joints has a release margin (`VROInputControllerOpenXR`).** Without `XR_FB_hand_tracking_aim` data the pinch is the thumb and index tips within 2 cm, released at the same distance, so tips held near it could click repeatedly. It is now released over 3 cm, and a system pinch ends there too.
+- **Quest: closing a scene no longer logs an OpenXR loader error (`VROSceneRendererOpenXR`, `VROInputControllerOpenXR`).** The input controller's action set was destroyed in its destructor, which runs after `xrDestroyInstance`, so the loader logged "No active XrInstance handle" for `xrDestroyActionSet` on every close. `onDestroy` now destroys it with the controller's spaces, before the session and the instance.
 
 ## v3.0.3 — 5 October 2026
 
