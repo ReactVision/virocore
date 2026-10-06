@@ -121,6 +121,9 @@ private:
         laser.node->setName("AimLaser");
         laser.node->setGeometry(laser.geom);
         laser.node->setHidden(true);  // hidden until first updateAimRay()
+        // Drawn last, so the beam stays on top of a panel an app draws over the
+        // scene with a high renderingOrder and depth reads off.
+        laser.node->setRenderingOrder(1000000);
         // The beam's AABB spans controller to hit point, so its own ray runs
         // through it corner to corner and would out-sort the aimed node.
         laser.node->setSelectable(false);
