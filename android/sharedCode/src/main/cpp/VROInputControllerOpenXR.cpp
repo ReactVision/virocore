@@ -875,12 +875,20 @@ void VROInputControllerOpenXR::processHands(XrSpace baseSpace, XrTime time,
             }
         }
         // A pinch made with the palm turned toward the user is a system gesture
-        // (the non-dominant hand's is the menu pinch above), not a
-        // select. Without this the menu pinch would also click whatever that
-        // hand's aim was resting on.
+        // (the non-dominant hand's is the menu pinch above), not a select, and
+        // stays one until the fingers part. The bits can clear while the pinch
+        // is still held: on a Quest 3 the rest of a menu pinch landed as a
+        // select about 0.1 s after the menu event. Parting is read well below
+        // the pinch threshold, so a release hovering at it cannot start a select.
+        bool &systemPinch = (hand == 0) ? _systemPinchLeft : _systemPinchRight;
         if (_aimExtEnabled &&
             (aimState.status & (XR_HAND_TRACKING_AIM_SYSTEM_GESTURE_BIT_FB |
                                 XR_HAND_TRACKING_AIM_MENU_PRESSED_BIT_FB))) {
+            systemPinch = true;
+        } else if (aimComputed ? aimState.pinchStrengthIndex < 0.5f : !pinched) {
+            systemPinch = false;
+        }
+        if (systemPinch) {
             pinched = false;
         }
         if (pinched && !prevPinch)

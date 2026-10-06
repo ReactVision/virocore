@@ -199,6 +199,9 @@ private:
     bool _prevPinchRight = false;
     bool _prevGrabLeft   = false;
     bool _prevGrabRight  = false;
+    // The pinch in progress began as, or became, a system or menu gesture.
+    bool _systemPinchLeft  = false;
+    bool _systemPinchRight = false;
     // Palm menu pinch (XR_HAND_TRACKING_AIM_MENU_PRESSED_BIT_FB) on either hand.
     bool _prevMenuGesture = false;
 
