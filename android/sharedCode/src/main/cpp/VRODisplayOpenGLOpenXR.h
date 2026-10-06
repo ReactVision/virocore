@@ -102,7 +102,12 @@ public:
         // can leave the alpha channel masked off, which would skip the alpha clear.
         glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
         glClearColor(0.0f, 0.0f, 0.0f, _clearAlpha);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+        glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+        // Through the driver, which turns depth writes back on first. glClear
+        // skips a buffer whose writes are masked, and the left eye's last
+        // material (the aim laser, say) can leave them off, so the right eye
+        // drew against stale depth.
+        clearDepth();
     }
 
 private:
