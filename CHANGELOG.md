@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## Unreleased
+
+### Fixed
+
+- **A controller click in open space reaches the controller's own delegates again (`VROInputControllerBase`).** Since 3.0.0 a click completes only when its ClickDown and ClickUp resolve to the same node that takes clicks, so a press and release pointing at nothing clickable (open passthrough, a node with no click handler) sent ClickDown and ClickUp but never Clicked, and `ViroController`'s `onClick` stopped firing there. On Quest that left tap-to-place, which places on the controller's `onClick`, with no way to place. Such a press now completes as Clicked for the controller's delegates, with no node, as it did before 3.0.0; the position is the release's hit point, or none on the background. Press capture on clickable nodes is unchanged, and no node's delegate receives these clicks.
+
 ## v3.0.3 — 5 October 2026
 
 ### Added
