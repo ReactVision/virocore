@@ -982,6 +982,7 @@ void VROSceneRendererOpenXR::onDestroy() {
     if (_inputController) {
         _inputController->destroyHandTrackers();
         _inputController->destroySpaces();
+        _inputController->destroyActionSet();
     }
     destroySession();
     destroyEGLContext();

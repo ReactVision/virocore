@@ -60,6 +60,10 @@ static VROVector3f xrAimForward(const XrPosef &pose) {
 
 VROInputControllerOpenXR::~VROInputControllerOpenXR() {
     destroySpaces();
+    destroyActionSet();
+}
+
+void VROInputControllerOpenXR::destroyActionSet() {
     if (_actionSet != XR_NULL_HANDLE) {
         xrDestroyActionSet(_actionSet);
         _actionSet = XR_NULL_HANDLE;

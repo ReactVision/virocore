@@ -55,6 +55,13 @@ public:
     void destroySpaces();
 
     /*
+     * Destroy the action set and its actions. Call before xrDestroyInstance:
+     * the renderer keeps this controller alive past it, and the loader
+     * refuses a destroy once the instance is gone.
+     */
+    void destroyActionSet();
+
+    /*
      * Initialize XR_EXT_hand_tracking. Loads function pointers, creates left/right
      * hand trackers. No-op (returns false) if the extension was not enabled at
      * instance creation time.
