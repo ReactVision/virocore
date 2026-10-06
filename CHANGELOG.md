@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- **Quest: the left Menu button and the palm menu pinch report `MenuButton` and no longer go back (`VROInputControllerOpenXR`).** Meta's guidance gives the Menu button, and the palm-up pinch that stands in for it with hands, to an app's own menu, and B to going back. All three reported `BackButton` and ran the back callback, so the Menu button and the pinch ended a scene. The Menu button and the pinch now report the new `ViroOculus::MenuButton` (13) to the controller's delegates only, so it never clicks or drags a node, and the back callback no longer runs for them. The pinch is read from either hand, since the runtime sets `XR_HAND_TRACKING_AIM_MENU_PRESSED_BIT_FB` on whichever hand is not dominant; only the left hand was read before, so a left-handed wearer's pinch did nothing. B is unchanged. An app that relied on the Menu button ending a scene has to handle `MenuButton` itself.
+
 ### Fixed
 
 - **Text sits where its vertical alignment puts it (`VROTextFormatter`, `VROTypeface`).** Lines were laid out as if each line's box started at its baseline, leaving out the part of the line below it. Centred text, the default, drew above the centre of its box by half the font's ascent less its descent (a third of the font size in Roboto); top-aligned text sat a descent below the top of its box, and bottom-aligned text hung a descent below the bottom. A line's box now runs from the descender below its baseline, so text in every alignment moves: in Roboto, centred text down by a third of the font size, and top- and bottom-aligned text up by a quarter. `VROTypeface` gains `getDescender()`, implemented for Android, iOS, macOS and wasm. An app that offset its text to make up for the old position should drop the offset.
