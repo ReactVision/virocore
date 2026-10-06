@@ -121,6 +121,13 @@ private:
      */
     void queueButtonEvent(int source, VROEventDelegate::ClickState state);
     /*
+     * The trigger and the pinch press one source, as do the squeeze and the
+     * grab, and a side can have a hand and a controller active at once. So an
+     * input's edge is queued only while the other input is up, and the source
+     * sees one press however the two overlap.
+     */
+    void updatePress(int source, bool &state, bool other, bool pressed);
+    /*
      * MenuButton opens the app's menu rather than pressing what a ray points
      * at, so only the controller's delegates (ViroController) hear it: it never
      * clicks or drags a node.
@@ -202,6 +209,9 @@ private:
     // The pinch in progress began as, or became, a system or menu gesture.
     bool _systemPinchLeft  = false;
     bool _systemPinchRight = false;
+    // The grab in progress began during, or became part of, a system gesture.
+    bool _systemGrabLeft  = false;
+    bool _systemGrabRight = false;
     // Palm menu pinch (XR_HAND_TRACKING_AIM_MENU_PRESSED_BIT_FB) on either hand.
     bool _prevMenuGesture = false;
 
