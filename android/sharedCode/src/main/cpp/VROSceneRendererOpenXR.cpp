@@ -746,7 +746,9 @@ void VROSceneRendererOpenXR::setPassthroughEnabled(bool enabled) {
 
     if (enabled) {
         // Ensure the passthrough subsystem is running before resuming the layer.
-        XR_CHECK(_pfnPassthroughStart(_passthrough));
+        // Starting it while it runs fails with UNEXPECTED_STATE, which a switch
+        // from one AR scene to another would otherwise do.
+        if (!_passthroughEnabled) XR_CHECK(_pfnPassthroughStart(_passthrough));
         XR_CHECK(_pfnPassthroughLayerResume(_passthroughLayer));
     } else {
         // Pause the layer first, then pause the subsystem (saves power).
