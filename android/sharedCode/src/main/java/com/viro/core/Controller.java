@@ -176,9 +176,15 @@ public class Controller implements EventDelegate.EventDelegateCallback {
     }
 
     /**
+     * Reads where the ray that carries the given source last pointed, as onMove last reported
+     * it. A click that hits nothing reports no position, so this is how a caller learns where
+     * it was aimed. The ray is read on the render thread and the callback runs on the
+     * application thread.
+     *
      * @hide
-     * @param source
-     * @param callback
+     * @param source   The platform specific source ID of the button or component to read the
+     *                 ray for.
+     * @param callback Receives the ray's origin and forward direction.
      */
     public void getControllerRayAsync(int source, ControllerRayCallback callback) {
         nativeGetControllerRayAsync(mViroContext.mNativeRef, source, callback);
@@ -562,7 +568,10 @@ public class Controller implements EventDelegate.EventDelegateCallback {
      */
     public interface ControllerRayCallback {
         /**
-         * Both are null when the source's ray has never moved.
+         * @param origin  The ray's origin in world coordinates, as {x, y, z}.
+         * @param forward The ray's forward direction in world coordinates, as {x, y, z}.
+         * Both are null when the source's ray has never moved or the view's context has been
+         * destroyed.
          */
         void onGetRay(float[] origin, float[] forward);
     }
