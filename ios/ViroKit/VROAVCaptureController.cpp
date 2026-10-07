@@ -41,6 +41,7 @@ VROAVCaptureController::VROAVCaptureController() :
     _isRecording(false),
     _photoOutput(nil),
     _movieOutput(nil),
+    _audioInput(nil),
     _recordingPath(nil),
     _lastSampleBuffer(nil) {
 }
@@ -259,6 +260,22 @@ void VROAVCaptureController::startRecording(NSString *outputPath,
     _recordingPath = outputPath;
 
     [_captureSession beginConfiguration];
+
+    // Audio. The session is built with a video input only, so a recording taken from it had no
+    // audio track at all. Add the mic here rather than at setup, so it is live only while
+    // recording. A device that refuses the mic still records video: a silent clip beats no clip.
+    AVCaptureDevice *audioDevice = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeAudio];
+    if (audioDevice) {
+        NSError *audioError = nil;
+        _audioInput = [AVCaptureDeviceInput deviceInputWithDevice:audioDevice error:&audioError];
+        if (_audioInput && !audioError && [_captureSession canAddInput:_audioInput]) {
+            [_captureSession addInput:_audioInput];
+        } else {
+            pinfo("Warning: recording without audio (no usable microphone input)");
+            _audioInput = nil;
+        }
+    }
+
     _movieOutput = [[AVCaptureMovieFileOutput alloc] init];
     if ([_captureSession canAddOutput:_movieOutput]) {
         [_captureSession addOutput:_movieOutput];
@@ -288,6 +305,10 @@ void VROAVCaptureController::stopRecording(std::function<void(bool, NSString *, 
     dispatch_async(dispatch_get_main_queue(), ^{
         [controller->_captureSession beginConfiguration];
         [controller->_captureSession removeOutput:controller->_movieOutput];
+        if (controller->_audioInput) {
+            [controller->_captureSession removeInput:controller->_audioInput];
+            controller->_audioInput = nil;
+        }
         [controller->_captureSession commitConfiguration];
         controller->_movieOutput = nil;
         controller->_recordingPath = nil;

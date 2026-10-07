@@ -260,21 +260,34 @@ public class CameraTexture extends Texture {
         }
         if (outputPath == null) outputPath = defaultVideoPath();
 
-        // 1. Prepare MediaRecorder before adding its surface to the session.
-        mMediaRecorder = new MediaRecorder();
-        mMediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
-        mMediaRecorder.setVideoSource(MediaRecorder.VideoSource.SURFACE);
-        mMediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
-        mMediaRecorder.setOutputFile(outputPath);
-        mMediaRecorder.setVideoEncodingBitRate(10_000_000);
-        mMediaRecorder.setVideoFrameRate(30);
-        mMediaRecorder.setVideoSize(1280, 720);
-        mMediaRecorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264);
-        mMediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
+        // setAudioSource(MIC) throws SecurityException without RECORD_AUDIO, and it used to throw
+        // from outside the try below, where only IOException was caught. The exception escaped
+        // startRecording, the callback never ran, and the JS promise never settled. Check first,
+        // and fail through the callback like every other error here.
+        Context ctx = mAppContext;
+        if (ctx == null
+                || ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO)
+                        != PackageManager.PERMISSION_GRANTED) {
+            callback.onError("RECORD_AUDIO permission not granted — required to record video");
+            return;
+        }
 
+        // 1. Prepare MediaRecorder before adding its surface to the session.
+        // Every configure call is inside the try: MediaRecorder signals misuse with unchecked
+        // RuntimeExceptions, and any of them escaping would hang the caller's promise.
+        mMediaRecorder = new MediaRecorder();
         try {
+            mMediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
+            mMediaRecorder.setVideoSource(MediaRecorder.VideoSource.SURFACE);
+            mMediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
+            mMediaRecorder.setOutputFile(outputPath);
+            mMediaRecorder.setVideoEncodingBitRate(10_000_000);
+            mMediaRecorder.setVideoFrameRate(30);
+            mMediaRecorder.setVideoSize(1280, 720);
+            mMediaRecorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264);
+            mMediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
             mMediaRecorder.prepare();
-        } catch (IOException e) {
+        } catch (IOException | RuntimeException e) {
             mMediaRecorder.release();
             mMediaRecorder = null;
             callback.onError("MediaRecorder prepare failed: " + e.getMessage());
@@ -343,20 +356,38 @@ public class CameraTexture extends Texture {
     @SuppressLint("MissingPermission")
     private void openCamera() {
         Context ctx = mAppContext;
-        if (ctx == null) { Log.e(TAG, "openCamera: no application context"); return; }
+        if (ctx == null) { failPendingRecording("openCamera: no application context"); return; }
         if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.CAMERA)
                 != PackageManager.PERMISSION_GRANTED) {
-            Log.e(TAG, "openCamera: CAMERA permission not granted");
+            failPendingRecording("openCamera: CAMERA permission not granted");
             return;
         }
         mCameraManager = (CameraManager) ctx.getSystemService(Context.CAMERA_SERVICE);
         String cameraId = selectCamera();
-        if (cameraId == null) return;
+        if (cameraId == null) { failPendingRecording("openCamera: no usable camera"); return; }
         try {
             mCameraManager.openCamera(cameraId, mDeviceCallback, mBackgroundHandler);
         } catch (CameraAccessException | SecurityException e) {
-            Log.e(TAG, "openCamera failed: " + e.getMessage());
+            failPendingRecording("openCamera failed: " + e.getMessage());
         }
+    }
+
+    /**
+     * Logs, and hands the error to a waiting startRecording() caller if there is one.
+     *
+     * Camera failures used to stop at Log.e. Nothing reached onError, so a start that was waiting
+     * on the session left its promise unsettled for the life of the app.
+     */
+    private void failPendingRecording(String error) {
+        Log.e(TAG, error);
+        CaptureCallback cb = mRecordingStartCallback;
+        mRecordingStartCallback = null;
+        mPendingStartRecording  = false;
+        if (mMediaRecorder != null) {
+            try { mMediaRecorder.release(); } catch (Exception ignored) {}
+            mMediaRecorder = null;
+        }
+        if (cb != null) cb.onError(error);
     }
 
     /** Closes only the session, leaving the device open for session recreation. */
@@ -400,8 +431,8 @@ public class CameraTexture extends Texture {
             camera.close(); mCameraDevice = null;
         }
         @Override public void onError(@NonNull CameraDevice camera, int error) {
-            Log.e(TAG, "CameraDevice error: " + error);
             camera.close(); mCameraDevice = null;
+            failPendingRecording("CameraDevice error: " + error);
         }
     };
 

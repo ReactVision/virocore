@@ -40,6 +40,7 @@
 #include <GLES3/gl3.h>
 #include <openxr/openxr.h>
 #include <openxr/openxr_platform.h>
+#include "VROOpenXRBoundaryVisibility.h"
 
 class VRORendererConfiguration;
 class VRODriverOpenGLAndroidOpenXR;
@@ -156,6 +157,15 @@ private:
     bool            _fbSpatialQueryAvailable  = false;  // XR_FB_spatial_entity_query present
     bool            _eyeGazeAvailable         = false;  // XR_EXT_eye_gaze_interaction present
     bool            _eyeGazeSupported         = false;  // system actually has eye tracking (Quest Pro)
+    bool            _boundaryVisibilityAvailable = false;  // XR_META_boundary_visibility present
+
+    // The boundary is suppressed while passthrough is submitted and shown again
+    // when it is not; the runtime refuses suppression without passthrough.
+    // _boundaryVisibility is the runtime's state as last confirmed, by an
+    // accepted request or its changed event.
+    PFN_xrRequestBoundaryVisibilityMETA _pfnRequestBoundaryVisibility = nullptr;
+    XrBoundaryVisibilityMETA _boundaryVisibility = XR_BOUNDARY_VISIBILITY_NOT_SUPPRESSED_META;
+    uint32_t        _boundaryRequestCooldown = 0;  // frames until the next request
 
     // Per-eye swapchains (index 0 = left, 1 = right)
     VROOpenXRSwapchain _swapchains[2];
@@ -217,6 +227,7 @@ private:
     bool createReferenceSpace();
     bool createSwapchains();
     bool initPassthrough();
+    void initBoundaryVisibility();
     bool initHandTracking();     // XR_EXT_hand_tracking — no-op if extension unavailable
     void destroySwapchains();
     void destroySession();
@@ -233,6 +244,7 @@ private:
     void pollEvents();
     void handleSessionStateChange(XrEventDataSessionStateChanged *event);
     void renderFrame();
+    void updateBoundaryVisibility(bool passthroughSubmitted);
 
     // ── Per-eye render ────────────────────────────────────────────────────────
     void renderEye(int eyeIndex,

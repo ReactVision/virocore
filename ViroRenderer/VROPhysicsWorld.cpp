@@ -200,10 +200,20 @@ void VROPhysicsWorld::computeCollisions() {
         const btCollisionObject *obA = contactManifold->getBody0();
         const btCollisionObject *obB = contactManifold->getBody1();
 
-        // Skip notification if either body doesn't have a VROPhysicsBody attached
-        // (e.g., world mesh collision bodies are raw btRigidBody without VROPhysicsBody)
-        // Note: Physics collision still happens, we just skip delegate notification
-        if (obA->getUserPointer() == nullptr || obB->getUserPointer() == nullptr) {
+        // The AR world mesh is a raw btRigidBody with no VROPhysicsBody behind it. It is still a
+        // real collider, so a body hitting it must hear about it; it just cannot be the one we
+        // notify, and its user pointer is its tag rather than a VROPhysicsBody.
+        bool isWorldMeshA = obA->getUserIndex() == kVROPhysicsUserIndexWorldMesh;
+        bool isWorldMeshB = obB->getUserIndex() == kVROPhysicsUserIndexWorldMesh;
+
+        // Anything else without a VROPhysicsBody has nothing to notify and nothing to name.
+        if ((obA->getUserPointer() == nullptr && !isWorldMeshA) ||
+            (obB->getUserPointer() == nullptr && !isWorldMeshB)) {
+            continue;
+        }
+
+        // Two world mesh bodies cannot collide meaningfully, and neither side could be notified.
+        if (isWorldMeshA && isWorldMeshB) {
             continue;
         }
 
@@ -232,12 +242,23 @@ void VROPhysicsWorld::computeCollisions() {
         const btVector3& ptB = bulletPoint->getPositionWorldOnB();
         VROVector3f collisionOnBodyA = VROVector3f(ptA.x(), ptA.y(), ptA.z());
         VROVector3f collisionOnBodyB = VROVector3f(ptB.x(), ptB.y(), ptB.z());
-        VROPhysicsBody *vroPhysicsBodyA = ((VROPhysicsBody *) obA->getUserPointer());
-        VROPhysicsBody *vroPhysicsBodyB = ((VROPhysicsBody *) obB->getUserPointer());
-        std::string bodyKeyA = vroPhysicsBodyA->getKey();
-        std::string bodyKeyB = vroPhysicsBodyB->getKey();
-        std::string bodyTagA = vroPhysicsBodyA->getTag();
-        std::string bodyTagB = vroPhysicsBodyB->getTag();
+        // A world mesh side has no key of its own. It never gets notified, so its key only has to
+        // be stable and distinct from any real body's: the delegate reads the tag, not the key.
+        static const std::string kWorldMeshKey = "__viro_world_mesh__";
+
+        VROPhysicsBody *vroPhysicsBodyA =
+                isWorldMeshA ? nullptr : ((VROPhysicsBody *) obA->getUserPointer());
+        VROPhysicsBody *vroPhysicsBodyB =
+                isWorldMeshB ? nullptr : ((VROPhysicsBody *) obB->getUserPointer());
+
+        std::string bodyKeyA = isWorldMeshA ? kWorldMeshKey : vroPhysicsBodyA->getKey();
+        std::string bodyKeyB = isWorldMeshB ? kWorldMeshKey : vroPhysicsBodyB->getKey();
+        auto worldMeshTag = [](const btCollisionObject *ob) -> std::string {
+            const std::string *tag = (const std::string *) ob->getUserPointer();
+            return tag ? *tag : std::string("world");
+        };
+        std::string bodyTagA = isWorldMeshA ? worldMeshTag(obA) : vroPhysicsBodyA->getTag();
+        std::string bodyTagB = isWorldMeshB ? worldMeshTag(obB) : vroPhysicsBodyB->getTag();
 
         VROVector3f collidedNormalA = VROVector3f(bulletPoint->m_normalWorldOnB.x(),
                                                   bulletPoint->m_normalWorldOnB.y(),
@@ -307,7 +328,8 @@ bool VROPhysicsWorld::findCollisionsWithRay(VROVector3f fromPos, VROVector3f toP
         }
 
         // Sanity check ensuring our Bullet / VROPhysics bodies are properly constructed
-        if (result.m_collisionObject->getUserPointer() == nullptr) {
+        if (result.m_collisionObject->getUserPointer() == nullptr ||
+            result.m_collisionObject->getUserIndex() == kVROPhysicsUserIndexWorldMesh) {
             perror("Incorrectly constructed bullet rigid body for a VROPhysics body!");
             return false;
         }
@@ -346,7 +368,8 @@ bool VROPhysicsWorld::findCollisionsWithRay(VROVector3f fromPos, VROVector3f toP
         for (int i=0;i<results.m_collisionObjects.size();i++) {
 
             // Sanity check ensuring our Bullet / VROPhysics bodies are properly constructed
-            if (results.m_collisionObjects[i]->getUserPointer() == nullptr) {
+            if (results.m_collisionObjects[i]->getUserPointer() == nullptr ||
+                results.m_collisionObjects[i]->getUserIndex() == kVROPhysicsUserIndexWorldMesh) {
                 perror("Incorrectly constructed bullet rigid body for a VROPhysics body!");
                 return false;
             }
@@ -458,7 +481,8 @@ bool VROPhysicsWorld::collisionTestAlongPath(VROVector3f fromPos, VROVector3f to
     }
 
     // Sanity check ensuring our Bullet / VROPhysics bodies are properly constructed
-    if (result.m_hitCollisionObject->getUserPointer() == nullptr) {
+    if (result.m_hitCollisionObject->getUserPointer() == nullptr ||
+        result.m_hitCollisionObject->getUserIndex() == kVROPhysicsUserIndexWorldMesh) {
         perror("Incorrectly constructed bullet rigid body for a VROPhysics body!");
         return false;
     }

@@ -33,7 +33,7 @@
  * Represents the Earth tracking state from the Geospatial API.
  */
 enum class VROEarthTrackingState {
-    Tracking,   // Earth is being tracked with VPS/GPS fusion
+    Enabled,    // Earth is being tracked with VPS/GPS fusion
     Paused,     // Tracking is paused (e.g., app backgrounded)
     Stopped,    // No tracking available
     // WS-D: appended, not inserted — Android's JNI bridge maps this enum to Java
@@ -161,10 +161,14 @@ public:
 
 /*
  * Helper functions for converting enum values to strings.
+ *
+ * None of these has a caller. They are NOT the vocabulary that reaches JS either: the bridges
+ * map the enums by hand (VRTARSceneNavigator.mm / .java) and answer "Enabled"/"Paused"/...
+ * Wiring one of these up would quietly change what apps receive.
  */
 inline std::string VROEarthTrackingStateToString(VROEarthTrackingState state) {
     switch (state) {
-        case VROEarthTrackingState::Tracking: return "TRACKING";
+        case VROEarthTrackingState::Enabled: return "ENABLED";
         case VROEarthTrackingState::Paused: return "PAUSED";
         case VROEarthTrackingState::Stopped: return "STOPPED";
         case VROEarthTrackingState::Localizing: return "LOCALIZING";

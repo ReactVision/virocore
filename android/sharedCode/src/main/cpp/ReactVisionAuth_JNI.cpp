@@ -29,10 +29,12 @@ std::string toStd(JNIEnv *env, jstring s) {
 extern "C" {
 
 VRO_METHOD(void, nativeSetSession)(JNIEnv *env, jclass, jstring baseUrl_j,
-                                   jstring accessToken_j, jstring clientTag_j) {
+                                   jstring accessToken_j, jstring clientTag_j,
+                                   jstring functionRegion_j) {
     VROReactVisionAuth::get().setSession(toStd(env, baseUrl_j),
                                          toStd(env, accessToken_j),
-                                         toStd(env, clientTag_j));
+                                         toStd(env, clientTag_j),
+                                         toStd(env, functionRegion_j));
 }
 
 VRO_METHOD(void, nativeClearSession)(JNIEnv *, jclass) {
