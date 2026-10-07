@@ -21,7 +21,7 @@
 - **Quest: the right eye clears its depth buffer (`VRODisplayOpenGLOpenXR`).** Each eye's clear called `glClear` with whatever depth mask the previous draw left, and `glClear` skips a buffer whose writes are masked. Quest renders each eye straight into its swapchain, so when the left eye ended on a material that does not write depth (the aim laser, for one), the right eye drew against stale depth. The depth clear now goes through the driver, which turns depth writes on first, as `VRORenderTargetOpenGL::bind` does.
 - **Quest: closing a scene no longer logs an OpenXR loader error (`VROSceneRendererOpenXR`, `VROInputControllerOpenXR`).** The input controller's action set was destroyed in its destructor, which runs after `xrDestroyInstance`, so the loader logged "No active XrInstance handle" for `xrDestroyActionSet` on every close. `onDestroy` now destroys it with the controller's spaces, before the session and the instance.
 
-## v3.0.3 — 5 October 2026
+## v3.0.3 — 6 October 2026
 
 ### Added
 
