@@ -384,7 +384,9 @@ protected:
     std::shared_ptr<VROScene> _scene;
 
     /*
-     Returns the hit test result for the closest node that was hit.
+     Returns the hit test result for the node drawn on top, which with renderingOrder is not
+     always the nearest (see the definition), or a hit on the scene background when nothing
+     takes it.
      */
     VROHitTestResult hitTest(const VROCamera &camera, VROVector3f origin, VROVector3f ray, bool boundsOnly);
 
