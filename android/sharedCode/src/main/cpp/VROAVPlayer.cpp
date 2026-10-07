@@ -126,6 +126,7 @@ VROAVPlayer::VROAVPlayer() :
 
     env->DeleteLocalRef(cls);
     _javPlayer = env->NewGlobalRef(javPlayer);
+    env->DeleteLocalRef(javPlayer);
 }
 
 VROAVPlayer::~VROAVPlayer() {
@@ -173,6 +174,7 @@ void VROAVPlayer::setSurface(GLuint textureId) {
     _textureId = textureId;
     jobject jsurface = VROPlatformCreateVideoSink(textureId);
     _jsurface = env->NewGlobalRef(jsurface);
+    env->DeleteLocalRef(jsurface);
 
     bindVideoSink();
 }
