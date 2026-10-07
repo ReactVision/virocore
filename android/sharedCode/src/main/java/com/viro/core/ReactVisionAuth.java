@@ -47,8 +47,19 @@ public final class ReactVisionAuth {
 
     /** A null or empty {@code baseUrl} or {@code accessToken} clears the session. */
     public static void setSession(String baseUrl, String accessToken, String clientTag) {
+        setSession(baseUrl, accessToken, clientTag, null);
+    }
+
+    /**
+     * As above, plus the session project's database region, which cloud anchors
+     * send as x-region so its edge functions run beside the database. Null or
+     * empty adds none here; ReactVisionCCA still pins a session on the default
+     * platform URL to that platform's region.
+     */
+    public static void setSession(String baseUrl, String accessToken, String clientTag,
+                                  String functionRegion) {
         if (!nativeReady()) return;
-        nativeSetSession(baseUrl, accessToken, clientTag);
+        nativeSetSession(baseUrl, accessToken, clientTag, functionRegion);
     }
 
     public static void clearSession() {
@@ -62,7 +73,8 @@ public final class ReactVisionAuth {
         nativeSetProjectId(projectId);
     }
 
-    private static native void nativeSetSession(String baseUrl, String accessToken, String clientTag);
+    private static native void nativeSetSession(String baseUrl, String accessToken, String clientTag,
+                                                String functionRegion);
     private static native void nativeClearSession();
     private static native void nativeSetProjectId(String projectId);
 }

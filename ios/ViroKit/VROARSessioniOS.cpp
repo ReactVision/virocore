@@ -687,9 +687,11 @@ VROCloudAnchorProviderReactVision *VROARSessioniOS::ensureReactVisionProvider(st
     pinfo("ReactVision Cloud Anchor provider initialized successfully");
 
 #if RVCCA_AVAILABLE
-    // GPS for getCameraGeospatialPose(), and the fix a hosted anchor records, on a
-    // session as on a key. It asks for location permission the first time.
-    if (!_rvLocationDelegate) {
+    // GPS for getCameraGeospatialPose() and the fix a hosted anchor records. Key
+    // only: it asks for location permission the first time, which on a session
+    // would be on opening any AR view, and the geospatial provider needs the key
+    // anyway. An anchor hosted on a session carries no location.
+    if (!_rvLocationDelegate && apiKey.length && projectId.length) {
       _rvLocationDelegate = [[VROLocationDelegate alloc]
                               initWithPosePtr:&_lastKnownGPSPose];
       [(VROLocationDelegate *)_rvLocationDelegate start];
