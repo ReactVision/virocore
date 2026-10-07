@@ -26,6 +26,7 @@
 #include "VROInputControllerBase.h"
 #include "VROTime.h"
 #include "VROPortal.h"
+#include "VROMaterial.h"
 
 static bool sSceneBackgroundAdd = true;
 
@@ -821,18 +822,48 @@ VROHitTestResult VROInputControllerBase::hitTest(const VROCamera &camera, VROVec
     std::vector<VROHitTestResult> nodeResults = sceneRootNode->hitTest(camera, origin, ray, boundsOnly);
     results.insert(results.end(), nodeResults.begin(), nodeResults.end());
 
-    // Sort and get the closest node
-    std::sort(results.begin(), results.end(), [](VROHitTestResult a, VROHitTestResult b) {
-        return a.getDistance() < b.getDistance();
+    // The hit drawn on top wins, which with renderingOrder is not always the nearest. Take
+    // the hits in draw order, nearest last within one renderingOrder, and skip one that
+    // reads depth behind an earlier node that writes it. A node with depth reads off is
+    // drawn over everything before it, and what comes after it counts as in front of it,
+    // since bounding boxes cannot place a panel's layers a centimetre apart. A node that
+    // ignores events neither takes the hit nor hides one.
+    std::sort(results.begin(), results.end(), [](const VROHitTestResult &a, const VROHitTestResult &b) {
+        int orderA = a.getNode()->getRenderingOrder();
+        int orderB = b.getNode()->getRenderingOrder();
+        if (orderA != orderB) {
+            return orderA < orderB;
+        }
+        return a.getDistance() > b.getDistance();
     });
 
-    // Return the closest hit element, if any.
-    for (int i = 0; i < results.size(); i++) {
-        if (!results[i].getNode()->getIgnoreEventHandling()) {
-            return results[i];
+    float depth = FLT_MAX;
+    const VROHitTestResult *top = nullptr;
+    for (const VROHitTestResult &result : results) {
+        std::shared_ptr<VRONode> node = result.getNode();
+        bool readsDepth = false;
+        bool writesDepth = false;
+        for (const std::shared_ptr<VROMaterial> &material : node->getGeometry()->getMaterials()) {
+            readsDepth = readsDepth || material->getReadsFromDepthBuffer();
+            writesDepth = writesDepth || material->getWritesToDepthBuffer();
         }
+        if (!readsDepth) {
+            depth = FLT_MAX;
+        } else if (result.getDistance() > depth) {
+            continue;
+        }
+        if (node->getIgnoreEventHandling()) {
+            continue;
+        }
+        if (readsDepth && writesDepth) {
+            depth = result.getDistance();
+        }
+        top = &result;
     }
-    
+    if (top) {
+        return *top;
+    }
+
     VROVector3f backgroundPosition = origin + (ray * kSceneBackgroundDistance);
     VROHitTestResult sceneBackgroundHitResult = { sceneRootNode, backgroundPosition,
                                                   kSceneBackgroundDistance, true, camera };
