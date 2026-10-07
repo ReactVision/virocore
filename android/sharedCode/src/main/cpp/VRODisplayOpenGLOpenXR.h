@@ -114,6 +114,19 @@ public:
         clearDepth();
     }
 
+    /*
+     * Called once an eye is drawn. Nothing reads its depth and stencil after
+     * that (no depth layer goes to the compositor, and the next eye clears
+     * them), so the GPU need not write them from tile memory back to main
+     * memory. Not invalidate(): the driver also calls that when it switches
+     * render targets partway through an eye.
+     */
+    void discardDepth() {
+        glBindFramebuffer(GL_FRAMEBUFFER, _fbo);
+        const GLenum attachments[] = { GL_DEPTH_ATTACHMENT, GL_STENCIL_ATTACHMENT };
+        glInvalidateFramebuffer(GL_FRAMEBUFFER, 2, attachments);
+    }
+
 private:
 
     struct SwapchainFramebuffer {

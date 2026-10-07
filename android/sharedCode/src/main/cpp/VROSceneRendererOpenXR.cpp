@@ -1430,6 +1430,7 @@ void VROSceneRendererOpenXR::renderEye(int eyeIndex,
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     }
+    display->discardDepth();
 
     // ── Release swapchain image ───────────────────────────────────────────────
     XrSwapchainImageReleaseInfo releaseInfo = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
