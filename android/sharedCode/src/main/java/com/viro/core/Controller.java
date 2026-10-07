@@ -55,6 +55,9 @@ public class Controller implements EventDelegate.EventDelegateCallback {
     private boolean mControllerVisible = true;
 
     private EventDelegate mEventDelegate;
+    // The only delegate this controller disposes. One passed to setEventDelegate stays its
+    // caller's, which may install it again (a scene's controller does on returning to the scene).
+    private final EventDelegate mOwnEventDelegate;
     private ClickListener mClickListener;
     private HoverListener mHoverListener;
     private ControllerStatusListener mStatusListener;
@@ -72,7 +75,8 @@ public class Controller implements EventDelegate.EventDelegateCallback {
      */
     Controller(ViroContext viroContext) {
         mViroContext = viroContext;
-        mEventDelegate = new EventDelegate();
+        mOwnEventDelegate = new EventDelegate();
+        mEventDelegate = mOwnEventDelegate;
         mEventDelegate.setEventDelegateCallback(this);
         nativeSetEventDelegate(mViroContext.mNativeRef, mEventDelegate.mNativeRef);
     }
@@ -90,7 +94,7 @@ public class Controller implements EventDelegate.EventDelegateCallback {
      * Release native resources associated with this Controller.
      */
     public void dispose() {
-        mEventDelegate.dispose();
+        mOwnEventDelegate.dispose();
     }
 
     /**
@@ -98,11 +102,10 @@ public class Controller implements EventDelegate.EventDelegateCallback {
      * @param delegate
      */
     public void setEventDelegate(EventDelegate delegate) {
-        // Reinstalling the installed delegate would dispose it and pass native a null ref.
         if (delegate == mEventDelegate) {
             return;
         }
-        if (mEventDelegate != null) {
+        if (mEventDelegate == mOwnEventDelegate) {
             mEventDelegate.dispose();
         }
         mEventDelegate = delegate;
