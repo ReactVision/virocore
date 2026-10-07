@@ -79,7 +79,7 @@ VRO_FLOAT_ARRAY ARUtilsCreatePointsArray(std::vector<VROVector3f> points) {
 VRO_OBJECT ARUtilsCreateHitTestResult(VROHitTestResult result) {
     VRO_ENV env = VROPlatformGetJNIEnv();
 
-    VRO_FLOAT distance;
+    VRO_FLOAT distance = result.getDistance();
     VRO_FLOAT_ARRAY jIntersectionPoint = VRO_NEW_FLOAT_ARRAY(3);
     VROVector3f intersectionVec = result.getLocation();
 
