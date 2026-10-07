@@ -98,6 +98,10 @@ public class Controller implements EventDelegate.EventDelegateCallback {
      * @param delegate
      */
     public void setEventDelegate(EventDelegate delegate) {
+        // Reinstalling the installed delegate would dispose it and pass native a null ref.
+        if (delegate == mEventDelegate) {
+            return;
+        }
         if (mEventDelegate != null) {
             mEventDelegate.dispose();
         }
