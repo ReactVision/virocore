@@ -202,7 +202,7 @@ VROSceneRendererOpenXR::VROSceneRendererOpenXR(VRORendererConfiguration config,
     _inputController->createActionSet(_instance, _session, _eyeGazeSupported);
     initHandTracking();  // no-op if XR_EXT_hand_tracking not available on this device
 
-    // Wire the B button to Android's back-press so React Native's
+    // Wire the B and Y buttons to Android's back-press so React Native's
     // BackHandler fires in VRActivity. The callback runs on the render thread;
     // ViroViewOpenXR.onNativeBackButton() posts to the UI thread internally.
     {

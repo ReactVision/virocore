@@ -190,7 +190,7 @@ void VROInputControllerBase::onButtonEvent(int source, VROEventDelegate::ClickSt
         if (getDraggedObject(ray) != nullptr) {
             return;
         }
-        // A button with no ray of its own (e.g. a shared BackButton) resolves
+        // A button with no ray of its own (e.g. BackButton) resolves
         // against the legacy hit and would start an unowned drag, which every
         // ray moves. Never let one start alongside another drag.
         if (!sourceAware && isDragging()) {
