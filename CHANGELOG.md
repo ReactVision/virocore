@@ -27,6 +27,7 @@
 - **Quest: each eye's framebuffer is made once (`VRODisplayOpenGLOpenXR`).** One display serves both eyes and kept a single FBO, so every eye of every frame deleted it and made another, with a new full-size depth buffer. Each swapchain image now keeps its own FBO, and FBOs of one size share one depth buffer, which each eye clears.
 - **Quest: each eye's depth and stencil are discarded once it is drawn (`VRODisplayOpenGLOpenXR`).** Nothing reads them afterwards, yet the GPU wrote them from tile memory back to main memory at the end of every eye: at Quest 3's 1680 × 1760 eyes, up to about 1.7 GB/s at 72 fps.
 - **Quest: closing a scene no longer logs an OpenXR loader error (`VROSceneRendererOpenXR`, `VROInputControllerOpenXR`).** The input controller's action set was destroyed in its destructor, which runs after `xrDestroyInstance`, so the loader logged "No active XrInstance handle" for `xrDestroyActionSet` on every close. `onDestroy` now destroys it with the controller's spaces, before the session and the instance.
+- **Quest: a video no longer aborts the app (`VROAVPlayer`).** The player looked up its Java class with plain `FindClass` on the renderer thread, which on Quest is a native OpenXR thread that sees only system classes, so the lookup failed and the next JNI call aborted on the pending `ClassNotFoundException`. It now uses `VROPlatformFindHostClass`, as the AR hit-test callback does.
 
 ## v3.0.3 — 6 October 2026
 

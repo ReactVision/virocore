@@ -111,7 +111,9 @@ VROAVPlayer::VROAVPlayer() :
     _textureId(0) {
     JNIEnv *env = VROPlatformGetJNIEnv();
 
-    jclass cls = env->FindClass(AVPlayerClass);
+    // Runs on the renderer thread, which on Quest is a native OpenXR thread where plain
+    // FindClass does not see app classes.
+    jclass cls = VROPlatformFindHostClass(env, AVPlayerClass);
     jobject jcontext = VROPlatformGetJavaAppContext();
     jmethodID jmethod = env->GetMethodID(cls, "<init>", "(JLandroid/content/Context;)V");
 
