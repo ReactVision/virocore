@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- **`VROInputControllerBase::getSourceRay` and `Controller.getControllerRayAsync`.** Where the ray that carries a source last pointed, as `onMove` reported it. A click that hits nothing reports no position, so this is how a caller learns where it was aimed.
+
 ### Changed
 
 - **Quest: the left Menu button and the palm menu pinch report `MenuButton` and no longer go back (`VROInputControllerOpenXR`).** Meta's guidance gives the Menu button, and the palm-up pinch that stands in for it with hands, to an app's own menu, and B to going back. All three reported `BackButton` and ran the back callback, so the Menu button and the pinch ended a scene. The Menu button and the pinch now report the new `ViroOculus::MenuButton` (13) to the controller's delegates only, so it never clicks or drags a node, and the back callback no longer runs for them. The pinch is read from either hand, since the runtime sets `XR_HAND_TRACKING_AIM_MENU_PRESSED_BIT_FB` on whichever hand is not dominant; only the left hand was read before, so a left-handed wearer's pinch did nothing. B is unchanged. An app that relied on the Menu button ending a scene has to handle `MenuButton` itself.
@@ -21,6 +25,7 @@
 - **Quest: the right eye clears its depth buffer (`VRODisplayOpenGLOpenXR`).** Each eye's clear called `glClear` with whatever depth mask the previous draw left, and `glClear` skips a buffer whose writes are masked. Quest renders each eye straight into its swapchain, so when the left eye ended on a material that does not write depth (the aim laser, for one), the right eye drew against stale depth. The depth clear now goes through the driver, which turns depth writes on first, as `VRORenderTargetOpenGL::bind` does.
 - **A click goes to the node drawn on top, which is not always the nearest (`VROInputControllerBase`).** The hit test took the nearest node along the ray, so an object between the user and a panel drawn over the scene (a higher `renderingOrder` with depth reads off) took clicks aimed at the panel. Hits are now taken in draw order: one that reads depth is skipped behind an earlier node that writes depth, and a node with depth reads off is drawn over everything before it, with what comes after it counted as in front of it. Within one `renderingOrder` the nearest hit still wins, so a scene that sets no `renderingOrder` is unaffected. A node with `ignoreEventHandling` neither takes nor hides a hit, as before. The hit test is shared, so this applies to controller and touch input on every platform.
 - **Quest: each eye's framebuffer is made once (`VRODisplayOpenGLOpenXR`).** One display serves both eyes and kept a single FBO, so every eye of every frame deleted it and made another, with a new full-size depth buffer. Each swapchain image now keeps its own FBO, and FBOs of one size share one depth buffer, which each eye clears.
+- **Quest: each eye's depth and stencil are discarded once it is drawn (`VRODisplayOpenGLOpenXR`).** Nothing reads them afterwards, yet the GPU wrote them from tile memory back to main memory at the end of every eye: at Quest 3's 1680 × 1760 eyes, up to about 1.7 GB/s at 72 fps.
 - **Quest: closing a scene no longer logs an OpenXR loader error (`VROSceneRendererOpenXR`, `VROInputControllerOpenXR`).** The input controller's action set was destroyed in its destructor, which runs after `xrDestroyInstance`, so the loader logged "No active XrInstance handle" for `xrDestroyActionSet` on every close. `onDestroy` now destroys it with the controller's spaces, before the session and the instance.
 
 ## v3.0.3 — 6 October 2026
