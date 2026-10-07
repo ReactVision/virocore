@@ -722,9 +722,12 @@ void invokeHitTestResultsCallback(std::vector<VROHitTestResult> &results, jweak 
     for (int i = 0; i < results.size(); i++) {
         jobject result = ARUtilsCreateHitTestResult(results[i]);
         env->SetObjectArrayElement(resultsArray, i, result);
+        env->DeleteLocalRef(result);
     }
 
     jobject globalArrayRef = env->NewGlobalRef(resultsArray);
+    env->DeleteLocalRef(resultsArray);
+    env->DeleteLocalRef(hitTestResultClass);
     VROPlatformDispatchAsyncApplication([weakCallback, globalArrayRef] {
         JNIEnv *env = VROPlatformGetJNIEnv();
         jobject callback = env->NewLocalRef(weakCallback);

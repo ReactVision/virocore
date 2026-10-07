@@ -94,7 +94,10 @@ VRO_OBJECT ARUtilsCreateHitTestResult(VROHitTestResult result) {
     float intersectionPoint[3] = {intersectionVec.x, intersectionVec.y, intersectionVec.z};
     VRO_FLOAT_ARRAY_SET(jIntersectionPoint, 0, 3, intersectionPoint);
 
-    return VROPlatformConstructHostObject("com/viro/core/HitTestResult",
-                                          "(Ljava/lang/String;F[F)V", tag, distance, jIntersectionPoint);
+    VRO_OBJECT jresult = VROPlatformConstructHostObject("com/viro/core/HitTestResult",
+                                                        "(Ljava/lang/String;F[F)V", tag, distance, jIntersectionPoint);
+    VRO_DELETE_LOCAL_REF(jIntersectionPoint);
+    VRO_DELETE_LOCAL_REF(tag);
+    return jresult;
 }
 
