@@ -169,6 +169,15 @@ public class Controller implements EventDelegate.EventDelegateCallback {
     }
 
     /**
+     * @hide
+     * @param source
+     * @param callback
+     */
+    public void getControllerRayAsync(int source, ControllerRayCallback callback) {
+        nativeGetControllerRayAsync(mViroContext.mNativeRef, source, callback);
+    }
+
+    /**
      * Set a {@link ClickListener} to respond when users click with the Controller.
      *
      * @param listener The listener to attach, or null to remove any installed listener.
@@ -531,11 +540,23 @@ public class Controller implements EventDelegate.EventDelegateCallback {
     private native float[] nativeGetControllerForwardVector(long contextRef);
     private native void nativeGetControllerForwardVectorAsync(long renderContextRef,
                                                               ControllerJniCallback callback);
+    private native void nativeGetControllerRayAsync(long renderContextRef, int source,
+                                                    ControllerRayCallback callback);
 
     /**
      * @hide
      */
     public interface ControllerJniCallback{
         void onGetForwardVector(float x, float y, float z);
+    }
+
+    /**
+     * @hide
+     */
+    public interface ControllerRayCallback {
+        /**
+         * Both are null when the source's ray has never moved.
+         */
+        void onGetRay(float[] origin, float[] forward);
     }
 }

@@ -172,6 +172,14 @@ public:
      */
     void notifyCameraTransform(const VROCamera &camera);
 
+    /*
+     Where the ray that carries this source (see rayForSource) last pointed, in world
+     coordinates, as onMove reported it. False when that ray has never moved. A click
+     that hits nothing reports no position, so this is how a caller learns where it
+     was aimed. Render thread only.
+     */
+    bool getSourceRay(int source, VROVector3f *origin, VROVector3f *forward) const;
+
 protected:
     
     virtual std::shared_ptr<VROInputPresenter> createPresenter(std::shared_ptr<VRODriver> driver) {

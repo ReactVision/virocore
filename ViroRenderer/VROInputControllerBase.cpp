@@ -628,6 +628,16 @@ VROInputControllerBase::getHitResultForSource(int source) const {
     return _hitResult;
 }
 
+bool VROInputControllerBase::getSourceRay(int source, VROVector3f *origin, VROVector3f *forward) const {
+    auto it = _lastKnownPoseBySource.find(rayForSource(source));
+    if (it == _lastKnownPoseBySource.end()) {
+        return false;
+    }
+    *origin = it->second.position;
+    *forward = it->second.forward;
+    return true;
+}
+
 void VROInputControllerBase::onControllerStatus(int source, VROEventDelegate::ControllerStatus status){
     if (_currentControllerStatus == status){
         return;
