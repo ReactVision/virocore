@@ -34,6 +34,7 @@
 
 class VROARAnchor;
 class VROARSessionARCore;
+class VROMatrix4f;
 namespace ReactVisionCCA { class RVCCACloudAnchorProvider; }
 
 /**
@@ -99,6 +100,36 @@ public:
      * Returns nullptr when the ReactVisionCCA library is not available.
      */
     std::shared_ptr<ReactVisionCCA::RVCCACloudAnchorProvider> getProvider() const;
+
+    // ── Continuous VPS map localisation ─────────────────────────────────────
+    // Driven automatically by onFrameDidRender() once a map is loaded; see
+    // RVCCACloudAnchorProvider::loadVPSMap()/updateVPSMapFrame() and
+    // VROVPSLocalizer (the smoothing fuser these feed into).
+
+    /**
+     * Parse rvmapBytes (a downloaded .rvmap's raw bytes) and load it for
+     * matching. Returns false if the bytes don't parse as a supported map —
+     * truncated, empty, or an unsupported format/version.
+     */
+    bool loadVPSMap(const std::string &rvmapBytes);
+
+    /** Drop whatever loadVPSMap() loaded; onFrameDidRender()'s matching becomes a no-op. */
+    void unloadVPSMap();
+
+    bool isVPSMapLoaded() const;
+
+    /** True once the smoothed estimate has accepted at least one pair of agreeing hits. */
+    bool vpsIsConverged() const;
+
+    /**
+     * The smoothed T_map_world applied to the camera pose passed into the
+     * most recent onFrameDidRender()'s localisation attempt. Returns false
+     * (leaving outPose untouched) before vpsIsConverged().
+     */
+    bool vpsGetRenderPose(VROMatrix4f &outPose) const;
+
+    /** The last raw hit's inlier count/reprojection RMS. Returns false before any hit. */
+    bool vpsGetLastHit(int &outInliers, float &outReprojRms) const;
 
 private:
     class Impl;
