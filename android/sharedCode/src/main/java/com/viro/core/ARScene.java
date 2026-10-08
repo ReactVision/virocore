@@ -1090,9 +1090,10 @@ public class ARScene extends Scene {
     // Called by native (VROARSessionARCore::recordFrameForRecording) once per
     // frame while recording — see ARSessionRecorder.onRecordingFrame() for
     // the actual encode/sidecar-write work.
-    void onRecordingFrame(byte[] y, byte[] u, byte[] v, int[] dims, long timestampNs, float[] pose) {
+    void onRecordingFrame(byte[] y, byte[] u, byte[] v, int[] dims, long timestampNs, float[] pose,
+                          float[] geo) {
         if (mSessionRecorder != null) {
-            mSessionRecorder.onRecordingFrame(y, u, v, dims, timestampNs, pose);
+            mSessionRecorder.onRecordingFrame(y, u, v, dims, timestampNs, pose, geo);
         }
     }
 

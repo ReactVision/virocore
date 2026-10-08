@@ -224,10 +224,13 @@ public class ARSessionRecorder {
      * uPixelStride, vRowStride, vPixelStride]; pose = [qx,qy,qz,qw, px,py,pz,
      * fx,fy,cx,cy] (11 floats) — orientation as a quaternion rather than a
      * full matrix, same convention as the iOS recorder and the plan's
-     * session.jsonl format.
+     * session.jsonl format. geo (Phase 0 task 3) = [hasGps(0/1), lat, lon,
+     * alt, hAccuracy, heading, headingAccuracy] — hasGps doubles as
+     * hasHeading, see VROARSessionARCore::recordFrameForRecording's comment;
+     * only attached to this one pose line when hasGps is 1.
      */
     public synchronized void onRecordingFrame(byte[] y, byte[] u, byte[] v, int[] dims,
-                                               long timestampNs, float[] pose) {
+                                               long timestampNs, float[] pose, float[] geo) {
         if (mSidecar == null) {
             return; // stop() already ran
         }
@@ -240,7 +243,7 @@ public class ARSessionRecorder {
         }
 
         writeHeaderIfNeeded(width, height, pose[7], pose[8], pose[9], pose[10]);
-        writePoseLine(timestampNs, pose);
+        writePoseLine(timestampNs, pose, geo);
 
         try {
             encodeFrame(y, u, v, width, height, yStride, uStride, uPixelStride, vStride, vPixelStride,
@@ -281,13 +284,25 @@ public class ARSessionRecorder {
         }
     }
 
-    private void writePoseLine(long timestampNs, float[] pose) {
-        String line = String.format(Locale.US,
+    private void writePoseLine(long timestampNs, float[] pose, float[] geo) {
+        StringBuilder sb = new StringBuilder(192);
+        sb.append(String.format(Locale.US,
             "{\"type\":\"pose\",\"t\":%d,\"orientation\":[%.6f,%.6f,%.6f,%.6f]," +
-            "\"position\":[%.6f,%.6f,%.6f],\"gravity\":[%.6f,%.6f,%.6f]}",
+            "\"position\":[%.6f,%.6f,%.6f],\"gravity\":[%.6f,%.6f,%.6f]",
             timestampNs, pose[0], pose[1], pose[2], pose[3], pose[4], pose[5], pose[6],
-            mLastGravity[0], mLastGravity[1], mLastGravity[2]);
-        bufferLine(timestampNs, line);
+            mLastGravity[0], mLastGravity[1], mLastGravity[2]));
+        // Phase 0 task 3: geo[0] (hasGps) gates the whole field — schema
+        // requires lat/lon/alt/heading together whenever `gps` is present.
+        if (geo != null && geo.length >= 7 && geo[0] != 0f) {
+            String hAcc = geo[4] >= 0f ? String.format(Locale.US, "%.3f", geo[4]) : "null";
+            String headingAcc = geo[6] >= 0f ? String.format(Locale.US, "%.3f", geo[6]) : "null";
+            sb.append(String.format(Locale.US,
+                ",\"gps\":{\"lat\":%.8f,\"lon\":%.8f,\"alt\":%.3f," +
+                "\"h_accuracy\":%s,\"heading\":%.3f,\"heading_accuracy\":%s}",
+                geo[1], geo[2], geo[3], hAcc, geo[5], headingAcc));
+        }
+        sb.append("}");
+        bufferLine(timestampNs, sb.toString());
     }
 
     private void writeImuLine(long timestampNs, float ax, float ay, float az,
