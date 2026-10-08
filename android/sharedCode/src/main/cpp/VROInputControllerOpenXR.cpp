@@ -629,10 +629,11 @@ void VROInputControllerOpenXR::onProcess(XrSession session, XrSpace baseSpace,
         // collision in a Quest scene was silent.
         //
         // Only on the ClickDown edge: buzzing on release would read as a second
-        // press. BackButton is excluded: its callback finishes the VR activity, so
-        // the pulse would be cut off or land after the scene is gone.
+        // press. B and Y are excluded: both run the back callback, which can finish
+        // the VR activity, so the pulse would be cut off or land after the scene
+        // is gone.
         if (edge.second == VROEventDelegate::ClickState::ClickDown &&
-            edge.first != ViroOculus::BackButton) {
+            edge.first != ViroOculus::BackButton && edge.first != ViroOculus::YButton) {
             const bool leftHand = rayForSource(edge.first) == ViroOculus::LeftController;
             triggerHaptic(session, leftHand ? 0 : 1);
         }
