@@ -103,6 +103,12 @@ public:
                               double horizAcc, double vertAcc,
                               double heading, double headingAcc);
     void getLastKnownLocation(double& lat, double& lng, double& alt) const;
+    // Phase 0 task 3: bumped every setLastKnownLocation() call, read by
+    // recordFrameForRecording() to attach a `gps` field only to the next
+    // recorded pose after a genuinely fresh fix, not to every one. 0 means
+    // "never set" — getLastKnownLocation()'s callers can't tell "never" apart
+    // from a real (0,0) fix, but this counter only needs "did it change".
+    int getGpsFixSeq() const { return _gpsFixSeq; }
     void setAutofocus(bool enabled);
     bool isCameraAutoFocusEnabled();
 
@@ -458,6 +464,14 @@ private:
      Updated via setLastKnownLocation(); read via getCameraGeospatialPose().
      */
     mutable VROGeospatialPose _lastKnownGPSPose;
+
+    /*
+     Phase 0 task 3: bumped every setLastKnownLocation() call; see
+     getGpsFixSeq(). recordFrameForRecording() tracks the last value it
+     already attached in _lastRecordingGpsFixSeq.
+     */
+    int _gpsFixSeq = 0;
+    int _lastRecordingGpsFixSeq = 0;
 
     /*
      Per-frame anchor and trackable update handling.

@@ -1772,6 +1772,11 @@ void VROARSessionARCore::setLastKnownLocation(double lat, double lng, double alt
                                                  (float)std::sin(yaw / 2.0),
                                                  0.0f,
                                                  (float)std::cos(yaw / 2.0));
+    // Phase 0 task 3: see getGpsFixSeq() — this call is only ever made with a
+    // real fix (never speculatively with zeros, per this method's own doc
+    // comment), so "has this been called since the last recorded pose" is a
+    // safe proxy for "is there a fresh gps+heading reading".
+    _gpsFixSeq++;
 }
 
 // Improvement 3: read back the last GPS fix stored by setLastKnownLocation().
@@ -3078,15 +3083,40 @@ void VROARSessionARCore::recordFrameForRecording(VROARFrameARCore *arFrame) {
     jfloatArray poseArr = env->NewFloatArray(11);
     env->SetFloatArrayRegion(poseArr, 0, 11, pose);
 
+    // Phase 0 task 3: geo = [hasGps(0/1), lat, lon, alt, hAccuracy, heading,
+    // headingAccuracy]. hasGps doubles as hasHeading here — Android's
+    // setLastKnownLocation() always sets both together (unlike iOS, which
+    // gets separate location/heading callbacks), so there is no partial
+    // state to represent. Only attached when _gpsFixSeq has moved on from
+    // what was last recorded, so a reading is tagged once, near the instant
+    // it arrived, not repeated on every subsequent frame — see
+    // VROARSessionRecorderIOS's identical reasoning on the iOS side.
+    bool hasFreshGps = _lastKnownGPSPose.isValid() && _gpsFixSeq != _lastRecordingGpsFixSeq;
+    if (hasFreshGps) {
+        _lastRecordingGpsFixSeq = _gpsFixSeq;
+    }
+    jfloat geo[7] = {
+        hasFreshGps ? 1.0f : 0.0f,
+        (jfloat) _lastKnownGPSPose.latitude,
+        (jfloat) _lastKnownGPSPose.longitude,
+        (jfloat) _lastKnownGPSPose.altitude,
+        (jfloat) _lastKnownGPSPose.horizontalAccuracy,
+        (jfloat) _lastKnownGPSPose.heading,
+        (jfloat) _lastKnownGPSPose.headingAccuracy
+    };
+    jfloatArray geoArr = env->NewFloatArray(7);
+    env->SetFloatArrayRegion(geoArr, 0, 7, geo);
+
     VROPlatformCallHostFunction(_recordingJavaCallback, "onRecordingFrame",
-                                "([B[B[B[IJ[F)V",
-                                yArr, uArr, vArr, dimsArr, (jlong) timestampNs, poseArr);
+                                "([B[B[B[IJ[F[F)V",
+                                yArr, uArr, vArr, dimsArr, (jlong) timestampNs, poseArr, geoArr);
 
     env->DeleteLocalRef(yArr);
     env->DeleteLocalRef(uArr);
     env->DeleteLocalRef(vArr);
     env->DeleteLocalRef(dimsArr);
     env->DeleteLocalRef(poseArr);
+    env->DeleteLocalRef(geoArr);
 
     delete img;
 }
