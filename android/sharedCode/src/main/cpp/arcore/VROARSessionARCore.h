@@ -265,6 +265,12 @@ public:
     void rvGetSceneAssets(const std::string& sceneId,
         std::function<void(bool, std::string, std::string)> callback) override;
 
+    // Continuous VPS map localisation against a downloaded .rvmap
+    bool rvLoadVPSMap(const std::string& rvmapBytes) override;
+    void rvUnloadVPSMap() override;
+    bool rvIsVPSMapLoaded() override;
+    std::string rvGetVPSLocalizationJson() override;
+
     /*
      * Scene Semantics API.
      */

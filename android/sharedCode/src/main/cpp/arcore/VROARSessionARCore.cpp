@@ -2631,6 +2631,59 @@ void VROARSessionARCore::rvFinishScan(
     if (callback) callback(false, "", "", "ReactVision cloud anchor provider not available");
 }
 
+// ── Continuous VPS map localisation ─────────────────────────────────────────
+
+bool VROARSessionARCore::rvLoadVPSMap(const std::string& rvmapBytes) {
+#if RVCCA_AVAILABLE
+    if (_cloudAnchorProviderRV) {
+        return _cloudAnchorProviderRV->loadVPSMap(rvmapBytes);
+    }
+#endif
+    return false;
+}
+
+void VROARSessionARCore::rvUnloadVPSMap() {
+#if RVCCA_AVAILABLE
+    if (_cloudAnchorProviderRV) {
+        _cloudAnchorProviderRV->unloadVPSMap();
+    }
+#endif
+}
+
+bool VROARSessionARCore::rvIsVPSMapLoaded() {
+#if RVCCA_AVAILABLE
+    if (_cloudAnchorProviderRV) {
+        return _cloudAnchorProviderRV->isVPSMapLoaded();
+    }
+#endif
+    return false;
+}
+
+std::string VROARSessionARCore::rvGetVPSLocalizationJson() {
+#if RVCCA_AVAILABLE
+    if (_cloudAnchorProviderRV) {
+        bool loaded = _cloudAnchorProviderRV->isVPSMapLoaded();
+        bool converged = _cloudAnchorProviderRV->vpsIsConverged();
+        std::ostringstream os;
+        os << "{\"available\":true"
+           << ",\"loaded\":" << (loaded ? "true" : "false")
+           << ",\"converged\":" << (converged ? "true" : "false");
+        int inliers = 0; float reprojRms = 0.f;
+        if (_cloudAnchorProviderRV->vpsGetLastHit(inliers, reprojRms)) {
+            os << ",\"lastHitInliers\":" << inliers
+               << ",\"lastHitReprojRms\":" << reprojRms;
+        }
+        VROMatrix4f renderPose;
+        if (converged && _cloudAnchorProviderRV->vpsGetRenderPose(renderPose)) {
+            os << ",\"renderPose\":\"" << rvMatrixToCsvARC(renderPose) << "\"";
+        }
+        os << "}";
+        return os.str();
+    }
+#endif
+    return "{\"available\":false}";
+}
+
 void VROARSessionARCore::rvGetCloudAnchor(
     const std::string& anchorId,
     std::function<void(bool, std::string, std::string)> callback) {
