@@ -133,9 +133,20 @@ void VROARWorldMesh::updateFromFrame(const std::unique_ptr<VROARFrame>& frame) {
 
     if (!mesh || !mesh->isValid()) {
         mesh = frame->generatePlaneMesh();
+        // Falling back to plane anchors is a different product: flat polygons where the app asked
+        // for a surface. It used to happen silently, so an app could not tell the two apart.
+        if (mesh && mesh->isValid() && _lastReportedSource != VROWorldMeshSource::Plane) {
+            pinfo("VROARWorldMesh: no mesh anchors and no depth image; falling back to AR plane "
+                  "anchors. getWorldMeshStats().source reports \"plane\".");
+        }
     }
 
     if (mesh && mesh->isValid()) {
+        VROWorldMeshSource source = sourceFromMeshTag(mesh->getSource());
+        if (source != _lastReportedSource) {
+            pinfo("VROARWorldMesh: mesh source is now \"%s\"", VROWorldMeshSourceToString(source));
+            _lastReportedSource = source;
+        }
         _lastDepthTimeMs = getCurrentTimeMs();
         applyMeshToPhysics(mesh);
         notifySubscribers(mesh);
