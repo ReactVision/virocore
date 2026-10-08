@@ -2065,6 +2065,24 @@ VRO_METHOD(void, nativeSetWorldMeshEnabled)(VRO_ARGS
     });
 }
 
+VRO_METHOD(void, nativeSetWorldMeshFusion)(VRO_ARGS
+                                          VRO_REF(VROARSceneController) sceneController_j,
+                                          VRO_BOOL accumulate,
+                                          VRO_FLOAT voxelSize,
+                                          VRO_INT maxMemoryMB) {
+    std::weak_ptr<VROARScene> scene_w = std::dynamic_pointer_cast<VROARScene>(
+            VRO_REF_GET(VROARSceneController, sceneController_j)->getScene());
+    VROPlatformDispatchAsyncRenderer([scene_w, accumulate, voxelSize, maxMemoryMB] {
+        std::shared_ptr<VROARScene> scene = scene_w.lock();
+        if (!scene) return;
+        VROWorldMeshConfig config = scene->getWorldMeshConfig();
+        config.accumulate = (bool) accumulate;
+        if (voxelSize > 0.0f) config.voxelSize = voxelSize;
+        if (maxMemoryMB > 0) config.maxMemoryMB = maxMemoryMB;
+        scene->setWorldMeshConfig(config);
+    });
+}
+
 VRO_METHOD(void, nativeResetWorldMesh)(VRO_ARGS
                                       VRO_REF(VROARSceneController) sceneController_j) {
     std::weak_ptr<VROARScene> scene_w = std::dynamic_pointer_cast<VROARScene>(
