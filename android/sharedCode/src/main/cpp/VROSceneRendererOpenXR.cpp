@@ -1247,6 +1247,10 @@ void VROSceneRendererOpenXR::renderFrame() {
     // prepareFrame() so anchor node transforms are current for this frame.
     if (_arSession) {
         _arSession->setDisplayTime(frameState.predictedDisplayTime);
+        if (viewState.viewStateFlags & XR_VIEW_STATE_POSITION_VALID_BIT) {
+            _arSession->setHeadPosition((xrVec3ToVRO(views[0].pose.position) +
+                                         xrVec3ToVRO(views[1].pose.position)).scale(0.5f));
+        }
         _arSession->updateFrame();
     }
 

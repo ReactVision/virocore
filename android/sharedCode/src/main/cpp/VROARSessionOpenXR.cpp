@@ -445,12 +445,17 @@ void VROARSessionOpenXR::setDelegate(std::shared_ptr<VROARSessionDelegate> deleg
     // Each plane is published only once, to the scene attached when it is first
     // located, so a scene attached later is handed the planes found so far.
     if (delegate) {
-        ALOGV("handing %zu planes to the new scene", _planes.size() + _scenePlanes.size());
+        std::vector<std::shared_ptr<VROARPlaneAnchor>> known;
         for (const auto &entry : _planes) {
-            delegate->anchorWasDetected(entry.second);
+            known.push_back(entry.second);
         }
         for (const auto &entry : _scenePlanes) {
-            delegate->anchorWasDetected(entry.second);
+            known.push_back(entry.second);
+        }
+        sortNearestFirst(known);
+        ALOGV("handing %zu planes to the new scene", known.size());
+        for (const auto &anchor : known) {
+            delegate->anchorWasDetected(anchor);
         }
         // With none found yet, query now rather than at the next 5 s tick: right
         // after spatial data is granted the last query still found nothing, and
@@ -459,6 +464,19 @@ void VROARSessionOpenXR::setDelegate(std::shared_ptr<VROARSessionDelegate> deleg
             _lastSceneQuery = std::chrono::steady_clock::time_point{};
         }
     }
+}
+
+// A ViroARPlane takes the first matching plane it is handed. A phone finds the
+// planes in front of it first, but the room model arrives all at once in no
+// useful order, so it is handed over nearest the wearer first.
+void VROARSessionOpenXR::sortNearestFirst(
+        std::vector<std::shared_ptr<VROARPlaneAnchor>> &anchors) const {
+    std::stable_sort(anchors.begin(), anchors.end(),
+                     [this](const std::shared_ptr<VROARPlaneAnchor> &a,
+                            const std::shared_ptr<VROARPlaneAnchor> &b) {
+                         return a->getTransform().extractTranslation().distance(_headPosition) <
+                                b->getTransform().extractTranslation().distance(_headPosition);
+                     });
 }
 
 void VROARSessionOpenXR::addAnchor(std::shared_ptr<VROARAnchor> anchor) {
@@ -786,6 +804,7 @@ void VROARSessionOpenXR::processSceneQueryResults(XrAsyncRequestIdFB requestId) 
     }
 
     std::set<uint64_t> present;
+    std::vector<std::shared_ptr<VROARPlaneAnchor>> added;
     int built = 0, with2D = 0;
     for (uint32_t i = 0; i < count; ++i) {
         XrSpace space = buf[i].space;
@@ -833,8 +852,12 @@ void VROARSessionOpenXR::processSceneQueryResults(XrAsyncRequestIdFB requestId) 
             anchor->setId(std::to_string(key));
             anchor->recordUpdate(true);
             _scenePlanes[key] = anchor;
-            addAnchor(anchor);  // fires anchorWasDetected → onAnchorFound
+            added.push_back(anchor);
         }
+    }
+    sortNearestFirst(added);
+    for (const auto &anchor : added) {
+        addAnchor(anchor);  // fires anchorWasDetected → onAnchorFound
     }
 
     // Remove planes no longer present (e.g. room re-scanned).

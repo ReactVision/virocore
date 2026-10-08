@@ -69,6 +69,9 @@ public:
     /* Predicted display time for the current frame — set before updateFrame(). */
     void setDisplayTime(XrTime displayTime) { _displayTime = displayTime; }
 
+    /* Mid-eye position in the base space, for the order planes are handed over in. */
+    void setHeadPosition(VROVector3f position) { _headPosition = position; }
+
     /* Forward FB spatial-query events (polled by the renderer's xrPollEvent loop). */
     void onSpatialEvent(const XrEventDataBuffer &event);
 
@@ -152,6 +155,7 @@ private:
     XrSession  _session     = XR_NULL_HANDLE;
     XrSpace    _baseSpace    = XR_NULL_HANDLE;
     XrTime     _displayTime  = 0;
+    VROVector3f _headPosition;
 
     // ── XR_EXT_plane_detection ─────────────────────────────────────────────────
     XrPlaneDetectorEXT _planeDetector = XR_NULL_HANDLE;
@@ -232,6 +236,7 @@ private:
     void beginSceneQuery();
     void processSceneQueryResults(XrAsyncRequestIdFB requestId);
     std::shared_ptr<VROARPlaneAnchor> buildPlaneFromSpace(XrSpace space);
+    void sortNearestFirst(std::vector<std::shared_ptr<VROARPlaneAnchor>> &anchors) const;
 };
 
 #endif  // ANDROID_VROARSESSIONOPENXR_H
