@@ -89,11 +89,13 @@ static VROARPlaneClassification mapClassification(XrPlaneDetectorSemanticTypeEXT
 
 // Map a Meta scene semantic label (XR_FB_scene) to a Viro plane classification.
 // Labels are strings like "FLOOR", "CEILING", "WALL_FACE", "TABLE", "COUCH", etc.
+// A table is labelled "DESK" unless the app opts into Meta's DESK-to-TABLE
+// migration, which this session does not.
 static VROARPlaneClassification classifyLabel(const std::string &label) {
     if (label == "FLOOR")                                      return VROARPlaneClassification::Floor;
     if (label == "CEILING")                                    return VROARPlaneClassification::Ceiling;
     if (label == "WALL_FACE" || label == "INVISIBLE_WALL_FACE") return VROARPlaneClassification::Wall;
-    if (label == "TABLE" || label == "STORAGE")                return VROARPlaneClassification::Table;
+    if (label == "TABLE" || label == "DESK" || label == "STORAGE") return VROARPlaneClassification::Table;
     if (label == "COUCH" || label == "BED")                    return VROARPlaneClassification::Seat;
     if (label == "DOOR_FRAME")                                 return VROARPlaneClassification::Door;
     if (label == "WINDOW_FRAME")                               return VROARPlaneClassification::Window;
