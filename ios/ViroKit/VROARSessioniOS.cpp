@@ -54,6 +54,7 @@
 #include "VROVisionModel.h"
 #include "VROMonocularDepthEstimator.h"
 #include <algorithm>
+#include <chrono>
 
 #import "VROCloudAnchorProviderARCore.h"
 #import "VROCloudAnchorProviderReactVision.h"
@@ -197,6 +198,7 @@
 #if RVCCA_AVAILABLE
 #  include "ReactVisionCCA/RVCCAGeospatialProvider.h"
 #  include "ReactVisionCCA/RVCCACloudAnchorProvider.h"
+#  include "ReactVisionCCA/VROVPSLocalizer.h"
 #endif
 
 #pragma mark - Lifecycle and Initialization
@@ -1049,6 +1051,58 @@ std::unique_ptr<VROARFrame> &VROARSessioniOS::updateFrame() {
       if (_cloudAnchorProviderRV != nil) {
         [_cloudAnchorProviderRV updateWithFrame:arFrame];
       }
+#if RVCCA_AVAILABLE
+      // Continuous VPS map localisation: only when rvLoadVPSMap() has a map
+      // loaded. updateVPSMapFrame() itself is a cheap no-op without one, but
+      // extracting the luma plane and intrinsics below isn't free, so that
+      // work is skipped entirely when there's nothing loaded to match against.
+      if (_cloudAnchorProviderRV != nil) {
+        auto rvProvider = [_cloudAnchorProviderRV cppProvider];
+        if (rvProvider && rvProvider->isVPSMapLoaded()) {
+          const std::shared_ptr<VROARCamera> &vpsCam = frameiOS->getCamera();
+          const uint8_t *vpsLuma = nullptr;
+          int vpsLumaW = 0, vpsLumaH = 0;
+          float ifx = 0.f, ify = 0.f, icx = 0.f, icy = 0.f;
+          if (vpsCam && frameiOS->getCameraImageY(&vpsLuma, &vpsLumaW, &vpsLumaH) &&
+              vpsLuma != nullptr && vpsLumaW > 0 && vpsLumaH > 0 &&
+              vpsCam->getImageIntrinsics(&ifx, &ify, &icx, &icy) &&
+              ifx > 1.f && ify > 1.f) {
+            VROVector3f vpsCamPos = vpsCam->getPosition();
+            VROMatrix4f vpsCam2World = vpsCam->getRotation();
+            vpsCam2World[12] = vpsCamPos.x;
+            vpsCam2World[13] = vpsCamPos.y;
+            vpsCam2World[14] = vpsCamPos.z;
+            _lastVPSCamToWorld    = vpsCam2World;
+            _lastVPSCamToWorldSet = true;
+
+            double nowSec = std::chrono::duration<double>(
+                std::chrono::steady_clock::now().time_since_epoch()).count();
+            std::weak_ptr<VROARSessioniOS> weakSelf = shared_from_this();
+
+            // onHit, if called at all, is invoked synchronously inside this same
+            // call (a previous attempt's result being consumed) — never from the
+            // background matching thread itself. See
+            // RVCCACloudAnchorProvider::updateVPSMapFrame()'s own doc comment.
+            rvProvider->updateVPSMapFrame(
+                vpsLuma, vpsLumaW, vpsLumaH,
+                (double)ifx, (double)ify, (double)icx, (double)icy,
+                vpsCam2World,
+                [weakSelf, vpsCam2World, nowSec]
+                (const VROMatrix4f &T_map_cam, int inlierCount, float reprojRms) {
+                  auto strongSelf = weakSelf.lock();
+                  if (!strongSelf) return;
+                  strongSelf->_lastVPSHitSet    = true;
+                  strongSelf->_lastVPSInliers   = inlierCount;
+                  strongSelf->_lastVPSReprojRms = reprojRms;
+                  if (strongSelf->_vpsLocalizerRV) {
+                    strongSelf->_vpsLocalizerRV->reportLocalizationHit(
+                        T_map_cam, vpsCam2World, nowSec);
+                  }
+                });
+          }
+        }
+      }
+#endif
       if (_recorder && _recorder->getStatus() == VROARRecordingStatus::Recording) {
         // Tag the next pose line with the latest GPS/heading
         // fix, but only when it is genuinely new (timestamp changed) — a
@@ -2701,6 +2755,80 @@ void VROARSessioniOS::rvFinishScan(
   }
 #endif
   if (callback) callback(false, "", "", rvError.empty() ? "ReactVision cloud anchor provider not available" : rvError);
+}
+
+// ── Continuous VPS map localisation ─────────────────────────────────────────
+
+bool VROARSessioniOS::rvLoadVPSMap(const std::string& rvmapBytes) {
+#if RVCCA_AVAILABLE
+  std::string rvError;
+  auto p = [ensureReactVisionProvider(rvError) cppProvider];
+  if (p) {
+    bool ok = p->loadVPSMap(rvmapBytes);
+    if (ok) {
+      if (_vpsLocalizerRV) {
+        _vpsLocalizerRV->reset();
+      } else {
+        _vpsLocalizerRV = std::make_shared<ReactVisionCCA::VROVPSLocalizer>();
+      }
+      _lastVPSCamToWorldSet = false;
+      _lastVPSHitSet = false;
+    }
+    return ok;
+  }
+#endif
+  return false;
+}
+
+void VROARSessioniOS::rvUnloadVPSMap() {
+#if RVCCA_AVAILABLE
+  if (_cloudAnchorProviderRV) {
+    auto p = [_cloudAnchorProviderRV cppProvider];
+    if (p) p->unloadVPSMap();
+  }
+  if (_vpsLocalizerRV) {
+    _vpsLocalizerRV->reset();
+  }
+  _lastVPSCamToWorldSet = false;
+  _lastVPSHitSet = false;
+#endif
+}
+
+bool VROARSessioniOS::rvIsVPSMapLoaded() {
+#if RVCCA_AVAILABLE
+  if (_cloudAnchorProviderRV) {
+    auto p = [_cloudAnchorProviderRV cppProvider];
+    if (p) return p->isVPSMapLoaded();
+  }
+#endif
+  return false;
+}
+
+std::string VROARSessioniOS::rvGetVPSLocalizationJson() {
+#if RVCCA_AVAILABLE
+  if (_cloudAnchorProviderRV) {
+    auto p = [_cloudAnchorProviderRV cppProvider];
+    if (p) {
+      bool loaded = p->isVPSMapLoaded();
+      bool converged = _vpsLocalizerRV && _vpsLocalizerRV->isConverged();
+      std::ostringstream os;
+      os << "{\"available\":true"
+         << ",\"loaded\":" << (loaded ? "true" : "false")
+         << ",\"converged\":" << (converged ? "true" : "false");
+      if (_lastVPSHitSet) {
+        os << ",\"lastHitInliers\":" << _lastVPSInliers
+           << ",\"lastHitReprojRms\":" << _lastVPSReprojRms;
+      }
+      if (converged && _lastVPSCamToWorldSet) {
+        VROMatrix4f renderPose = _vpsLocalizerRV->getRenderPose(_lastVPSCamToWorld);
+        os << ",\"renderPose\":\"" << rvMatrixToCsv(renderPose) << "\"";
+      }
+      os << "}";
+      return os.str();
+    }
+  }
+#endif
+  return "{\"available\":false}";
 }
 
 void VROARSessioniOS::rvGetCloudAnchor(

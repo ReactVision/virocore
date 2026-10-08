@@ -45,6 +45,7 @@ class VROMonocularDepthEstimator;
 @class VROCloudAnchorProviderARCore;
 @class VROCloudAnchorProviderReactVision;
 namespace ReactVisionCCA { class RVCCAGeospatialProvider; }
+namespace ReactVisionCCA { class VROVPSLocalizer; }
 
 class API_AVAILABLE(ios(12.0)) VROARSessioniOS : public VROARSession, public std::enable_shared_from_this<VROARSessioniOS> {
 public:
@@ -237,6 +238,12 @@ public:
     void rvGetSceneAssets(const std::string& sceneId,
         std::function<void(bool, std::string, std::string)> callback) override;
 
+    // Continuous VPS map localisation against a downloaded .rvmap
+    bool rvLoadVPSMap(const std::string& rvmapBytes) override;
+    void rvUnloadVPSMap() override;
+    bool rvIsVPSMapLoaded() override;
+    std::string rvGetVPSLocalizationJson() override;
+
     // Scene Semantics API
     bool isSemanticModeSupported() const override;
     void setSemanticModeEnabled(bool enabled) override;
@@ -317,6 +324,26 @@ private:
      */
     std::shared_ptr<ReactVisionCCA::RVCCAGeospatialProvider> _geospatialProviderRV;
     std::string _rvGeoProjectId;
+
+    /*
+     Smooths the raw per-frame hits rvLoadVPSMap()'s loaded map produces into
+     a single pose correction. Created (or reset) by rvLoadVPSMap() on a
+     successful load; reset again by rvUnloadVPSMap().
+     */
+    std::shared_ptr<ReactVisionCCA::VROVPSLocalizer> _vpsLocalizerRV;
+
+    /*
+     The camera pose (T_world_cam) passed into the most recent
+     updateVPSMapFrame() call, cached so rvGetVPSLocalizationJson() can
+     report a render pose without needing a fresh frame at poll time.
+     */
+    VROMatrix4f _lastVPSCamToWorld;
+    bool        _lastVPSCamToWorldSet = false;
+
+    /* The most recent raw hit from updateVPSMapFrame()'s onHit, for diagnostics. */
+    bool  _lastVPSHitSet     = false;
+    int   _lastVPSInliers    = 0;
+    float _lastVPSReprojRms  = 0.f;
 
     /*
      CLLocationManager delegate for ReactVision geospatial — provides GPS pose
