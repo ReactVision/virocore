@@ -325,6 +325,23 @@ private:
     id _rvLocationDelegate;
 
     /*
+     True once _rvLocationDelegate has received at least one real
+     didUpdateHeading callback (Phase 0 task 3). VROGeospatialPose's own
+     headingAccuracy can't tell "never updated" apart from "updated with a
+     clamped-to-0 accuracy" — both read 0 — so this is tracked separately
+     instead. See VROLocationDelegate.headingValidOut.
+     */
+    BOOL _hasReceivedHeadingFix = NO;
+
+    /*
+     _lastKnownGPSPose.timestamp last pushed into _recorder's pending GPS/
+     heading reading (Phase 0 task 3). Lets updateFrame() push only when a
+     genuinely fresh fix has arrived, instead of re-tagging every frame with
+     a stale one. 0 means "never pushed".
+     */
+    double _lastGpsTimestampPushedToRecorder = 0.0;
+
+    /*
      Last GPS pose received from Core Location (ReactVision provider path).
      Updated on the main thread; read from any thread via getCameraGeospatialPose().
      */

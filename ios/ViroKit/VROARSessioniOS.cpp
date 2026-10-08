@@ -68,6 +68,15 @@
 @property (nonatomic, strong) CLLocationManager *locationManager;
 // Raw pointer into the owning VROARSessioniOS; cleared before the session dies.
 @property (nonatomic, assign) VROGeospatialPose *poseOut;
+// Phase 0 task 3: set true on the first real didUpdateHeading callback. Not
+// derivable from poseOut->headingAccuracy alone — CLHeading clamps a negative
+// (invalid) accuracy to 0 before it is stored, which is indistinguishable
+// from "no heading has ever arrived" (also 0, VROGeospatialPose's default).
+// A separate out-pointer, not a field on VROGeospatialPose itself: that
+// struct is shared with ViroRenderer/VROGeospatial.h's own copy (see the
+// workspace's "two VROGeospatial.h headers, one include guard" gotcha) and
+// is not this fix's place to touch.
+@property (nonatomic, assign) BOOL *headingValidOut;
 // WS-D: true once we've confirmed the OS will only give approximate location
 // (iOS 14+ "Precise Location" off) and a temporary full-accuracy request was
 // denied, is pending, or unavailable pre-iOS 14. See start's accuracyAuthorization check.
@@ -76,10 +85,12 @@
 
 @implementation VROLocationDelegate
 
-- (instancetype)initWithPosePtr:(VROGeospatialPose *)posePtr {
+- (instancetype)initWithPosePtr:(VROGeospatialPose *)posePtr
+                  headingValidOut:(BOOL *)headingValidPtr {
     self = [super init];
     if (self) {
         _poseOut = posePtr;
+        _headingValidOut = headingValidPtr;
         _locationManager = [[CLLocationManager alloc] init];
         _locationManager.delegate = self;
         _locationManager.desiredAccuracy = kCLLocationAccuracyBest;
@@ -136,6 +147,7 @@
     [_locationManager stopUpdatingLocation];
     [_locationManager stopUpdatingHeading];
     _poseOut = nullptr;
+    _headingValidOut = nullptr;
 }
 
 - (void)locationManager:(CLLocationManager *)manager
@@ -157,6 +169,9 @@
                                               : newHeading.magneticHeading;
     _poseOut->heading         = deg;
     _poseOut->headingAccuracy = fmax(0.0, newHeading.headingAccuracy);
+    if (_headingValidOut) {
+        *_headingValidOut = YES;
+    }
     // Build yaw quaternion in EUS frame (rotation around Y by heading radians)
     double yaw = deg * M_PI / 180.0;
     _poseOut->quaternion = VROQuaternion(0.0f,
@@ -693,7 +708,8 @@ VROCloudAnchorProviderReactVision *VROARSessioniOS::ensureReactVisionProvider(st
     // anyway. An anchor hosted on a session carries no location.
     if (!_rvLocationDelegate && apiKey.length && projectId.length) {
       _rvLocationDelegate = [[VROLocationDelegate alloc]
-                              initWithPosePtr:&_lastKnownGPSPose];
+                              initWithPosePtr:&_lastKnownGPSPose
+                              headingValidOut:&_hasReceivedHeadingFix];
       [(VROLocationDelegate *)_rvLocationDelegate start];
     }
 #endif
@@ -1034,6 +1050,35 @@ std::unique_ptr<VROARFrame> &VROARSessioniOS::updateFrame() {
         [_cloudAnchorProviderRV updateWithFrame:arFrame];
       }
       if (_recorder && _recorder->getStatus() == VROARRecordingStatus::Recording) {
+        // Phase 0 task 3: tag the next pose line with the latest GPS/heading
+        // fix, but only when it is genuinely new (timestamp changed) — a
+        // location fix arrives far slower than frames, and re-attaching the
+        // same one to every frame would misrepresent it as taken "at the
+        // instant" of each of them. _lastKnownGPSPose is reused as-is from
+        // the ReactVision geospatial path (VROLocationDelegate, started by
+        // ensureReactVisionProvider()); nothing here acquires location or
+        // heading itself, so this is empty until that provider has been used
+        // at least once. heading is _lastKnownGPSPose.heading, i.e. CLHeading's
+        // trueHeading/magneticHeading as-is — the same value this file already
+        // uses for geospatial anchor placement. It is not re-derived from the
+        // AR camera's forward axis; doing that fusion correctly (vs. the
+        // device's raw compass bearing) needs verification against a real
+        // ARKit session that this environment cannot run, so it is flagged
+        // here rather than guessed at.
+        if (_lastKnownGPSPose.isValid() &&
+            _lastKnownGPSPose.timestamp != _lastGpsTimestampPushedToRecorder) {
+          _lastGpsTimestampPushedToRecorder = _lastKnownGPSPose.timestamp;
+          VROARSessionRecorderIOS::VROARRecordingGeoReading geo;
+          geo.hasGps          = true;
+          geo.latitude        = _lastKnownGPSPose.latitude;
+          geo.longitude       = _lastKnownGPSPose.longitude;
+          geo.altitude        = _lastKnownGPSPose.altitude;
+          geo.hAccuracy       = _lastKnownGPSPose.horizontalAccuracy;
+          geo.hasHeading      = _hasReceivedHeadingFix;
+          geo.headingDegrees  = _lastKnownGPSPose.heading;
+          geo.headingAccuracyDegrees = _lastKnownGPSPose.headingAccuracy;
+          _recorder->setLocationReading(geo);
+        }
         _recorder->recordFrame(arFrame);
       }
     }
