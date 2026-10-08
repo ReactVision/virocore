@@ -2065,6 +2065,18 @@ VRO_METHOD(void, nativeSetWorldMeshEnabled)(VRO_ARGS
     });
 }
 
+VRO_METHOD(void, nativeResetWorldMesh)(VRO_ARGS
+                                      VRO_REF(VROARSceneController) sceneController_j) {
+    std::weak_ptr<VROARScene> scene_w = std::dynamic_pointer_cast<VROARScene>(
+            VRO_REF_GET(VROARSceneController, sceneController_j)->getScene());
+    VROPlatformDispatchAsyncRenderer([scene_w] {
+        std::shared_ptr<VROARScene> scene = scene_w.lock();
+        if (!scene) return;
+        std::shared_ptr<VROARWorldMesh> worldMesh = scene->getWorldMesh();
+        if (worldMesh) worldMesh->resetAccumulation();
+    });
+}
+
 VRO_METHOD(void, nativeSetWorldMeshConfig)(VRO_ARGS
                                            VRO_REF(VROARSceneController) sceneController_j,
                                            VRO_INT stride,

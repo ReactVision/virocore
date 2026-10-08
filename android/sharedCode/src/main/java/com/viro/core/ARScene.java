@@ -1913,6 +1913,17 @@ public class ARScene extends Scene {
      * @param restitution Bounciness of the surface (0.0-1.0)
      * @param collisionTag Tag for identifying world mesh collisions
      */
+    /**
+     * Clears the fused world mesh, so the next scan starts from an empty room instead of carrying
+     * the last one into it.
+     *
+     * Only the depth-image and monocular paths accumulate; on a LiDAR device ARKit owns the
+     * accumulation and this does nothing.
+     */
+    public void resetWorldMesh() {
+        nativeResetWorldMesh(mNativeRef);
+    }
+
     public void setWorldMeshConfig(int stride, float minConfidence, float maxDepth,
                                     double updateIntervalMs, double meshPersistenceMs,
                                     float friction, float restitution, String collisionTag) {
@@ -2061,6 +2072,7 @@ public class ARScene extends Scene {
     private native void nativeSetWorldMeshEnabled(long sceneControllerRef, boolean enabled);
     private native byte[] nativeRvSnapshotWorldMesh(long sceneControllerRef, String locationTransformCsv);
     private native boolean nativeRvLoadWorldMesh(long sceneControllerRef, byte[] meshBytes, String resolvedTransformCsv);
+    private native void nativeResetWorldMesh(long sceneControllerRef);
     private native void nativeSetWorldMeshConfig(long sceneControllerRef,
                                                   int stride,
                                                   float minConfidence,
