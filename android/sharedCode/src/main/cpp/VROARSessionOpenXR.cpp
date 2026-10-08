@@ -455,6 +455,12 @@ void VROARSessionOpenXR::setDelegate(std::shared_ptr<VROARSessionDelegate> deleg
         for (const auto &entry : _scenePlanes) {
             delegate->anchorWasDetected(entry.second);
         }
+        // With none found yet, query now rather than at the next 5 s tick: right
+        // after spatial data is granted the last query still found nothing, and
+        // an app waiting for a plane may give up before the next one.
+        if (_planes.empty() && _scenePlanes.empty()) {
+            _lastSceneQuery = std::chrono::steady_clock::time_point{};
+        }
     }
 }
 
