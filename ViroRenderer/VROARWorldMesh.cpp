@@ -55,9 +55,21 @@ void BulletRigidBodyDeleter::operator()(btRigidBody *body) const {
 
 static VROWorldMeshSource sourceFromMeshTag(const std::string& tag) {
     if (tag == "lidar")     return VROWorldMeshSource::LiDAR;
+    if (tag == "depth")     return VROWorldMeshSource::Depth;
     if (tag == "monocular") return VROWorldMeshSource::Monocular;
     if (tag == "plane")     return VROWorldMeshSource::Plane;
     return VROWorldMeshSource::Unknown;
+}
+
+const char *VROWorldMeshSourceToString(VROWorldMeshSource source) {
+    switch (source) {
+        case VROWorldMeshSource::LiDAR:     return "lidar";
+        case VROWorldMeshSource::Depth:     return "depth";
+        case VROWorldMeshSource::Monocular: return "monocular";
+        case VROWorldMeshSource::Plane:     return "plane";
+        case VROWorldMeshSource::Unknown:   break;
+    }
+    return "unknown";
 }
 
 VROARWorldMesh::VROARWorldMesh(std::shared_ptr<VROPhysicsWorld> physicsWorld)
@@ -278,6 +290,7 @@ VROWorldMeshStats VROARWorldMesh::getStats() const {
         stats.vertexCount = _currentMesh->getVertexCount();
         stats.triangleCount = _currentMesh->getTriangleCount();
         stats.averageConfidence = _currentMesh->getAverageConfidence();
+        stats.source = sourceFromMeshTag(_currentMesh->getSource());
     }
 
     stats.lastUpdateTimeMs = _lastUpdateTimeMs;
