@@ -625,15 +625,28 @@ std::shared_ptr<VROARDepthMesh> VROARFrameARCore::generateDepthMesh(
         return nullptr;
     }
 
-    const uint16_t *depthData = reinterpret_cast<const uint16_t*>(rawData);
+    // Rows can be padded, so the stride is what separates them, not the width. Indexing by width
+    // alone sheared the image progressively down the frame whenever ARCore padded its rows.
+    // getCameraImageY, in this same file, already reads its plane this way.
+    int depthRowStride = depthImage->getPlaneRowStride(0);
+    if (depthRowStride <= 0) depthRowStride = depthWidth * (int)sizeof(uint16_t);
 
-    // Try to get confidence data
+    // Confidence comes in its own image, with its own size and stride. It used to be indexed with
+    // the depth image's width, which read the wrong pixel whenever the two differed — and read off
+    // the end of the buffer when the confidence image was the smaller of the two.
     arcore::Image *confidenceImage = nullptr;
     const uint8_t *confidenceData = nullptr;
+    int confWidth = 0, confHeight = 0, confRowStride = 0, confLength = 0;
     status = _frame->acquireDepthConfidenceImage(&confidenceImage);
     if (status == arcore::ImageRetrievalStatus::Success && confidenceImage != nullptr) {
-        int confLength = 0;
         confidenceImage->getPlaneData(0, &confidenceData, &confLength);
+        confWidth  = confidenceImage->getWidth();
+        confHeight = confidenceImage->getHeight();
+        confRowStride = confidenceImage->getPlaneRowStride(0);
+        if (confRowStride <= 0) confRowStride = confWidth;
+        if (confidenceData == nullptr || confWidth <= 0 || confHeight <= 0) {
+            confidenceData = nullptr;   // unusable; every sample keeps confidence 1.0
+        }
     }
 
     // Unprojection, by pinhole intrinsics rather than by the view-projection matrix.
@@ -702,8 +715,11 @@ std::shared_ptr<VROARDepthMesh> VROARFrameARCore::generateDepthMesh(
 
             if (px >= depthWidth || py >= depthHeight) continue;
 
-            int pixelIndex = py * depthWidth + px;
-            uint16_t depthMm = depthData[pixelIndex];
+            const uint8_t *depthRow = rawData + (size_t)py * (size_t)depthRowStride;
+            if ((size_t)(depthRow - rawData) + (size_t)(px + 1) * sizeof(uint16_t) > (size_t)dataLength) {
+                continue;
+            }
+            uint16_t depthMm = reinterpret_cast<const uint16_t *>(depthRow)[px];
 
             // Skip invalid depth (0 means no depth data)
             if (depthMm == 0) continue;
@@ -711,10 +727,19 @@ std::shared_ptr<VROARDepthMesh> VROARFrameARCore::generateDepthMesh(
             float depthMeters = depthMm / 1000.0f;
             if (depthMeters > maxDepth) continue;
 
-            // Check confidence if available
+            // Check confidence if available. Sampled at the matching position in the confidence
+            // image rather than at the depth image's index, since the two need not be the same
+            // size. NOTE: ARCore's confidence belongs to the raw depth image while the depth read
+            // above is the smoothed one, so a low value here does not necessarily mean the depth
+            // is bad — see the open question in the world-mesh plan before tuning minConfidence.
             float confidence = 1.0f;
             if (confidenceData) {
-                confidence = confidenceData[pixelIndex] / 255.0f;
+                int cpx = (confWidth  == depthWidth)  ? px : (px * confWidth)  / depthWidth;
+                int cpy = (confHeight == depthHeight) ? py : (py * confHeight) / depthHeight;
+                size_t cIdx = (size_t)cpy * (size_t)confRowStride + (size_t)cpx;
+                if (cpx < confWidth && cpy < confHeight && cIdx < (size_t)confLength) {
+                    confidence = confidenceData[cIdx] / 255.0f;
+                }
             }
             if (confidence < minConfidence) continue;
 
