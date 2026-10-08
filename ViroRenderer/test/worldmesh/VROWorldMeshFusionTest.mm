@@ -1,0 +1,180 @@
+// Drives the production VROARWorldMesh on the host: updateFromFrame -> fusion -> extraction ->
+// stats -> serialization. No reimplementation — the shipping .cpp, linked against minimal
+// stand-ins for the platform pieces (dispatch, physics, scene) that fusion never touches.
+#include <cstdio>
+#include <cmath>
+#include <vector>
+#include <set>
+#include <string>
+
+#include "VROARWorldMesh.h"
+#include "VROARFrame.h"
+#include "VROARCamera.h"
+#include "VROARDepthMesh.h"
+#include "VROViewport.h"
+#include "VROCameraTexture.h"
+#include "VROARHitTestResult.h"
+
+// ── Fake camera ─────────────────────────────────────────────────────────────
+class FakeCamera : public VROARCamera {
+public:
+    VROVector3f position;
+    VROARTrackingState tracking = VROARTrackingState::Normal;
+
+    VROARTrackingState getTrackingState() const override { return tracking; }
+    VROARTrackingStateReason getLimitedTrackingStateReason() const override { return VROARTrackingStateReason::None; }
+    VROMatrix4f getRotation() const override { VROMatrix4f m; m.toIdentity(); return m; }
+    VROVector3f getPosition() const override { return position; }
+    VROMatrix4f getProjection(VROViewport, float, float, VROFieldOfView *) override { VROMatrix4f m; m.toIdentity(); return m; }
+    VROVector3f getImageSize() override { return VROVector3f(640, 480, 0); }
+};
+
+// ── Fake frame: hands over a synthetic depth mesh, the way ARCore would ─────
+class FakeFrame : public VROARFrame {
+public:
+    std::shared_ptr<FakeCamera> camera = std::make_shared<FakeCamera>();
+    std::shared_ptr<VROARDepthMesh> depthMesh;
+    std::vector<std::shared_ptr<VROARAnchor>> anchors;
+
+    double getTimestamp() const override { return 0; }
+    const std::shared_ptr<VROARCamera> &getCamera() const override { return _cameraBase; }
+    VROCameraOrientation getOrientation() const override { return VROCameraOrientation::Portrait; }
+    std::vector<std::shared_ptr<VROARHitTestResult>> hitTest(int, int, std::set<VROARHitTestResultType>) override { return {}; }
+    std::vector<std::shared_ptr<VROARHitTestResult>> hitTestRay(VROVector3f *, VROVector3f *, std::set<VROARHitTestResultType>) override { return {}; }
+    VROMatrix4f getViewportToCameraImageTransform() const override { VROMatrix4f m; m.toIdentity(); return m; }
+    float getAmbientLightIntensity() const override { return 1.0f; }
+    VROVector3f getAmbientLightColor() const override { return VROVector3f(1,1,1); }
+    const std::vector<std::shared_ptr<VROARAnchor>> &getAnchors() const override { return anchors; }
+    std::shared_ptr<VROARPointCloud> getPointCloud() override { return nullptr; }
+
+    bool hasDepthData() const override { return depthMesh != nullptr; }
+    std::shared_ptr<VROARDepthMesh> generateDepthMesh(int, float, float) override { return depthMesh; }
+
+    void bind() { _cameraBase = camera; }
+private:
+    std::shared_ptr<VROARCamera> _cameraBase;
+};
+
+// A flat wall at `z`, sampled on a grid.
+static std::shared_ptr<VROARDepthMesh> wallMesh(float z, float cx, float cy, int n) {
+    std::vector<VROVector3f> v; std::vector<int> idx; std::vector<float> conf;
+    for (int i = 0; i < n; i++) for (int j = 0; j < n; j++) {
+        v.push_back(VROVector3f(cx - 0.9f + 1.8f * i / (n - 1), cy - 0.9f + 1.8f * j / (n - 1), z));
+        conf.push_back(1.0f);
+    }
+    for (int i = 0; i + 1 < n; i++) for (int j = 0; j + 1 < n; j++) {
+        int a = i*n+j, b=(i+1)*n+j, c=i*n+j+1, d=(i+1)*n+j+1;
+        idx.push_back(a); idx.push_back(b); idx.push_back(c);
+        idx.push_back(b); idx.push_back(d); idx.push_back(c);
+    }
+    return std::make_shared<VROARDepthMesh>(std::move(v), std::move(idx), std::move(conf), "depth");
+}
+
+int main() {
+    int fails = 0;
+    auto check = [&](const char *name, bool ok, const char *detail) {
+        printf("  %-52s %s%s%s\n", name, ok ? "OK" : "FAIL", detail && *detail ? "  " : "", detail ? detail : "");
+        if (!ok) fails++;
+    };
+
+    printf("Production VROARWorldMesh pipeline, no physics (null physicsWorld)\n\n");
+
+    auto worldMesh = std::make_shared<VROARWorldMesh>(nullptr);
+    worldMesh->setEnabled(true);
+    VROWorldMeshConfig cfg;
+    cfg.accumulate = true;
+    cfg.voxelSize = 0.04f;
+    cfg.updateIntervalMs = 0.0;      // no throttling between frames in the test
+    cfg.physicsCellSize = 0.0f;      // no physics clustering
+    worldMesh->setConfig(cfg);
+
+    // ── 1. Three different views of the same wall: it must accumulate ──────
+    FakeFrame f; f.bind();
+    float cams[3][2] = {{0.0f,0.0f},{0.6f,0.2f},{-0.5f,-0.3f}};
+    for (auto &c : cams) {
+        f.camera->position = VROVector3f(c[0], c[1], 0.0f);
+        f.depthMesh = wallMesh(-2.0f, c[0]*0.3f, c[1]*0.3f, 40);
+        std::unique_ptr<VROARFrame> frame(&f);
+        worldMesh->updateFromFrame(frame);
+        frame.release();              // owned by the test, not by the unique_ptr
+    }
+
+    VROWorldMeshStats stats = worldMesh->getStats();
+    check("source is reported as depth", stats.source == VROWorldMeshSource::Depth, "");
+    check("the mesh is marked as accumulated", stats.accumulated, "");
+    char buf[128];
+    snprintf(buf, sizeof(buf), "(%d vertices, %d triangles)", stats.vertexCount, stats.triangleCount);
+    check("fusion produced a mesh", stats.vertexCount > 0 && stats.triangleCount > 0, buf);
+
+    // ── 2. The fused geometry sits on the wall ─────────────────────────────
+    auto mesh = worldMesh->getCurrentMesh();
+    double worst = 0;
+    if (mesh) for (const auto &v : mesh->getVertices()) worst = std::max(worst, (double)std::fabs(v.z + 2.0f));
+    snprintf(buf, sizeof(buf), "(max deviation %.4f m, voxel 0.040)", worst);
+    check("vertices land on the wall", mesh && worst < 0.05, buf);
+
+    // ── 3. Looking at the same thing again does not duplicate ──────────────
+    int before = stats.vertexCount;
+    f.camera->position = VROVector3f(0,0,0);
+    f.depthMesh = wallMesh(-2.0f, 0, 0, 40);
+    { std::unique_ptr<VROARFrame> frame(&f); worldMesh->updateFromFrame(frame); frame.release(); }
+    int after = worldMesh->getStats().vertexCount;
+    snprintf(buf, sizeof(buf), "(%d -> %d)", before, after);
+    check("revisiting the same wall does not duplicate vertices", after < before * 1.3, buf);
+
+    // ── 4. The VPS Lite snapshot comes off that mesh ───────────────────────
+    VROMatrix4f L; L.toIdentity(); L.translate(0.5f, -0.2f, 1.0f);
+    mesh = worldMesh->getCurrentMesh();   // revisiting replaced it; compare against the live one
+    std::vector<uint8_t> snap = worldMesh->serializeCurrentMesh(L);
+    bool magicOk = snap.size() > 13 && snap[0]=='R' && snap[1]=='V' && snap[2]=='W' && snap[3]=='M';
+    snprintf(buf, sizeof(buf), "(%zu bytes)", snap.size());
+    check("serializeCurrentMesh produces a valid .rvwm", magicOk, buf);
+
+    auto loaded = VROARWorldMesh::loadMeshSnapshot(snap, L);
+    double rt = 0;
+    if (loaded && mesh) {
+        const auto &a = mesh->getVertices(); const auto &b = loaded->getVertices();
+        if (a.size() == b.size()) for (size_t i=0;i<a.size();i++)
+            rt = std::max(rt, (double)a[i].subtract(b[i]).magnitude());
+        else rt = 1e9;
+    } else rt = 1e9;
+    snprintf(buf, sizeof(buf), "(max error %.2e m)", rt);
+    check("the snapshot comes back identical under the same transform", rt < 1e-4, buf);
+
+    // ── 5. Limited tracking: nothing is integrated ─────────────────────────
+    int beforeLimited = worldMesh->getStats().vertexCount;
+    f.camera->tracking = VROARTrackingState::Limited;
+    f.camera->position = VROVector3f(9, 9, 9);          // absurd pose: integrating it would show
+    f.depthMesh = wallMesh(-8.0f, 5, 5, 40);
+    { std::unique_ptr<VROARFrame> frame(&f); worldMesh->updateFromFrame(frame); frame.release(); }
+    int afterLimited = worldMesh->getStats().vertexCount;
+    snprintf(buf, sizeof(buf), "(%d -> %d)", beforeLimited, afterLimited);
+    check("limited tracking does not pollute the volume", afterLimited == beforeLimited, buf);
+    f.camera->tracking = VROARTrackingState::Normal;
+
+    // ── 6. resetAccumulation empties it ────────────────────────────────────
+    worldMesh->resetAccumulation();
+    f.camera->position = VROVector3f(0,0,0);
+    f.depthMesh = wallMesh(-2.0f, 0, 0, 40);
+    { std::unique_ptr<VROARFrame> frame(&f); worldMesh->updateFromFrame(frame); frame.release(); }
+    int afterReset = worldMesh->getStats().vertexCount;
+    snprintf(buf, sizeof(buf), "(%d after reset, %d before)", afterReset, beforeLimited);
+    check("resetAccumulation starts from empty", afterReset > 0 && afterReset <= beforeLimited, buf);
+
+    // ── 7. accumulate=false reproduces the per-frame behaviour ─────────────
+    auto perFrame = std::make_shared<VROARWorldMesh>(nullptr);
+    perFrame->setEnabled(true);
+    VROWorldMeshConfig c2 = cfg; c2.accumulate = false;
+    perFrame->setConfig(c2);
+    for (auto &c : cams) {
+        f.camera->position = VROVector3f(c[0], c[1], 0.0f);
+        f.depthMesh = wallMesh(-2.0f, c[0]*0.3f, c[1]*0.3f, 40);
+        std::unique_ptr<VROARFrame> frame(&f); perFrame->updateFromFrame(frame); frame.release();
+    }
+    VROWorldMeshStats s2 = perFrame->getStats();
+    snprintf(buf, sizeof(buf), "(%d vertices = the frame's own 1600)", s2.vertexCount);
+    check("accumulate=false hands back the frame mesh", !s2.accumulated && s2.vertexCount == 1600, buf);
+
+    printf("\n%s  (%d failures)\n", fails == 0 ? "ALL GREEN" : "FAILURES", fails);
+    return fails;
+}
