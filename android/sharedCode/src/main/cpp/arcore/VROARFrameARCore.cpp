@@ -744,11 +744,14 @@ std::shared_ptr<VROARDepthMesh> VROARFrameARCore::generateDepthMesh(
 
             // All four corners must have valid vertices
             if (i00 >= 0 && i10 >= 0 && i01 >= 0 && i11 >= 0) {
-                // Check for depth discontinuities (to avoid connecting walls to floors, etc.)
-                float d00 = -vertices[i00].z;
-                float d10 = -vertices[i10].z;
-                float d01 = -vertices[i01].z;
-                float d11 = -vertices[i11].z;
+                // Check for depth discontinuities (to avoid connecting walls to floors, etc.).
+                // Distance from the camera, not a world coordinate: -vertices[i].z is a world Z,
+                // so two samples on the same flat wall could differ by metres, or not at all,
+                // depending only on which way the phone was pointing.
+                float d00 = depthsAtVertices[i00];
+                float d10 = depthsAtVertices[i10];
+                float d01 = depthsAtVertices[i01];
+                float d11 = depthsAtVertices[i11];
 
                 float diff1 = std::abs(d00 - d10);
                 float diff2 = std::abs(d00 - d01);
