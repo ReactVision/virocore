@@ -319,8 +319,13 @@ bool VROARWorldMesh::fuseFrame(std::shared_ptr<VROARDepthMesh> frameMesh,
 
     // Integrating across a relocalisation drags the old room onto the new origin. ARCore reports
     // Limited while it recovers, so wait for Normal rather than smearing the volume.
+    //
+    // Reported as handled, not as a fall-through: returning false would send the caller down the
+    // single-frame path, which replaces the whole accumulated room with this one view — the very
+    // thing the gate exists to prevent. The room already fused stays on screen until tracking
+    // recovers, which is also what the wearer expects to see.
     if (camera->getTrackingState() != VROARTrackingState::Normal) {
-        return false;
+        return _lastMeshWasAccumulated;
     }
 
     // One fusion at a time. The work outlasts the update interval on a large room, and queueing a
