@@ -225,7 +225,7 @@ void VROARSessionRecorderIOS::writeHeaderIfNeeded(ARFrame *frame) {
     CGSize res = frame.camera.imageResolution;
 
     char buf[512];
-    // Extrinsics default to identity — a safe fallback per the plan; iOS
+    // Extrinsics default to identity — a safe fallback; iOS
     // does not expose a per-device IMU/camera calibration to do better here.
     snprintf(buf, sizeof(buf),
         "{\"type\":\"header\",\"intrinsics\":{\"fx\":%.4f,\"fy\":%.4f,\"cx\":%.4f,\"cy\":%.4f,\"width\":%d,\"height\":%d},"
@@ -279,7 +279,7 @@ void VROARSessionRecorderIOS::writePoseLine(ARFrame *frame) {
         gravity = _motionManager.deviceMotion.gravity;
     }
 
-    // Phase 0 task 3: take and clear whatever setLocationReading() last
+    // Take and clear whatever setLocationReading() last
     // delivered — a pose only ever carries a reading taken at (as close as
     // the caller can manage) this instant, not a stale one repeated on every
     // subsequent frame. See the header's VROARRecordingGeoReading doc.

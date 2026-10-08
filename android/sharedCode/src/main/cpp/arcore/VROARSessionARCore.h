@@ -103,7 +103,7 @@ public:
                               double horizAcc, double vertAcc,
                               double heading, double headingAcc);
     void getLastKnownLocation(double& lat, double& lng, double& alt) const;
-    // Phase 0 task 3: bumped every setLastKnownLocation() call, read by
+    // Bumped every setLastKnownLocation() call, read by
     // recordFrameForRecording() to attach a `gps` field only to the next
     // recorded pose after a genuinely fresh fix, not to every one. 0 means
     // "never set" — getLastKnownLocation()'s callers can't tell "never" apart
@@ -466,9 +466,9 @@ private:
     mutable VROGeospatialPose _lastKnownGPSPose;
 
     /*
-     Phase 0 task 3: bumped every setLastKnownLocation() call; see
-     getGpsFixSeq(). recordFrameForRecording() tracks the last value it
-     already attached in _lastRecordingGpsFixSeq.
+     Bumped every setLastKnownLocation() call; see getGpsFixSeq().
+     recordFrameForRecording() tracks the last value it already attached in
+     _lastRecordingGpsFixSeq.
      */
     int _gpsFixSeq = 0;
     int _lastRecordingGpsFixSeq = 0;

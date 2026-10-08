@@ -326,7 +326,7 @@ private:
 
     /*
      True once _rvLocationDelegate has received at least one real
-     didUpdateHeading callback (Phase 0 task 3). VROGeospatialPose's own
+     didUpdateHeading callback. VROGeospatialPose's own
      headingAccuracy can't tell "never updated" apart from "updated with a
      clamped-to-0 accuracy" — both read 0 — so this is tracked separately
      instead. See VROLocationDelegate.headingValidOut.
@@ -335,7 +335,7 @@ private:
 
     /*
      _lastKnownGPSPose.timestamp last pushed into _recorder's pending GPS/
-     heading reading (Phase 0 task 3). Lets updateFrame() push only when a
+     heading reading. Lets updateFrame() push only when a
      genuinely fresh fix has arrived, instead of re-tagging every frame with
      a stale one. 0 means "never pushed".
      */

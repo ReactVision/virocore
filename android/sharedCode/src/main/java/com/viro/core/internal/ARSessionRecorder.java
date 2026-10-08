@@ -223,9 +223,9 @@ public class ARSessionRecorder {
      * JNI) once per frame. dims = [width, height, yRowStride, uRowStride,
      * uPixelStride, vRowStride, vPixelStride]; pose = [qx,qy,qz,qw, px,py,pz,
      * fx,fy,cx,cy] (11 floats) — orientation as a quaternion rather than a
-     * full matrix, same convention as the iOS recorder and the plan's
-     * session.jsonl format. geo (Phase 0 task 3) = [hasGps(0/1), lat, lon,
-     * alt, hAccuracy, heading, headingAccuracy] — hasGps doubles as
+     * full matrix, same convention as the iOS recorder's session.jsonl
+     * format. geo = [hasGps(0/1), lat, lon, alt, hAccuracy, heading,
+     * headingAccuracy] — hasGps doubles as
      * hasHeading, see VROARSessionARCore::recordFrameForRecording's comment;
      * only attached to this one pose line when hasGps is 1.
      */
@@ -258,7 +258,7 @@ public class ARSessionRecorder {
             return;
         }
         mWroteHeader = true;
-        // Extrinsics default to identity — a safe fallback per the plan;
+        // Extrinsics default to identity — a safe fallback;
         // ARCore does not expose a per-device IMU/camera calibration to do
         // better here (matches the iOS recorder's same default).
         String line = String.format(Locale.US,
@@ -291,7 +291,7 @@ public class ARSessionRecorder {
             "\"position\":[%.6f,%.6f,%.6f],\"gravity\":[%.6f,%.6f,%.6f]",
             timestampNs, pose[0], pose[1], pose[2], pose[3], pose[4], pose[5], pose[6],
             mLastGravity[0], mLastGravity[1], mLastGravity[2]));
-        // Phase 0 task 3: geo[0] (hasGps) gates the whole field — schema
+        // geo[0] (hasGps) gates the whole field — schema
         // requires lat/lon/alt/heading together whenever `gps` is present.
         if (geo != null && geo.length >= 7 && geo[0] != 0f) {
             String hAcc = geo[4] >= 0f ? String.format(Locale.US, "%.3f", geo[4]) : "null";

@@ -73,7 +73,7 @@ public:
 
     /*
      A GPS/heading fix to attach to the next `pose` line recordFrame() writes
-     (Phase 0 task 3 — viroscan's geo_register GEO chunk). All fields are
+     (consumed downstream by viroscan's geo_register GEO chunk). All fields are
      optional via the has* flags, matching session.jsonl's documented schema:
      a `gps` object, when present at all, requires latitude/longitude/altitude
      and heading together, so hasGps and hasHeading are only honored as a pair
@@ -151,7 +151,7 @@ private:
     struct SidecarLine { int64_t t; std::string text; };
     std::vector<SidecarLine> _bufferedLines;
 
-    // Phase 0 task 3: GPS/heading fix pending attachment to the next pose
+    // GPS/heading fix pending attachment to the next pose
     // line. Set from any thread via setLocationReading(), consumed (and
     // cleared) by writePoseLine() on the AR/render thread. A dedicated mutex,
     // not _sidecarMutex: setLocationReading() should never block on whatever

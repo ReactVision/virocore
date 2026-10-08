@@ -68,7 +68,7 @@
 @property (nonatomic, strong) CLLocationManager *locationManager;
 // Raw pointer into the owning VROARSessioniOS; cleared before the session dies.
 @property (nonatomic, assign) VROGeospatialPose *poseOut;
-// Phase 0 task 3: set true on the first real didUpdateHeading callback. Not
+// Set true on the first real didUpdateHeading callback. Not
 // derivable from poseOut->headingAccuracy alone — CLHeading clamps a negative
 // (invalid) accuracy to 0 before it is stored, which is indistinguishable
 // from "no heading has ever arrived" (also 0, VROGeospatialPose's default).
@@ -1050,7 +1050,7 @@ std::unique_ptr<VROARFrame> &VROARSessioniOS::updateFrame() {
         [_cloudAnchorProviderRV updateWithFrame:arFrame];
       }
       if (_recorder && _recorder->getStatus() == VROARRecordingStatus::Recording) {
-        // Phase 0 task 3: tag the next pose line with the latest GPS/heading
+        // Tag the next pose line with the latest GPS/heading
         // fix, but only when it is genuinely new (timestamp changed) — a
         // location fix arrives far slower than frames, and re-attaching the
         // same one to every frame would misrepresent it as taken "at the

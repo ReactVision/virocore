@@ -1772,10 +1772,10 @@ void VROARSessionARCore::setLastKnownLocation(double lat, double lng, double alt
                                                  (float)std::sin(yaw / 2.0),
                                                  0.0f,
                                                  (float)std::cos(yaw / 2.0));
-    // Phase 0 task 3: see getGpsFixSeq() — this call is only ever made with a
-    // real fix (never speculatively with zeros, per this method's own doc
-    // comment), so "has this been called since the last recorded pose" is a
-    // safe proxy for "is there a fresh gps+heading reading".
+    // See getGpsFixSeq() — this call is only ever made with a real fix
+    // (never speculatively with zeros, per this method's own doc comment),
+    // so "has this been called since the last recorded pose" is a safe
+    // proxy for "is there a fresh gps+heading reading".
     _gpsFixSeq++;
 }
 
@@ -3083,7 +3083,7 @@ void VROARSessionARCore::recordFrameForRecording(VROARFrameARCore *arFrame) {
     jfloatArray poseArr = env->NewFloatArray(11);
     env->SetFloatArrayRegion(poseArr, 0, 11, pose);
 
-    // Phase 0 task 3: geo = [hasGps(0/1), lat, lon, alt, hAccuracy, heading,
+    // geo = [hasGps(0/1), lat, lon, alt, hAccuracy, heading,
     // headingAccuracy]. hasGps doubles as hasHeading here — Android's
     // setLastKnownLocation() always sets both together (unlike iOS, which
     // gets separate location/heading callbacks), so there is no partial
