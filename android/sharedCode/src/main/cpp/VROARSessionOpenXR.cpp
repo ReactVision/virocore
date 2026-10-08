@@ -100,18 +100,15 @@ static VROARPlaneClassification classifyLabel(const std::string &label) {
     return VROARPlaneClassification::Unknown;
 }
 
-// Derive a plane alignment from a Meta semantic label (the room model carries
-// semantics rather than an explicit orientation enum).
-static VROARPlaneAlignment alignmentForLabel(const std::string &label) {
-    if (label == "FLOOR" || label == "TABLE" || label == "STORAGE" ||
-        label == "COUCH" || label == "BED")
-        return VROARPlaneAlignment::HorizontalUpward;
-    if (label == "CEILING")
-        return VROARPlaneAlignment::HorizontalDownward;
-    if (label == "WALL_FACE" || label == "INVISIBLE_WALL_FACE" ||
-        label == "DOOR_FRAME" || label == "WINDOW_FRAME")
-        return VROARPlaneAlignment::Vertical;
-    return VROARPlaneAlignment::Horizontal;
+// From the face's normal, not its label: a label names the object, and an
+// OTHER or DESK face can point any way.
+static VROARPlaneAlignment alignmentForTransform(const VROMatrix4f &transform) {
+    // planeAxisCorrection() puts the normal on the plane's local +Y.
+    float normalY = (transform.multiply(VROVector3f(0, 1, 0)) -
+                     transform.extractTranslation()).y;
+    if (normalY > 0.7f)  return VROARPlaneAlignment::HorizontalUpward;
+    if (normalY < -0.7f) return VROARPlaneAlignment::HorizontalDownward;
+    return VROARPlaneAlignment::Vertical;
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -902,7 +899,7 @@ std::shared_ptr<VROARPlaneAnchor> VROARSessionOpenXR::buildPlaneFromSpace(XrSpac
     float cy = bbox.offset.y + h * 0.5f;
     anchor->setExtent(VROVector3f(w, 0, h));
     anchor->setCenter(VROVector3f(cx, 0, -cy));  // map plane-local (x,y) → (x,0,-y)
-    anchor->setAlignment(alignmentForLabel(label));
+    anchor->setAlignment(alignmentForTransform(transform));
     anchor->setClassification(classifyLabel(label));
 
     // Boundary polygon (plane-local X-Y → anchor-local x,0,-y).
