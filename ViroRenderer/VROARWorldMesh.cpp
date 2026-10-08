@@ -26,6 +26,7 @@
 #include "VROARWorldMesh.h"
 #include "VROARDepthMesh.h"
 #include "VROARFrame.h"
+#include "VROARCamera.h"
 #include "VROPhysicsWorld.h"
 #include "VROPhysicsShape.h"
 #include "VROPencil.h"
@@ -148,6 +149,14 @@ void VROARWorldMesh::updateFromFrame(const std::unique_ptr<VROARFrame>& frame) {
             _lastReportedSource = source;
         }
         _lastDepthTimeMs = getCurrentTimeMs();
+
+        if (shouldFuse(source) && fuseFrame(mesh, frame)) {
+            // The fused surface replaces this frame's on the next pass, from the background task.
+            _lastUpdateTimeMs = getCurrentTimeMs();
+            return;
+        }
+
+        _lastMeshWasAccumulated = false;
         applyMeshToPhysics(mesh);
         notifySubscribers(mesh);
     } else if (isMeshStale()) {
@@ -294,6 +303,93 @@ void VROARWorldMesh::removeFromPhysicsWorld() {
     _physicsShape = nullptr;
 }
 
+bool VROARWorldMesh::shouldFuse(VROWorldMeshSource source) const {
+    // Mesh anchors already persist: ARKit fuses them, and re-fusing its output would only blur it.
+    // Plane polygons are not samples of a surface, so there is nothing to average.
+    return _config.accumulate
+        && (source == VROWorldMeshSource::Depth || source == VROWorldMeshSource::Monocular);
+}
+
+bool VROARWorldMesh::fuseFrame(std::shared_ptr<VROARDepthMesh> frameMesh,
+                               const std::unique_ptr<VROARFrame> &frame) {
+    if (!frameMesh || !frame) return false;
+
+    std::shared_ptr<VROARCamera> camera = frame->getCamera();
+    if (!camera) return false;
+
+    // Integrating across a relocalisation drags the old room onto the new origin. ARCore reports
+    // Limited while it recovers, so wait for Normal rather than smearing the volume.
+    if (camera->getTrackingState() != VROARTrackingState::Normal) {
+        return false;
+    }
+
+    // One fusion at a time. The work outlasts the update interval on a large room, and queueing a
+    // second pass behind it would only build a backlog of stale frames.
+    bool expected = false;
+    if (!_fusionInFlight.compare_exchange_strong(expected, true)) {
+        return true;   // handled: this frame is dropped on purpose, not fallen through
+    }
+
+    const VROVector3f cameraPosition = camera->getPosition();
+    std::vector<VROVector3f> points = frameMesh->getVertices();
+    std::vector<float> confidences = frameMesh->getConfidences();
+
+    std::weak_ptr<VROARWorldMesh> weakSelf = shared_from_this();
+    VROPlatformDispatchAsyncBackground([weakSelf, points, confidences, cameraPosition]() {
+        std::shared_ptr<VROARWorldMesh> self = weakSelf.lock();
+        if (!self) return;
+
+        std::vector<VROVector3f> vertices;
+        std::vector<float> outConfidences;
+        std::vector<int> indices;
+        {
+            std::lock_guard<std::mutex> lock(self->_volumeMutex);
+            if (!self->_volume) {
+                const size_t blockBytes = sizeof(float) * 2
+                    * VROTSDFVolume::kBlockSize * VROTSDFVolume::kBlockSize * VROTSDFVolume::kBlockSize;
+                const size_t maxBlocks =
+                    std::max<size_t>(1, ((size_t)std::max(1, self->_config.maxMemoryMB) << 20) / blockBytes);
+                self->_volume.reset(new VROTSDFVolume(self->_config.voxelSize,
+                                                      self->_config.voxelSize * 3.0f,
+                                                      maxBlocks));
+            }
+            self->_volume->integrate(points, confidences, cameraPosition);
+            if (self->_volume->consumeDirty()) {
+                self->_volume->extractSurface(&vertices, &outConfidences, &indices);
+            }
+        }
+
+        if (vertices.empty() || indices.empty()) {
+            self->_fusionInFlight = false;
+            return;
+        }
+
+        VROPlatformDispatchAsyncRenderer([weakSelf, vertices, outConfidences, indices]() {
+            std::shared_ptr<VROARWorldMesh> self = weakSelf.lock();
+            if (!self) return;
+            auto fused = std::make_shared<VROARDepthMesh>(
+                std::vector<VROVector3f>(vertices),
+                std::vector<int>(indices),
+                std::vector<float>(outConfidences),
+                "depth");
+            if (fused->isValid()) {
+                self->_lastMeshWasAccumulated = true;
+                self->applyMeshToPhysics(fused);
+                self->notifySubscribers(fused);
+            }
+            self->_fusionInFlight = false;
+        });
+    });
+
+    return true;
+}
+
+void VROARWorldMesh::resetAccumulation() {
+    std::lock_guard<std::mutex> lock(_volumeMutex);
+    if (_volume) _volume->reset();
+    _lastMeshWasAccumulated = false;
+}
+
 VROWorldMeshStats VROARWorldMesh::getStats() const {
     VROWorldMeshStats stats;
 
@@ -302,6 +398,7 @@ VROWorldMeshStats VROARWorldMesh::getStats() const {
         stats.triangleCount = _currentMesh->getTriangleCount();
         stats.averageConfidence = _currentMesh->getAverageConfidence();
         stats.source = sourceFromMeshTag(_currentMesh->getSource());
+        stats.accumulated = _lastMeshWasAccumulated;
     }
 
     stats.lastUpdateTimeMs = _lastUpdateTimeMs;

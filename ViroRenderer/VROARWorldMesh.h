@@ -33,7 +33,10 @@
 #include <map>
 #include <mutex>
 #include <cstdint>
+#include <vector>
+#include <atomic>
 #include "VROVector3f.h"
+#include "VROTSDFVolume.h"
 #include "VROMatrix4f.h"
 
 class VROARDepthMesh;
@@ -54,6 +57,12 @@ struct VROWorldMeshConfig {
     int stride = 4;                     // Sample every Nth pixel (lower = more detail, higher cost)
     float minConfidence = 0.3f;         // Minimum confidence threshold (0.0-1.0)
     float maxDepth = 5.0f;              // Maximum depth in meters
+
+    // Fusion across frames. ARKit accumulates for us on LiDAR devices and hands back mesh anchors;
+    // ARCore and monocular depth give one frame at a time, so those two paths fuse here instead.
+    bool accumulate = true;             // false reproduces the per-frame behaviour exactly
+    float voxelSize = 0.04f;            // Fusion voxel edge, meters
+    int maxMemoryMB = 64;               // Budget for the fused volume; oldest blocks evicted first
 
     // Update settings
     double updateIntervalMs = 500.0;    // Minimum time between mesh updates
@@ -105,6 +114,7 @@ struct VROWorldMeshStats {
     double lastUpdateTimeMs = 0.0;      // Timestamp of last mesh update
     bool isStale = false;               // True if depth data hasn't been received recently
     VROWorldMeshSource source = VROWorldMeshSource::Unknown;  // Which of the three paths produced it
+    bool accumulated = false;           // True when fused across frames rather than a single view
 };
 
 /**
@@ -196,6 +206,12 @@ public:
      * When disabled, the mesh is removed from the physics world.
      */
     void setEnabled(bool enabled);
+
+    /*
+     Clears the fused volume, so the next scan starts from an empty room rather than carrying the
+     last one. No-op on the mesh-anchor path, where ARKit owns the accumulation.
+     */
+    void resetAccumulation();
 
     /**
      * Check if the world mesh is enabled.
@@ -334,6 +350,16 @@ private:
     // Last source announced to the log, so the line appears on a change rather than every update.
     VROWorldMeshSource _lastReportedSource = VROWorldMeshSource::Unknown;
 
+    /*
+     The fused volume, and the lock that lets the background fusion task touch it while the render
+     thread may be resetting it. Integrating a frame and extracting a room's surface cost tens of
+     milliseconds — measured, not guessed — so neither runs on the render thread.
+     */
+    std::unique_ptr<VROTSDFVolume> _volume;
+    std::mutex _volumeMutex;
+    std::atomic<bool> _fusionInFlight{false};
+    bool _lastMeshWasAccumulated = false;
+
     // Configuration and state
     VROWorldMeshConfig _config;
     bool _enabled = false;
@@ -357,6 +383,17 @@ private:
      * Creates a new physics shape and rigid body from the mesh.
      */
     void applyMeshToPhysics(std::shared_ptr<VROARDepthMesh> mesh);
+
+    /* Whether this source is one the volume should fuse. */
+    bool shouldFuse(VROWorldMeshSource source) const;
+
+    /*
+     Hands the frame's samples to the fused volume on a background thread and, when the volume has
+     changed, re-meshes it and applies the result on the render thread. Returns true when the frame
+     was taken over by fusion, so the caller does not also apply the single-frame mesh.
+     */
+    bool fuseFrame(std::shared_ptr<VROARDepthMesh> frameMesh,
+                   const std::unique_ptr<VROARFrame> &frame);
 
     /**
      * Remove the current physics body from the world.
