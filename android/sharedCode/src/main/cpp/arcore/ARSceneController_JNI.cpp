@@ -794,6 +794,7 @@ VRO_METHOD(void, nativeRvGetWorldMeshStats)(VRO_ARGS
            << ",\"averageConfidence\":" << stats.averageConfidence
            << ",\"lastUpdateTimeMs\":" << stats.lastUpdateTimeMs
            << ",\"isStale\":" << (stats.isStale ? "true" : "false")
+           << ",\"source\":\"" << VROWorldMeshSourceToString(stats.source) << "\""
            << "}";
         rvFireScanJson(weakObj, keyStr, ss.str());
     });

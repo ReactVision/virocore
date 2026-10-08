@@ -822,11 +822,13 @@ std::shared_ptr<VROARDepthMesh> VROARFrameARCore::generateDepthMesh(
     if (kDebugFrameLogs) pinfo("VROARFrameARCore: Generated depth mesh with %zu vertices, %zu triangles",
           vertices.size(), indices.size() / 3);
 
+    // "depth", not "lidar": this is ARCore's depth camera image. An Android phone has no LiDAR,
+    // and tagging it as such left getWorldMeshStats() reporting a source that cannot exist there.
     return std::make_shared<VROARDepthMesh>(
         std::move(vertices),
         std::move(indices),
         std::move(confidences),
-        "lidar"
+        "depth"
     );
 }
 
