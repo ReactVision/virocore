@@ -1629,6 +1629,35 @@ public class ARScene extends Scene {
         nativeRvFinishScan(mNativeRef, key, ttlDays);
     }
 
+    /**
+     * Loads a downloaded {@code .rvmap}'s raw bytes for continuous VPS
+     * localisation against the live camera (see {@link #rvGetVPSLocalization}).
+     * Reports {@code {"success":true|false}} as JSON — false means the bytes
+     * didn't parse as a supported map (truncated, empty, or an unsupported
+     * format/version). See {@code VROARSession::rvLoadVPSMap}.
+     */
+    public void rvLoadVPSMap(byte[] rvmapBytes, RvScanJsonCallback callback) {
+        String key = "rvLoadVPSMap_" + System.nanoTime();
+        mRvScanJsonCallbacks.put(key, callback);
+        nativeRvLoadVPSMap(mNativeRef, key, rvmapBytes);
+    }
+
+    /** Drops whatever {@link #rvLoadVPSMap} loaded; per-frame matching becomes a no-op. */
+    public void rvUnloadVPSMap() {
+        nativeRvUnloadVPSMap(mNativeRef);
+    }
+
+    /**
+     * The latest continuous VPS localisation result, as JSON — a pollable
+     * stand-in for an onLocalized event. See
+     * {@code VROARSession::rvGetVPSLocalizationJson} for the keys.
+     */
+    public void rvGetVPSLocalization(RvScanJsonCallback callback) {
+        String key = "rvGetVPSLocalization_" + System.nanoTime();
+        mRvScanJsonCallbacks.put(key, callback);
+        nativeRvGetVPSLocalization(mNativeRef, key);
+    }
+
     public void rvGetCloudAnchor(String anchorId, RvCloudAnchorCallback callback) {
         String key = "rvGetCloud_" + System.nanoTime();
         mRvCloudCallbacks.put(key, callback);
@@ -2026,6 +2055,9 @@ public class ARScene extends Scene {
     private native void nativeRvGetScanStatus(long sceneControllerRef, String key);
     private native void nativeRvGetScanDiagnostics(long sceneControllerRef, String key);
     private native void nativeRvFinishScan(long sceneControllerRef, String key, int ttlDays);
+    private native void nativeRvLoadVPSMap(long sceneControllerRef, String key, byte[] rvmapBytes);
+    private native void nativeRvUnloadVPSMap(long sceneControllerRef);
+    private native void nativeRvGetVPSLocalization(long sceneControllerRef, String key);
     private native void nativeRvCreateSharedFrame(long sceneControllerRef, String key, String groupId);
     private native void nativeRvJoinSharedFrame(long sceneControllerRef, String key, String groupId);
     private native void nativeRvGetCloudAnchor(long sceneControllerRef, String key, String anchorId);
