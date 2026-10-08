@@ -733,8 +733,30 @@ std::shared_ptr<VROARDepthMesh> VROARFrameARCore::generateDepthMesh(
         }
     }
 
-    // Generate triangle indices, skipping triangles that span depth discontinuities
+    // Generate triangle indices, skipping triangles that span depth discontinuities.
+    //
+    // A cell emits a triangle when three of its four corners are valid, which is what depth-to-mesh
+    // builders normally do. Requiring all four meant one missing sample erased both triangles, and
+    // with sparse depth most cells lose a corner, so the surface came out as specks. Lowering the
+    // stride did not help: it only made more cells, each still missing a corner.
     const float maxDepthDiff = 0.3f; // 30cm threshold
+
+    // Per triangle rather than per cell: with three corners there is no fourth to test, and a cell
+    // whose fourth corner sits on a far surface should still emit the triangle that excludes it.
+    auto withinDepth = [&](int a, int b, int c) {
+        float da = depthsAtVertices[a], db = depthsAtVertices[b], dc = depthsAtVertices[c];
+        return std::abs(da - db) < maxDepthDiff
+            && std::abs(db - dc) < maxDepthDiff
+            && std::abs(da - dc) < maxDepthDiff;
+    };
+    auto emit = [&](int a, int b, int c) {
+        if (withinDepth(a, b, c)) {
+            indices.push_back(a);
+            indices.push_back(b);
+            indices.push_back(c);
+        }
+    };
+
     for (int gy = 0; gy < gridHeight - 1; gy++) {
         for (int gx = 0; gx < gridWidth - 1; gx++) {
             int i00 = vertexMap[gy * gridWidth + gx];
@@ -742,35 +764,23 @@ std::shared_ptr<VROARDepthMesh> VROARFrameARCore::generateDepthMesh(
             int i01 = vertexMap[(gy + 1) * gridWidth + gx];
             int i11 = vertexMap[(gy + 1) * gridWidth + (gx + 1)];
 
-            // All four corners must have valid vertices
-            if (i00 >= 0 && i10 >= 0 && i01 >= 0 && i11 >= 0) {
-                // Check for depth discontinuities (to avoid connecting walls to floors, etc.).
-                // Distance from the camera, not a world coordinate: -vertices[i].z is a world Z,
-                // so two samples on the same flat wall could differ by metres, or not at all,
-                // depending only on which way the phone was pointing.
-                float d00 = depthsAtVertices[i00];
-                float d10 = depthsAtVertices[i10];
-                float d01 = depthsAtVertices[i01];
-                float d11 = depthsAtVertices[i11];
-
-                float diff1 = std::abs(d00 - d10);
-                float diff2 = std::abs(d00 - d01);
-                float diff3 = std::abs(d10 - d11);
-                float diff4 = std::abs(d01 - d11);
-                float maxDiff = std::max(std::max(diff1, diff2), std::max(diff3, diff4));
-
-                if (maxDiff < maxDepthDiff) {
-                    // Triangle 1: top-left, top-right, bottom-left
-                    indices.push_back(i00);
-                    indices.push_back(i10);
-                    indices.push_back(i01);
-
-                    // Triangle 2: top-right, bottom-right, bottom-left
-                    indices.push_back(i10);
-                    indices.push_back(i11);
-                    indices.push_back(i01);
-                }
+            int validCount = (i00 >= 0) + (i10 >= 0) + (i01 >= 0) + (i11 >= 0);
+            if (validCount < 3) {
+                continue;
             }
+
+            if (validCount == 4) {
+                emit(i00, i10, i01);   // top-left, top-right, bottom-left
+                emit(i10, i11, i01);   // top-right, bottom-right, bottom-left
+                continue;
+            }
+
+            // Exactly one corner missing: the other three still make a triangle. Wind it the same
+            // way as the pair above, so normals stay consistent across the mesh.
+            if      (i11 < 0) emit(i00, i10, i01);
+            else if (i01 < 0) emit(i00, i10, i11);
+            else if (i10 < 0) emit(i00, i11, i01);
+            else              emit(i10, i11, i01);
         }
     }
 
