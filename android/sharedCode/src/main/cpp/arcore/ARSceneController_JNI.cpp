@@ -849,6 +849,73 @@ VRO_METHOD(void, nativeRvFinishScan)(VRO_ARGS
     });
 }
 
+// ── Continuous VPS map localisation ─────────────────────────────────────────
+// Reuses rvFireScanJson/the "onRvScanJson" Java callback already wired for
+// the scan/mesh-stats getters above — a caller polling this JSON gets the
+// same shape (key, json) those already resolve with.
+
+VRO_METHOD(void, nativeRvLoadVPSMap)(VRO_ARGS
+                                     VRO_REF(VROARSceneController) arSceneControllerPtr,
+                                     jstring key_j, jbyteArray rvmapBytes_j) {
+    std::string keyStr = VRO_STRING_STL(key_j);
+    jsize len = env->GetArrayLength(rvmapBytes_j);
+    std::string rvmapBytes((size_t)len, '\0');
+    if (len > 0) {
+        env->GetByteArrayRegion(rvmapBytes_j, 0, len,
+                                 reinterpret_cast<jbyte*>(&rvmapBytes[0]));
+    }
+
+    std::weak_ptr<VROARScene> arScene_w = std::dynamic_pointer_cast<VROARScene>(
+        VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
+    VRO_WEAK weakObj = VRO_NEW_WEAK_GLOBAL_REF(obj);
+    VROPlatformDispatchAsyncRenderer([arScene_w, weakObj, keyStr, rvmapBytes] {
+        std::shared_ptr<VROARScene> arScene = arScene_w.lock();
+        if (!arScene) {
+            rvFireScanJson(weakObj, keyStr, "{\"success\":false}");
+            return;
+        }
+        arScene->runWhenARSessionReady(
+            [weakObj, keyStr, rvmapBytes](std::shared_ptr<VROARSession> arSession) {
+                bool ok = arSession->rvLoadVPSMap(rvmapBytes);
+                rvFireScanJson(weakObj, keyStr, ok ? "{\"success\":true}" : "{\"success\":false}");
+            });
+    });
+}
+
+VRO_METHOD(void, nativeRvUnloadVPSMap)(VRO_ARGS
+                                       VRO_REF(VROARSceneController) arSceneControllerPtr) {
+    std::weak_ptr<VROARScene> arScene_w = std::dynamic_pointer_cast<VROARScene>(
+        VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
+    VROPlatformDispatchAsyncRenderer([arScene_w] {
+        std::shared_ptr<VROARScene> arScene = arScene_w.lock();
+        if (!arScene) return;
+        std::shared_ptr<VROARSession> arSession = arScene->getARSession();
+        if (arSession) arSession->rvUnloadVPSMap();
+    });
+}
+
+// Pollable stand-in for an onLocalized event — see rvGetScanStatusJson()'s
+// own reasoning above for why this crosses as JSON rather than a callback
+// carrying the native RVCCACloudAnchorProvider/VROVPSLocalizer types.
+VRO_METHOD(void, nativeRvGetVPSLocalization)(VRO_ARGS
+                                             VRO_REF(VROARSceneController) arSceneControllerPtr,
+                                             jstring key_j) {
+    std::string keyStr = VRO_STRING_STL(key_j);
+    std::weak_ptr<VROARScene> arScene_w = std::dynamic_pointer_cast<VROARScene>(
+        VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
+    VRO_WEAK weakObj = VRO_NEW_WEAK_GLOBAL_REF(obj);
+    VROPlatformDispatchAsyncRenderer([arScene_w, weakObj, keyStr] {
+        std::shared_ptr<VROARScene> arScene = arScene_w.lock();
+        if (!arScene) {
+            rvFireScanJson(weakObj, keyStr, "{\"available\":false}");
+            return;
+        }
+        arScene->runWhenARSessionReady([weakObj, keyStr](std::shared_ptr<VROARSession> arSession) {
+            rvFireScanJson(weakObj, keyStr, arSession->rvGetVPSLocalizationJson());
+        });
+    });
+}
+
 // Shared coordinate frames (CL-H). The result shape matches finishScan's
 // exactly — success, an id, a transform CSV, an error — so the same Java
 // callback and the same JS plumbing carry both, and a frame source does not
