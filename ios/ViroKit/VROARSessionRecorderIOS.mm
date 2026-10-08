@@ -262,6 +262,11 @@ void VROARSessionRecorderIOS::writeImuLine(double tSec, double ax, double ay, do
     }
 }
 
+void VROARSessionRecorderIOS::setLocationReading(const VROARRecordingGeoReading &reading) {
+    std::lock_guard<std::mutex> lock(_geoMutex);
+    _pendingGeo = reading;
+}
+
 void VROARSessionRecorderIOS::writePoseLine(ARFrame *frame) {
     VROMatrix4f transform = VROConvert::toMatrix4f(frame.camera.transform);
     VROMatrix4f rotationOnly = transform;
@@ -274,6 +279,17 @@ void VROARSessionRecorderIOS::writePoseLine(ARFrame *frame) {
         gravity = _motionManager.deviceMotion.gravity;
     }
 
+    // Phase 0 task 3: take and clear whatever setLocationReading() last
+    // delivered — a pose only ever carries a reading taken at (as close as
+    // the caller can manage) this instant, not a stale one repeated on every
+    // subsequent frame. See the header's VROARRecordingGeoReading doc.
+    VROARRecordingGeoReading geo;
+    {
+        std::lock_guard<std::mutex> lock(_geoMutex);
+        geo = _pendingGeo;
+        _pendingGeo = VROARRecordingGeoReading();
+    }
+
     int64_t tNs = (int64_t)(frame.timestamp * 1e9);
     char buf[384];
     snprintf(buf, sizeof(buf),
@@ -283,12 +299,38 @@ void VROARSessionRecorderIOS::writePoseLine(ARFrame *frame) {
         gravity.x * kGravityMetresPerSecondSquared,
         gravity.y * kGravityMetresPerSecondSquared,
         gravity.z * kGravityMetresPerSecondSquared);
+    std::string line(buf);
+
+    // Schema requires lat/lon/alt/heading together whenever `gps` is present
+    // at all — a reading missing either half is dropped rather than written
+    // partially malformed.
+    if (geo.hasGps && geo.hasHeading) {
+        char gpsBuf[256];
+        char hAccField[48];
+        char headingAccField[48];
+        if (geo.hAccuracy >= 0) {
+            snprintf(hAccField, sizeof(hAccField), "%.3f", geo.hAccuracy);
+        } else {
+            snprintf(hAccField, sizeof(hAccField), "null");
+        }
+        if (geo.headingAccuracyDegrees >= 0) {
+            snprintf(headingAccField, sizeof(headingAccField), "%.3f", geo.headingAccuracyDegrees);
+        } else {
+            snprintf(headingAccField, sizeof(headingAccField), "null");
+        }
+        snprintf(gpsBuf, sizeof(gpsBuf),
+            ",\"gps\":{\"lat\":%.8f,\"lon\":%.8f,\"alt\":%.3f,"
+            "\"h_accuracy\":%s,\"heading\":%.3f,\"heading_accuracy\":%s}",
+            geo.latitude, geo.longitude, geo.altitude,
+            hAccField, geo.headingDegrees, headingAccField);
+        line.insert(line.size() - 1, gpsBuf); // before the closing '}'
+    }
 
     // Buffered, not written immediately — see the _bufferedLines comment in
     // the header. Sorted by `t` and flushed at stop().
     std::lock_guard<std::mutex> lock(_sidecarMutex);
     if (_sidecar.is_open()) {
-        _bufferedLines.push_back({tNs, std::string(buf)});
+        _bufferedLines.push_back({tNs, line});
     }
 }
 
