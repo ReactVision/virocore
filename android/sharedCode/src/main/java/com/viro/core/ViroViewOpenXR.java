@@ -116,6 +116,7 @@ public class ViroViewOpenXR extends ViroView {
     private List<FrameListener> mFrameListeners = new CopyOnWriteArrayList<>();
     private PlatformUtil mPlatformUtil;
     private StartupListener mStartupListener;
+    private volatile InputFocusListener mInputFocusListener;
     private Application mApplication; // for unregistering ActivityLifecycleCallbacks
     private boolean mResumed = false;  // tracks renderer.onResume / onPause balance
     private ViroMediaRecorder mMediaRecorder; // lazily created; see getRecorder()
@@ -730,6 +731,35 @@ public class ViroViewOpenXR extends ViroView {
         if (activity != null) {
             activity.runOnUiThread(activity::onBackPressed);
         }
+    }
+
+    /**
+     * Called by native code (render thread) when the session gains or loses
+     * input focus after its first focus. Posts to the UI thread.
+     *
+     * @hide
+     */
+    void onNativeInputFocusChanged(boolean focused) {
+        new Handler(Looper.getMainLooper()).post(() -> {
+            InputFocusListener listener = mInputFocusListener;
+            if (listener != null) {
+                listener.onInputFocusChanged(focused);
+            }
+        });
+    }
+
+    /**
+     * Told on the UI thread when Horizon OS takes input focus from the scene
+     * (its menu, a system dialog, the headset sleeping) and when it gives it
+     * back. Meta's store requires a single-player app to pause meanwhile; the
+     * renderer keeps drawing, and controller and hand input stops on its own.
+     */
+    public interface InputFocusListener {
+        void onInputFocusChanged(boolean focused);
+    }
+
+    public void setInputFocusListener(InputFocusListener listener) {
+        mInputFocusListener = listener;
     }
 
     /**

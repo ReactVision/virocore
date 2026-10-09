@@ -146,6 +146,8 @@ private:
     XrSpace         _stageSpace = XR_NULL_HANDLE;  // XR_REFERENCE_SPACE_TYPE_STAGE
 
     XrSessionState  _sessionState             = XR_SESSION_STATE_UNKNOWN;
+    bool            _inputFocused             = false;
+    bool            _hasBeenFocused           = false;
     XrTime          _lastPredictedDisplayTime = 0;  // updated each frame; used by recenterTracking()
     bool            _sessionRunning        = false;
     bool            _passthroughEnabled    = false;
@@ -243,6 +245,9 @@ private:
     void renderLoop();
     void pollEvents();
     void handleSessionStateChange(XrEventDataSessionStateChanged *event);
+    // ViroViewOpenXR.onNativeInputFocusChanged: Horizon OS took input focus (its
+    // menu, a system dialog, sleep) or gave it back.
+    void notifyInputFocus(bool focused);
     void renderFrame();
     void updateBoundaryVisibility(bool passthroughSubmitted);
 

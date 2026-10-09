@@ -1196,6 +1196,16 @@ void VROSceneRendererOpenXR::handleSessionStateChange(
     _sessionState = event->state;
     ALOGV("Session state → %d", (int)_sessionState);
 
+    // The first focus is the scene starting, so only later changes are reported.
+    bool focused = _sessionState == XR_SESSION_STATE_FOCUSED;
+    if (focused != _inputFocused) {
+        _inputFocused = focused;
+        if (_hasBeenFocused) {
+            notifyInputFocus(focused);
+        }
+        _hasBeenFocused = _hasBeenFocused || focused;
+    }
+
     switch (_sessionState) {
         case XR_SESSION_STATE_READY: {
             XrSessionBeginInfo beginInfo = { XR_TYPE_SESSION_BEGIN_INFO };
@@ -1218,6 +1228,22 @@ void VROSceneRendererOpenXR::handleSessionStateChange(
         default:
             break;
     }
+}
+
+void VROSceneRendererOpenXR::notifyInputFocus(bool focused) {
+    JNIEnv *env = nullptr;
+    bool attached = false;
+    if (_jvm->GetEnv((void **)&env, JNI_VERSION_1_6) == JNI_EDETACHED) {
+        _jvm->AttachCurrentThread(&env, nullptr);
+        attached = true;
+    }
+    if (env) {
+        jclass cls = env->GetObjectClass(_jview);
+        jmethodID mid = env->GetMethodID(cls, "onNativeInputFocusChanged", "(Z)V");
+        env->DeleteLocalRef(cls);
+        if (mid) env->CallVoidMethod(_jview, mid, (jboolean)focused);
+    }
+    if (attached) _jvm->DetachCurrentThread();
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

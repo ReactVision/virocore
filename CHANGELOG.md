@@ -5,6 +5,7 @@
 ### Added
 
 - **`VROInputControllerBase::getSourceRay` and `Controller.getControllerRayAsync`.** Where the ray that carries a source last pointed, as `onMove` reported it. A click that hits nothing reports no position, so this is how a caller learns where it was aimed.
+- **Quest: `ViroViewOpenXR.setInputFocusListener` (`VROSceneRendererOpenXR`).** Told on the UI thread when the session loses input focus (Horizon OS's menu, a system dialog, sleep) and when it gets it back, from the second focus on, so the scene starting is not reported. Meta's store requires a single-player app to pause while focus is away (VRC.Quest.Functional.2). The renderer keeps drawing, and controller and hand input already stops on its own; an app pauses the rest, such as video and sound.
 
 ### Changed
 
