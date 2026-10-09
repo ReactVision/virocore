@@ -49,6 +49,14 @@ public:
     VROVector3f getImageSize();
     
     float* getIntrinsics() const;
+
+    /*
+     Pinhole intrinsics of the captured image, in its own pixels
+     (ARCamera.intrinsics is expressed at imageResolution, which is the size
+     of capturedImage's luma plane).
+     */
+    bool getImageIntrinsics(float *outFx, float *outFy,
+                            float *outCx, float *outCy) override;
     
 private:
     
