@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## Unreleased
+
+### Fixed
+
+- **Android: the world mesh is in the right place (`VROARFrameARCore`).** `generateDepthMesh` built a clip-space position as `d * (ndcX, ndcY, -1, 1)` and ran it through the inverse view-projection. `VROMatrix4f::multiply` is a plain linear product, so dividing the result by its own `w` cancelled `d` exactly: every sample landed on the near plane, a centimetre from the camera, whatever its depth. The depth only ever reached the `maxDepth` filter. It now unprojects by the camera's pinhole intrinsics, scaled from the CPU image to the depth image, and by the physical camera pose rather than the display-oriented view matrix — the way `VROARFrameiOS` always did. The mesh, the physics shape built from it and the `.rvwm` snapshot taken from it were all wrong on Android before this.
+- **Android: the depth discontinuity check measures depth (`VROARFrameARCore`).** It compared `-vertices[i].z`, a world coordinate, so two samples on the same flat wall could differ by metres or not at all depending only on where the phone pointed. A per-vertex camera-space depth is kept and compared instead.
+- **Android: the depth and confidence images are read by their own stride (`VROARFrameARCore`).** Both were indexed as `row * width + column`, which assumes no row padding; ARCore pads. The confidence image was also indexed with the depth image's width, which read the wrong pixel when the two differed in size and read past the end of the buffer when the confidence image was the smaller. Each is now read by its own dimensions and row stride, with bounds checks, and the confidence is sampled at the matching position.
+- **Android: a cell emits a triangle from three corners (`VROARFrameARCore`).** Both triangles of a grid cell needed all four corners, so one missing sample erased the pair; with sparse depth most cells lose a corner and the surface came out as scattered specks. Three of four corners now emit a triangle, with the 0.3 m discontinuity check moved to per-triangle. Lowering `stride` did not help before: it only made more cells, each still missing a corner.
+- **Android: the confidence weights a sample instead of dropping it (`VROARFrameARCore`).** ARCore pairs its confidence image with the raw depth estimate, while the mesh is built from the dense, smoothed image, which has no confidence of its own — ARCore has already filled its gaps. Using the raw image's confidence as a cutoff discarded most of a well-lit wall at the documented default of 0.3. It is kept as a per-sample weight, which is what the fusion wants, and gates nothing. `minConfidence` keeps its cutoff meaning on iOS, where both come from the same image.
+
+### Changed
+
+- **The world mesh reports which source produced it (`VROARWorldMesh`, `VROARFrameARCore`).** `VROWorldMeshStats` gains `source`: `lidar`, `depth`, `monocular`, `plane` or `unknown`, exposed through both bridges. The three sources are tried in order and the choice was never reported, so an app could not tell a scanned surface from triangulated plane polygons. Android also tagged its depth mesh `"lidar"` — on a device with no LiDAR — and now tags it `"depth"`. A log line names the source when it changes and says so when the plane fallback takes over, once rather than per update.
+
 ## v3.0.3 — 6 October 2026
 
 ### Added
