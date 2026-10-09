@@ -133,6 +133,19 @@ void VROARWorldMesh::updateFromFrame(const std::unique_ptr<VROARFrame>& frame) {
     }
 
     if (!mesh || !mesh->isValid()) {
+        // Depth is not continuous on every device. ARCore's motion-stereo estimate drops out for a
+        // frame at a time — measured on a Xiaomi 24117RN76L, several times a second — and on those
+        // frames the plane fallback is the only source left. Replacing a room that is already fused
+        // with a handful of plane polygons made the published mesh flicker between the two: 90,532
+        // vertices one frame and 41 the next, with the physics body and getWorldMeshStats()
+        // following it down, and a VPS Lite snapshot taken in one of those gaps uploading the
+        // polygons instead of the room. The volume still holds the room, so keep publishing it and
+        // wait for depth to come back. resetWorldMesh() is how an app starts over.
+        if (_lastMeshWasAccumulated) {
+            _lastUpdateTimeMs = getCurrentTimeMs();
+            return;
+        }
+
         mesh = frame->generatePlaneMesh();
         // Falling back to plane anchors is a different product: flat polygons where the app asked
         // for a surface. It used to happen silently, so an app could not tell the two apart.

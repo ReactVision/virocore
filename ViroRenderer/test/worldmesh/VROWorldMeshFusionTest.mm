@@ -36,6 +36,8 @@ public:
     std::shared_ptr<VROARDepthMesh> depthMesh;
     /** ARKit's path: a mesh the platform already accumulated. Takes priority over depthMesh. */
     std::shared_ptr<VROARDepthMesh> anchorMesh;
+    /** The last-resort fallback: triangulated plane anchors, a handful of flat polygons. */
+    std::shared_ptr<VROARDepthMesh> planeMesh;
     std::vector<std::shared_ptr<VROARAnchor>> anchors;
 
     double getTimestamp() const override { return 0; }
@@ -52,6 +54,7 @@ public:
     bool hasDepthData() const override { return depthMesh != nullptr; }
     std::shared_ptr<VROARDepthMesh> generateDepthMesh(int, float, float) override { return depthMesh; }
     std::shared_ptr<VROARDepthMesh> generateMeshAnchorMesh() override { return anchorMesh; }
+    std::shared_ptr<VROARDepthMesh> generatePlaneMesh() override { return planeMesh; }
 
     void bind() { _cameraBase = camera; }
 private:
@@ -424,6 +427,45 @@ int main() {
 
         snprintf(buf, sizeof(buf), "(%d vertices with noise, %d without)", afterSecondLap, 35151);
         check("and a noisy walk still builds the room", afterSecondLap >= 20000, buf);
+    }
+
+    // ── 9c. Depth that drops in and out ───────────────────────────────────
+    // Found on a device, not here: ARCore's motion-stereo estimate stops for a frame at a time,
+    // several times a second on some phones, and the plane fallback is then the only source left.
+    // Publishing those few polygons over a fused room made the mesh flicker between 90,532 vertices
+    // and 41 — taking the physics body and the stats with it, and handing a VPS Lite snapshot the
+    // polygons if it landed in one of the gaps.
+    {
+        auto flaky = std::make_shared<VROARWorldMesh>(nullptr);
+        flaky->setEnabled(true);
+        flaky->setConfig(cfg);
+
+        f.camera->position = VROVector3f(0, 0, 0);
+        f.anchorMesh = nullptr;
+        f.depthMesh = wallMesh(-2.0f, 0, 0, 40);
+        { std::unique_ptr<VROARFrame> frame(&f); flaky->updateFromFrame(frame); frame.release(); }
+        const int fused = flaky->getStats().vertexCount;
+
+        // The gap: no depth this frame, only plane anchors.
+        f.depthMesh = nullptr;
+        f.planeMesh = wallMesh(-2.0f, 0, 0, 4, "plane");      // 16 vertices of flat polygon
+        { std::unique_ptr<VROARFrame> frame(&f); flaky->updateFromFrame(frame); frame.release(); }
+
+        VROWorldMeshStats gap = flaky->getStats();
+        snprintf(buf, sizeof(buf), "(%d -> %d, source=%s)",
+                 fused, gap.vertexCount, VROWorldMeshSourceToString(gap.source));
+        check("a depth drop-out does not replace the room with plane polygons",
+              gap.vertexCount == fused && gap.source == VROWorldMeshSource::Depth, buf);
+
+        // And the snapshot in that gap is still the room, not the polygons.
+        std::vector<uint8_t> gapSnap = flaky->serializeCurrentMesh(L);
+        const uint32_t gapVertices = gapSnap.size() > 13
+            ? (uint32_t)(gapSnap[5] | (gapSnap[6] << 8) | (gapSnap[7] << 16) | ((uint32_t)gapSnap[8] << 24))
+            : 0;
+        snprintf(buf, sizeof(buf), "(%u vertices)", gapVertices);
+        check("and a snapshot taken in the gap still holds the room", (int)gapVertices == fused, buf);
+
+        f.planeMesh = nullptr;
     }
 
     // ── 10. The memory budget is a budget ─────────────────────────────────
