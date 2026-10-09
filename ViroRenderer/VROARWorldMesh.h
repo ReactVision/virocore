@@ -114,7 +114,9 @@ struct VROWorldMeshStats {
     double lastUpdateTimeMs = 0.0;      // Timestamp of last mesh update
     bool isStale = false;               // True if depth data hasn't been received recently
     VROWorldMeshSource source = VROWorldMeshSource::Unknown;  // Which of the three paths produced it
-    bool accumulated = false;           // True when fused across frames rather than a single view
+    // True when the mesh covers more than the current view: fused here on the depth paths, or
+    // accumulated by ARKit on the mesh-anchor path. Not "our fusion ran".
+    bool accumulated = false;
 };
 
 /**

@@ -156,7 +156,11 @@ void VROARWorldMesh::updateFromFrame(const std::unique_ptr<VROARFrame>& frame) {
             return;
         }
 
-        _lastMeshWasAccumulated = false;
+        // Mesh anchors are accumulated too — ARKit does it, which is exactly why shouldFuse()
+        // leaves them alone. The app is asking whether the mesh covers more than the current view,
+        // not which code fused it, so reporting false here told an iPhone with LiDAR that its
+        // working, persistent mesh was single-frame.
+        _lastMeshWasAccumulated = (source == VROWorldMeshSource::LiDAR);
         applyMeshToPhysics(mesh);
         notifySubscribers(mesh);
     } else if (isMeshStale()) {
