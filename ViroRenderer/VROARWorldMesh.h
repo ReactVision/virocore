@@ -209,7 +209,13 @@ public:
 
     /*
      Clears the fused volume, so the next scan starts from an empty room rather than carrying the
-     last one. No-op on the mesh-anchor path, where ARKit owns the accumulation.
+     last one. Also drops the current mesh and its physics body, so getStats() reports zero and
+     serializeCurrentMesh() has nothing to upload until the next frame fuses — a snapshot taken
+     between a reset and the next frame must not carry the previous room.
+
+     No-op on the mesh-anchor path, where ARKit owns the accumulation.
+
+     Must be called on the render thread: it touches the physics world and the current mesh.
      */
     void resetAccumulation();
 
@@ -359,6 +365,14 @@ private:
     std::mutex _volumeMutex;
     std::atomic<bool> _fusionInFlight{false};
     bool _lastMeshWasAccumulated = false;
+
+    /*
+     Bumped by resetAccumulation(). A surface extracted before the reset is already on its way to
+     the render thread, carrying the room that was just cleared; the continuation compares the
+     generation it read under _volumeMutex against this one and drops the stale result rather than
+     putting the old room back.
+     */
+    std::atomic<uint64_t> _fusionGeneration{0};
 
     // Configuration and state
     VROWorldMeshConfig _config;

@@ -347,6 +347,10 @@ bool VROARWorldMesh::fuseFrame(std::shared_ptr<VROARDepthMesh> frameMesh,
         std::vector<VROVector3f> vertices;
         std::vector<float> outConfidences;
         std::vector<int> indices;
+        // Read inside the same lock as the extraction, so it describes the volume these vertices
+        // actually came from. A reset that lands afterwards changes it, and the render-thread
+        // continuation below drops this surface instead of restoring the cleared room.
+        uint64_t generation;
         {
             std::lock_guard<std::mutex> lock(self->_volumeMutex);
             if (!self->_volume) {
@@ -362,6 +366,7 @@ bool VROARWorldMesh::fuseFrame(std::shared_ptr<VROARDepthMesh> frameMesh,
             if (self->_volume->consumeDirty()) {
                 self->_volume->extractSurface(&vertices, &outConfidences, &indices);
             }
+            generation = self->_fusionGeneration.load();
         }
 
         if (vertices.empty() || indices.empty()) {
@@ -369,9 +374,15 @@ bool VROARWorldMesh::fuseFrame(std::shared_ptr<VROARDepthMesh> frameMesh,
             return;
         }
 
-        VROPlatformDispatchAsyncRenderer([weakSelf, vertices, outConfidences, indices]() {
+        VROPlatformDispatchAsyncRenderer([weakSelf, vertices, outConfidences, indices, generation]() {
             std::shared_ptr<VROARWorldMesh> self = weakSelf.lock();
             if (!self) return;
+            if (self->_fusionGeneration.load() != generation) {
+                // Reset while this was in flight. These vertices describe the room the app just
+                // cleared, so they go nowhere.
+                self->_fusionInFlight = false;
+                return;
+            }
             auto fused = std::make_shared<VROARDepthMesh>(
                 std::vector<VROVector3f>(vertices),
                 std::vector<int>(indices),
@@ -390,9 +401,25 @@ bool VROARWorldMesh::fuseFrame(std::shared_ptr<VROARDepthMesh> frameMesh,
 }
 
 void VROARWorldMesh::resetAccumulation() {
-    std::lock_guard<std::mutex> lock(_volumeMutex);
-    if (_volume) _volume->reset();
+    {
+        std::lock_guard<std::mutex> lock(_volumeMutex);
+        if (_volume) _volume->reset();
+        ++_fusionGeneration;
+    }
+
+    // Emptying the volume is only half of a reset. _currentMesh still holds the room fused out of
+    // it, and that is what getStats() reports, what the physics body collides with, and — the one
+    // that matters — what serializeCurrentMesh() uploads. Leaving it behind meant a snapshot taken
+    // after a reset attached the *previous* room to the cloud anchor.
+    removeFromPhysicsWorld();
+    _currentMesh.reset();
     _lastMeshWasAccumulated = false;
+
+    // Say so now rather than letting the app read the old counts until the next frame lands. The
+    // subscriber callbacks take a mesh and there is none, so only the stats callback fires.
+    if (_updateCallback) {
+        _updateCallback(getStats());
+    }
 }
 
 VROWorldMeshStats VROARWorldMesh::getStats() const {
