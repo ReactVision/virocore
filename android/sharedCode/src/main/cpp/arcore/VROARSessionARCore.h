@@ -26,6 +26,7 @@
 #ifndef VROARSessionARCore_h
 #define VROARSessionARCore_h
 
+#include <mutex>
 #include <jni.h>
 #include "VROARSession.h"
 #include "VROARFrameARCore.h"
@@ -477,6 +478,9 @@ private:
      _lastRecordingGpsFixSeq.
      */
     int _gpsFixSeq = 0;
+    // Guards _lastKnownGPSPose, _gpsFixSeq and _lastRecordingGpsFixSeq between
+    // the JNI location callback (main thread) and the recorder (render thread).
+    std::mutex _gpsPoseMutex;
     int _lastRecordingGpsFixSeq = 0;
 
     /*

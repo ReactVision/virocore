@@ -32,6 +32,8 @@
 #include <functional>
 #include "VROFrameListener.h"
 
+class VROARFrame;
+
 class VROARAnchor;
 class VROARSessionARCore;
 class VROMatrix4f;
@@ -134,6 +136,10 @@ public:
 private:
     class Impl;
     std::unique_ptr<Impl> _impl;
+
+    // Drives one VPS map localisation attempt from a frame snapshot. A member
+    // so it can reach the private Impl.
+    static void driveVPSMapFrame(Impl &impl, const std::shared_ptr<VROARFrame> &frame);
 };
 
 #endif // ANDROID_VROCLOUDANCHORPROVIDERREACTVISION_H

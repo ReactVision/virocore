@@ -1091,7 +1091,7 @@ public class ARScene extends Scene {
     // frame while recording — see ARSessionRecorder.onRecordingFrame() for
     // the actual encode/sidecar-write work.
     void onRecordingFrame(byte[] y, byte[] u, byte[] v, int[] dims, long timestampNs, float[] pose,
-                          float[] geo) {
+                          double[] geo) {
         if (mSessionRecorder != null) {
             mSessionRecorder.onRecordingFrame(y, u, v, dims, timestampNs, pose, geo);
         }

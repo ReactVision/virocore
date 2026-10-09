@@ -122,18 +122,19 @@ static std::string encodeError(
 // thread. onHit below (if it fires at all) fires synchronously inside this same
 // call — never from updateVPSMapFrame()'s own background matching thread — so
 // capturing `impl` by reference is safe.
-static void driveVPSMapFrame(VROCloudAnchorProviderReactVision::Impl &impl,
-                              const std::shared_ptr<VROARFrame> &frame) {
+void VROCloudAnchorProviderReactVision::driveVPSMapFrame(Impl &impl,
+                                                         const std::shared_ptr<VROARFrame> &frame) {
     if (!impl.provider->isVPSMapLoaded()) return;
 
     const std::shared_ptr<VROARCamera> &cam = frame->getCamera();
     const uint8_t *luma = nullptr;
     int lumaW = 0, lumaH = 0;
     float ifx = 0.f, ify = 0.f, icx = 0.f, icy = 0.f;
-    if (!cam || !frame->getCameraImageY(&luma, &lumaW, &lumaH) ||
-        luma == nullptr || lumaW <= 0 || lumaH <= 0 ||
-        !cam->getImageIntrinsics(&ifx, &ify, &icx, &icy) ||
-        ifx <= 1.f || ify <= 1.f) {
+    // Intrinsics first: cheap, and without them the luma copy is wasted.
+    if (!cam || !cam->getImageIntrinsics(&ifx, &ify, &icx, &icy) ||
+        ifx <= 1.f || ify <= 1.f ||
+        !frame->getCameraImageY(&luma, &lumaW, &lumaH) ||
+        luma == nullptr || lumaW <= 0 || lumaH <= 0) {
         return;
     }
 
@@ -152,13 +153,15 @@ static void driveVPSMapFrame(VROCloudAnchorProviderReactVision::Impl &impl,
         luma, lumaW, lumaH,
         (double)ifx, (double)ify, (double)icx, (double)icy,
         camToWorld,
-        [&impl, camToWorld, nowSec]
-        (const VROMatrix4f &T_map_cam, int inlierCount, float reprojRms) {
+        [&impl, nowSec]
+        (const VROMatrix4f &T_world_map, int inlierCount, float reprojRms) {
+            // The map-to-world transform solved against that attempt's own
+            // camera pose; it needs no pairing with this frame's pose.
             impl.vpsLastHitSet    = true;
             impl.vpsLastInliers   = inlierCount;
             impl.vpsLastReprojRms = reprojRms;
             if (impl.vpsLocalizer) {
-                impl.vpsLocalizer->reportLocalizationHit(T_map_cam, camToWorld, nowSec);
+                impl.vpsLocalizer->reportLocalizationHit(T_world_map, nowSec);
             }
         });
 }

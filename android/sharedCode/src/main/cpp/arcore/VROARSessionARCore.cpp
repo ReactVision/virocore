@@ -1759,6 +1759,14 @@ VROGeospatialPose VROARSessionARCore::getCameraGeospatialPose() const {
 void VROARSessionARCore::setLastKnownLocation(double lat, double lng, double alt,
                                               double horizAcc, double vertAcc,
                                               double heading, double headingAcc) {
+    std::lock_guard<std::mutex> lk(_gpsPoseMutex);
+    // A new fix is a new position. Callers also push here on every compass
+    // update with the same position, and those must not count as fresh fixes
+    // for the recorder.
+    bool newPosition = lat != _lastKnownGPSPose.latitude ||
+                       lng != _lastKnownGPSPose.longitude ||
+                       alt != _lastKnownGPSPose.altitude ||
+                       horizAcc != _lastKnownGPSPose.horizontalAccuracy;
     _lastKnownGPSPose.latitude           = lat;
     _lastKnownGPSPose.longitude          = lng;
     _lastKnownGPSPose.altitude           = alt;
@@ -1772,11 +1780,9 @@ void VROARSessionARCore::setLastKnownLocation(double lat, double lng, double alt
                                                  (float)std::sin(yaw / 2.0),
                                                  0.0f,
                                                  (float)std::cos(yaw / 2.0));
-    // See getGpsFixSeq() — this call is only ever made with a real fix
-    // (never speculatively with zeros, per this method's own doc comment),
-    // so "has this been called since the last recorded pose" is a safe
-    // proxy for "is there a fresh gps+heading reading".
-    _gpsFixSeq++;
+    if (newPosition) {
+        _gpsFixSeq++;
+    }
 }
 
 // Improvement 3: read back the last GPS fix stored by setLastKnownLocation().
@@ -3137,31 +3143,35 @@ void VROARSessionARCore::recordFrameForRecording(VROARFrameARCore *arFrame) {
     env->SetFloatArrayRegion(poseArr, 0, 11, pose);
 
     // geo = [hasGps(0/1), lat, lon, alt, hAccuracy, heading,
-    // headingAccuracy]. hasGps doubles as hasHeading here — Android's
-    // setLastKnownLocation() always sets both together (unlike iOS, which
-    // gets separate location/heading callbacks), so there is no partial
-    // state to represent. Only attached when _gpsFixSeq has moved on from
-    // what was last recorded, so a reading is tagged once, near the instant
-    // it arrived, not repeated on every subsequent frame — see
-    // VROARSessionRecorderIOS's identical reasoning on the iOS side.
-    bool hasFreshGps = _lastKnownGPSPose.isValid() && _gpsFixSeq != _lastRecordingGpsFixSeq;
-    if (hasFreshGps) {
-        _lastRecordingGpsFixSeq = _gpsFixSeq;
+    // headingAccuracy], as doubles: float32 would quantise lat/lon to about
+    // half a metre. Only attached when a new position has arrived since the
+    // last recorded pose (see setLastKnownLocation()), so a fix is tagged
+    // once, near the instant it arrived. The Java side writes the heading as
+    // null when its accuracy is negative (no valid heading yet).
+    VROGeospatialPose gps;
+    bool hasFreshGps;
+    {
+        std::lock_guard<std::mutex> lk(_gpsPoseMutex);
+        gps = _lastKnownGPSPose;
+        hasFreshGps = gps.isValid() && _gpsFixSeq != _lastRecordingGpsFixSeq;
+        if (hasFreshGps) {
+            _lastRecordingGpsFixSeq = _gpsFixSeq;
+        }
     }
-    jfloat geo[7] = {
-        hasFreshGps ? 1.0f : 0.0f,
-        (jfloat) _lastKnownGPSPose.latitude,
-        (jfloat) _lastKnownGPSPose.longitude,
-        (jfloat) _lastKnownGPSPose.altitude,
-        (jfloat) _lastKnownGPSPose.horizontalAccuracy,
-        (jfloat) _lastKnownGPSPose.heading,
-        (jfloat) _lastKnownGPSPose.headingAccuracy
+    jdouble geo[7] = {
+        hasFreshGps ? 1.0 : 0.0,
+        gps.latitude,
+        gps.longitude,
+        gps.altitude,
+        gps.horizontalAccuracy,
+        gps.heading,
+        gps.headingAccuracy
     };
-    jfloatArray geoArr = env->NewFloatArray(7);
-    env->SetFloatArrayRegion(geoArr, 0, 7, geo);
+    jdoubleArray geoArr = env->NewDoubleArray(7);
+    env->SetDoubleArrayRegion(geoArr, 0, 7, geo);
 
     VROPlatformCallHostFunction(_recordingJavaCallback, "onRecordingFrame",
-                                "([B[B[B[IJ[F[F)V",
+                                "([B[B[B[IJ[F[D)V",
                                 yArr, uArr, vArr, dimsArr, (jlong) timestampNs, poseArr, geoArr);
 
     env->DeleteLocalRef(yArr);

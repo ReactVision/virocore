@@ -225,12 +225,13 @@ public class ARSessionRecorder {
      * fx,fy,cx,cy] (11 floats) — orientation as a quaternion rather than a
      * full matrix, same convention as the iOS recorder's session.jsonl
      * format. geo = [hasGps(0/1), lat, lon, alt, hAccuracy, heading,
-     * headingAccuracy] — hasGps doubles as
-     * hasHeading, see VROARSessionARCore::recordFrameForRecording's comment;
-     * only attached to this one pose line when hasGps is 1.
+     * headingAccuracy], doubles so lat/lon keep centimetre precision; only
+     * attached to this one pose line when hasGps is 1. A negative or
+     * non-finite heading accuracy means there is no valid heading, and the
+     * heading is written as null.
      */
     public synchronized void onRecordingFrame(byte[] y, byte[] u, byte[] v, int[] dims,
-                                               long timestampNs, float[] pose, float[] geo) {
+                                               long timestampNs, float[] pose, double[] geo) {
         if (mSidecar == null) {
             return; // stop() already ran
         }
@@ -284,25 +285,33 @@ public class ARSessionRecorder {
         }
     }
 
-    private void writePoseLine(long timestampNs, float[] pose, float[] geo) {
+    private void writePoseLine(long timestampNs, float[] pose, double[] geo) {
         StringBuilder sb = new StringBuilder(192);
         sb.append(String.format(Locale.US,
             "{\"type\":\"pose\",\"t\":%d,\"orientation\":[%.6f,%.6f,%.6f,%.6f]," +
             "\"position\":[%.6f,%.6f,%.6f],\"gravity\":[%.6f,%.6f,%.6f]",
             timestampNs, pose[0], pose[1], pose[2], pose[3], pose[4], pose[5], pose[6],
             mLastGravity[0], mLastGravity[1], mLastGravity[2]));
-        // geo[0] (hasGps) gates the whole field — schema
-        // requires lat/lon/alt/heading together whenever `gps` is present.
-        if (geo != null && geo.length >= 7 && geo[0] != 0f) {
-            String hAcc = geo[4] >= 0f ? String.format(Locale.US, "%.3f", geo[4]) : "null";
-            String headingAcc = geo[6] >= 0f ? String.format(Locale.US, "%.3f", geo[6]) : "null";
+        // geo[0] (hasGps) gates the whole field. A position without a valid
+        // heading is still written, with the heading fields null.
+        if (geo != null && geo.length >= 7 && geo[0] != 0
+                && isFinite(geo[1]) && isFinite(geo[2]) && isFinite(geo[3])) {
+            String hAcc = isFinite(geo[4]) && geo[4] >= 0 ? String.format(Locale.US, "%.3f", geo[4]) : "null";
+            boolean headingOk = isFinite(geo[5]) && geo[5] >= 0 && geo[5] < 360
+                    && isFinite(geo[6]) && geo[6] >= 0;
+            String heading = headingOk ? String.format(Locale.US, "%.3f", geo[5]) : "null";
+            String headingAcc = headingOk ? String.format(Locale.US, "%.3f", geo[6]) : "null";
             sb.append(String.format(Locale.US,
                 ",\"gps\":{\"lat\":%.8f,\"lon\":%.8f,\"alt\":%.3f," +
-                "\"h_accuracy\":%s,\"heading\":%.3f,\"heading_accuracy\":%s}",
-                geo[1], geo[2], geo[3], hAcc, geo[5], headingAcc));
+                "\"h_accuracy\":%s,\"heading\":%s,\"heading_accuracy\":%s}",
+                geo[1], geo[2], geo[3], hAcc, heading, headingAcc));
         }
         sb.append("}");
         bufferLine(timestampNs, sb.toString());
+    }
+
+    private static boolean isFinite(double v) {
+        return !Double.isNaN(v) && !Double.isInfinite(v);
     }
 
     private void writeImuLine(long timestampNs, float ax, float ay, float az,
