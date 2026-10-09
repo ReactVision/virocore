@@ -32,6 +32,7 @@
 #include "VROAVPlayer.h"
 #include <android/native_window_jni.h>
 #include "VROFrameSynchronizer.h"
+#include <atomic>
 
 class VRODriverOpenGL;
 
@@ -82,6 +83,11 @@ public:
     void play();
     bool isPaused();
 
+    /*
+     Pauses on the calling thread, skipping a player init() has not created yet.
+     */
+    void pauseFromAnyThread();
+
     void seekToTime(float seconds);
     float getCurrentTimeInSeconds();
     float getVideoDurationInSeconds();
@@ -103,7 +109,8 @@ public:
 
 private:
 
-    VROAVPlayer *_player;
+    VROAVPlayer *_player = nullptr;
+    std::atomic<bool> _playerReady { false };
     GLuint _textureId;
     std::weak_ptr<VRODriverOpenGL> _driver;
 
