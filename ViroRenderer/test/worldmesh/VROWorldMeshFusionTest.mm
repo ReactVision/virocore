@@ -175,6 +175,32 @@ int main() {
     snprintf(buf, sizeof(buf), "(%d vertices = the frame's own 1600)", s2.vertexCount);
     check("accumulate=false hands back the frame mesh", !s2.accumulated && s2.vertexCount == 1600, buf);
 
+    // ── 8. Re-meshing is incremental ──────────────────────────────────────
+    // Extracting a room costs tens of milliseconds, and a walk changes a handful of blocks per
+    // frame. A second extraction with nothing new must do no meshing at all; if it does, dirty
+    // tracking is broken and the cost grows with the room rather than with what moved.
+    {
+        VROTSDFVolume vol(0.04f, 0.12f, 16384);
+        auto wall = wallMesh(-2.0f, 0, 0, 40);
+        vol.integrate(wall->getVertices(), wall->getConfidences(), VROVector3f(0, 0, 0));
+
+        std::vector<VROVector3f> v1, v2;
+        std::vector<float> c1, c2;
+        std::vector<int> i1, i2;
+        vol.extractSurface(&v1, &c1, &i1);
+        const size_t firstPass = vol.getLastRemeshedCellCount();
+        vol.extractSurface(&v2, &c2, &i2);
+        const size_t secondPass = vol.getLastRemeshedCellCount();
+
+        snprintf(buf, sizeof(buf), "(%zu cells, then %zu)", firstPass, secondPass);
+        check("an unchanged volume re-meshes nothing", firstPass > 0 && secondPass == 0, buf);
+
+        snprintf(buf, sizeof(buf), "(%zu/%zu vertices, %zu/%zu triangles)",
+                 v1.size(), v2.size(), i1.size() / 3, i2.size() / 3);
+        check("and still returns the same surface",
+              v1.size() == v2.size() && i1.size() == i2.size(), buf);
+    }
+
     printf("\n%s  (%d failures)\n", fails == 0 ? "ALL GREEN" : "FAILURES", fails);
     return fails;
 }
