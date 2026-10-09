@@ -189,6 +189,10 @@ public:
     /**
      * Force an immediate mesh update, ignoring the update interval.
      *
+     * Bypasses the fusion: it replaces the accumulated mesh with this one frame, which is the
+     * single-frame behaviour the fusion exists to end. Nothing calls it today. Route it through
+     * updateFromFrame()'s fusion path before giving it a caller.
+     *
      * @param frame The current AR frame with depth data
      */
     void forceUpdate(const std::unique_ptr<VROARFrame>& frame);
