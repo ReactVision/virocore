@@ -727,21 +727,33 @@ std::shared_ptr<VROARDepthMesh> VROARFrameARCore::generateDepthMesh(
             float depthMeters = depthMm / 1000.0f;
             if (depthMeters > maxDepth) continue;
 
-            // Check confidence if available. Sampled at the matching position in the confidence
-            // image rather than at the depth image's index, since the two need not be the same
-            // size. NOTE: ARCore's confidence belongs to the raw depth image while the depth read
-            // above is the smoothed one, so a low value here does not necessarily mean the depth
-            // is bad — see the open question in the world-mesh plan before tuning minConfidence.
+            // Confidence rides along as a weight; it does not drop the sample.
+            //
+            // ARCore pairs its confidence image with the RAW depth estimate
+            // (ArFrame_acquireRawDepthConfidenceImage), while the depth read above is the dense,
+            // smoothed one (ArFrame_acquireDepthImage16Bits) — see ARCore_Native.cpp:750 and :776.
+            // The smoothed image has no confidence image of its own: ARCore has already filled its
+            // gaps, so a pixel is either valid or zero. Using the raw image's confidence as a
+            // cutoff on it therefore discarded most of a well-lit wall at the documented default
+            // of 0.3, which is what left a frame with only a handful of triangles.
+            //
+            // The two images are the same size and from the same camera, so the value still says
+            // something useful about how well that direction was estimated. It is kept as the
+            // per-sample weight, which is exactly what the TSDF fusion wants, and no longer
+            // gates anything. minConfidence keeps its cutoff meaning on iOS, where the depth and
+            // its confidence do come from the same image.
             float confidence = 1.0f;
             if (confidenceData) {
                 int cpx = (confWidth  == depthWidth)  ? px : (px * confWidth)  / depthWidth;
                 int cpy = (confHeight == depthHeight) ? py : (py * confHeight) / depthHeight;
                 size_t cIdx = (size_t)cpy * (size_t)confRowStride + (size_t)cpx;
                 if (cpx < confWidth && cpy < confHeight && cIdx < (size_t)confLength) {
-                    confidence = confidenceData[cIdx] / 255.0f;
+                    // Floor it: a weight of zero would make the sample invisible to fusion, and a
+                    // raw-depth confidence of zero does not mean the smoothed depth is worthless.
+                    confidence = std::max(0.05f, confidenceData[cIdx] / 255.0f);
                 }
             }
-            if (confidence < minConfidence) continue;
+            (void)minConfidence;   // not a cutoff on this path; see above
 
             // Pinhole unprojection into camera space, then into the world by the camera pose.
             // Image rows run downward and the camera's +Y is up, hence the negated Y; forward
