@@ -149,6 +149,13 @@ private:
     bool            _inputFocused             = false;
     bool            _hasBeenFocused           = false;
     XrTime          _lastPredictedDisplayTime = 0;  // updated each frame; used by recenterTracking()
+    XrPosef         _spaceOffset = { {0, 0, 0, 1}, {0, 0, 0} };  // _stageSpace's pose in LOCAL
+
+    // A recentre moves LOCAL, so a point fixed in the room has new scene
+    // coordinates from _roomMoveAt on: _roomMove maps the old ones to the new.
+    bool            _roomMovePending = false;
+    XrTime          _roomMoveAt      = 0;
+    VROMatrix4f     _roomMove;
     bool            _sessionRunning        = false;
     bool            _passthroughEnabled    = false;
     bool            _handTrackingAvailable = false;  // XR_EXT_hand_tracking present
@@ -248,6 +255,8 @@ private:
     // ViroViewOpenXR.onNativeInputFocusChanged: Horizon OS took input focus (its
     // menu, a system dialog, sleep) or gave it back.
     void notifyInputFocus(bool focused);
+    // ViroViewOpenXR.onNativeRoomMoved, column-major.
+    void notifyRoomMoved(const VROMatrix4f &move);
     void renderFrame();
     void updateBoundaryVisibility(bool passthroughSubmitted);
 

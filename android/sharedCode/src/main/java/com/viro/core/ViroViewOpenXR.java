@@ -117,6 +117,7 @@ public class ViroViewOpenXR extends ViroView {
     private PlatformUtil mPlatformUtil;
     private StartupListener mStartupListener;
     private volatile InputFocusListener mInputFocusListener;
+    private volatile RoomMoveListener mRoomMoveListener;
     private Application mApplication; // for unregistering ActivityLifecycleCallbacks
     private boolean mResumed = false;  // tracks renderer.onResume / onPause balance
     private ViroMediaRecorder mMediaRecorder; // lazily created; see getRecorder()
@@ -760,6 +761,37 @@ public class ViroViewOpenXR extends ViroView {
 
     public void setInputFocusListener(InputFocusListener listener) {
         mInputFocusListener = listener;
+    }
+
+    /**
+     * Called by native code (render thread) on the frame a recentre takes
+     * effect. Posts to the UI thread.
+     *
+     * @hide
+     */
+    void onNativeRoomMoved(float[] move) {
+        new Handler(Looper.getMainLooper()).post(() -> {
+            RoomMoveListener listener = mRoomMoveListener;
+            if (listener != null) {
+                listener.onRoomMoved(move);
+            }
+        });
+    }
+
+    /**
+     * Told on the UI thread when the scene's coordinates move against the room:
+     * a recentre, or the headset waking. A point fixed in the room was at p and
+     * is now at {@code move} times p ({@code move} is a column-major 4x4).
+     * Room planes follow on their own; content an app placed in the room at
+     * scene coordinates follows only if the app applies {@code move} to it.
+     * Content left alone follows the wearer, which is what a recentre is for.
+     */
+    public interface RoomMoveListener {
+        void onRoomMoved(float[] move);
+    }
+
+    public void setRoomMoveListener(RoomMoveListener listener) {
+        mRoomMoveListener = listener;
     }
 
     /**

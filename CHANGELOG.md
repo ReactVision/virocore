@@ -6,6 +6,7 @@
 
 - **`VROInputControllerBase::getSourceRay` and `Controller.getControllerRayAsync`.** Where the ray that carries a source last pointed, as `onMove` reported it. A click that hits nothing reports no position, so this is how a caller learns where it was aimed.
 - **Quest: `ViroViewOpenXR.setInputFocusListener` (`VROSceneRendererOpenXR`).** Told on the UI thread when the session loses input focus (Horizon OS's menu, a system dialog, sleep) and when it gets it back, from the second focus on, so the scene starting is not reported. Meta's store requires a single-player app to pause while focus is away (VRC.Quest.Functional.2). The renderer keeps drawing, and controller and hand input already stops on its own; an app pauses the rest, such as video and sound.
+- **Quest: `ViroViewOpenXR.setRoomMoveListener` (`VROSceneRendererOpenXR`).** Told on the UI thread, on the frame a recentre takes effect, how scene coordinates moved against the room: a column-major 4x4 that takes a point fixed in the room from its old coordinates to its new ones. The scene follows the wearer on a recentre, as Meta's store requires of a LOCAL-space app (VRC.Quest.Functional.9), and room planes stay on their surfaces on their own; content an app placed in the room at scene coordinates, or a shared frame, stays only if the app applies the move to it. The runtime reports the same change when the headset wakes. Nothing is reported when the runtime cannot say where the new origin is (`poseValid` false).
 
 ### Changed
 

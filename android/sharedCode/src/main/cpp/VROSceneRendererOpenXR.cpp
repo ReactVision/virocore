@@ -569,6 +569,8 @@ bool VROSceneRendererOpenXR::createReferenceSpace() {
         ALOGE("LOCAL reference space creation failed: %d", r);
         return false;
     }
+    _spaceOffset     = spaceInfo.poseInReferenceSpace;
+    _roomMovePending = false;
     ALOGV("Reference space created (LOCAL — eye-level origin)");
     return true;
 }
@@ -1069,7 +1071,8 @@ void VROSceneRendererOpenXR::recenterTracking() {
     XrSpace newSpace = XR_NULL_HANDLE;
     if (XR_SUCCEEDED(xrCreateReferenceSpace(_session, &spaceInfo, &newSpace))) {
         xrDestroySpace(_stageSpace);
-        _stageSpace = newSpace;
+        _stageSpace  = newSpace;
+        _spaceOffset = spaceInfo.poseInReferenceSpace;
         ALOGV("recenterTracking: recentered (yaw=%.2f rad)", yaw);
     } else {
         ALOGE("recenterTracking: xrCreateReferenceSpace failed");
@@ -1146,11 +1149,24 @@ void VROSceneRendererOpenXR::pollEvents() {
             case XR_TYPE_EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING: {
                 auto *change =
                     reinterpret_cast<XrEventDataReferenceSpaceChangePending *>(&event);
-                ALOGV("Reference space change pending (type %d)",
-                      (int)change->referenceSpaceType);
+                ALOGV("Reference space change pending (type %d, pose valid %d)",
+                      (int)change->referenceSpaceType, (int)change->poseValid);
                 // A recentre moves LOCAL, the space the scene is drawn in.
-                if (change->referenceSpaceType == XR_REFERENCE_SPACE_TYPE_LOCAL && _arSession) {
-                    _arSession->onBaseSpaceChangePending(change->changeTime);
+                if (change->referenceSpaceType == XR_REFERENCE_SPACE_TYPE_LOCAL) {
+                    if (_arSession) {
+                        _arSession->onBaseSpaceChangePending(change->changeTime);
+                    }
+                    if (change->poseValid) {
+                        // poseInPreviousSpace is the new LOCAL origin in the old one.
+                        // _stageSpace keeps its offset from whichever LOCAL is current.
+                        VROMatrix4f offset = xrPoseToMatrix(_spaceOffset);
+                        VROMatrix4f move = offset.invert()
+                            .multiply(xrPoseToMatrix(change->poseInPreviousSpace).invert())
+                            .multiply(offset);
+                        _roomMove        = _roomMovePending ? move.multiply(_roomMove) : move;
+                        _roomMoveAt      = change->changeTime;
+                        _roomMovePending = true;
+                    }
                 }
                 break;
             }
@@ -1246,6 +1262,27 @@ void VROSceneRendererOpenXR::notifyInputFocus(bool focused) {
     if (attached) _jvm->DetachCurrentThread();
 }
 
+void VROSceneRendererOpenXR::notifyRoomMoved(const VROMatrix4f &move) {
+    JNIEnv *env = nullptr;
+    bool attached = false;
+    if (_jvm->GetEnv((void **)&env, JNI_VERSION_1_6) == JNI_EDETACHED) {
+        _jvm->AttachCurrentThread(&env, nullptr);
+        attached = true;
+    }
+    if (env) {
+        jclass cls = env->GetObjectClass(_jview);
+        jmethodID mid = env->GetMethodID(cls, "onNativeRoomMoved", "([F)V");
+        env->DeleteLocalRef(cls);
+        jfloatArray array = env->NewFloatArray(16);
+        if (mid && array) {
+            env->SetFloatArrayRegion(array, 0, 16, move.getArray());
+            env->CallVoidMethod(_jview, mid, array);
+        }
+        if (array) env->DeleteLocalRef(array);
+    }
+    if (attached) _jvm->DetachCurrentThread();
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // Frame render
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1260,6 +1297,11 @@ void VROSceneRendererOpenXR::renderFrame() {
     XrFrameState    frameState= { XR_TYPE_FRAME_STATE };
     XR_CHECK(xrWaitFrame(_session, &waitInfo, &frameState));
     _lastPredictedDisplayTime = frameState.predictedDisplayTime;
+
+    if (_roomMovePending && frameState.predictedDisplayTime >= _roomMoveAt) {
+        _roomMovePending = false;
+        notifyRoomMoved(_roomMove);
+    }
 
     // ── Begin frame ───────────────────────────────────────────────────────────
     XrFrameBeginInfo beginInfo = { XR_TYPE_FRAME_BEGIN_INFO };
