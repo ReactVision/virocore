@@ -211,7 +211,7 @@ public class MainActivity extends Activity {
         //   Right grip    → M2-CLICK source=9
         //   Left grip     → M2-CLICK source=8
         //   A button      → M2-CLICK source=5
-        //   B / Menu      → M2-CLICK source=3
+        //   B button      → M2-CLICK source=3
         //   X button      → M2-CLICK source=6
         //   Y button      → M2-CLICK source=7
 
@@ -305,7 +305,7 @@ public class MainActivity extends Activity {
     private static String sourceLabel(int source) {
         switch (source) {
             case SRC_RIGHT_TRIGGER: return "RIGHT_TRIGGER";
-            case SRC_BACK_BUTTON:   return "BACK/B/MENU";
+            case SRC_BACK_BUTTON:   return "BACK/B";
             case SRC_LEFT_TRIGGER:  return "LEFT_TRIGGER";
             case SRC_A_BUTTON:      return "A_BUTTON";
             case SRC_X_BUTTON:      return "X_BUTTON";

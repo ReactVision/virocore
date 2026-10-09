@@ -1,5 +1,5 @@
 # 15.0 is the floor Xcode 26+ accepts — anything lower is a hard build error, not a
-# warning. ViroKit itself targets 17.6; the pods only need to be no lower than the
+# warning. ViroKit and ViroSample target 15.1; the pods only need to be no lower than the
 # toolchain's minimum.
 platform :ios, '15.0'
 

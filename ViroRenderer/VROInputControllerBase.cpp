@@ -26,6 +26,7 @@
 #include "VROInputControllerBase.h"
 #include "VROTime.h"
 #include "VROPortal.h"
+#include "VROMaterial.h"
 
 static bool sSceneBackgroundAdd = true;
 
@@ -135,12 +136,20 @@ void VROInputControllerBase::onButtonEvent(int source, VROEventDelegate::ClickSt
 
     // Press capture: ClickUp goes to the node that took this button's
     // ClickDown; Clicked fires only when the release still resolves there.
+    // A press and release where no node takes clicks (open space) is still a
+    // click for the controller's own delegates, as ViroController's onClick
+    // documents.
     bool completed = false;
-    if (clickState == VROEventDelegate::ClickUp && lastClicked != nullptr) {
-        completed = (focusedNode == lastClicked);
-        if (!completed) {
-            focusedNode = lastClicked;
-            pos.clear();
+    if (clickState == VROEventDelegate::ClickUp) {
+        bool pressed = _pressedSources.erase(source) > 0;
+        if (lastClicked != nullptr) {
+            completed = (focusedNode == lastClicked);
+            if (!completed) {
+                focusedNode = lastClicked;
+                pos.clear();
+            }
+        } else {
+            completed = pressed && focusedNode == nullptr;
         }
     }
 
@@ -156,7 +165,7 @@ void VROInputControllerBase::onButtonEvent(int source, VROEventDelegate::ClickSt
             for (std::shared_ptr<VROEventDelegate> delegate : _delegates){
                 delegate->onClick(source, focusedNode, VROEventDelegate::ClickState::Clicked, pos);
             }
-            if (focusedNode->getEventDelegate()) {
+            if (focusedNode != nullptr && focusedNode->getEventDelegate()) {
                 focusedNode->getEventDelegate()->onClick(source, focusedNode,
                                                          VROEventDelegate::ClickState::Clicked,
                                                          pos);
@@ -172,6 +181,7 @@ void VROInputControllerBase::onButtonEvent(int source, VROEventDelegate::ClickSt
         }
     } else if (clickState == VROEventDelegate::ClickDown){
         lastClicked = focusedNode;
+        _pressedSources.insert(source);
 
         // A second button on a ray that is already dragging neither restarts
         // its drag (the frozen hit would re-seed it with a stale offset) nor
@@ -180,7 +190,7 @@ void VROInputControllerBase::onButtonEvent(int source, VROEventDelegate::ClickSt
         if (getDraggedObject(ray) != nullptr) {
             return;
         }
-        // A button with no ray of its own (e.g. a shared BackButton) resolves
+        // A button with no ray of its own (e.g. BackButton) resolves
         // against the legacy hit and would start an unowned drag, which every
         // ray moves. Never let one start alongside another drag.
         if (!sourceAware && isDragging()) {
@@ -618,6 +628,16 @@ VROInputControllerBase::getHitResultForSource(int source) const {
     return _hitResult;
 }
 
+bool VROInputControllerBase::getSourceRay(int source, VROVector3f *origin, VROVector3f *forward) const {
+    auto it = _lastKnownPoseBySource.find(rayForSource(source));
+    if (it == _lastKnownPoseBySource.end()) {
+        return false;
+    }
+    *origin = it->second.position;
+    *forward = it->second.forward;
+    return true;
+}
+
 void VROInputControllerBase::onControllerStatus(int source, VROEventDelegate::ControllerStatus status){
     if (_currentControllerStatus == status){
         return;
@@ -812,18 +832,48 @@ VROHitTestResult VROInputControllerBase::hitTest(const VROCamera &camera, VROVec
     std::vector<VROHitTestResult> nodeResults = sceneRootNode->hitTest(camera, origin, ray, boundsOnly);
     results.insert(results.end(), nodeResults.begin(), nodeResults.end());
 
-    // Sort and get the closest node
-    std::sort(results.begin(), results.end(), [](VROHitTestResult a, VROHitTestResult b) {
-        return a.getDistance() < b.getDistance();
+    // The hit drawn on top wins, which with renderingOrder is not always the nearest. Take
+    // the hits in draw order, nearest last within one renderingOrder, and skip one that
+    // reads depth behind an earlier node that writes it. A node with depth reads off is
+    // drawn over everything before it, and what comes after it counts as in front of it,
+    // since bounding boxes cannot place a panel's layers a centimetre apart. A node that
+    // ignores events neither takes the hit nor hides one.
+    std::sort(results.begin(), results.end(), [](const VROHitTestResult &a, const VROHitTestResult &b) {
+        int orderA = a.getNode()->getRenderingOrder();
+        int orderB = b.getNode()->getRenderingOrder();
+        if (orderA != orderB) {
+            return orderA < orderB;
+        }
+        return a.getDistance() > b.getDistance();
     });
 
-    // Return the closest hit element, if any.
-    for (int i = 0; i < results.size(); i++) {
-        if (!results[i].getNode()->getIgnoreEventHandling()) {
-            return results[i];
+    float depth = FLT_MAX;
+    const VROHitTestResult *top = nullptr;
+    for (const VROHitTestResult &result : results) {
+        std::shared_ptr<VRONode> node = result.getNode();
+        bool readsDepth = false;
+        bool writesDepth = false;
+        for (const std::shared_ptr<VROMaterial> &material : node->getGeometry()->getMaterials()) {
+            readsDepth = readsDepth || material->getReadsFromDepthBuffer();
+            writesDepth = writesDepth || material->getWritesToDepthBuffer();
         }
+        if (!readsDepth) {
+            depth = FLT_MAX;
+        } else if (result.getDistance() > depth) {
+            continue;
+        }
+        if (node->getIgnoreEventHandling()) {
+            continue;
+        }
+        if (readsDepth && writesDepth) {
+            depth = result.getDistance();
+        }
+        top = &result;
     }
-    
+    if (top) {
+        return *top;
+    }
+
     VROVector3f backgroundPosition = origin + (ray * kSceneBackgroundDistance);
     VROHitTestResult sceneBackgroundHitResult = { sceneRootNode, backgroundPosition,
                                                   kSceneBackgroundDistance, true, camera };

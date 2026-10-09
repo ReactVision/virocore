@@ -36,6 +36,7 @@ static const int kJustificationToleranceStart = 2;
 static const int kJustificationToleranceEnd = 4;
 
 void VROTextFormatter::formatAndBuild(std::wstring &text, float width, float height, int maxLines, float maxLineHeight,
+                                      float maxDescender,
                                       VROTextHorizontalAlignment horizontalAlignment,
                                       VROTextVerticalAlignment verticalAlignment,
                                       VROLineBreakMode lineBreakMode, VROTextClipMode clipMode,
@@ -66,20 +67,23 @@ void VROTextFormatter::formatAndBuild(std::wstring &text, float width, float hei
     
     float lineHeight = maxLineHeight * kTextPointToWorldScale;
     float totalHeight = lines.size() * lineHeight;
+    float descender = maxDescender * kTextPointToWorldScale;
     
     /*
      Compute the Y starting point for the text based on the vertical
-     alignment setting.
+     alignment setting. y is the first line's baseline: glyphs are drawn
+     from the baseline, and a line's box runs from the descender below it
+     to lineHeight above that.
      */
     float y = 0;
     if (verticalAlignment == VROTextVerticalAlignment::Top) {
-        y = height / 2.0 - lineHeight;
+        y = height / 2.0 - lineHeight + descender;
     }
     else if (verticalAlignment == VROTextVerticalAlignment::Bottom) {
-        y = -height / 2.0 + totalHeight - lineHeight;
+        y = -height / 2.0 + totalHeight - lineHeight + descender;
     }
     else { // Center
-        y = totalHeight / 2.0 - lineHeight / 2.0;
+        y = totalHeight / 2.0 - lineHeight + descender;
     }
     
     /*

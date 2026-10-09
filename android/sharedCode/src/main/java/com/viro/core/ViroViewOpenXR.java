@@ -116,6 +116,8 @@ public class ViroViewOpenXR extends ViroView {
     private List<FrameListener> mFrameListeners = new CopyOnWriteArrayList<>();
     private PlatformUtil mPlatformUtil;
     private StartupListener mStartupListener;
+    private volatile InputFocusListener mInputFocusListener;
+    private volatile RoomMoveListener mRoomMoveListener;
     private Application mApplication; // for unregistering ActivityLifecycleCallbacks
     private boolean mResumed = false;  // tracks renderer.onResume / onPause balance
     private ViroMediaRecorder mMediaRecorder; // lazily created; see getRecorder()
@@ -719,10 +721,9 @@ public class ViroViewOpenXR extends ViroView {
     // ── Callbacks from native (VROSceneRendererOpenXR) ─────────────────────────────
 
     /**
-     * Called by native code (render thread) when the B or Menu controller button
-     * is pressed, or the left-palm menu pinch is made with hand tracking. Posts
-     * Activity.onBackPressed() to the UI thread so React Native's BackHandler
-     * receives the event in VRActivity.
+     * Called by native code (render thread) when the B or Y controller button is
+     * pressed. Posts Activity.onBackPressed() to the UI thread so React Native's
+     * BackHandler receives the event in VRActivity.
      *
      * @hide
      */
@@ -731,6 +732,66 @@ public class ViroViewOpenXR extends ViroView {
         if (activity != null) {
             activity.runOnUiThread(activity::onBackPressed);
         }
+    }
+
+    /**
+     * Called by native code (render thread) when the session gains or loses
+     * input focus after its first focus. Posts to the UI thread.
+     *
+     * @hide
+     */
+    void onNativeInputFocusChanged(boolean focused) {
+        new Handler(Looper.getMainLooper()).post(() -> {
+            InputFocusListener listener = mInputFocusListener;
+            if (listener != null) {
+                listener.onInputFocusChanged(focused);
+            }
+        });
+    }
+
+    /**
+     * Told on the UI thread when Horizon OS takes input focus from the scene
+     * (its menu, a system dialog, the headset sleeping) and when it gives it
+     * back. Meta's store requires a single-player app to pause meanwhile; the
+     * renderer keeps drawing, and controller and hand input stops on its own.
+     */
+    public interface InputFocusListener {
+        void onInputFocusChanged(boolean focused);
+    }
+
+    public void setInputFocusListener(InputFocusListener listener) {
+        mInputFocusListener = listener;
+    }
+
+    /**
+     * Called by native code (render thread) on the frame a recentre takes
+     * effect. Posts to the UI thread.
+     *
+     * @hide
+     */
+    void onNativeRoomMoved(float[] move) {
+        new Handler(Looper.getMainLooper()).post(() -> {
+            RoomMoveListener listener = mRoomMoveListener;
+            if (listener != null) {
+                listener.onRoomMoved(move);
+            }
+        });
+    }
+
+    /**
+     * Told on the UI thread when the scene's coordinates move against the room:
+     * a recentre, or the headset waking. A point fixed in the room was at p and
+     * is now at {@code move} times p ({@code move} is a column-major 4x4).
+     * Room planes follow on their own; content an app placed in the room at
+     * scene coordinates follows only if the app applies {@code move} to it.
+     * Content left alone follows the wearer, which is what a recentre is for.
+     */
+    public interface RoomMoveListener {
+        void onRoomMoved(float[] move);
+    }
+
+    public void setRoomMoveListener(RoomMoveListener listener) {
+        mRoomMoveListener = listener;
     }
 
     /**

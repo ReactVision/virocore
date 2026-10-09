@@ -285,6 +285,8 @@ public:
         }
         else if (cullMode == VROCullMode::Back) {
             GL( glEnable(GL_CULL_FACE) );
+            // A preceding Front leaves the cull face at GL_FRONT.
+            GL( glCullFace(GL_BACK) );
         }
         else if (cullMode == VROCullMode::Front) {
             GL( glEnable(GL_CULL_FACE) );
