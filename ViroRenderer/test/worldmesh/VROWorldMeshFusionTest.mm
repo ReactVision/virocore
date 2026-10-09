@@ -34,6 +34,8 @@ class FakeFrame : public VROARFrame {
 public:
     std::shared_ptr<FakeCamera> camera = std::make_shared<FakeCamera>();
     std::shared_ptr<VROARDepthMesh> depthMesh;
+    /** ARKit's path: a mesh the platform already accumulated. Takes priority over depthMesh. */
+    std::shared_ptr<VROARDepthMesh> anchorMesh;
     std::vector<std::shared_ptr<VROARAnchor>> anchors;
 
     double getTimestamp() const override { return 0; }
@@ -49,6 +51,7 @@ public:
 
     bool hasDepthData() const override { return depthMesh != nullptr; }
     std::shared_ptr<VROARDepthMesh> generateDepthMesh(int, float, float) override { return depthMesh; }
+    std::shared_ptr<VROARDepthMesh> generateMeshAnchorMesh() override { return anchorMesh; }
 
     void bind() { _cameraBase = camera; }
 private:
@@ -56,7 +59,8 @@ private:
 };
 
 // A flat wall at `z`, sampled on a grid.
-static std::shared_ptr<VROARDepthMesh> wallMesh(float z, float cx, float cy, int n) {
+static std::shared_ptr<VROARDepthMesh> wallMesh(float z, float cx, float cy, int n,
+                                                const char *source = "depth") {
     std::vector<VROVector3f> v; std::vector<int> idx; std::vector<float> conf;
     for (int i = 0; i < n; i++) for (int j = 0; j < n; j++) {
         v.push_back(VROVector3f(cx - 0.9f + 1.8f * i / (n - 1), cy - 0.9f + 1.8f * j / (n - 1), z));
@@ -67,7 +71,7 @@ static std::shared_ptr<VROARDepthMesh> wallMesh(float z, float cx, float cy, int
         idx.push_back(a); idx.push_back(b); idx.push_back(c);
         idx.push_back(b); idx.push_back(d); idx.push_back(c);
     }
-    return std::make_shared<VROARDepthMesh>(std::move(v), std::move(idx), std::move(conf), "depth");
+    return std::make_shared<VROARDepthMesh>(std::move(v), std::move(idx), std::move(conf), source);
 }
 
 int main() {
@@ -154,6 +158,18 @@ int main() {
 
     // ── 6. resetAccumulation empties it ────────────────────────────────────
     worldMesh->resetAccumulation();
+
+    // Before any new frame lands. Emptying the volume is not enough on its own: the mesh fused out
+    // of the old one is what getStats() reports and what serializeCurrentMesh() uploads, so a
+    // snapshot taken in this window used to attach the room the app had just cleared.
+    VROWorldMeshStats cleared = worldMesh->getStats();
+    snprintf(buf, sizeof(buf), "(%d vertices, %d triangles)", cleared.vertexCount, cleared.triangleCount);
+    check("a reset zeroes the stats straight away", cleared.vertexCount == 0 && cleared.triangleCount == 0, buf);
+
+    std::vector<uint8_t> emptySnap = worldMesh->serializeCurrentMesh(L);
+    snprintf(buf, sizeof(buf), "(%zu bytes)", emptySnap.size());
+    check("and leaves nothing for VPS Lite to upload", emptySnap.empty(), buf);
+
     f.camera->position = VROVector3f(0,0,0);
     f.depthMesh = wallMesh(-2.0f, 0, 0, 40);
     { std::unique_ptr<VROARFrame> frame(&f); worldMesh->updateFromFrame(frame); frame.release(); }
@@ -174,6 +190,33 @@ int main() {
     VROWorldMeshStats s2 = perFrame->getStats();
     snprintf(buf, sizeof(buf), "(%d vertices = the frame's own 1600)", s2.vertexCount);
     check("accumulate=false hands back the frame mesh", !s2.accumulated && s2.vertexCount == 1600, buf);
+
+    // ── 7b. iOS: ARKit's mesh anchors ─────────────────────────────────────
+    // The fusion deliberately leaves this path alone, because ARKit already accumulates. What it
+    // must not do is report the result as single-frame: an app on an iPhone with LiDAR reads the
+    // same `accumulated` field, and a false there says its working mesh covers only the view.
+    {
+        auto lidar = std::make_shared<VROARWorldMesh>(nullptr);
+        lidar->setEnabled(true);
+        lidar->setConfig(cfg);
+        f.camera->position = VROVector3f(0, 0, 0);
+        f.depthMesh = nullptr;
+        f.anchorMesh = wallMesh(-2.0f, 0, 0, 40, "lidar");
+        { std::unique_ptr<VROARFrame> frame(&f); lidar->updateFromFrame(frame); frame.release(); }
+
+        VROWorldMeshStats s3 = lidar->getStats();
+        snprintf(buf, sizeof(buf), "(source=%s, accumulated=%d)",
+                 VROWorldMeshSourceToString(s3.source), (int)s3.accumulated);
+        check("mesh anchors report lidar, and report it as accumulated",
+              s3.source == VROWorldMeshSource::LiDAR && s3.accumulated, buf);
+
+        // And the snapshot VPS Lite uploads has to come off that path too, not just the fused one.
+        std::vector<uint8_t> lidarSnap = lidar->serializeCurrentMesh(L);
+        snprintf(buf, sizeof(buf), "(%zu bytes)", lidarSnap.size());
+        check("and still serialize for VPS Lite", lidarSnap.size() > 13, buf);
+
+        f.anchorMesh = nullptr;
+    }
 
     // ── 8. Re-meshing is incremental ──────────────────────────────────────
     // Extracting a room costs tens of milliseconds, and a walk changes a handful of blocks per
