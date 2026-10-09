@@ -979,6 +979,7 @@
 		9B532367DD933C2FA6135B54 /* VROFixedParticleEmitter.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 959241D911620C9DA5739BF1 /* VROFixedParticleEmitter.cpp */; settings = {COMPILER_FLAGS = "-x objective-c++"; }; };
 		9C115747CBB9F0A0C869CA2E /* VROBox.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 764537F3EE004A15CE3F78BB /* VROBox.cpp */; };
 		9F2A45203A91D7E0E12C5734 /* VROARWorldMesh.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 87F3FD70F5C17068B15E06BC /* VROARWorldMesh.cpp */; };
+		A1B2C3D40000000000TSDF01 /* VROTSDFVolume.cpp in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40000000000TSDF03 /* VROTSDFVolume.cpp */; };
 		A0648E52BC8BC3DE33C7F43C /* VROFrustumBoxIntersectionMetadata.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0F645131E0FE25744F090D44 /* VROFrustumBoxIntersectionMetadata.cpp */; };
 		A0F8CD24E79E9AEDB9D67945 /* VROTimingFunction.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D24510E118256FFB3488065E /* VROTimingFunction.cpp */; };
 		A129455B56737D681EC8B765 /* VROAnimatable.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0474FF2AA2586E72363D1B37 /* VROAnimatable.cpp */; };
@@ -1171,6 +1172,7 @@
 		E19DDA302F31A0D50097814B /* Shaders.metal in Resources */ = {isa = PBXBuildFile; fileRef = 8F517BC21BCDA2BD0017C70B /* Shaders.metal */; };
 		E1AAAA0000000002BBBBBBBB /* libreactvisioncca.a in Frameworks */ = {isa = PBXBuildFile; fileRef = E1AAAA0000000001BBBBBBBB /* libreactvisioncca.a */; };
 		E1B267D52EE5228E00F0718C /* VROARWorldMesh.h in Headers */ = {isa = PBXBuildFile; fileRef = E1B267D12EE5228E00F0718C /* VROARWorldMesh.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		A1B2C3D40000000000TSDF02 /* VROTSDFVolume.h in Headers */ = {isa = PBXBuildFile; fileRef = A1B2C3D40000000000TSDF04 /* VROTSDFVolume.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		E1B267D62EE5228E00F0718C /* VROARDepthMesh.h in Headers */ = {isa = PBXBuildFile; fileRef = E1B267CF2EE5228E00F0718C /* VROARDepthMesh.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		E1B267DA2EE5263A00F0718C /* VROARDepthMesh.mm in Sources */ = {isa = PBXBuildFile; fileRef = E1B267D72EE5263A00F0718C /* VROARDepthMesh.mm */; };
 		E1BD617D2FBBE52A008FDF74 /* VRODynamicGeometry.h in Headers */ = {isa = PBXBuildFile; fileRef = E1BD617B2FBBE52A008FDF74 /* VRODynamicGeometry.h */; settings = {ATTRIBUTES = (Public, ); }; };
@@ -1409,6 +1411,7 @@
 		862B6E0CCF55A9417DA9075B /* VROTextureSubstrate.cpp */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.cpp; name = VROTextureSubstrate.cpp; path = ../ViroRenderer/VROTextureSubstrate.cpp; sourceTree = "<absolute>"; };
 		86FF049E1E6B27B79C0DC822 /* VROData.cpp */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.cpp; name = VROData.cpp; path = ../ViroRenderer/VROData.cpp; sourceTree = "<absolute>"; };
 		87F3FD70F5C17068B15E06BC /* VROARWorldMesh.cpp */ = {isa = PBXFileReference; explicitFileType = sourcecode.cpp.objcpp; includeInIndex = 1; path = VROARWorldMesh.cpp; sourceTree = "<group>"; };
+		A1B2C3D40000000000TSDF03 /* VROTSDFVolume.cpp */ = {isa = PBXFileReference; explicitFileType = sourcecode.cpp.objcpp; includeInIndex = 1; path = VROTSDFVolume.cpp; sourceTree = "<group>"; };
 		8810F585851211D6FC35A424 /* VROSkeleton.cpp */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.cpp; name = VROSkeleton.cpp; path = ../ViroRenderer/VROSkeleton.cpp; sourceTree = "<absolute>"; };
 		8871ABF1EB699034167C2C3A /* VROInputControllerBase.cpp */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.cpp; name = VROInputControllerBase.cpp; path = ../ViroRenderer/VROInputControllerBase.cpp; sourceTree = "<absolute>"; };
 		88BB6AECC0D6A5F85E3BEE0E /* VROConcurrentBuffer.cpp */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.cpp; name = VROConcurrentBuffer.cpp; path = ../ViroRenderer/VROConcurrentBuffer.cpp; sourceTree = "<absolute>"; };
@@ -2460,6 +2463,7 @@
 		E1AAAA0000000001BBBBBBBB /* libreactvisioncca.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libreactvisioncca.a; path = Libraries/reactvisioncca/libreactvisioncca.a; sourceTree = "<group>"; };
 		E1B267CF2EE5228E00F0718C /* VROARDepthMesh.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VROARDepthMesh.h; sourceTree = "<group>"; };
 		E1B267D12EE5228E00F0718C /* VROARWorldMesh.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VROARWorldMesh.h; sourceTree = "<group>"; };
+		A1B2C3D40000000000TSDF04 /* VROTSDFVolume.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VROTSDFVolume.h; sourceTree = "<group>"; };
 		E1B267D72EE5263A00F0718C /* VROARDepthMesh.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = VROARDepthMesh.mm; sourceTree = "<group>"; };
 		E1BD617B2FBBE52A008FDF74 /* VRODynamicGeometry.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VRODynamicGeometry.h; sourceTree = "<group>"; };
 		E1BD617C2FBBE52A008FDF74 /* VRODynamicGeometry.cpp */ = {isa = PBXFileReference; explicitFileType = sourcecode.cpp.objcpp; path = VRODynamicGeometry.cpp; sourceTree = "<group>"; };
@@ -3934,6 +3938,7 @@
 			children = (
 				E1B267CF2EE5228E00F0718C /* VROARDepthMesh.h */,
 				E1B267D12EE5228E00F0718C /* VROARWorldMesh.h */,
+				A1B2C3D40000000000TSDF04 /* VROTSDFVolume.h */,
 				E1B267D72EE5263A00F0718C /* VROARDepthMesh.mm */,
 				A52B272A1ED8DA960089F9A2 /* VROPhysicsContactResultCallback.h */,
 				A50F2A271ED135B100D964D5 /* VROPhysicsBodyDelegate.h */,
@@ -3946,6 +3951,7 @@
 				A5EC65951EBD16F000FE220E /* VROPhysicsWorld.cpp */,
 				A5EC65961EBD16F000FE220E /* VROPhysicsWorld.h */,
 				87F3FD70F5C17068B15E06BC /* VROARWorldMesh.cpp */,
+				A1B2C3D40000000000TSDF03 /* VROTSDFVolume.cpp */,
 			);
 			name = Physics;
 			sourceTree = "<group>";
@@ -4126,6 +4132,7 @@
 				E113082D2EF0F57D008AB6A1 /* VROMonocularDepthEstimator.h in Headers */,
 				E1B267D62EE5228E00F0718C /* VROARDepthMesh.h in Headers */,
 				E1B267D52EE5228E00F0718C /* VROARWorldMesh.h in Headers */,
+				A1B2C3D40000000000TSDF02 /* VROTSDFVolume.h in Headers */,
 				A5B4AF0B20535D460006D970 /* VROPolygon.h in Headers */,
 				A5B433ED204E659A00E9EE53 /* VROFixedParticleEmitter.h in Headers */,
 				E19926022EE3B7F700328B9D /* VROGeospatialAnchor.h in Headers */,
@@ -5349,6 +5356,7 @@
 				8FD4DEFE1C18ED22003DC425 /* VROShapeUtils.cpp in Sources */,
 				14426EEDC8513DBFAE126A49 /* VROARSessionRecorderIOS.mm in Sources */,
 				9F2A45203A91D7E0E12C5734 /* VROARWorldMesh.cpp in Sources */,
+				A1B2C3D40000000000TSDF01 /* VROTSDFVolume.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

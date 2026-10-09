@@ -33,7 +33,10 @@
 #include <map>
 #include <mutex>
 #include <cstdint>
+#include <vector>
+#include <atomic>
 #include "VROVector3f.h"
+#include "VROTSDFVolume.h"
 #include "VROMatrix4f.h"
 
 class VROARDepthMesh;
@@ -54,6 +57,12 @@ struct VROWorldMeshConfig {
     int stride = 4;                     // Sample every Nth pixel (lower = more detail, higher cost)
     float minConfidence = 0.3f;         // Minimum confidence threshold (0.0-1.0)
     float maxDepth = 5.0f;              // Maximum depth in meters
+
+    // Fusion across frames. ARKit accumulates for us on LiDAR devices and hands back mesh anchors;
+    // ARCore and monocular depth give one frame at a time, so those two paths fuse here instead.
+    bool accumulate = true;             // false reproduces the per-frame behaviour exactly
+    float voxelSize = 0.04f;            // Fusion voxel edge, meters
+    int maxMemoryMB = 64;               // Budget for the fused volume; oldest blocks evicted first
 
     // Update settings
     double updateIntervalMs = 500.0;    // Minimum time between mesh updates
@@ -105,6 +114,9 @@ struct VROWorldMeshStats {
     double lastUpdateTimeMs = 0.0;      // Timestamp of last mesh update
     bool isStale = false;               // True if depth data hasn't been received recently
     VROWorldMeshSource source = VROWorldMeshSource::Unknown;  // Which of the three paths produced it
+    // True when the mesh covers more than the current view: fused here on the depth paths, or
+    // accumulated by ARKit on the mesh-anchor path. Not "our fusion ran".
+    bool accumulated = false;
 };
 
 /**
@@ -177,6 +189,10 @@ public:
     /**
      * Force an immediate mesh update, ignoring the update interval.
      *
+     * Bypasses the fusion: it replaces the accumulated mesh with this one frame, which is the
+     * single-frame behaviour the fusion exists to end. Nothing calls it today. Route it through
+     * updateFromFrame()'s fusion path before giving it a caller.
+     *
      * @param frame The current AR frame with depth data
      */
     void forceUpdate(const std::unique_ptr<VROARFrame>& frame);
@@ -196,6 +212,18 @@ public:
      * When disabled, the mesh is removed from the physics world.
      */
     void setEnabled(bool enabled);
+
+    /*
+     Clears the fused volume, so the next scan starts from an empty room rather than carrying the
+     last one. Also drops the current mesh and its physics body, so getStats() reports zero and
+     serializeCurrentMesh() has nothing to upload until the next frame fuses — a snapshot taken
+     between a reset and the next frame must not carry the previous room.
+
+     No-op on the mesh-anchor path, where ARKit owns the accumulation.
+
+     Must be called on the render thread: it touches the physics world and the current mesh.
+     */
+    void resetAccumulation();
 
     /**
      * Check if the world mesh is enabled.
@@ -300,6 +328,17 @@ public:
      *     repo has no way to render an AR scene, so it has not been visually
      *     confirmed to occlude correctly. Test on device before shipping.
      *
+     * It shares the live mesh's single slot, which has three consequences worth knowing before
+     * resolving an anchor in a session that is still scanning:
+     *   - The next live frame calls applyMeshToPhysics() in turn and takes the physics body with
+     *     it. The occlusion geometry stays, being a node of its own, so the resolved mesh keeps
+     *     occluding but stops colliding.
+     *   - _currentMesh becomes the resolved mesh, so getStats() reports it and
+     *     serializeCurrentMesh() would upload it back — a snapshot taken after a resolve returns
+     *     the downloaded room, not the scanned one, until the next frame lands.
+     *   - Each call adds another occlusion node and nothing removes them; resolving twice leaves
+     *     two overlapping meshes in the scene.
+     *
      * @param mesh The resolved mesh, already in this session's world space
      *        (see loadMeshSnapshot()'s resolvedTransform parameter).
      * @param scene The scene to add the occlusion geometry node to.
@@ -334,6 +373,24 @@ private:
     // Last source announced to the log, so the line appears on a change rather than every update.
     VROWorldMeshSource _lastReportedSource = VROWorldMeshSource::Unknown;
 
+    /*
+     The fused volume, and the lock that lets the background fusion task touch it while the render
+     thread may be resetting it. Integrating a frame and extracting a room's surface cost tens of
+     milliseconds — measured, not guessed — so neither runs on the render thread.
+     */
+    std::unique_ptr<VROTSDFVolume> _volume;
+    std::mutex _volumeMutex;
+    std::atomic<bool> _fusionInFlight{false};
+    bool _lastMeshWasAccumulated = false;
+
+    /*
+     Bumped by resetAccumulation(). A surface extracted before the reset is already on its way to
+     the render thread, carrying the room that was just cleared; the continuation compares the
+     generation it read under _volumeMutex against this one and drops the stale result rather than
+     putting the old room back.
+     */
+    std::atomic<uint64_t> _fusionGeneration{0};
+
     // Configuration and state
     VROWorldMeshConfig _config;
     bool _enabled = false;
@@ -357,6 +414,17 @@ private:
      * Creates a new physics shape and rigid body from the mesh.
      */
     void applyMeshToPhysics(std::shared_ptr<VROARDepthMesh> mesh);
+
+    /* Whether this source is one the volume should fuse. */
+    bool shouldFuse(VROWorldMeshSource source) const;
+
+    /*
+     Hands the frame's samples to the fused volume on a background thread and, when the volume has
+     changed, re-meshes it and applies the result on the render thread. Returns true when the frame
+     was taken over by fusion, so the caller does not also apply the single-frame mesh.
+     */
+    bool fuseFrame(std::shared_ptr<VROARDepthMesh> frameMesh,
+                   const std::unique_ptr<VROARFrame> &frame);
 
     /**
      * Remove the current physics body from the world.

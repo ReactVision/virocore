@@ -343,6 +343,7 @@ add_library( # Sets the name of the library.
              ${VIRO_RENDERER_SRC}/VROPhysicsShape.cpp
              ${VIRO_RENDERER_SRC}/VROARDepthMesh.cpp
              ${VIRO_RENDERER_SRC}/VROARWorldMesh.cpp
+             ${VIRO_RENDERER_SRC}/VROTSDFVolume.cpp
 
              # Android JNI
              ${VIRO_ANDROID_SRC}/jni/VRORenderer_JNI.cpp

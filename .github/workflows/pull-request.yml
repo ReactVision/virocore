@@ -71,6 +71,9 @@ jobs:
       - uses: maxim-lobanov/setup-xcode@v1.6.0
         with:
           xcode-version: ${{ matrix.xcode }}
+      - name: World mesh fusion test
+        run: ./scripts/run-world-mesh-test.sh
+        shell: bash
       - name: Install pod dependencies
         run: |
           cd ios
