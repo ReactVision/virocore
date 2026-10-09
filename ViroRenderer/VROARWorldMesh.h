@@ -83,10 +83,17 @@ struct VROWorldMeshConfig {
  */
 enum class VROWorldMeshSource {
     LiDAR,      // ARKit ARMeshAnchor (LiDAR-equipped device)
+    Depth,      // ARCore depth camera image
     Monocular,  // Monocular depth estimation (non-LiDAR device)
     Plane,      // Triangulated AR plane anchors (fallback)
     Unknown
 };
+
+/**
+ * The name apps see. An app cannot tell a real depth mesh from the plane-anchor fallback without
+ * it, and until now it had no way to ask.
+ */
+const char *VROWorldMeshSourceToString(VROWorldMeshSource source);
 
 /**
  * Statistics about the current world mesh state.
@@ -97,6 +104,7 @@ struct VROWorldMeshStats {
     float averageConfidence = 0.0f;     // Average confidence of depth samples
     double lastUpdateTimeMs = 0.0;      // Timestamp of last mesh update
     bool isStale = false;               // True if depth data hasn't been received recently
+    VROWorldMeshSource source = VROWorldMeshSource::Unknown;  // Which of the three paths produced it
 };
 
 /**
@@ -322,6 +330,9 @@ private:
 
     // Current mesh data
     std::shared_ptr<VROARDepthMesh> _currentMesh;
+
+    // Last source announced to the log, so the line appears on a change rather than every update.
+    VROWorldMeshSource _lastReportedSource = VROWorldMeshSource::Unknown;
 
     // Configuration and state
     VROWorldMeshConfig _config;

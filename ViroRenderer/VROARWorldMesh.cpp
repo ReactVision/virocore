@@ -55,9 +55,21 @@ void BulletRigidBodyDeleter::operator()(btRigidBody *body) const {
 
 static VROWorldMeshSource sourceFromMeshTag(const std::string& tag) {
     if (tag == "lidar")     return VROWorldMeshSource::LiDAR;
+    if (tag == "depth")     return VROWorldMeshSource::Depth;
     if (tag == "monocular") return VROWorldMeshSource::Monocular;
     if (tag == "plane")     return VROWorldMeshSource::Plane;
     return VROWorldMeshSource::Unknown;
+}
+
+const char *VROWorldMeshSourceToString(VROWorldMeshSource source) {
+    switch (source) {
+        case VROWorldMeshSource::LiDAR:     return "lidar";
+        case VROWorldMeshSource::Depth:     return "depth";
+        case VROWorldMeshSource::Monocular: return "monocular";
+        case VROWorldMeshSource::Plane:     return "plane";
+        case VROWorldMeshSource::Unknown:   break;
+    }
+    return "unknown";
 }
 
 VROARWorldMesh::VROARWorldMesh(std::shared_ptr<VROPhysicsWorld> physicsWorld)
@@ -121,9 +133,20 @@ void VROARWorldMesh::updateFromFrame(const std::unique_ptr<VROARFrame>& frame) {
 
     if (!mesh || !mesh->isValid()) {
         mesh = frame->generatePlaneMesh();
+        // Falling back to plane anchors is a different product: flat polygons where the app asked
+        // for a surface. It used to happen silently, so an app could not tell the two apart.
+        if (mesh && mesh->isValid() && _lastReportedSource != VROWorldMeshSource::Plane) {
+            pinfo("VROARWorldMesh: no mesh anchors and no depth image; falling back to AR plane "
+                  "anchors. getWorldMeshStats().source reports \"plane\".");
+        }
     }
 
     if (mesh && mesh->isValid()) {
+        VROWorldMeshSource source = sourceFromMeshTag(mesh->getSource());
+        if (source != _lastReportedSource) {
+            pinfo("VROARWorldMesh: mesh source is now \"%s\"", VROWorldMeshSourceToString(source));
+            _lastReportedSource = source;
+        }
         _lastDepthTimeMs = getCurrentTimeMs();
         applyMeshToPhysics(mesh);
         notifySubscribers(mesh);
@@ -278,6 +301,7 @@ VROWorldMeshStats VROARWorldMesh::getStats() const {
         stats.vertexCount = _currentMesh->getVertexCount();
         stats.triangleCount = _currentMesh->getTriangleCount();
         stats.averageConfidence = _currentMesh->getAverageConfidence();
+        stats.source = sourceFromMeshTag(_currentMesh->getSource());
     }
 
     stats.lastUpdateTimeMs = _lastUpdateTimeMs;

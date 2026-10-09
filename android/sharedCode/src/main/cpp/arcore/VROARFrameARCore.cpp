@@ -346,6 +346,29 @@ VROVector3f VROARFrameARCore::getAmbientLightColor() const {
     return VROLight::convertGammaToLinear(gammaColor);
 }
 
+bool VROARFrameARCore::getCameraImageDimensions(int *outWidth, int *outHeight) {
+    if (_cameraImageW > 0 && _cameraImageH > 0) {
+        *outWidth = _cameraImageW; *outHeight = _cameraImageH;
+        return true;
+    }
+    // getCameraImageY may already have paid for the acquire this frame.
+    if (_lumaW > 0 && _lumaH > 0) {
+        _cameraImageW = _lumaW; _cameraImageH = _lumaH;
+        *outWidth = _cameraImageW; *outHeight = _cameraImageH;
+        return true;
+    }
+    arcore::Image *img = nullptr;
+    if (_frame->acquireCameraImage(&img) != arcore::ImageRetrievalStatus::Success || !img) {
+        return false;
+    }
+    _cameraImageW = img->getWidth();
+    _cameraImageH = img->getHeight();
+    delete img;
+    if (_cameraImageW <= 0 || _cameraImageH <= 0) return false;
+    *outWidth = _cameraImageW; *outHeight = _cameraImageH;
+    return true;
+}
+
 bool VROARFrameARCore::getCameraImageY(const uint8_t** data, int* width, int* height) {
     if (!_lumaData.empty()) {
         *data = _lumaData.data(); *width = _lumaW; *height = _lumaH;
@@ -602,31 +625,66 @@ std::shared_ptr<VROARDepthMesh> VROARFrameARCore::generateDepthMesh(
         return nullptr;
     }
 
-    const uint16_t *depthData = reinterpret_cast<const uint16_t*>(rawData);
+    // Rows can be padded, so the stride is what separates them, not the width. Indexing by width
+    // alone sheared the image progressively down the frame whenever ARCore padded its rows.
+    // getCameraImageY, in this same file, already reads its plane this way.
+    int depthRowStride = depthImage->getPlaneRowStride(0);
+    if (depthRowStride <= 0) depthRowStride = depthWidth * (int)sizeof(uint16_t);
 
-    // Try to get confidence data
+    // Confidence comes in its own image, with its own size and stride. It used to be indexed with
+    // the depth image's width, which read the wrong pixel whenever the two differed — and read off
+    // the end of the buffer when the confidence image was the smaller of the two.
     arcore::Image *confidenceImage = nullptr;
     const uint8_t *confidenceData = nullptr;
+    int confWidth = 0, confHeight = 0, confRowStride = 0, confLength = 0;
     status = _frame->acquireDepthConfidenceImage(&confidenceImage);
     if (status == arcore::ImageRetrievalStatus::Success && confidenceImage != nullptr) {
-        int confLength = 0;
         confidenceImage->getPlaneData(0, &confidenceData, &confLength);
+        confWidth  = confidenceImage->getWidth();
+        confHeight = confidenceImage->getHeight();
+        confRowStride = confidenceImage->getPlaneRowStride(0);
+        if (confRowStride <= 0) confRowStride = confWidth;
+        if (confidenceData == nullptr || confWidth <= 0 || confHeight <= 0) {
+            confidenceData = nullptr;   // unusable; every sample keeps confidence 1.0
+        }
     }
 
-    // Get camera for unprojection
-    std::shared_ptr<VROARCamera> camera = getCamera();
-    VROFieldOfView fov;
-    VROMatrix4f projection = camera->getProjection(_viewport, 0.01f, 100.0f, &fov);
-    VROVector3f cameraPos = camera->getPosition();
-    VROMatrix4f cameraRotation = camera->getRotation();
+    // Unprojection, by pinhole intrinsics rather than by the view-projection matrix.
+    //
+    // This used to build clipPos = (ndcX*d, ndcY*d, -d, d) and run it through the inverse
+    // view-projection. That is d * (ndcX, ndcY, -1, 1), and since the multiply is a plain linear
+    // product, dividing the result by its own w cancels d exactly: every sample landed on the near
+    // plane, a centimetre from the camera, whatever its depth. The depth only ever reached the
+    // maxDepth filter. iOS (VROARFrameiOS::generateDepthMesh) always did this the right way.
+    float fx = 0, fy = 0, cx = 0, cy = 0;
+    _frame->getImageIntrinsics(&fx, &fy, &cx, &cy);
+    if (fx <= 0 || fy <= 0) {
+        delete depthImage;
+        if (confidenceImage) delete confidenceImage;
+        pinfo("VROARFrameARCore: no camera intrinsics, cannot build depth mesh");
+        return nullptr;
+    }
 
-    // Build view matrix
-    VROMatrix4f view = VROMatrix4f::identity();
-    view.translate(cameraPos.scale(-1));
-    view = cameraRotation.invert() * view;
+    // Intrinsics are relative to the CPU camera image; scale them to the depth image, which is
+    // much smaller (ARCore gives 160x120) but covers the same field of view.
+    int imageWidth = 0, imageHeight = 0;
+    if (!getCameraImageDimensions(&imageWidth, &imageHeight)) {
+        delete depthImage;
+        if (confidenceImage) delete confidenceImage;
+        pinfo("VROARFrameARCore: no camera image size, cannot scale intrinsics");
+        return nullptr;
+    }
+    const float sx = (float)depthWidth  / (float)imageWidth;
+    const float sy = (float)depthHeight / (float)imageHeight;
+    fx *= sx; cx *= sx;
+    fy *= sy; cy *= sy;
 
-    // Inverse view-projection for unprojecting depth to world space
-    VROMatrix4f invViewProjection = (projection * view).invert();
+    // The physical camera pose, not the view matrix: the depth image is aligned with the CPU
+    // image (+X along a readout row, +Y up the image, -Z forward), while the view matrix inverts
+    // the display-oriented pose, which differs by the display rotation.
+    float poseMtx[16];
+    _frame->getCameraPose(poseMtx);
+    VROMatrix4f cameraToWorld(poseMtx);
 
     // Calculate grid dimensions based on stride
     int gridWidth = (depthWidth + stride - 1) / stride;
@@ -636,9 +694,13 @@ std::shared_ptr<VROARDepthMesh> VROARFrameARCore::generateDepthMesh(
     std::vector<VROVector3f> vertices;
     std::vector<float> confidences;
     std::vector<int> indices;
+    // Camera-space depth per emitted vertex. The discontinuity check below needs the distance
+    // from the camera, and a world-space coordinate is not that.
+    std::vector<float> depthsAtVertices;
 
     vertices.reserve(gridWidth * gridHeight);
     confidences.reserve(gridWidth * gridHeight);
+    depthsAtVertices.reserve(gridWidth * gridHeight);
     indices.reserve(gridWidth * gridHeight * 6);
 
     // Map from grid position to vertex index (-1 if invalid)
@@ -653,8 +715,11 @@ std::shared_ptr<VROARDepthMesh> VROARFrameARCore::generateDepthMesh(
 
             if (px >= depthWidth || py >= depthHeight) continue;
 
-            int pixelIndex = py * depthWidth + px;
-            uint16_t depthMm = depthData[pixelIndex];
+            const uint8_t *depthRow = rawData + (size_t)py * (size_t)depthRowStride;
+            if ((size_t)(depthRow - rawData) + (size_t)(px + 1) * sizeof(uint16_t) > (size_t)dataLength) {
+                continue;
+            }
+            uint16_t depthMm = reinterpret_cast<const uint16_t *>(depthRow)[px];
 
             // Skip invalid depth (0 means no depth data)
             if (depthMm == 0) continue;
@@ -662,36 +727,73 @@ std::shared_ptr<VROARDepthMesh> VROARFrameARCore::generateDepthMesh(
             float depthMeters = depthMm / 1000.0f;
             if (depthMeters > maxDepth) continue;
 
-            // Check confidence if available
+            // Confidence rides along as a weight; it does not drop the sample.
+            //
+            // ARCore pairs its confidence image with the RAW depth estimate
+            // (ArFrame_acquireRawDepthConfidenceImage), while the depth read above is the dense,
+            // smoothed one (ArFrame_acquireDepthImage16Bits) — see ARCore_Native.cpp:750 and :776.
+            // The smoothed image has no confidence image of its own: ARCore has already filled its
+            // gaps, so a pixel is either valid or zero. Using the raw image's confidence as a
+            // cutoff on it therefore discarded most of a well-lit wall at the documented default
+            // of 0.3, which is what left a frame with only a handful of triangles.
+            //
+            // The two images are the same size and from the same camera, so the value still says
+            // something useful about how well that direction was estimated. It is kept as the
+            // per-sample weight, which is exactly what the TSDF fusion wants, and no longer
+            // gates anything. minConfidence keeps its cutoff meaning on iOS, where the depth and
+            // its confidence do come from the same image.
             float confidence = 1.0f;
             if (confidenceData) {
-                confidence = confidenceData[pixelIndex] / 255.0f;
+                int cpx = (confWidth  == depthWidth)  ? px : (px * confWidth)  / depthWidth;
+                int cpy = (confHeight == depthHeight) ? py : (py * confHeight) / depthHeight;
+                size_t cIdx = (size_t)cpy * (size_t)confRowStride + (size_t)cpx;
+                if (cpx < confWidth && cpy < confHeight && cIdx < (size_t)confLength) {
+                    // Floor it: a weight of zero would make the sample invisible to fusion, and a
+                    // raw-depth confidence of zero does not mean the smoothed depth is worthless.
+                    confidence = std::max(0.05f, confidenceData[cIdx] / 255.0f);
+                }
             }
-            if (confidence < minConfidence) continue;
+            (void)minConfidence;   // not a cutoff on this path; see above
 
-            // Unproject to world space
-            // NDC coordinates: x from -1 to 1, y from -1 to 1
-            float ndcX = (2.0f * px / depthWidth) - 1.0f;
-            float ndcY = 1.0f - (2.0f * py / depthHeight);  // Flip Y
-
-            // Create clip-space position
-            VROVector4f clipPos(ndcX * depthMeters, ndcY * depthMeters, -depthMeters, depthMeters);
-            VROVector4f worldPos = invViewProjection.multiply(clipPos);
-
-            if (worldPos.w != 0) {
-                worldPos.x /= worldPos.w;
-                worldPos.y /= worldPos.w;
-                worldPos.z /= worldPos.w;
-            }
+            // Pinhole unprojection into camera space, then into the world by the camera pose.
+            // Image rows run downward and the camera's +Y is up, hence the negated Y; forward
+            // is -Z, hence the negated depth.
+            float camX =  ((float)px - cx) * depthMeters / fx;
+            float camY = -((float)py - cy) * depthMeters / fy;
+            VROVector4f worldPos = cameraToWorld.multiply(
+                VROVector4f(camX, camY, -depthMeters, 1.0f));
 
             vertexMap[gy * gridWidth + gx] = vertexIndex++;
             vertices.push_back(VROVector3f(worldPos.x, worldPos.y, worldPos.z));
             confidences.push_back(confidence);
+            depthsAtVertices.push_back(depthMeters);
         }
     }
 
-    // Generate triangle indices, skipping triangles that span depth discontinuities
+    // Generate triangle indices, skipping triangles that span depth discontinuities.
+    //
+    // A cell emits a triangle when three of its four corners are valid, which is what depth-to-mesh
+    // builders normally do. Requiring all four meant one missing sample erased both triangles, and
+    // with sparse depth most cells lose a corner, so the surface came out as specks. Lowering the
+    // stride did not help: it only made more cells, each still missing a corner.
     const float maxDepthDiff = 0.3f; // 30cm threshold
+
+    // Per triangle rather than per cell: with three corners there is no fourth to test, and a cell
+    // whose fourth corner sits on a far surface should still emit the triangle that excludes it.
+    auto withinDepth = [&](int a, int b, int c) {
+        float da = depthsAtVertices[a], db = depthsAtVertices[b], dc = depthsAtVertices[c];
+        return std::abs(da - db) < maxDepthDiff
+            && std::abs(db - dc) < maxDepthDiff
+            && std::abs(da - dc) < maxDepthDiff;
+    };
+    auto emit = [&](int a, int b, int c) {
+        if (withinDepth(a, b, c)) {
+            indices.push_back(a);
+            indices.push_back(b);
+            indices.push_back(c);
+        }
+    };
+
     for (int gy = 0; gy < gridHeight - 1; gy++) {
         for (int gx = 0; gx < gridWidth - 1; gx++) {
             int i00 = vertexMap[gy * gridWidth + gx];
@@ -699,32 +801,23 @@ std::shared_ptr<VROARDepthMesh> VROARFrameARCore::generateDepthMesh(
             int i01 = vertexMap[(gy + 1) * gridWidth + gx];
             int i11 = vertexMap[(gy + 1) * gridWidth + (gx + 1)];
 
-            // All four corners must have valid vertices
-            if (i00 >= 0 && i10 >= 0 && i01 >= 0 && i11 >= 0) {
-                // Check for depth discontinuities (to avoid connecting walls to floors, etc.)
-                float d00 = -vertices[i00].z;
-                float d10 = -vertices[i10].z;
-                float d01 = -vertices[i01].z;
-                float d11 = -vertices[i11].z;
-
-                float diff1 = std::abs(d00 - d10);
-                float diff2 = std::abs(d00 - d01);
-                float diff3 = std::abs(d10 - d11);
-                float diff4 = std::abs(d01 - d11);
-                float maxDiff = std::max(std::max(diff1, diff2), std::max(diff3, diff4));
-
-                if (maxDiff < maxDepthDiff) {
-                    // Triangle 1: top-left, top-right, bottom-left
-                    indices.push_back(i00);
-                    indices.push_back(i10);
-                    indices.push_back(i01);
-
-                    // Triangle 2: top-right, bottom-right, bottom-left
-                    indices.push_back(i10);
-                    indices.push_back(i11);
-                    indices.push_back(i01);
-                }
+            int validCount = (i00 >= 0) + (i10 >= 0) + (i01 >= 0) + (i11 >= 0);
+            if (validCount < 3) {
+                continue;
             }
+
+            if (validCount == 4) {
+                emit(i00, i10, i01);   // top-left, top-right, bottom-left
+                emit(i10, i11, i01);   // top-right, bottom-right, bottom-left
+                continue;
+            }
+
+            // Exactly one corner missing: the other three still make a triangle. Wind it the same
+            // way as the pair above, so normals stay consistent across the mesh.
+            if      (i11 < 0) emit(i00, i10, i01);
+            else if (i01 < 0) emit(i00, i10, i11);
+            else if (i10 < 0) emit(i00, i11, i01);
+            else              emit(i10, i11, i01);
         }
     }
 
@@ -741,11 +834,13 @@ std::shared_ptr<VROARDepthMesh> VROARFrameARCore::generateDepthMesh(
     if (kDebugFrameLogs) pinfo("VROARFrameARCore: Generated depth mesh with %zu vertices, %zu triangles",
           vertices.size(), indices.size() / 3);
 
+    // "depth", not "lidar": this is ARCore's depth camera image. An Android phone has no LiDAR,
+    // and tagging it as such left getWorldMeshStats() reporting a source that cannot exist there.
     return std::make_shared<VROARDepthMesh>(
         std::move(vertices),
         std::move(indices),
         std::move(confidences),
-        "lidar"
+        "depth"
     );
 }
 
