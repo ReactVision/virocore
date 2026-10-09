@@ -33,6 +33,8 @@
 #include <map>
 #include <mutex>
 #include <cstdint>
+#include <vector>
+#include <utility>
 #include "VROVector3f.h"
 #include "VROMatrix4f.h"
 
@@ -74,8 +76,17 @@ struct VROWorldMeshConfig {
     // Visualization
     bool debugDrawEnabled = false;         // Enable wireframe visualization of mesh
     bool debugDrawDepthTest = true;        // Depth-test wireframe against scene (occluded by real surfaces)
-    int debugDrawMaxTriangles = 1000;      // Triangle cap for wireframe debug draw
-    float debugDrawLineThickness = 0.001f; // Line thickness for wireframe (meters)
+    int debugDrawMaxEdges = 6000;          // Edge budget for the wireframe. Counted in unique edges,
+                                           // which is what costs: a shared edge is one line, not two.
+                                           // Replaces debugDrawMaxTriangles, whose 1000 was sized for
+                                           // one depth-image grid and starved an accumulated LiDAR mesh.
+    float debugDrawCellSize = 0.04f;       // Vertex-clustering cell size for the wireframe, in meters.
+                                           // Simplifies while keeping the surface connected, instead of
+                                           // dropping whole triangles. Grown automatically to fit the
+                                           // edge budget. 0 disables simplification.
+    float debugDrawLineThickness = 0.004f; // Line thickness for wireframe (meters). 1mm was under a
+                                           // screen pixel at arm's length, which is why the lines
+                                           // shimmered and dropped out.
 };
 
 /**
@@ -323,6 +334,14 @@ private:
     // Current mesh data
     std::shared_ptr<VROARDepthMesh> _currentMesh;
 
+    /*
+     Cached wireframe for debugDraw(). Rebuilding it means clustering the mesh and de-duplicating
+     its edges, which is far too much to redo on every render frame; the mesh only changes at
+     updateIntervalMs. _debugEdgeSource is the mesh _debugEdges was built from, compared by pointer.
+     */
+    std::shared_ptr<VROARDepthMesh> _debugEdgeSource;
+    std::vector<std::pair<VROVector3f, VROVector3f>> _debugEdges;
+
     // Configuration and state
     VROWorldMeshConfig _config;
     bool _enabled = false;
@@ -346,6 +365,12 @@ private:
      * Creates a new physics shape and rigid body from the mesh.
      */
     void applyMeshToPhysics(std::shared_ptr<VROARDepthMesh> mesh);
+
+    /*
+     Rebuilds _debugEdges from _currentMesh: simplify with vertex clustering, then collect each
+     edge once. Called from debugDraw() when the mesh has changed.
+     */
+    void rebuildDebugWireframe();
 
     /**
      * Remove the current physics body from the world.

@@ -42,7 +42,9 @@
 #include "VROData.h"
 #include <btBulletDynamicsCommon.h>
 #include <unordered_map>
+#include <unordered_set>
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <cstdint>
 
@@ -452,42 +454,103 @@ void VROARWorldMesh::notifySubscribers(std::shared_ptr<VROARDepthMesh> mesh) {
     }
 }
 
+namespace {
+    /*
+     Collects each edge of a triangle mesh once. Interior edges are shared by two triangles, so
+     drawing per-triangle paints half of them twice; de-duplicating is what makes an edge budget
+     mean what it says. Returns the count even when it overflows `budget`, so the caller can tell
+     how far over it is.
+     */
+    size_t collectUniqueEdges(const std::vector<VROVector3f>& vertices,
+                              const std::vector<int>& indices,
+                              size_t budget,
+                              std::vector<std::pair<VROVector3f, VROVector3f>> *out) {
+        std::unordered_set<uint64_t> seen;
+        seen.reserve(indices.size());
+        size_t count = 0;
+
+        for (size_t i = 0; i + 2 < indices.size(); i += 3) {
+            const int tri[3] = { indices[i], indices[i + 1], indices[i + 2] };
+            if (tri[0] < 0 || tri[0] >= (int)vertices.size() ||
+                tri[1] < 0 || tri[1] >= (int)vertices.size() ||
+                tri[2] < 0 || tri[2] >= (int)vertices.size()) {
+                continue;
+            }
+            for (int e = 0; e < 3; ++e) {
+                int a = tri[e];
+                int b = tri[(e + 1) % 3];
+                if (a == b) continue;                       // degenerate
+                uint64_t key = (a < b)
+                    ? ((uint64_t)a << 32) | (uint32_t)b
+                    : ((uint64_t)b << 32) | (uint32_t)a;
+                if (!seen.insert(key).second) continue;     // already drawn from the other triangle
+                ++count;
+                if (out && out->size() < budget) {
+                    out->emplace_back(vertices[a], vertices[b]);
+                }
+            }
+        }
+        return count;
+    }
+}
+
+void VROARWorldMesh::rebuildDebugWireframe() {
+    _debugEdges.clear();
+    _debugEdgeSource = _currentMesh;
+    if (!_currentMesh || !_currentMesh->isValid()) {
+        return;
+    }
+
+    const size_t budget = (size_t)std::max(1, _config.debugDrawMaxEdges);
+
+    // Simplify by clustering rather than by dropping triangles. Stride decimation used to keep
+    // every Nth triangle and discard its neighbours, so a LiDAR room came out as loose triangles
+    // scattered in the air instead of a surface. Clustering keeps the surface connected.
+    std::shared_ptr<VROARDepthMesh> mesh = _currentMesh;
+    if (_config.debugDrawCellSize > 0.0f) {
+        auto clustered = clusterMesh(mesh, _config.debugDrawCellSize);
+        if (clustered && clustered->getTriangleCount() > 0) {
+            mesh = clustered;
+        }
+
+        // Still over budget: grow the cells. Edge count falls roughly with the square of the cell
+        // size (edges scale with surface area / cell²), so one scaled retry usually lands it.
+        size_t edges = collectUniqueEdges(mesh->getVertices(), mesh->getIndices(), 0, nullptr);
+        if (edges > budget) {
+            float scale = std::sqrt((float)edges / (float)budget);
+            auto coarser = clusterMesh(_currentMesh, _config.debugDrawCellSize * scale);
+            if (coarser && coarser->getTriangleCount() > 0) {
+                mesh = coarser;
+            }
+        }
+    }
+
+    _debugEdges.reserve(budget);
+    size_t total = collectUniqueEdges(mesh->getVertices(), mesh->getIndices(), budget, &_debugEdges);
+    if (total > _debugEdges.size()) {
+        // Whatever is left is drawn in mesh order, which is contiguous, so the part that does show
+        // reads as a surface rather than as specks.
+        pinfo("VROARWorldMesh: wireframe capped at %d of %d edges (raise debugDrawMaxEdges or "
+              "debugDrawCellSize)", (int)_debugEdges.size(), (int)total);
+    }
+}
+
 void VROARWorldMesh::debugDraw(std::shared_ptr<VROPencil> pencil) {
     if (!pencil || !_config.debugDrawEnabled || !_currentMesh || !_currentMesh->isValid()) {
         return;
     }
 
+    // Rebuilding costs a clustering pass and a hash of every edge, so it happens when the mesh
+    // changes — at updateIntervalMs — not on every render frame.
+    if (_debugEdgeSource != _currentMesh) {
+        rebuildDebugWireframe();
+    }
+
     pencil->setDepthTestEnabled(_config.debugDrawDepthTest);
     pencil->setBrushThickness(_config.debugDrawLineThickness);
 
-    const std::vector<VROVector3f>& vertices = _currentMesh->getVertices();
-    const std::vector<int>& indices = _currentMesh->getIndices();
-
-    const size_t maxTriangles = (size_t)_config.debugDrawMaxTriangles;
-    size_t totalTriangles = indices.size() / 3;
-    size_t triangleStride = (totalTriangles > maxTriangles) ? (totalTriangles / maxTriangles) : 1;
-
-    // Draw complete wireframe triangles (all 3 edges) for proper mesh visualization
-    size_t trianglesDrawn = 0;
-    for (size_t i = 0; i + 2 < indices.size() && trianglesDrawn < maxTriangles; i += 3 * triangleStride) {
-        int i0 = indices[i];
-        int i1 = indices[i + 1];
-        int i2 = indices[i + 2];
-
-        if (i0 >= 0 && i0 < (int)vertices.size() &&
-            i1 >= 0 && i1 < (int)vertices.size() &&
-            i2 >= 0 && i2 < (int)vertices.size()) {
-
-            const VROVector3f& v0 = vertices[i0];
-            const VROVector3f& v1 = vertices[i1];
-            const VROVector3f& v2 = vertices[i2];
-
-            // Draw all 3 edges of each triangle for complete wireframe
-            pencil->draw(v0, v1);
-            pencil->draw(v1, v2);
-            pencil->draw(v2, v0);
-            trianglesDrawn++;
-        }
+    for (const auto& edge : _debugEdges) {
+        pencil->draw(edge.first, edge.second);
     }
 }
 
