@@ -75,6 +75,13 @@ public:
     /* Forward FB spatial-query events (polled by the renderer's xrPollEvent loop). */
     void onSpatialEvent(const XrEventDataBuffer &event);
 
+    /*
+     The base space moves at `changeTime` (a recentre moves LOCAL). Room planes are
+     otherwise located only when first found, so they are located again once it
+     has moved, and what sits on them stays on the real surface.
+     */
+    void onBaseSpaceChangePending(XrTime changeTime);
+
     // ── Hit testing ────────────────────────────────────────────────────────────
     /*
      Ray-vs-plane hit test against the planes this session already tracks, done in
@@ -186,6 +193,9 @@ private:
     // planeId / space → Viro anchor, for tracking new / updated / removed planes.
     std::map<uint64_t, std::shared_ptr<VROARPlaneAnchor>> _planes;     // EXT path (planeId)
     std::map<uint64_t, std::shared_ptr<VROARPlaneAnchor>> _scenePlanes; // FB path (XrSpace handle)
+    bool   _relocatePending = false;
+    XrTime _relocateAt      = 0;
+    std::set<uint64_t> _relocateKeys;  // room planes not yet located since the base space moved
 
     std::unique_ptr<VROARFrame> _currentFrame;
 
@@ -236,6 +246,7 @@ private:
     void beginSceneQuery();
     void processSceneQueryResults(XrAsyncRequestIdFB requestId);
     std::shared_ptr<VROARPlaneAnchor> buildPlaneFromSpace(XrSpace space);
+    void relocateScenePlanes();
     void sortNearestFirst(std::vector<std::shared_ptr<VROARPlaneAnchor>> &anchors) const;
 };
 

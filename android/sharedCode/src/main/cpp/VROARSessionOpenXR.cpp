@@ -224,6 +224,16 @@ void VROARSessionOpenXR::destroyPlaneDetector() {
 // ──────────────────────────────────────────────────────────────────────────────
 
 std::unique_ptr<VROARFrame> &VROARSessionOpenXR::updateFrame() {
+    if (_relocatePending && _displayTime >= _relocateAt) {
+        _relocatePending = false;
+        for (const auto &entry : _scenePlanes) {
+            _relocateKeys.insert(entry.first);
+        }
+    }
+    if (!_relocateKeys.empty()) {
+        relocateScenePlanes();
+    }
+
     // ── XR_FB_scene path: kick off / re-arm a room query on a slow cadence ────
     // The Meta room model is static within a session, but re-querying lets newly
     // completed Space Setup data appear. Throttle to once every ~5s while idle.
@@ -871,6 +881,38 @@ void VROARSessionOpenXR::processSceneQueryResults(XrAsyncRequestIdFB requestId) 
         } else {
             ++it;
         }
+    }
+}
+
+void VROARSessionOpenXR::onBaseSpaceChangePending(XrTime changeTime) {
+    _relocatePending = true;
+    _relocateAt      = changeTime;
+}
+
+// A plane that cannot be located this frame (tracking lost as the wearer
+// recentred) is tried again on the next.
+void VROARSessionOpenXR::relocateScenePlanes() {
+    for (auto it = _relocateKeys.begin(); it != _relocateKeys.end();) {
+        auto plane = _scenePlanes.find(*it);
+        if (plane == _scenePlanes.end()) {
+            it = _relocateKeys.erase(it);
+            continue;
+        }
+        XrSpaceLocation loc = { XR_TYPE_SPACE_LOCATION };
+        XrResult r = xrLocateSpace((XrSpace)plane->first, _baseSpace, _displayTime, &loc);
+        if (XR_FAILED(r) ||
+            !(loc.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) ||
+            !(loc.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT)) {
+            ++it;
+            continue;
+        }
+        plane->second->setTransform(poseToMatrix(loc.pose).multiply(planeAxisCorrection()));
+        plane->second->recordUpdate(true);
+        updateAnchor(plane->second);
+        it = _relocateKeys.erase(it);
+    }
+    if (_relocateKeys.empty()) {
+        ALOGV("room planes located again after the base space moved");
     }
 }
 

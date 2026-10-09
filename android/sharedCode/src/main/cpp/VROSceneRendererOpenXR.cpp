@@ -1143,9 +1143,17 @@ void VROSceneRendererOpenXR::pollEvents() {
                 handleSessionStateChange(stateEvent);
                 break;
             }
-            case XR_TYPE_EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING:
-                ALOGV("Reference space change pending — content may shift");
+            case XR_TYPE_EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING: {
+                auto *change =
+                    reinterpret_cast<XrEventDataReferenceSpaceChangePending *>(&event);
+                ALOGV("Reference space change pending (type %d)",
+                      (int)change->referenceSpaceType);
+                // A recentre moves LOCAL, the space the scene is drawn in.
+                if (change->referenceSpaceType == XR_REFERENCE_SPACE_TYPE_LOCAL && _arSession) {
+                    _arSession->onBaseSpaceChangePending(change->changeTime);
+                }
                 break;
+            }
             case XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING:
                 ALOGE("Instance loss pending — shutting down");
                 _running = false;
