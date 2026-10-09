@@ -80,7 +80,13 @@ static std::shared_ptr<VROARDepthMesh> wallMesh(float z, float cx, float cy, int
 // The indices are a plain fan over the kept points. The fusion reads vertices and confidences and
 // nothing else (see fuseFrame), so a frame's own triangulation never reaches the volume; they are
 // here because a VROARDepthMesh with no indices is not valid.
-static std::shared_ptr<VROARDepthMesh> roomPatch(const VROVector3f &eye, const VROVector3f &fwd) {
+// `noise` is the depth error's standard deviation at one metre. A time-of-flight sensor errs along
+// the ray and roughly with range, not in world space, so that is how it is applied — a wall seen
+// twice from different places comes back displaced in two different directions, which is the case
+// averaging has to survive. `seed` makes a run reproducible: a test that fails only sometimes is
+// not a test.
+static std::shared_ptr<VROARDepthMesh> roomPatch(const VROVector3f &eye, const VROVector3f &fwd,
+                                                 float noise = 0.0f, uint32_t seed = 1) {
     static std::vector<VROVector3f> room;
     if (room.empty()) {
         const float W = 4.0f, D = 5.0f, H = 2.5f, step = 0.04f;
@@ -102,13 +108,32 @@ static std::shared_ptr<VROARDepthMesh> roomPatch(const VROVector3f &eye, const V
         }
     }
 
+    // A small LCG, seeded per call: no <random> engine state carried between frames, and the same
+    // seed gives the same room every time.
+    uint32_t rng = seed * 2654435761u + 1u;
+    auto nextGaussian = [&rng]() {
+        // Sum of three uniforms: close enough to normal for a sensor model, and cheap.
+        float sum = 0.0f;
+        for (int i = 0; i < 3; i++) {
+            rng = rng * 1664525u + 1013904223u;
+            sum += (float)(rng >> 8) / (float)(1 << 24) - 0.5f;
+        }
+        return sum * 2.0f;
+    };
+
     std::vector<VROVector3f> v; std::vector<float> conf;
     for (const VROVector3f &p : room) {
         const VROVector3f d = p.subtract(eye);
         const float range = d.magnitude();
         if (range < 0.3f || range > 4.0f) continue;             // the depth camera's useful band
         if (d.dot(fwd) <= 0.35f * range) continue;              // roughly a 70-degree cone
-        v.push_back(p);
+
+        VROVector3f sample = p;
+        if (noise > 0.0f) {
+            const VROVector3f ray = d.scale(1.0f / range);
+            sample = p.add(ray.scale(nextGaussian() * noise * range));
+        }
+        v.push_back(sample);
         conf.push_back(1.0f);
     }
 
@@ -340,6 +365,65 @@ int main() {
             : 0;
         snprintf(buf, sizeof(buf), "(%u vertices, %zu bytes)", snapVertices, roomSnap.size());
         check("and the snapshot carries the whole room", snapVertices >= 20000, buf);
+    }
+
+    // ── 9b. The same walk, with a noisy sensor ────────────────────────────
+    // Averaging is half the reason for fusing at all: one ARCore frame is noisy, and a voxel several
+    // frames agree on converges on the surface. Without noise the earlier walk cannot tell a volume
+    // that averages from one that simply remembers. With it, three things have to hold at once —
+    // the surface stays on the walls, revisiting does not inflate the count, and the count still
+    // climbs — and failing any one of them points at a different part of the fusion.
+    {
+        auto noisy = std::make_shared<VROARWorldMesh>(nullptr);
+        noisy->setEnabled(true);
+        VROWorldMeshConfig ncfg = cfg;
+        ncfg.voxelSize = 0.04f;
+        noisy->setConfig(ncfg);
+
+        const float sigma = 0.01f;            // 1 cm at a metre, scaling with range
+        const int steps = 60;
+        auto lap = [&](int firstSeed) {
+            for (int s = 0; s < steps; s++) {
+                const float t = (float)s / steps * 2.0f * (float)M_PI;
+                const VROVector3f eye(1.0f * std::cos(t), 0.0f, 1.5f * std::sin(t));
+                f.camera->position = eye;
+                f.depthMesh = roomPatch(eye, VROVector3f(std::cos(t), 0.0f, std::sin(t)),
+                                        sigma, (uint32_t)(firstSeed + s));
+                std::unique_ptr<VROARFrame> frame(&f); noisy->updateFromFrame(frame); frame.release();
+            }
+            return noisy->getStats().vertexCount;
+        };
+
+        const int afterFirstLap = lap(1000);
+
+        // Does the fused surface sit on the walls, or has the noise been baked in? Every vertex is
+        // measured against the nearest of the room's six planes.
+        auto distanceToRoom = [](const VROVector3f &p) {
+            const float W = 4.0f, D = 5.0f, H = 2.5f;
+            float best = std::fabs(p.y);                       // floor
+            best = std::min(best, std::fabs(p.y - H));         // ceiling
+            best = std::min(best, std::fabs(std::fabs(p.x) - W/2));
+            best = std::min(best, std::fabs(std::fabs(p.z) - D/2));
+            return best;
+        };
+        auto noisyMesh = noisy->getCurrentMesh();
+        double sum = 0; size_t n = 0;
+        if (noisyMesh) {
+            for (const auto &vert : noisyMesh->getVertices()) { sum += distanceToRoom(vert); n++; }
+        }
+        const double mean = n ? sum / n : 1e9;
+        snprintf(buf, sizeof(buf), "(mean %.4f m off the walls, sensor sigma %.3f m)", mean, sigma);
+        check("the fusion averages the noise out instead of baking it in", n > 0 && mean < sigma, buf);
+
+        // A second lap over ground already covered, with fresh noise. Converging means the count
+        // settles; concatenating means it grows with every pass.
+        const int afterSecondLap = lap(9000);
+        const double growth = afterFirstLap ? (double)afterSecondLap / afterFirstLap : 9.9;
+        snprintf(buf, sizeof(buf), "(%d -> %d, x%.2f)", afterFirstLap, afterSecondLap, growth);
+        check("a second lap over the same room does not inflate it", growth < 1.15, buf);
+
+        snprintf(buf, sizeof(buf), "(%d vertices with noise, %d without)", afterSecondLap, 35151);
+        check("and a noisy walk still builds the room", afterSecondLap >= 20000, buf);
     }
 
     // ── 10. The memory budget is a budget ─────────────────────────────────
