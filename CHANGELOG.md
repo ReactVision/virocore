@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## Unreleased
+
+### Fixed
+
+- **The world mesh wireframe draws a surface rather than scattered triangles (`VROARWorldMesh`).** `debugDraw` kept every Nth triangle and discarded its neighbours, so a LiDAR room came out as loose triangles floating in the air; below twice the cap it did something else again, drawing a contiguous run and nothing beyond it. It now simplifies with `clusterMesh`, which already served the physics shape and keeps the surface connected, and collects each edge once — drawing three edges per triangle repainted every interior edge twice. `debugDrawMaxTriangles` becomes `debugDrawMaxEdges`, counted in unique edges and raised from 1000 to 6000, since the old figure was sized for one depth-image grid rather than an accumulated mesh of tens of thousands; over budget, the cluster size grows once by `sqrt(edges / budget)`. `debugDrawLineThickness` goes from 1 mm to 4 mm, having been under a screen pixel at arm's length, which is why the lines shimmered and dropped out. The wireframe is cached and rebuilt when the mesh changes rather than every frame.
+
 ## v3.0.3 — 6 October 2026
 
 ### Added
