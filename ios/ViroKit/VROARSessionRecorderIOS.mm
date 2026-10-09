@@ -7,6 +7,7 @@
 //  Copyright © 2026 ReactVision. All rights reserved.
 //
 
+#include <cmath>
 #include "VROARSessionRecorderIOS.h"
 #if __IPHONE_OS_VERSION_MAX_ALLOWED >= 110000
 
@@ -301,28 +302,36 @@ void VROARSessionRecorderIOS::writePoseLine(ARFrame *frame) {
         gravity.z * kGravityMetresPerSecondSquared);
     std::string line(buf);
 
-    // Schema requires lat/lon/alt/heading together whenever `gps` is present
-    // at all — a reading missing either half is dropped rather than written
-    // partially malformed.
-    if (geo.hasGps && geo.hasHeading) {
+    // A position without a valid heading is still written, with the heading
+    // fields null: the reader judges position and heading separately.
+    if (geo.hasGps && std::isfinite(geo.latitude) && std::isfinite(geo.longitude) &&
+        std::isfinite(geo.altitude)) {
         char gpsBuf[256];
         char hAccField[48];
+        char headingField[48];
         char headingAccField[48];
+        bool headingOk = geo.hasHeading && std::isfinite(geo.headingDegrees) &&
+                         geo.headingDegrees >= 0 && geo.headingDegrees < 360;
         if (geo.hAccuracy >= 0) {
             snprintf(hAccField, sizeof(hAccField), "%.3f", geo.hAccuracy);
         } else {
             snprintf(hAccField, sizeof(hAccField), "null");
         }
-        if (geo.headingAccuracyDegrees >= 0) {
+        if (headingOk) {
+            snprintf(headingField, sizeof(headingField), "%.3f", geo.headingDegrees);
+        } else {
+            snprintf(headingField, sizeof(headingField), "null");
+        }
+        if (headingOk && geo.headingAccuracyDegrees >= 0) {
             snprintf(headingAccField, sizeof(headingAccField), "%.3f", geo.headingAccuracyDegrees);
         } else {
             snprintf(headingAccField, sizeof(headingAccField), "null");
         }
         snprintf(gpsBuf, sizeof(gpsBuf),
             ",\"gps\":{\"lat\":%.8f,\"lon\":%.8f,\"alt\":%.3f,"
-            "\"h_accuracy\":%s,\"heading\":%.3f,\"heading_accuracy\":%s}",
+            "\"h_accuracy\":%s,\"heading\":%s,\"heading_accuracy\":%s}",
             geo.latitude, geo.longitude, geo.altitude,
-            hAccField, geo.headingDegrees, headingAccField);
+            hAccField, headingField, headingAccField);
         line.insert(line.size() - 1, gpsBuf); // before the closing '}'
     }
 

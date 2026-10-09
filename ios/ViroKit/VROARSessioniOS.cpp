@@ -54,6 +54,8 @@
 #include "VROVisionModel.h"
 #include "VROMonocularDepthEstimator.h"
 #include <algorithm>
+#include <cmath>
+#include <mutex>
 #include <chrono>
 
 #import "VROCloudAnchorProviderARCore.h"
@@ -69,15 +71,16 @@
 @property (nonatomic, strong) CLLocationManager *locationManager;
 // Raw pointer into the owning VROARSessioniOS; cleared before the session dies.
 @property (nonatomic, assign) VROGeospatialPose *poseOut;
-// Set true on the first real didUpdateHeading callback. Not
-// derivable from poseOut->headingAccuracy alone — CLHeading clamps a negative
-// (invalid) accuracy to 0 before it is stored, which is indistinguishable
-// from "no heading has ever arrived" (also 0, VROGeospatialPose's default).
-// A separate out-pointer, not a field on VROGeospatialPose itself: that
-// struct is shared with ViroRenderer/VROGeospatial.h's own copy (see the
-// workspace's "two VROGeospatial.h headers, one include guard" gotcha) and
-// is not this fix's place to touch.
+// True while the latest didUpdateHeading callback carried a valid heading
+// (headingAccuracy >= 0); false before the first one and after an invalid
+// one. Not derivable from poseOut->headingAccuracy, whose default 0 would
+// read as a perfect heading. A separate out-pointer rather than a field on
+// VROGeospatialPose, because two VROGeospatial.h headers share that
+// struct's include guard.
 @property (nonatomic, assign) BOOL *headingValidOut;
+// Guards the pose and heading flag this delegate writes on the main thread;
+// the session reads them on the render thread. Optional.
+@property (nonatomic, assign) std::mutex *poseMutex;
 // WS-D: true once we've confirmed the OS will only give approximate location
 // (iOS 14+ "Precise Location" off) and a temporary full-accuracy request was
 // denied, is pending, or unavailable pre-iOS 14. See start's accuracyAuthorization check.
@@ -155,6 +158,10 @@
      didUpdateLocations:(NSArray<CLLocation *> *)locations {
     if (!_poseOut || locations.count == 0) return;
     CLLocation *loc = locations.lastObject;
+    // A negative horizontal accuracy means CoreLocation has no valid fix.
+    if (loc.horizontalAccuracy < 0) return;
+    std::unique_lock<std::mutex> lk;
+    if (_poseMutex) lk = std::unique_lock<std::mutex>(*_poseMutex);
     _poseOut->latitude           = loc.coordinate.latitude;
     _poseOut->longitude          = loc.coordinate.longitude;
     _poseOut->altitude           = loc.altitude;
@@ -166,10 +173,20 @@
 - (void)locationManager:(CLLocationManager *)manager
        didUpdateHeading:(CLHeading *)newHeading {
     if (!_poseOut) return;
+    std::unique_lock<std::mutex> lk;
+    if (_poseMutex) lk = std::unique_lock<std::mutex>(*_poseMutex);
+    // A negative headingAccuracy means the heading is invalid: stop reporting
+    // one instead of passing it on as perfectly accurate.
+    if (newHeading.headingAccuracy < 0) {
+        if (_headingValidOut) {
+            *_headingValidOut = NO;
+        }
+        return;
+    }
     double deg = newHeading.trueHeading >= 0 ? newHeading.trueHeading
                                               : newHeading.magneticHeading;
     _poseOut->heading         = deg;
-    _poseOut->headingAccuracy = fmax(0.0, newHeading.headingAccuracy);
+    _poseOut->headingAccuracy = newHeading.headingAccuracy;
     if (_headingValidOut) {
         *_headingValidOut = YES;
     }
@@ -712,6 +729,7 @@ VROCloudAnchorProviderReactVision *VROARSessioniOS::ensureReactVisionProvider(st
       _rvLocationDelegate = [[VROLocationDelegate alloc]
                               initWithPosePtr:&_lastKnownGPSPose
                               headingValidOut:&_hasReceivedHeadingFix];
+      [(VROLocationDelegate *)_rvLocationDelegate setPoseMutex:&_gpsPoseMutex];
       [(VROLocationDelegate *)_rvLocationDelegate start];
     }
 #endif
@@ -1063,41 +1081,46 @@ std::unique_ptr<VROARFrame> &VROARSessioniOS::updateFrame() {
           const uint8_t *vpsLuma = nullptr;
           int vpsLumaW = 0, vpsLumaH = 0;
           float ifx = 0.f, ify = 0.f, icx = 0.f, icy = 0.f;
-          if (vpsCam && frameiOS->getCameraImageY(&vpsLuma, &vpsLumaW, &vpsLumaH) &&
-              vpsLuma != nullptr && vpsLumaW > 0 && vpsLumaH > 0 &&
-              vpsCam->getImageIntrinsics(&ifx, &ify, &icx, &icy) &&
-              ifx > 1.f && ify > 1.f) {
+          // Intrinsics first: they are cheap, and without them the luma copy
+          // would be wasted.
+          if (vpsCam && vpsCam->getImageIntrinsics(&ifx, &ify, &icx, &icy) &&
+              ifx > 1.f && ify > 1.f &&
+              frameiOS->getCameraImageY(&vpsLuma, &vpsLumaW, &vpsLumaH) &&
+              vpsLuma != nullptr && vpsLumaW > 0 && vpsLumaH > 0) {
             VROVector3f vpsCamPos = vpsCam->getPosition();
             VROMatrix4f vpsCam2World = vpsCam->getRotation();
             vpsCam2World[12] = vpsCamPos.x;
             vpsCam2World[13] = vpsCamPos.y;
             vpsCam2World[14] = vpsCamPos.z;
-            _lastVPSCamToWorld    = vpsCam2World;
-            _lastVPSCamToWorldSet = true;
+            {
+              std::lock_guard<std::mutex> lk(_vpsStateMutex);
+              _lastVPSCamToWorld    = vpsCam2World;
+              _lastVPSCamToWorldSet = true;
+            }
 
             double nowSec = std::chrono::duration<double>(
                 std::chrono::steady_clock::now().time_since_epoch()).count();
             std::weak_ptr<VROARSessioniOS> weakSelf = shared_from_this();
 
-            // onHit, if called at all, is invoked synchronously inside this same
-            // call (a previous attempt's result being consumed) — never from the
-            // background matching thread itself. See
-            // RVCCACloudAnchorProvider::updateVPSMapFrame()'s own doc comment.
+            // onHit, if called at all, runs synchronously inside this call (a
+            // previous attempt's result being consumed), never on the matching
+            // thread. Its transform is the map-to-world transform solved
+            // against that attempt's own camera pose.
             rvProvider->updateVPSMapFrame(
                 vpsLuma, vpsLumaW, vpsLumaH,
                 (double)ifx, (double)ify, (double)icx, (double)icy,
                 vpsCam2World,
-                [weakSelf, vpsCam2World, nowSec]
-                (const VROMatrix4f &T_map_cam, int inlierCount, float reprojRms) {
+                [weakSelf, nowSec]
+                (const VROMatrix4f &T_world_map, int inlierCount, float reprojRms) {
                   auto strongSelf = weakSelf.lock();
                   if (!strongSelf) return;
-                  strongSelf->_lastVPSHitSet    = true;
-                  strongSelf->_lastVPSInliers   = inlierCount;
-                  strongSelf->_lastVPSReprojRms = reprojRms;
-                  if (strongSelf->_vpsLocalizerRV) {
-                    strongSelf->_vpsLocalizerRV->reportLocalizationHit(
-                        T_map_cam, vpsCam2World, nowSec);
+                  {
+                    std::lock_guard<std::mutex> lk(strongSelf->_vpsStateMutex);
+                    strongSelf->_lastVPSHitSet    = true;
+                    strongSelf->_lastVPSInliers   = inlierCount;
+                    strongSelf->_lastVPSReprojRms = reprojRms;
                   }
+                  strongSelf->_vpsLocalizerRV->reportLocalizationHit(T_world_map, nowSec);
                 });
           }
         }
@@ -1114,23 +1137,28 @@ std::unique_ptr<VROARFrame> &VROARSessioniOS::updateFrame() {
         // heading itself, so this is empty until that provider has been used
         // at least once. heading is _lastKnownGPSPose.heading, i.e. CLHeading's
         // trueHeading/magneticHeading as-is — the same value this file already
-        // uses for geospatial anchor placement. It is not re-derived from the
-        // AR camera's forward axis; doing that fusion correctly (vs. the
-        // device's raw compass bearing) needs verification against a real
-        // ARKit session that this environment cannot run, so it is flagged
-        // here rather than guessed at.
-        if (_lastKnownGPSPose.isValid() &&
-            _lastKnownGPSPose.timestamp != _lastGpsTimestampPushedToRecorder) {
-          _lastGpsTimestampPushedToRecorder = _lastKnownGPSPose.timestamp;
+        // uses for geospatial anchor placement. It is the device's compass
+        // bearing, not yet the bearing of the camera's forward axis that the
+        // recording format specifies; deriving that needs the ARKit camera
+        // orientation and has not been validated on a device.
+        VROGeospatialPose pose;
+        bool headingValid;
+        {
+          std::lock_guard<std::mutex> lk(_gpsPoseMutex);
+          pose = _lastKnownGPSPose;
+          headingValid = _hasReceivedHeadingFix;
+        }
+        if (pose.isValid() && pose.timestamp != _lastGpsTimestampPushedToRecorder) {
+          _lastGpsTimestampPushedToRecorder = pose.timestamp;
           VROARSessionRecorderIOS::VROARRecordingGeoReading geo;
           geo.hasGps          = true;
-          geo.latitude        = _lastKnownGPSPose.latitude;
-          geo.longitude       = _lastKnownGPSPose.longitude;
-          geo.altitude        = _lastKnownGPSPose.altitude;
-          geo.hAccuracy       = _lastKnownGPSPose.horizontalAccuracy;
-          geo.hasHeading      = _hasReceivedHeadingFix;
-          geo.headingDegrees  = _lastKnownGPSPose.heading;
-          geo.headingAccuracyDegrees = _lastKnownGPSPose.headingAccuracy;
+          geo.latitude        = pose.latitude;
+          geo.longitude       = pose.longitude;
+          geo.altitude        = pose.altitude;
+          geo.hAccuracy       = pose.horizontalAccuracy;
+          geo.hasHeading      = headingValid;
+          geo.headingDegrees  = pose.heading;
+          geo.headingAccuracyDegrees = pose.headingAccuracy;
           _recorder->setLocationReading(geo);
         }
         _recorder->recordFrame(arFrame);
@@ -2766,11 +2794,8 @@ bool VROARSessioniOS::rvLoadVPSMap(const std::string& rvmapBytes) {
   if (p) {
     bool ok = p->loadVPSMap(rvmapBytes);
     if (ok) {
-      if (_vpsLocalizerRV) {
-        _vpsLocalizerRV->reset();
-      } else {
-        _vpsLocalizerRV = std::make_shared<ReactVisionCCA::VROVPSLocalizer>();
-      }
+      _vpsLocalizerRV->reset();
+      std::lock_guard<std::mutex> lk(_vpsStateMutex);
       _lastVPSCamToWorldSet = false;
       _lastVPSHitSet = false;
     }
@@ -2786,9 +2811,8 @@ void VROARSessioniOS::rvUnloadVPSMap() {
     auto p = [_cloudAnchorProviderRV cppProvider];
     if (p) p->unloadVPSMap();
   }
-  if (_vpsLocalizerRV) {
-    _vpsLocalizerRV->reset();
-  }
+  _vpsLocalizerRV->reset();
+  std::lock_guard<std::mutex> lk(_vpsStateMutex);
   _lastVPSCamToWorldSet = false;
   _lastVPSHitSet = false;
 #endif
@@ -2810,17 +2834,26 @@ std::string VROARSessioniOS::rvGetVPSLocalizationJson() {
     auto p = [_cloudAnchorProviderRV cppProvider];
     if (p) {
       bool loaded = p->isVPSMapLoaded();
-      bool converged = _vpsLocalizerRV && _vpsLocalizerRV->isConverged();
+      bool converged = _vpsLocalizerRV->isConverged();
+      bool hitSet, camSet;
+      int inliers;
+      float rms;
+      VROMatrix4f cam;
+      {
+        std::lock_guard<std::mutex> lk(_vpsStateMutex);
+        hitSet = _lastVPSHitSet;   inliers = _lastVPSInliers; rms = _lastVPSReprojRms;
+        camSet = _lastVPSCamToWorldSet; cam = _lastVPSCamToWorld;
+      }
       std::ostringstream os;
       os << "{\"available\":true"
          << ",\"loaded\":" << (loaded ? "true" : "false")
          << ",\"converged\":" << (converged ? "true" : "false");
-      if (_lastVPSHitSet) {
-        os << ",\"lastHitInliers\":" << _lastVPSInliers
-           << ",\"lastHitReprojRms\":" << _lastVPSReprojRms;
+      if (hitSet && std::isfinite(rms)) {
+        os << ",\"lastHitInliers\":" << inliers
+           << ",\"lastHitReprojRms\":" << rms;
       }
-      if (converged && _lastVPSCamToWorldSet) {
-        VROMatrix4f renderPose = _vpsLocalizerRV->getRenderPose(_lastVPSCamToWorld);
+      if (converged && camSet) {
+        VROMatrix4f renderPose = _vpsLocalizerRV->getRenderPose(cam);
         os << ",\"renderPose\":\"" << rvMatrixToCsv(renderPose) << "\"";
       }
       os << "}";

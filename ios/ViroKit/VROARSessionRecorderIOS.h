@@ -72,12 +72,11 @@ public:
     void recordFrame(ARFrame *frame);
 
     /*
-     A GPS/heading fix to attach to the next `pose` line recordFrame() writes
-     (consumed downstream by viroscan's geo_register GEO chunk). All fields are
-     optional via the has* flags, matching session.jsonl's documented schema:
-     a `gps` object, when present at all, requires latitude/longitude/altitude
-     and heading together, so hasGps and hasHeading are only honored as a pair
-     — see writePoseLine().
+     A GPS/heading fix to attach to the next `pose` line recordFrame() writes,
+     for map geo-registration downstream. hasGps gates the whole `gps` object
+     (latitude/longitude/altitude); without a valid heading (hasHeading false,
+     or a heading outside [0, 360)) the heading fields are written as null —
+     see writePoseLine().
 
      headingDegrees must already be the compass bearing of the AR camera's
      forward axis, projected onto the horizontal plane, at the instant of the

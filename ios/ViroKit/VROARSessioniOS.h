@@ -33,6 +33,7 @@
 #include "VROViewport.h"
 #include <ARKit/ARKit.h>
 #include <map>
+#include <mutex>
 #include <vector>
 
 #include "VRORenderer.h"
@@ -327,10 +328,19 @@ private:
 
     /*
      Smooths the raw per-frame hits rvLoadVPSMap()'s loaded map produces into
-     a single pose correction. Created (or reset) by rvLoadVPSMap() on a
-     successful load; reset again by rvUnloadVPSMap().
+     a single pose correction. Created once and never reassigned, because the
+     render thread (per-frame hits) and the bridge (load, unload, polling)
+     both use it; it locks internally. Reset by rvLoadVPSMap() and
+     rvUnloadVPSMap().
      */
-    std::shared_ptr<ReactVisionCCA::VROVPSLocalizer> _vpsLocalizerRV;
+    const std::shared_ptr<ReactVisionCCA::VROVPSLocalizer> _vpsLocalizerRV =
+        std::make_shared<ReactVisionCCA::VROVPSLocalizer>();
+
+    /*
+     Guards the cached VPS state below, written on the render thread and read
+     from the bridge.
+     */
+    std::mutex _vpsStateMutex;
 
     /*
      The camera pose (T_world_cam) passed into the most recent
@@ -373,6 +383,9 @@ private:
      Updated on the main thread; read from any thread via getCameraGeospatialPose().
      */
     mutable VROGeospatialPose _lastKnownGPSPose;
+    // Guards _lastKnownGPSPose and _hasReceivedHeadingFix between the
+    // location delegate (main thread) and the AR recorder (render thread).
+    std::mutex _gpsPoseMutex;
 
     bool _needsGeospatialModeApply = false;
 
