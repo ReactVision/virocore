@@ -328,6 +328,17 @@ public:
      *     repo has no way to render an AR scene, so it has not been visually
      *     confirmed to occlude correctly. Test on device before shipping.
      *
+     * It shares the live mesh's single slot, which has three consequences worth knowing before
+     * resolving an anchor in a session that is still scanning:
+     *   - The next live frame calls applyMeshToPhysics() in turn and takes the physics body with
+     *     it. The occlusion geometry stays, being a node of its own, so the resolved mesh keeps
+     *     occluding but stops colliding.
+     *   - _currentMesh becomes the resolved mesh, so getStats() reports it and
+     *     serializeCurrentMesh() would upload it back — a snapshot taken after a resolve returns
+     *     the downloaded room, not the scanned one, until the next frame lands.
+     *   - Each call adds another occlusion node and nothing removes them; resolving twice leaves
+     *     two overlapping meshes in the scene.
+     *
      * @param mesh The resolved mesh, already in this session's world space
      *        (see loadMeshSnapshot()'s resolvedTransform parameter).
      * @param scene The scene to add the occlusion geometry node to.
