@@ -46,6 +46,13 @@ uint64_t VROTSDFVolume::blockKey(int bx, int by, int bz) {
          | ((uint64_t)(bz + (1 << 20)) & mask);
 }
 
+void VROTSDFVolume::unpackCell(uint64_t key, int *gx, int *gy, int *gz) {
+    const uint64_t mask = (1ull << 21) - 1;
+    *gz = (int)((key        ) & mask) - (1 << 20);
+    *gy = (int)((key >> 21  ) & mask) - (1 << 20);
+    *gx = (int)((key >> 42  ) & mask) - (1 << 20);
+}
+
 VROTSDFVolume::Voxel *VROTSDFVolume::voxelAt(int gx, int gy, int gz, bool create) {
     const int bx = floorDiv(gx, kBlockSize);
     const int by = floorDiv(gy, kBlockSize);
@@ -133,6 +140,9 @@ void VROTSDFVolume::integrate(const std::vector<VROVector3f> &points,
 
                     Voxel *v = voxelAt(gx, gy, gz, true);
                     if (!v) continue;
+                    _dirtyBlocks.insert(blockKey(floorDiv(gx, kBlockSize),
+                                                 floorDiv(gy, kBlockSize),
+                                                 floorDiv(gz, kBlockSize)));
 
                     const float newWeight = v->weight + w;
                     v->sdf = (v->sdf * v->weight + sdf * w) / newWeight;
@@ -161,13 +171,93 @@ void VROTSDFVolume::evictIfNeeded() {
     std::partial_sort(byAge.begin(), byAge.begin() + excess, byAge.end());
     for (size_t i = 0; i < excess; ++i) {
         _blocks.erase(byAge[i].second);
+        // Its cells no longer have voxels behind them, so they have to be reconsidered rather
+        // than left in the cache describing a surface that was dropped.
+        _dirtyBlocks.insert(byAge[i].second);
     }
 }
 
 void VROTSDFVolume::reset() {
     _blocks.clear();
+    _cells.clear();
+    _dirtyBlocks.clear();
     _frameCounter = 0;
     _dirty = true;
+}
+
+namespace {
+    // The eight voxels of a cell, as offsets from its minimum corner.
+    const int kCorner[8][3] = {
+        {0,0,0}, {1,0,0}, {0,1,0}, {1,1,0},
+        {0,0,1}, {1,0,1}, {0,1,1}, {1,1,1}
+    };
+    // The twelve edges, as pairs of corner indices.
+    const int kEdge[12][2] = {
+        {0,1},{2,3},{4,5},{6,7},   // along x
+        {0,2},{1,3},{4,6},{5,7},   // along y
+        {0,4},{1,5},{2,6},{3,7}    // along z
+    };
+}  // namespace
+
+void VROTSDFVolume::remeshBlock(int bx, int by, int bz) {
+    // A cell reads the voxels at its corner and one past it on each axis, so a voxel in this block
+    // can be read by a cell that starts in the block before it. Recomputing from one short of the
+    // origin covers that overlap; without it a changed block leaves a seam along its low faces.
+    const int x0 = bx * kBlockSize - 1, x1 = bx * kBlockSize + kBlockSize;
+    const int y0 = by * kBlockSize - 1, y1 = by * kBlockSize + kBlockSize;
+    const int z0 = bz * kBlockSize - 1, z1 = bz * kBlockSize + kBlockSize;
+
+    for (int gz = z0; gz < z1; ++gz) {
+    for (int gy = y0; gy < y1; ++gy) {
+    for (int gx = x0; gx < x1; ++gx) {
+        const uint64_t key = cellKey(gx, gy, gz);
+        ++_lastRemeshedCells;
+
+        float sdf[8], wgt[8];
+        bool complete = true;
+        for (int c = 0; c < 8; ++c) {
+            const Voxel *v = voxelAt(gx + kCorner[c][0], gy + kCorner[c][1], gz + kCorner[c][2]);
+            if (!v || v->weight <= 0.0f) { complete = false; break; }
+            sdf[c] = v->sdf;
+            wgt[c] = v->weight;
+        }
+        if (!complete) { _cells.erase(key); continue; }
+
+        bool neg = false, pos = false;
+        for (int c = 0; c < 8; ++c) { (sdf[c] < 0.0f) ? neg = true : pos = true; }
+        if (!neg || !pos) { _cells.erase(key); continue; }
+
+        // Average of the zero crossings on the edges that change sign. That average is what pulls
+        // the vertex onto the surface instead of leaving it at the cell centre.
+        VROVector3f sum;
+        int crossings = 0;
+        float confidence = 0.0f;
+        for (int e = 0; e < 12; ++e) {
+            const int a = kEdge[e][0], b = kEdge[e][1];
+            if ((sdf[a] < 0.0f) == (sdf[b] < 0.0f)) continue;
+            const float denom = sdf[a] - sdf[b];
+            const float t = (std::fabs(denom) < 1e-9f) ? 0.5f : (sdf[a] / denom);
+            // +0.5: an sdf belongs to the voxel's centre, and a centre sits half a voxel past its
+            // index. Leaving it out puts the whole surface half a voxel off.
+            VROVector3f pa((float)(gx + kCorner[a][0]) + 0.5f,
+                           (float)(gy + kCorner[a][1]) + 0.5f,
+                           (float)(gz + kCorner[a][2]) + 0.5f);
+            VROVector3f pb((float)(gx + kCorner[b][0]) + 0.5f,
+                           (float)(gy + kCorner[b][1]) + 0.5f,
+                           (float)(gz + kCorner[b][2]) + 0.5f);
+            sum = sum.add(pa.add(pb.subtract(pa).scale(t)));
+            confidence += 0.5f * (wgt[a] + wgt[b]);
+            ++crossings;
+        }
+        if (crossings == 0) { _cells.erase(key); continue; }
+
+        CellVertex cv;
+        cv.position = sum.scale(1.0f / (float)crossings).scale(_voxelSize);
+        // Normalised back out of the weight cap, so it reads like the per-sample confidences the
+        // non-fused path produces.
+        cv.confidence = std::min(1.0f, confidence / (float)crossings / 8.0f);
+        _cells[key] = cv;
+    }}}
 }
 
 void VROTSDFVolume::extractSurface(std::vector<VROVector3f> *outVertices,
@@ -176,102 +266,40 @@ void VROTSDFVolume::extractSurface(std::vector<VROVector3f> *outVertices,
     if (outVertices) outVertices->clear();
     if (outConfidences) outConfidences->clear();
     if (outIndices) outIndices->clear();
-    if (!outVertices || !outIndices || _blocks.empty()) return;
+    if (!outVertices || !outIndices) return;
 
-    // The eight voxels of a cell, as offsets from its minimum corner.
-    static const int kCorner[8][3] = {
-        {0,0,0}, {1,0,0}, {0,1,0}, {1,1,0},
-        {0,0,1}, {1,0,1}, {0,1,1}, {1,1,1}
-    };
-    // The twelve edges, as pairs of corner indices.
-    static const int kEdge[12][2] = {
-        {0,1},{2,3},{4,5},{6,7},   // along x
-        {0,2},{1,3},{4,6},{5,7},   // along y
-        {0,4},{1,5},{2,6},{3,7}    // along z
-    };
+    VROTSDFVolume *self = const_cast<VROTSDFVolume *>(this);
+    self->_lastRemeshedCells = 0;
 
-    // One vertex per cell that straddles the surface, keyed by the cell's minimum corner.
-    std::map<std::tuple<int,int,int>, int> cellVertex;
-
-    auto cellCorners = [&](int gx, int gy, int gz, float sdf[8], float wgt[8]) -> bool {
-        for (int c = 0; c < 8; ++c) {
-            const Voxel *v = voxelAt(gx + kCorner[c][0], gy + kCorner[c][1], gz + kCorner[c][2]);
-            if (!v || v->weight <= 0.0f) return false;   // unobserved corner: no surface to place
-            sdf[c] = v->sdf;
-            wgt[c] = v->weight;
-        }
-        return true;
-    };
-
-    // Pass 1: place a vertex in every cell whose corners change sign.
-    for (const auto &entry : _blocks) {
-        const Block *block = entry.second.get();
-        (void)block;
-        // Recover the block origin from its key.
-        const uint64_t key = entry.first;
+    // Only the blocks that moved since the last extraction, not the whole room.
+    for (uint64_t key : _dirtyBlocks) {
         const int bz = (int)((key        ) & ((1ull << 21) - 1)) - (1 << 20);
         const int by = (int)((key >> 21  ) & ((1ull << 21) - 1)) - (1 << 20);
         const int bx = (int)((key >> 42  ) & ((1ull << 21) - 1)) - (1 << 20);
+        self->remeshBlock(bx, by, bz);
+    }
+    self->_dirtyBlocks.clear();
 
-        for (int lz = 0; lz < kBlockSize; ++lz) {
-        for (int ly = 0; ly < kBlockSize; ++ly) {
-        for (int lx = 0; lx < kBlockSize; ++lx) {
-            const int gx = bx * kBlockSize + lx;
-            const int gy = by * kBlockSize + ly;
-            const int gz = bz * kBlockSize + lz;
+    if (_cells.empty()) return;
 
-            float sdf[8], wgt[8];
-            if (!cellCorners(gx, gy, gz, sdf, wgt)) continue;
-
-            bool neg = false, pos = false;
-            for (int c = 0; c < 8; ++c) { (sdf[c] < 0.0f) ? neg = true : pos = true; }
-            if (!neg || !pos) continue;   // wholly in front of or behind the surface
-
-            // Average of the zero crossings on the edges that change sign. That average is what
-            // pulls the vertex onto the surface instead of leaving it at the cell centre, which is
-            // what makes this smoother than a blocky grid.
-            VROVector3f sum;
-            int crossings = 0;
-            float confidence = 0.0f;
-            for (int e = 0; e < 12; ++e) {
-                const int a = kEdge[e][0], b = kEdge[e][1];
-                if ((sdf[a] < 0.0f) == (sdf[b] < 0.0f)) continue;
-                const float denom = sdf[a] - sdf[b];
-                const float s = (std::fabs(denom) < 1e-9f) ? 0.5f : (sdf[a] / denom);
-                // +0.5: an sdf belongs to the voxel's centre, and a centre sits half a voxel
-                // past its index. Leaving it out puts the whole surface half a voxel off.
-                VROVector3f pa((float)(gx + kCorner[a][0]) + 0.5f,
-                               (float)(gy + kCorner[a][1]) + 0.5f,
-                               (float)(gz + kCorner[a][2]) + 0.5f);
-                VROVector3f pb((float)(gx + kCorner[b][0]) + 0.5f,
-                               (float)(gy + kCorner[b][1]) + 0.5f,
-                               (float)(gz + kCorner[b][2]) + 0.5f);
-                sum = sum.add(pa.add(pb.subtract(pa).scale(s)));
-                confidence += 0.5f * (wgt[a] + wgt[b]);
-                ++crossings;
-            }
-            if (crossings == 0) continue;
-
-            VROVector3f v = sum.scale(1.0f / (float)crossings).scale(_voxelSize);
-            cellVertex[std::make_tuple(gx, gy, gz)] = (int)outVertices->size();
-            outVertices->push_back(v);
-            if (outConfidences) {
-                // Normalised back out of the weight cap, so it reads like the per-sample
-                // confidences the non-fused path produces.
-                outConfidences->push_back(std::min(1.0f, confidence / (float)crossings / 8.0f));
-            }
-        }}}
+    // Index every cached cell, then join them across the edges that change sign.
+    std::unordered_map<uint64_t, int> index;
+    index.reserve(_cells.size() * 2);
+    outVertices->reserve(_cells.size());
+    for (const auto &entry : _cells) {
+        index[entry.first] = (int)outVertices->size();
+        outVertices->push_back(entry.second.position);
+        if (outConfidences) outConfidences->push_back(entry.second.confidence);
     }
 
-    // Pass 2: a quad across every edge that changes sign, joining the four cells around it.
     auto vertexOf = [&](int gx, int gy, int gz) -> int {
-        auto it = cellVertex.find(std::make_tuple(gx, gy, gz));
-        return (it == cellVertex.end()) ? -1 : it->second;
+        auto it = index.find(cellKey(gx, gy, gz));
+        return (it == index.end()) ? -1 : it->second;
     };
 
-    for (const auto &entry : cellVertex) {
+    for (const auto &entry : _cells) {
         int gx, gy, gz;
-        std::tie(gx, gy, gz) = entry.first;
+        unpackCell(entry.first, &gx, &gy, &gz);
 
         const Voxel *v0 = voxelAt(gx, gy, gz);
         if (!v0 || v0->weight <= 0.0f) continue;

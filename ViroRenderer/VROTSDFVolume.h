@@ -10,7 +10,10 @@
 
 #include <cstdint>
 #include <memory>
+#include <map>
+#include <tuple>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "VROVector3f.h"
@@ -77,6 +80,10 @@ public:
        only when there is something new to mesh. */
     bool consumeDirty() { bool d = _dirty; _dirty = false; return d; }
 
+    /* Cells whose surface was recomputed by the last extractSurface(). Diagnostics: a walk that
+       keeps re-meshing the whole room is a dirty-tracking bug, not a slow mesher. */
+    size_t getLastRemeshedCellCount() const { return _lastRemeshedCells; }
+
     static constexpr int kBlockSize = 8;
 
 private:
@@ -99,6 +106,31 @@ private:
 
     /* Drops the least recently touched blocks until the count is within budget. */
     void evictIfNeeded();
+
+    /*
+     One surface vertex, cached per cell.
+
+     Placing a vertex costs eight voxel lookups and up to twelve edge interpolations, and a walk
+     changes a handful of blocks per frame while leaving the rest of the room alone. Re-deriving
+     every cell each time was the bulk of a 41 ms extraction on a 4x5 m room; cells outside the
+     blocks that moved are reused as they stand.
+     */
+    struct CellVertex {
+        VROVector3f position;
+        float confidence = 0.0f;
+    };
+
+    /* Recomputes the cells that the given block can reach, into _cells. */
+    void remeshBlock(int bx, int by, int bz);
+
+    /* Packs a cell's coordinates the way blockKey packs a block's. An ordered map keyed by a
+       tuple spent more time in comparisons and node allocation than the meshing itself. */
+    static uint64_t cellKey(int gx, int gy, int gz) { return blockKey(gx, gy, gz); }
+    static void unpackCell(uint64_t key, int *gx, int *gy, int *gz);
+
+    std::unordered_map<uint64_t, CellVertex> _cells;
+    std::unordered_set<uint64_t> _dirtyBlocks;
+    mutable size_t _lastRemeshedCells = 0;
 
     float _voxelSize;
     float _truncation;
