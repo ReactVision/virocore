@@ -74,7 +74,15 @@ public:
 
     bool isEmpty() const { return _blocks.empty(); }
     size_t getBlockCount() const { return _blocks.size(); }
-    size_t getApproximateBytes() const { return _blocks.size() * sizeof(Block); }
+    size_t getApproximateBytes() const { return _blocks.size() * getBytesPerBlock(); }
+
+    /*
+     What one block actually costs in memory: its voxels, its eviction timestamp, and the hash node
+     and bucket slot that hold it. A caller turning a memory budget into a block count has to use
+     this rather than multiplying out the voxels, or the budget is spent before it is reached —
+     Block is padded past the voxel array and the map node is not free. Defined where Block is.
+     */
+    static size_t getBytesPerBlock();
 
     /* True when integrate() has changed anything since the last call to this. Lets a caller re-mesh
        only when there is something new to mesh. */

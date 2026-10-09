@@ -39,6 +39,15 @@ VROTSDFVolume::VROTSDFVolume(float voxelSize, float truncation, size_t maxBlocks
       _maxBlocks(maxBlocks > 0 ? maxBlocks : 16384) {
 }
 
+size_t VROTSDFVolume::getBytesPerBlock() {
+    // The key, the value, the node's own pointer, and a share of the bucket array: libc++ and
+    // libstdc++ both allocate a singly-linked node per element and keep load factor near one. An
+    // estimate, but an estimate on the right side of the budget, which multiplying out the voxel
+    // array alone was not.
+    const size_t hashNodeOverhead = sizeof(uint64_t) + sizeof(void *) * 2;
+    return sizeof(Block) + hashNodeOverhead;
+}
+
 uint64_t VROTSDFVolume::blockKey(int bx, int by, int bz) {
     const uint64_t mask = (1ull << 21) - 1;
     return ((uint64_t)(bx + (1 << 20)) & mask) << 42

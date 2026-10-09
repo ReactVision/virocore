@@ -358,8 +358,7 @@ bool VROARWorldMesh::fuseFrame(std::shared_ptr<VROARDepthMesh> frameMesh,
         {
             std::lock_guard<std::mutex> lock(self->_volumeMutex);
             if (!self->_volume) {
-                const size_t blockBytes = sizeof(float) * 2
-                    * VROTSDFVolume::kBlockSize * VROTSDFVolume::kBlockSize * VROTSDFVolume::kBlockSize;
+                const size_t blockBytes = VROTSDFVolume::getBytesPerBlock();
                 const size_t maxBlocks =
                     std::max<size_t>(1, ((size_t)std::max(1, self->_config.maxMemoryMB) << 20) / blockBytes);
                 self->_volume.reset(new VROTSDFVolume(self->_config.voxelSize,
