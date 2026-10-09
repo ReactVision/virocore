@@ -74,6 +74,51 @@ static std::shared_ptr<VROARDepthMesh> wallMesh(float z, float cx, float cy, int
     return std::make_shared<VROARDepthMesh>(std::move(v), std::move(idx), std::move(conf), source);
 }
 
+// A 4 x 5 x 2.5 m room — floor, ceiling and four walls, sampled on a 4 cm grid — as the depth
+// camera would see it from `eye` looking along `fwd`: only what is in front and within range.
+//
+// The indices are a plain fan over the kept points. The fusion reads vertices and confidences and
+// nothing else (see fuseFrame), so a frame's own triangulation never reaches the volume; they are
+// here because a VROARDepthMesh with no indices is not valid.
+static std::shared_ptr<VROARDepthMesh> roomPatch(const VROVector3f &eye, const VROVector3f &fwd) {
+    static std::vector<VROVector3f> room;
+    if (room.empty()) {
+        const float W = 4.0f, D = 5.0f, H = 2.5f, step = 0.04f;
+        for (float x = -W/2; x <= W/2; x += step) {
+            for (float z = -D/2; z <= D/2; z += step) {
+                room.push_back(VROVector3f(x, 0.0f, z));        // floor
+                room.push_back(VROVector3f(x, H, z));           // ceiling
+            }
+            for (float y = 0.0f; y <= H; y += step) {
+                room.push_back(VROVector3f(x, y, -D/2));
+                room.push_back(VROVector3f(x, y,  D/2));
+            }
+        }
+        for (float z = -D/2; z <= D/2; z += step) {
+            for (float y = 0.0f; y <= H; y += step) {
+                room.push_back(VROVector3f(-W/2, y, z));
+                room.push_back(VROVector3f( W/2, y, z));
+            }
+        }
+    }
+
+    std::vector<VROVector3f> v; std::vector<float> conf;
+    for (const VROVector3f &p : room) {
+        const VROVector3f d = p.subtract(eye);
+        const float range = d.magnitude();
+        if (range < 0.3f || range > 4.0f) continue;             // the depth camera's useful band
+        if (d.dot(fwd) <= 0.35f * range) continue;              // roughly a 70-degree cone
+        v.push_back(p);
+        conf.push_back(1.0f);
+    }
+
+    std::vector<int> idx;
+    for (size_t i = 0; i + 2 < v.size(); i += 3) {
+        idx.push_back((int)i); idx.push_back((int)i + 1); idx.push_back((int)i + 2);
+    }
+    return std::make_shared<VROARDepthMesh>(std::move(v), std::move(idx), std::move(conf), "depth");
+}
+
 int main() {
     int fails = 0;
     auto check = [&](const char *name, bool ok, const char *detail) {
@@ -242,6 +287,82 @@ int main() {
                  v1.size(), v2.size(), i1.size() / 3, i2.size() / 3);
         check("and still returns the same surface",
               v1.size() == v2.size() && i1.size() == i2.size(), buf);
+    }
+
+    // ── 9. A walk around a room ───────────────────────────────────────────
+    // The acceptance criteria are written against a 4 x 5 m room walked for 60 seconds: the vertex
+    // count must climb rather than rise and fall with where the camera points, the walk must build
+    // at least 20,000 vertices, and the volume must stay inside its memory budget. None of those
+    // three need a depth sensor to answer — they are properties of the fusion, and a synthetic room
+    // answers them here instead of leaving all six criteria waiting on hardware.
+    //
+    // What this still cannot say anything about: sensor noise, tracking, relocalisation, and the
+    // frame budget on a phone's CPU. Those need the device.
+    {
+        auto walk = std::make_shared<VROARWorldMesh>(nullptr);
+        walk->setEnabled(true);
+        VROWorldMeshConfig wcfg = cfg;
+        wcfg.voxelSize = 0.04f;
+        walk->setConfig(wcfg);
+
+        std::vector<int> counts;
+        const int steps = 60;                       // one per second of the 60 s criterion
+        for (int s = 0; s < steps; s++) {
+            // Round the room, a metre in from the walls, looking outward.
+            const float t = (float)s / steps * 2.0f * (float)M_PI;
+            const VROVector3f eye(1.0f * std::cos(t), 0.0f, 1.5f * std::sin(t));
+            const VROVector3f fwd(std::cos(t), 0.0f, std::sin(t));
+
+            f.camera->position = eye;
+            f.depthMesh = roomPatch(eye, fwd);
+            { std::unique_ptr<VROARFrame> frame(&f); walk->updateFromFrame(frame); frame.release(); }
+            counts.push_back(walk->getStats().vertexCount);
+        }
+
+        // "Roughly monotonic": the fused volume may shed a little to eviction, but it must not fall
+        // away with the camera's heading, which is exactly what the single-frame path did.
+        int drops = 0;
+        for (size_t i = 1; i < counts.size(); i++) {
+            if (counts[i] < counts[i - 1] * 0.8) drops++;
+        }
+        snprintf(buf, sizeof(buf), "(%d drops over 20%% in %zu steps, %d -> %d)",
+                 drops, counts.size(), counts.front(), counts.back());
+        check("a walk round the room climbs instead of following the view", drops == 0, buf);
+
+        const int finalCount = counts.back();
+        snprintf(buf, sizeof(buf), "(%d vertices)", finalCount);
+        check("and builds the 20,000 vertices the criteria ask for", finalCount >= 20000, buf);
+
+        // The one VPS Lite uploads, off the same walk.
+        std::vector<uint8_t> roomSnap = walk->serializeCurrentMesh(L);
+        const uint32_t snapVertices = roomSnap.size() > 13
+            ? (uint32_t)(roomSnap[5] | (roomSnap[6] << 8) | (roomSnap[7] << 16) | ((uint32_t)roomSnap[8] << 24))
+            : 0;
+        snprintf(buf, sizeof(buf), "(%u vertices, %zu bytes)", snapVertices, roomSnap.size());
+        check("and the snapshot carries the whole room", snapVertices >= 20000, buf);
+    }
+
+    // ── 10. The memory budget is a budget ─────────────────────────────────
+    // maxMemoryMB turns into a block count and eviction drops the least recently seen. A room
+    // larger than the budget must stay inside it rather than growing until the app is killed.
+    {
+        const size_t blockBytes = VROTSDFVolume::getBytesPerBlock();
+        const size_t budgetBytes = 1u << 20;                    // a deliberately tight 1 MB
+        const size_t maxBlocks = budgetBytes / blockBytes;
+        VROTSDFVolume vol(0.04f, 0.12f, maxBlocks);
+
+        // Walk a room that needs far more than the budget.
+        for (int s = 0; s < 40; s++) {
+            const float t = (float)s / 40 * 2.0f * (float)M_PI;
+            const VROVector3f eye(1.0f * std::cos(t), 0.0f, 1.5f * std::sin(t));
+            auto patch = roomPatch(eye, VROVector3f(std::cos(t), 0.0f, std::sin(t)));
+            vol.integrate(patch->getVertices(), patch->getConfidences(), eye);
+        }
+
+        snprintf(buf, sizeof(buf), "(%zu blocks of %zu max, %.2f MB of 1.00 MB)",
+                 vol.getBlockCount(), maxBlocks, vol.getApproximateBytes() / (1024.0 * 1024.0));
+        check("a room larger than the budget stays inside it",
+              vol.getBlockCount() <= maxBlocks && vol.getApproximateBytes() <= budgetBytes, buf);
     }
 
     printf("\n%s  (%d failures)\n", fails == 0 ? "ALL GREEN" : "FAILURES", fails);
