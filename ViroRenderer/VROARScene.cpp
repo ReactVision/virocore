@@ -38,6 +38,11 @@
 #include "VROImageUtil.h"
 #include "VROARCamera.h"
 #include "VROPencil.h"
+#include "VROARDepthMesh.h"
+#include "VROPhysicsWorld.h"
+#include "VROPhysicsShape.h"
+#include "VROPlatformUtil.h"
+#include <btBulletDynamicsCommon.h>
 
 VROARScene::~VROARScene() {
     // no-op, we define this here vs in header because for some reason if you want
@@ -151,6 +156,7 @@ void VROARScene::setDriver(std::shared_ptr<VRODriver> driver) {
 void VROARScene::updateParticles(const VRORenderContext &context) {
     updatePointCloud();
     updateWorldMesh();
+    updateVPSMapMesh();
     VROScene::updateParticles(context);
 }
 
@@ -387,5 +393,137 @@ void VROARScene::computePhysics(const VRORenderContext &context) {
 void VROARScene::debugDrawWorldMesh(const VRORenderContext &context) {
     if (_worldMesh && _worldMeshEnabled) {
         _worldMesh->debugDraw(context.getPencil());
+    }
+}
+
+#pragma mark - VPS map mesh
+
+bool VROARScene::setVPSMapMesh(const std::vector<uint8_t> &rvwm, bool occlusion, bool physics) {
+    // Parsed in the map's own frame; the per-frame transform places it.
+    std::shared_ptr<VROARDepthMesh> mesh = VROARWorldMesh::loadMeshSnapshot(rvwm, VROMatrix4f::identity());
+    if (!mesh || !mesh->isValid()) {
+        return false;
+    }
+    std::weak_ptr<VROARScene> weakSelf = std::dynamic_pointer_cast<VROARScene>(shared_from_this());
+    VROPlatformDispatchAsyncRenderer([weakSelf, mesh, occlusion, physics]() {
+        auto self = weakSelf.lock();
+        if (self) {
+            self->installVPSMapMesh(mesh, occlusion, physics);
+        }
+    });
+    return true;
+}
+
+void VROARScene::clearVPSMapMesh() {
+    std::weak_ptr<VROARScene> weakSelf = std::dynamic_pointer_cast<VROARScene>(shared_from_this());
+    VROPlatformDispatchAsyncRenderer([weakSelf]() {
+        auto self = weakSelf.lock();
+        if (self) {
+            self->clearVPSMapMeshNow();
+        }
+    });
+}
+
+void VROARScene::clearVPSMapMeshNow() {
+    _vpsMapMeshGen++;
+    if (_vpsMapMeshNode) {
+        _vpsMapMeshNode->removeFromParentNode();
+        _vpsMapMeshNode = nullptr;
+    }
+    // The deleter takes the body out of the physics world first.
+    _vpsMapMeshBody = nullptr;
+    _vpsMapMeshMotion = nullptr;
+    _vpsMapMeshShape = nullptr;
+    _vpsMapMeshInWorld = false;
+}
+
+void VROARScene::installVPSMapMesh(std::shared_ptr<VROARDepthMesh> mesh, bool occlusion, bool physics) {
+    clearVPSMapMeshNow();
+    const uint64_t gen = _vpsMapMeshGen;
+
+    // The node exists for physics-only meshes too: it carries the transform.
+    _vpsMapMeshNode = std::make_shared<VRONode>();
+    _vpsMapMeshNode->setHidden(true);
+    if (occlusion) {
+        std::shared_ptr<VROGeometry> geometry = VROARWorldMesh::buildOcclusionGeometry(mesh);
+        if (geometry) {
+            _vpsMapMeshNode->setGeometry(geometry);
+        } else {
+            pwarn("VROARScene::setVPSMapMesh: could not build the occlusion geometry");
+        }
+    }
+    getRootNode()->addChildNode(_vpsMapMeshNode);
+
+    if (!physics) {
+        return;
+    }
+    // Same simplification as the live world mesh, then the BVH off the render
+    // thread: a room's mesh takes a few hundred ms to build.
+    std::shared_ptr<VROARDepthMesh> physicsMesh = VROARWorldMesh::clusterMesh(mesh, VROWorldMeshConfig().physicsCellSize);
+    if (!physicsMesh || physicsMesh->getTriangleCount() == 0) {
+        physicsMesh = mesh;
+    }
+    std::weak_ptr<VROARScene> weakSelf = std::dynamic_pointer_cast<VROARScene>(shared_from_this());
+    auto vertices = physicsMesh->getVertices();
+    auto indices  = physicsMesh->getIndices();
+    VROPlatformDispatchAsyncBackground([weakSelf, vertices, indices, gen]() {
+        auto shape = std::make_shared<VROPhysicsShape>(vertices, indices);
+        if (!shape->getBulletShape()) {
+            pwarn("VROARScene::setVPSMapMesh: could not build the physics shape");
+            return;
+        }
+        VROPlatformDispatchAsyncRenderer([weakSelf, shape, gen]() {
+            auto self = weakSelf.lock();
+            if (!self || gen != self->_vpsMapMeshGen) {
+                return; // cleared or replaced while the shape was building
+            }
+            VROWorldMeshConfig defaults;
+            self->_vpsMapMeshShape = shape;
+            self->_vpsMapMeshMotion = std::make_shared<btDefaultMotionState>(btTransform::getIdentity());
+            btRigidBody::btRigidBodyConstructionInfo info(0.0f, self->_vpsMapMeshMotion.get(),
+                                                          shape->getBulletShape(), btVector3(0, 0, 0));
+            std::weak_ptr<VROPhysicsWorld> weakWorld = self->getPhysicsWorld();
+            self->_vpsMapMeshBody = std::shared_ptr<btRigidBody>(new btRigidBody(info),
+                                                                 BulletRigidBodyDeleter{weakWorld});
+            self->_vpsMapMeshBody->setFriction(defaults.friction);
+            self->_vpsMapMeshBody->setRestitution(defaults.restitution);
+            // Kinematic: Bullet reads its pose from the motion state every step.
+            self->_vpsMapMeshBody->setCollisionFlags(self->_vpsMapMeshBody->getCollisionFlags() |
+                                                     btCollisionObject::CF_KINEMATIC_OBJECT);
+            self->_vpsMapMeshBody->setActivationState(DISABLE_DEACTIVATION);
+            self->_vpsMapMeshBody->setUserIndex(kVROPhysicsUserIndexWorldMesh);
+            self->_vpsMapMeshBody->setUserPointer(&self->_vpsMapMeshTag);
+            self->_vpsMapMeshInWorld = false; // added once the fuser has converged
+        });
+    });
+}
+
+void VROARScene::updateVPSMapMesh() {
+    if (!_vpsMapMeshNode) {
+        return;
+    }
+    std::shared_ptr<VROARSession> session = _arSession.lock();
+    VROMatrix4f T_world_map;
+    if (!session || !session->rvGetVPSWorldFromMap(T_world_map)) {
+        // Not placed yet: an occluder or collider at the map origin would be wrong.
+        _vpsMapMeshNode->setHidden(true);
+        return;
+    }
+
+    VROVector3f position = T_world_map.extractTranslation();
+    VROQuaternion rotation = T_world_map.extractRotation(T_world_map.extractScale());
+    _vpsMapMeshNode->setPosition(position);
+    _vpsMapMeshNode->setRotation(rotation);
+    _vpsMapMeshNode->setHidden(false);
+
+    if (_vpsMapMeshBody && _vpsMapMeshMotion) {
+        btTransform t(btQuaternion(rotation.X, rotation.Y, rotation.Z, rotation.W),
+                      btVector3(position.x, position.y, position.z));
+        _vpsMapMeshMotion->setWorldTransform(t);
+        _vpsMapMeshBody->setWorldTransform(t);
+        if (!_vpsMapMeshInWorld) {
+            getPhysicsWorld()->addRigidBody(_vpsMapMeshBody.get());
+            _vpsMapMeshInWorld = true;
+        }
     }
 }
