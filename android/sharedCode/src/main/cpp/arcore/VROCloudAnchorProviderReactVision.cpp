@@ -382,6 +382,16 @@ bool VROCloudAnchorProviderReactVision::vpsIsConverged() const {
     return false;
 }
 
+bool VROCloudAnchorProviderReactVision::vpsGetWorldFromMap(VROMatrix4f &outTransform) const {
+#if RVCCA_AVAILABLE
+    if (_impl && _impl->vpsLocalizer && _impl->vpsLocalizer->isConverged()) {
+        outTransform = _impl->vpsLocalizer->getSmoothedTMapWorld().invert();
+        return true;
+    }
+#endif
+    return false;
+}
+
 bool VROCloudAnchorProviderReactVision::vpsGetRenderPose(VROMatrix4f &outPose) const {
 #if RVCCA_AVAILABLE
     if (_impl && _impl->vpsLocalizer && _impl->vpsLocalizer->isConverged() &&

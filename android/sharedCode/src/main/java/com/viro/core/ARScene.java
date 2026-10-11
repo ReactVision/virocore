@@ -1662,6 +1662,26 @@ public class ARScene extends Scene {
     }
 
     /**
+     * Sets the VPS location's mesh, an RVWM snapshot in the map's frame (the
+     * backend's {@code world_mesh}), for occlusion and physics against the real
+     * place. It stays hidden until VPS localisation converges, then follows the
+     * map's transform every frame. Independent of the live world mesh. Replaces
+     * any mesh set before.
+     *
+     * @return false when the bytes are not an RVWM snapshot.
+     */
+    public boolean setVPSMapMesh(byte[] rvwmBytes, boolean occlusion, boolean physics) {
+        if (mNativeRef == 0) return false;
+        return nativeSetVPSMapMesh(mNativeRef, rvwmBytes, occlusion, physics);
+    }
+
+    /** Removes the mesh {@link #setVPSMapMesh} set. */
+    public void clearVPSMapMesh() {
+        if (mNativeRef == 0) return;
+        nativeClearVPSMapMesh(mNativeRef);
+    }
+
+    /**
      * The latest continuous VPS localisation result, as JSON — a pollable
      * stand-in for an onLocalized event. See
      * {@code VROARSession::rvGetVPSLocalizationJson} for the keys.
@@ -2073,6 +2093,9 @@ public class ARScene extends Scene {
     private native void nativeRvFinishScan(long sceneControllerRef, String key, int ttlDays);
     private native void nativeRvLoadVPSMap(long sceneControllerRef, String key, byte[] rvmapBytes);
     private native void nativeRvUnloadVPSMap(long sceneControllerRef);
+    private native boolean nativeSetVPSMapMesh(long sceneControllerRef, byte[] rvwmBytes,
+                                               boolean occlusion, boolean physics);
+    private native void nativeClearVPSMapMesh(long sceneControllerRef);
     private native void nativeRvGetVPSLocalization(long sceneControllerRef, String key);
     private native void nativeRvCreateSharedFrame(long sceneControllerRef, String key, String groupId);
     private native void nativeRvJoinSharedFrame(long sceneControllerRef, String key, String groupId);

@@ -2271,6 +2271,34 @@ VRO_METHOD(jboolean, nativeRvLoadWorldMesh)(VRO_ARGS
     return JNI_TRUE;
 }
 
+// The VPS location's mesh (an RVWM snapshot in the map's frame), placed each
+// frame by the VPS fuser. See VROARScene::setVPSMapMesh(). Returns false for
+// bytes that are not an RVWM snapshot, or without a scene.
+VRO_METHOD(jboolean, nativeSetVPSMapMesh)(VRO_ARGS
+                                          VRO_REF(VROARSceneController) sceneController_j,
+                                          jbyteArray meshBytes_j,
+                                          jboolean occlusion,
+                                          jboolean physics) {
+    std::shared_ptr<VROARScene> scene = std::dynamic_pointer_cast<VROARScene>(
+            VRO_REF_GET(VROARSceneController, sceneController_j)->getScene());
+    if (!scene) {
+        return JNI_FALSE;
+    }
+    jsize len = env->GetArrayLength(meshBytes_j);
+    std::vector<uint8_t> bytes((size_t)len);
+    env->GetByteArrayRegion(meshBytes_j, 0, len, reinterpret_cast<jbyte*>(bytes.data()));
+    return scene->setVPSMapMesh(bytes, occlusion == JNI_TRUE, physics == JNI_TRUE) ? JNI_TRUE : JNI_FALSE;
+}
+
+VRO_METHOD(void, nativeClearVPSMapMesh)(VRO_ARGS
+                                        VRO_REF(VROARSceneController) sceneController_j) {
+    std::shared_ptr<VROARScene> scene = std::dynamic_pointer_cast<VROARScene>(
+            VRO_REF_GET(VROARSceneController, sceneController_j)->getScene());
+    if (scene) {
+        scene->clearVPSMapMesh();
+    }
+}
+
 // +---------------------------------------------------------------------------+
 // | Scene Semantics API
 // +---------------------------------------------------------------------------+

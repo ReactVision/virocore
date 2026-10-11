@@ -130,6 +130,9 @@ public:
      */
     bool vpsGetRenderPose(VROMatrix4f &outPose) const;
 
+    /** The inverse of the smoothed T_map_world. Returns false before vpsIsConverged(). */
+    bool vpsGetWorldFromMap(VROMatrix4f &outTransform) const;
+
     /** The last raw hit's inlier count/reprojection RMS. Returns false before any hit. */
     bool vpsGetLastHit(int &outInliers, float &outReprojRms) const;
 

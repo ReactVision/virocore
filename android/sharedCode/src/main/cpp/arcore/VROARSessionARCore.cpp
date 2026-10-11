@@ -2681,6 +2681,15 @@ bool VROARSessionARCore::rvIsVPSMapLoaded() {
     return false;
 }
 
+bool VROARSessionARCore::rvGetVPSWorldFromMap(VROMatrix4f &T_world_map) const {
+#if RVCCA_AVAILABLE
+    if (_cloudAnchorProviderRV) {
+        return _cloudAnchorProviderRV->vpsGetWorldFromMap(T_world_map);
+    }
+#endif
+    return false;
+}
+
 std::string VROARSessionARCore::rvGetVPSLocalizationJson() {
 #if RVCCA_AVAILABLE
     if (_cloudAnchorProviderRV) {

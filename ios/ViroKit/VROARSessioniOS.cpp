@@ -2883,6 +2883,16 @@ bool VROARSessioniOS::rvIsVPSMapLoaded() {
   return false;
 }
 
+bool VROARSessioniOS::rvGetVPSWorldFromMap(VROMatrix4f &T_world_map) const {
+#if RVCCA_AVAILABLE
+  if (_vpsLocalizerRV->isConverged()) {
+    T_world_map = _vpsLocalizerRV->getSmoothedTMapWorld().invert();
+    return true;
+  }
+#endif
+  return false;
+}
+
 std::string VROARSessioniOS::rvGetVPSLocalizationJson() {
 #if RVCCA_AVAILABLE
   if (_cloudAnchorProviderRV) {
