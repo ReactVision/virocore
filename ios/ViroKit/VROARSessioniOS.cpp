@@ -61,6 +61,7 @@
 #import "VROCloudAnchorProviderARCore.h"
 #import "VROCloudAnchorProviderReactVision.h"
 #import <CoreLocation/CoreLocation.h>
+#import <CoreMotion/CoreMotion.h>
 #import <simd/simd.h>
 
 // ============================================================================
@@ -85,6 +86,13 @@
 // (iOS 14+ "Precise Location" off) and a temporary full-accuracy request was
 // denied, is pending, or unavailable pre-iOS 14. See start's accuracyAuthorization check.
 @property (nonatomic, assign) BOOL reducedAccuracy;
+// Attitude against true north, for the camera-forward bearing recordings
+// write. Nil when the device cannot give a true-north attitude.
+@property (atomic, strong) CMMotionManager *motionManager; // read on the render thread
+// The compass bearing of the back camera's forward axis, from the latest
+// true-north attitude. NO when there is none, or the camera points too far up
+// or down for a bearing to mean anything. Any thread.
+- (BOOL)cameraForwardBearing:(double *)outDegrees;
 @end
 
 @implementation VROLocationDelegate
@@ -145,11 +153,40 @@
 
     [_locationManager startUpdatingLocation];
     [_locationManager startUpdatingHeading];
+
+    if ([CMMotionManager availableAttitudeReferenceFrames] &
+            CMAttitudeReferenceFrameXTrueNorthZVertical) {
+        CMMotionManager *motion = [[CMMotionManager alloc] init];
+        motion.deviceMotionUpdateInterval = 1.0 / 30.0;
+        [motion startDeviceMotionUpdatesUsingReferenceFrame:
+                CMAttitudeReferenceFrameXTrueNorthZVertical];
+        self.motionManager = motion;
+    }
+}
+
+- (BOOL)cameraForwardBearing:(double *)outDegrees {
+    CMDeviceMotion *motion = self.motionManager.deviceMotion;
+    if (!motion) return NO;
+    // The rotation matrix maps the reference frame (X true north, Y west,
+    // Z up) into device axes, so its rows are the device axes in the reference
+    // frame. The back camera looks along device -Z: minus the third row.
+    CMRotationMatrix m = motion.attitude.rotationMatrix;
+    double north = -m.m31;
+    double east  =  m.m32; // -(west) of -Z
+    // Below this horizontal component (about 80 degrees of pitch) the bearing
+    // is noise.
+    if (hypot(north, east) < 0.17) return NO;
+    double deg = atan2(east, north) * 180.0 / M_PI;
+    *outDegrees = deg < 0 ? deg + 360.0 : deg;
+    return YES;
 }
 
 - (void)stop {
     [_locationManager stopUpdatingLocation];
     [_locationManager stopUpdatingHeading];
+    CMMotionManager *motion = self.motionManager;
+    self.motionManager = nil;
+    [motion stopDeviceMotionUpdates];
     _poseOut = nullptr;
     _headingValidOut = nullptr;
 }
@@ -1067,6 +1104,24 @@ std::unique_ptr<VROARFrame> &VROARSessioniOS::updateFrame() {
       // Improvement 1 + 6B: drive multi-frame host accumulation and resolve
       // localization for the ReactVision provider (no-op when nothing is pending).
       if (_cloudAnchorProviderRV != nil) {
+        // The keyframe collector tags the keyframes it captures with the
+        // reading in effect, for geo-registration; the heading is the camera's
+        // forward bearing, as in AR recordings.
+        VROGeospatialPose gps;
+        bool compassValid;
+        {
+          std::lock_guard<std::mutex> lk(_gpsPoseMutex);
+          gps = _lastKnownGPSPose;
+          compassValid = _hasReceivedHeadingFix;
+        }
+        double cameraBearing = 0.0;
+        bool hasHeading = compassValid &&
+            [(VROLocationDelegate *)_rvLocationDelegate cameraForwardBearing:&cameraBearing];
+        [_cloudAnchorProviderRV setKeyframeLocationHasGps:gps.isValid()
+                                                 latitude:gps.latitude
+                                                longitude:gps.longitude
+                                               hasHeading:hasHeading
+                                                  heading:cameraBearing];
         [_cloudAnchorProviderRV updateWithFrame:arFrame];
       }
 #if RVCCA_AVAILABLE
@@ -1135,12 +1190,10 @@ std::unique_ptr<VROARFrame> &VROARSessioniOS::updateFrame() {
         // the ReactVision geospatial path (VROLocationDelegate, started by
         // ensureReactVisionProvider()); nothing here acquires location or
         // heading itself, so this is empty until that provider has been used
-        // at least once. heading is _lastKnownGPSPose.heading, i.e. CLHeading's
-        // trueHeading/magneticHeading as-is — the same value this file already
-        // uses for geospatial anchor placement. It is the device's compass
-        // bearing, not yet the bearing of the camera's forward axis that the
-        // recording format specifies; deriving that needs the ARKit camera
-        // orientation and has not been validated on a device.
+        // at least once. The heading is the camera's forward bearing from
+        // CoreMotion's true-north attitude, as the recording format specifies,
+        // not CLHeading's device heading that geospatial anchors use; its
+        // accuracy is CLHeading's, so it needs a valid compass reading too.
         VROGeospatialPose pose;
         bool headingValid;
         {
@@ -1156,8 +1209,10 @@ std::unique_ptr<VROARFrame> &VROARSessioniOS::updateFrame() {
           geo.longitude       = pose.longitude;
           geo.altitude        = pose.altitude;
           geo.hAccuracy       = pose.horizontalAccuracy;
-          geo.hasHeading      = headingValid;
-          geo.headingDegrees  = pose.heading;
+          double cameraBearing = 0.0;
+          geo.hasHeading      = headingValid &&
+              [(VROLocationDelegate *)_rvLocationDelegate cameraForwardBearing:&cameraBearing];
+          geo.headingDegrees  = cameraBearing;
           geo.headingAccuracyDegrees = pose.headingAccuracy;
           _recorder->setLocationReading(geo);
         }
