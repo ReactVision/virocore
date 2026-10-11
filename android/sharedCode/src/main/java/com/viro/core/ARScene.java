@@ -1301,6 +1301,20 @@ public class ARScene extends Scene {
     }
 
     /**
+     * Sets the compass bearing of the back camera's forward axis, which AR recordings
+     * write as their heading (geo-registration needs the camera's bearing, not the
+     * device's). The geospatial pose keeps the heading given to
+     * {@link #setLastKnownLocation}.
+     *
+     * @param heading    Bearing in degrees (0 = North, clockwise).
+     * @param headingAcc Accuracy in degrees; negative when there is no valid bearing.
+     */
+    public void setCameraHeading(double heading, double headingAcc) {
+        if (mNativeRef == 0) return;
+        nativeSetCameraHeading(mNativeRef, heading, headingAcc);
+    }
+
+    /**
      * Check VPS availability at the specified location.
      *
      * @param latitude  Latitude in degrees.
@@ -2015,6 +2029,8 @@ public class ARScene extends Scene {
                                                    double lat, double lng, double alt,
                                                    double horizAcc, double vertAcc,
                                                    double heading, double headingAcc);
+    private native void nativeSetCameraHeading(long sceneControllerRef,
+                                               double heading, double headingAcc);
     private native void nativeCheckVPSAvailability(long sceneControllerRef, double latitude, double longitude);
     private native void nativeCreateGeospatialAnchor(long sceneControllerRef, String key,
                                                       double latitude, double longitude, double altitude,

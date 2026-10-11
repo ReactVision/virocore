@@ -104,6 +104,18 @@ public:
                               double horizAcc, double vertAcc,
                               double heading, double headingAcc);
     void getLastKnownLocation(double& lat, double& lng, double& alt) const;
+    /*
+     Compass bearing of the back camera's forward axis, which recordings write
+     as their heading; a negative accuracy means no valid bearing. Kept apart
+     from the geospatial pose's heading, which GPS anchor placement uses.
+     */
+    void setCameraHeading(double heading, double headingAcc);
+    /*
+     The latest GPS position and camera-forward bearing, for the keyframe
+     collector's setKeyframeLocation(). has* are false when there is none.
+     */
+    void getKeyframeGeo(bool &hasGps, double &lat, double &lng,
+                        bool &hasHeading, double &heading) const;
     // Bumped every setLastKnownLocation() call, read by
     // recordFrameForRecording() to attach a `gps` field only to the next
     // recorded pose after a genuinely fresh fix, not to every one. 0 means
@@ -480,8 +492,11 @@ private:
     int _gpsFixSeq = 0;
     // Guards _lastKnownGPSPose, _gpsFixSeq and _lastRecordingGpsFixSeq between
     // the JNI location callback (main thread) and the recorder (render thread).
-    std::mutex _gpsPoseMutex;
+    mutable std::mutex _gpsPoseMutex;
     int _lastRecordingGpsFixSeq = 0;
+    // See setCameraHeading(); guarded by _gpsPoseMutex.
+    double _cameraHeading = 0.0;
+    double _cameraHeadingAccuracy = -1.0;
 
     /*
      Per-frame anchor and trackable update handling.

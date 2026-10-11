@@ -181,6 +181,21 @@ VRO_METHOD(void, nativeSetLastKnownLocation)(VRO_ARGS
     }
 }
 
+VRO_METHOD(void, nativeSetCameraHeading)(VRO_ARGS
+                                         VRO_REF(VROARSceneController) arSceneControllerPtr,
+                                         jdouble heading, jdouble headingAcc) {
+    std::shared_ptr<VROARScene> arScene = std::dynamic_pointer_cast<VROARScene>(
+            VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
+    std::shared_ptr<VROARSession> arSession = arScene->getARSession();
+    if (arSession) {
+        std::shared_ptr<VROARSessionARCore> arcoreSession =
+                std::dynamic_pointer_cast<VROARSessionARCore>(arSession);
+        if (arcoreSession) {
+            arcoreSession->setCameraHeading(heading, headingAcc);
+        }
+    }
+}
+
 VRO_METHOD(void, nativeCheckVPSAvailability)(VRO_ARGS
                                              VRO_REF(VROARSceneController) arSceneControllerPtr,
                                              jdouble latitude, jdouble longitude) {

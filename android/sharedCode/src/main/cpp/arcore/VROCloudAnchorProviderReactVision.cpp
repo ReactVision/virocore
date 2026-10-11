@@ -312,6 +312,13 @@ void VROCloudAnchorProviderReactVision::onFrameDidRender(const VRORenderContext&
 
     auto snap = VROARFrameSnapshot::fromFrame(*frameUniq);
     if (snap) {
+        // The keyframe collector tags the keyframes it captures with the
+        // reading in effect, for geo-registration. The heading is the camera's
+        // forward bearing, as in AR recordings.
+        ReactVisionCCA::RVCCACloudAnchorProvider::KeyframeGeoReading geo;
+        sess->getKeyframeGeo(geo.hasGps, geo.latitude, geo.longitude,
+                             geo.hasHeading, geo.headingDegrees);
+        _impl->provider->setKeyframeLocation(geo);
         _impl->provider->updateWithFrame(snap);
         driveVPSMapFrame(*_impl, snap);
         // Invalidate the lazy live-frame pointer now that the render-thread

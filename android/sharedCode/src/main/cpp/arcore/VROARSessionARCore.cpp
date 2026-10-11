@@ -1785,6 +1785,22 @@ void VROARSessionARCore::setLastKnownLocation(double lat, double lng, double alt
     }
 }
 
+void VROARSessionARCore::setCameraHeading(double heading, double headingAcc) {
+    std::lock_guard<std::mutex> lk(_gpsPoseMutex);
+    _cameraHeading = heading;
+    _cameraHeadingAccuracy = headingAcc;
+}
+
+void VROARSessionARCore::getKeyframeGeo(bool &hasGps, double &lat, double &lng,
+                                        bool &hasHeading, double &heading) const {
+    std::lock_guard<std::mutex> lk(_gpsPoseMutex);
+    hasGps = _lastKnownGPSPose.isValid();
+    lat = _lastKnownGPSPose.latitude;
+    lng = _lastKnownGPSPose.longitude;
+    hasHeading = _cameraHeadingAccuracy >= 0;
+    heading = _cameraHeading;
+}
+
 // Improvement 3: read back the last GPS fix stored by setLastKnownLocation().
 // Called from VROCloudAnchorProviderReactVision::hostCloudAnchor() to populate
 // host request metadata with real coordinates.
@@ -3144,15 +3160,19 @@ void VROARSessionARCore::recordFrameForRecording(VROARFrameARCore *arFrame) {
 
     // geo = [hasGps(0/1), lat, lon, alt, hAccuracy, heading,
     // headingAccuracy], as doubles: float32 would quantise lat/lon to about
-    // half a metre. Only attached when a new position has arrived since the
+    // half a metre. The heading is the camera's forward bearing (see
+    // setCameraHeading()), which is what the recording format specifies. Only attached when a new position has arrived since the
     // last recorded pose (see setLastKnownLocation()), so a fix is tagged
     // once, near the instant it arrived. The Java side writes the heading as
     // null when its accuracy is negative (no valid heading yet).
     VROGeospatialPose gps;
     bool hasFreshGps;
+    double cameraHeading, cameraHeadingAccuracy;
     {
         std::lock_guard<std::mutex> lk(_gpsPoseMutex);
         gps = _lastKnownGPSPose;
+        cameraHeading = _cameraHeading;
+        cameraHeadingAccuracy = _cameraHeadingAccuracy;
         hasFreshGps = gps.isValid() && _gpsFixSeq != _lastRecordingGpsFixSeq;
         if (hasFreshGps) {
             _lastRecordingGpsFixSeq = _gpsFixSeq;
@@ -3164,8 +3184,8 @@ void VROARSessionARCore::recordFrameForRecording(VROARFrameARCore *arFrame) {
         gps.longitude,
         gps.altitude,
         gps.horizontalAccuracy,
-        gps.heading,
-        gps.headingAccuracy
+        cameraHeading,
+        cameraHeadingAccuracy
     };
     jdoubleArray geoArr = env->NewDoubleArray(7);
     env->SetDoubleArrayRegion(geoArr, 0, 7, geo);
