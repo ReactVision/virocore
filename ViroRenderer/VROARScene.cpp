@@ -42,7 +42,10 @@
 #include "VROPhysicsWorld.h"
 #include "VROPhysicsShape.h"
 #include "VROPlatformUtil.h"
+#include "VROVPSAnchorNode.h"
 #include <btBulletDynamicsCommon.h>
+#include <algorithm>
+#include <cmath>
 
 VROARScene::~VROARScene() {
     // no-op, we define this here vs in header because for some reason if you want
@@ -156,7 +159,8 @@ void VROARScene::setDriver(std::shared_ptr<VRODriver> driver) {
 void VROARScene::updateParticles(const VRORenderContext &context) {
     updatePointCloud();
     updateWorldMesh();
-    updateVPSMapMesh();
+    updateVPSPlacement();
+    serviceVPSQueryFrameRequests();
     VROScene::updateParticles(context);
 }
 
@@ -498,13 +502,22 @@ void VROARScene::installVPSMapMesh(std::shared_ptr<VROARDepthMesh> mesh, bool oc
     });
 }
 
-void VROARScene::updateVPSMapMesh() {
-    if (!_vpsMapMeshNode) {
+void VROARScene::updateVPSPlacement() {
+    if (!_vpsMapMeshNode && _vpsAnchorNodes.empty()) {
         return;
     }
     std::shared_ptr<VROARSession> session = _arSession.lock();
     VROMatrix4f T_world_map;
-    if (!session || !session->rvGetVPSWorldFromMap(T_world_map)) {
+    bool placed = session && session->rvGetVPSWorldFromMap(T_world_map);
+    updateVPSMapMesh(placed, T_world_map);
+    updateVPSAnchorNodes(placed, T_world_map);
+}
+
+void VROARScene::updateVPSMapMesh(bool placed, const VROMatrix4f &T_world_map) {
+    if (!_vpsMapMeshNode) {
+        return;
+    }
+    if (!placed) {
         // Not placed yet: an occluder or collider at the map origin would be wrong.
         _vpsMapMeshNode->setHidden(true);
         return;
@@ -526,4 +539,157 @@ void VROARScene::updateVPSMapMesh() {
             _vpsMapMeshInWorld = true;
         }
     }
+}
+
+#pragma mark - VPS anchor nodes
+
+void VROARScene::addVPSAnchorNode(std::shared_ptr<VROVPSAnchorNode> node) {
+    std::weak_ptr<VROARScene> weakSelf = std::dynamic_pointer_cast<VROARScene>(shared_from_this());
+    std::weak_ptr<VROVPSAnchorNode> weakNode = node;
+    VROPlatformDispatchAsyncRenderer([weakSelf, weakNode]() {
+        auto self = weakSelf.lock();
+        auto node = weakNode.lock();
+        if (!self || !node) {
+            return;
+        }
+        for (auto &w : self->_vpsAnchorNodes) {
+            if (w.lock() == node) {
+                return;
+            }
+        }
+        self->_vpsAnchorNodes.push_back(node);
+        node->setPlaced(false, true);
+    });
+}
+
+void VROARScene::removeVPSAnchorNode(std::shared_ptr<VROVPSAnchorNode> node) {
+    std::weak_ptr<VROARScene> weakSelf = std::dynamic_pointer_cast<VROARScene>(shared_from_this());
+    std::weak_ptr<VROVPSAnchorNode> weakNode = node;
+    VROPlatformDispatchAsyncRenderer([weakSelf, weakNode]() {
+        auto self = weakSelf.lock();
+        if (!self) {
+            return;
+        }
+        auto node = weakNode.lock();
+        auto &nodes = self->_vpsAnchorNodes;
+        nodes.erase(std::remove_if(nodes.begin(), nodes.end(), [&node](const std::weak_ptr<VROVPSAnchorNode> &w) {
+            auto n = w.lock();
+            return !n || n == node;
+        }), nodes.end());
+    });
+}
+
+void VROARScene::updateVPSAnchorNodes(bool placed, const VROMatrix4f &T_world_map) {
+    if (_vpsAnchorNodes.empty()) {
+        return;
+    }
+    VROVector3f position;
+    VROQuaternion rotation;
+    if (placed) {
+        position = T_world_map.extractTranslation();
+        rotation = T_world_map.extractRotation(T_world_map.extractScale());
+    }
+    bool expired = false;
+    for (auto &w : _vpsAnchorNodes) {
+        std::shared_ptr<VROVPSAnchorNode> node = w.lock();
+        if (!node) {
+            expired = true;
+            continue;
+        }
+        if (placed) {
+            // World, not local: an anchor nested under a moved parent still lands in the map frame.
+            node->setWorldTransform(position, rotation);
+        }
+        node->setPlaced(placed);
+    }
+    if (expired) {
+        _vpsAnchorNodes.erase(std::remove_if(_vpsAnchorNodes.begin(), _vpsAnchorNodes.end(),
+                                             [](const std::weak_ptr<VROVPSAnchorNode> &w) { return w.expired(); }),
+                              _vpsAnchorNodes.end());
+    }
+}
+
+#pragma mark - VPS query frame
+
+void VROARScene::captureVPSQueryFrame(int maxSide, VPSQueryFrameCallback callback) {
+    std::weak_ptr<VROARScene> weakSelf = std::dynamic_pointer_cast<VROARScene>(shared_from_this());
+    VROPlatformDispatchAsyncRenderer([weakSelf, maxSide, callback]() {
+        auto self = weakSelf.lock();
+        if (!self) {
+            callback(false, {}, 0, 0, 0, 0, 0, 0);
+            return;
+        }
+        // About a second at 60 fps for a frame with intrinsics to show up.
+        self->_vpsQueryFrameRequests.push_back({ std::max(maxSide, 64), 60, callback });
+    });
+}
+
+// Box-filters a w x h luma plane down to dw x dh.
+static std::vector<uint8_t> downscaleLuma(const std::vector<uint8_t> &src, int w, int h, int dw, int dh) {
+    std::vector<uint8_t> out((size_t)dw * dh);
+    for (int y = 0; y < dh; ++y) {
+        int y0 = (int)((int64_t)y * h / dh), y1 = std::max(y0 + 1, (int)((int64_t)(y + 1) * h / dh));
+        for (int x = 0; x < dw; ++x) {
+            int x0 = (int)((int64_t)x * w / dw), x1 = std::max(x0 + 1, (int)((int64_t)(x + 1) * w / dw));
+            uint32_t sum = 0;
+            for (int yy = y0; yy < y1; ++yy) {
+                const uint8_t *row = src.data() + (size_t)yy * w;
+                for (int xx = x0; xx < x1; ++xx) {
+                    sum += row[xx];
+                }
+            }
+            out[(size_t)y * dw + x] = (uint8_t)(sum / (uint32_t)((y1 - y0) * (x1 - x0)));
+        }
+    }
+    return out;
+}
+
+void VROARScene::serviceVPSQueryFrameRequests() {
+    if (_vpsQueryFrameRequests.empty()) {
+        return;
+    }
+    const uint8_t *luma = nullptr;
+    int w = 0, h = 0;
+    float fx = 0, fy = 0, cx = 0, cy = 0;
+    bool have = false;
+    std::shared_ptr<VROARSession> session = _arSession.lock();
+    if (session) {
+        std::unique_ptr<VROARFrame> &frame = session->getLastFrame();
+        if (frame) {
+            const std::shared_ptr<VROARCamera> &cam = frame->getCamera();
+            have = cam && cam->getImageIntrinsics(&fx, &fy, &cx, &cy) && fx > 1.f && fy > 1.f &&
+                   frame->getCameraImageY(&luma, &w, &h) && luma && w > 0 && h > 0;
+        }
+    }
+
+    std::vector<VPSQueryFrameRequest> pending;
+    std::shared_ptr<std::vector<uint8_t>> copy;
+    for (auto &request : _vpsQueryFrameRequests) {
+        if (!have) {
+            if (--request.framesLeft > 0) {
+                pending.push_back(request);
+            } else {
+                VPSQueryFrameCallback callback = request.callback;
+                VROPlatformDispatchAsyncBackground([callback]() {
+                    callback(false, {}, 0, 0, 0, 0, 0, 0);
+                });
+            }
+            continue;
+        }
+        if (!copy) {
+            // The frame's plane is only valid this frame: copy it here, scale it off the render thread.
+            copy = std::make_shared<std::vector<uint8_t>>(luma, luma + (size_t)w * h);
+        }
+        float scale = std::min(1.f, (float)request.maxSide / (float)std::max(w, h));
+        int dw = std::max(1, (int)std::lround(w * scale));
+        int dh = std::max(1, (int)std::lround(h * scale));
+        VPSQueryFrameCallback callback = request.callback;
+        VROPlatformDispatchAsyncBackground([copy, w, h, dw, dh, fx, fy, cx, cy, callback]() {
+            float sx = (float)dw / (float)w, sy = (float)dh / (float)h;
+            std::vector<uint8_t> gray = (dw == w && dh == h) ? *copy : downscaleLuma(*copy, w, h, dw, dh);
+            // Pixel centres: (c + 0.5) * s - 0.5.
+            callback(true, std::move(gray), dw, dh, fx * sx, fy * sy, (cx + 0.5f) * sx - 0.5f, (cy + 0.5f) * sy - 0.5f);
+        });
+    }
+    _vpsQueryFrameRequests.swap(pending);
 }
