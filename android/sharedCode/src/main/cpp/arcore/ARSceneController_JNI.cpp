@@ -41,6 +41,7 @@
 #include "arcore/VROARCameraARCore.h"
 #include "ViroContextAndroid_JNI.h"
 #include "VROARWorldMesh.h"
+#include "VROVPSAnchorNode.h"
 #include "VROARImageTargetAndroid.h"
 #include "arcore/ARUtils_JNI.h"
 #include "VROARFrame.h"
@@ -2297,6 +2298,66 @@ VRO_METHOD(void, nativeClearVPSMapMesh)(VRO_ARGS
     if (scene) {
         scene->clearVPSMapMesh();
     }
+}
+
+VRO_METHOD(void, nativeAddVPSAnchorNode)(VRO_ARGS
+                                         VRO_REF(VROARSceneController) sceneController_j,
+                                         VRO_REF(VROVPSAnchorNode) node_j) {
+    std::shared_ptr<VROARScene> scene = std::dynamic_pointer_cast<VROARScene>(
+            VRO_REF_GET(VROARSceneController, sceneController_j)->getScene());
+    if (scene) {
+        scene->addVPSAnchorNode(VRO_REF_GET(VROVPSAnchorNode, node_j));
+    }
+}
+
+VRO_METHOD(void, nativeRemoveVPSAnchorNode)(VRO_ARGS
+                                            VRO_REF(VROARSceneController) sceneController_j,
+                                            VRO_REF(VROVPSAnchorNode) node_j) {
+    std::shared_ptr<VROARScene> scene = std::dynamic_pointer_cast<VROARScene>(
+            VRO_REF_GET(VROARSceneController, sceneController_j)->getScene());
+    if (scene) {
+        scene->removeVPSAnchorNode(VRO_REF_GET(VROVPSAnchorNode, node_j));
+    }
+}
+
+VRO_METHOD(void, nativeCaptureVPSQueryFrame)(VRO_ARGS
+                                             VRO_REF(VROARSceneController) sceneController_j,
+                                             jstring key_j,
+                                             jint maxSide) {
+    std::string keyStr = VRO_STRING_STL(key_j);
+    VRO_WEAK weakObj = VRO_NEW_WEAK_GLOBAL_REF(obj);
+    auto fire = [weakObj, keyStr](bool ok, std::vector<uint8_t> gray, int w, int h,
+                                  float fx, float fy, float cx, float cy) {
+        auto bytes = std::make_shared<std::vector<uint8_t>>(std::move(gray));
+        VROPlatformDispatchAsyncApplication([weakObj, keyStr, ok, bytes, w, h, fx, fy, cx, cy] {
+            VRO_ENV env = VROPlatformGetJNIEnv();
+            VRO_OBJECT localObj = VRO_NEW_LOCAL_REF(weakObj);
+            if (VRO_IS_OBJECT_NULL(localObj)) {
+                VRO_DELETE_WEAK_GLOBAL_REF(weakObj);
+                return;
+            }
+            jbyteArray jBytes = env->NewByteArray((jsize)bytes->size());
+            if (!bytes->empty()) {
+                env->SetByteArrayRegion(jBytes, 0, (jsize)bytes->size(),
+                                        reinterpret_cast<const jbyte *>(bytes->data()));
+            }
+            VRO_STRING jKey = VRO_NEW_STRING(keyStr.c_str());
+            VROPlatformCallHostFunction(localObj, "onVPSQueryFrame", "(Ljava/lang/String;Z[BIIFFFF)V",
+                                        jKey, (jboolean)ok, jBytes, (jint)w, (jint)h,
+                                        (jfloat)fx, (jfloat)fy, (jfloat)cx, (jfloat)cy);
+            VRO_DELETE_LOCAL_REF(jKey);
+            VRO_DELETE_LOCAL_REF(jBytes);
+            VRO_DELETE_LOCAL_REF(localObj);
+            VRO_DELETE_WEAK_GLOBAL_REF(weakObj);
+        });
+    };
+    std::shared_ptr<VROARScene> scene = std::dynamic_pointer_cast<VROARScene>(
+            VRO_REF_GET(VROARSceneController, sceneController_j)->getScene());
+    if (!scene) {
+        fire(false, {}, 0, 0, 0, 0, 0, 0);
+        return;
+    }
+    scene->captureVPSQueryFrame((int)maxSide, fire);
 }
 
 // +---------------------------------------------------------------------------+

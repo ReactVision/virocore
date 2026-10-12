@@ -1682,6 +1682,60 @@ public class ARScene extends Scene {
     }
 
     /**
+     * @hide
+     * Registers a node whose children are in the VPS map's frame: it follows the
+     * map's transform every frame and stays hidden until VPS localisation converges.
+     */
+    public void addVPSAnchorNode(com.viro.core.internal.VPSAnchorNode node) {
+        if (mNativeRef == 0) return;
+        nativeAddVPSAnchorNode(mNativeRef, node.getNativeRef());
+    }
+
+    /** @hide */
+    public void removeVPSAnchorNode(com.viro.core.internal.VPSAnchorNode node) {
+        if (mNativeRef == 0) return;
+        nativeRemoveVPSAnchorNode(mNativeRef, node.getNativeRef());
+    }
+
+    /**
+     * Receives one camera image for a VPS visual query; see {@link #captureVPSQueryFrame}.
+     */
+    public interface VPSQueryFrameCallback {
+        /**
+         * @param ok    false when no frame with intrinsics arrived in time; the rest is then empty.
+         * @param gray  the luma plane, width x height bytes, sensor-native orientation.
+         */
+        void onFrame(boolean ok, byte[] gray, int width, int height, float fx, float fy, float cx, float cy);
+    }
+
+    private Map<String, VPSQueryFrameCallback> mVPSQueryFrameCallbacks = new HashMap<>();
+
+    /**
+     * @hide
+     * Captures the latest AR camera image for a VPS visual query, scaled so its
+     * longest side is at most maxSide, with intrinsics to match. The callback runs
+     * on the application thread.
+     */
+    public void captureVPSQueryFrame(int maxSide, VPSQueryFrameCallback callback) {
+        if (mNativeRef == 0) {
+            callback.onFrame(false, new byte[0], 0, 0, 0, 0, 0, 0);
+            return;
+        }
+        String key = "captureVPSQueryFrame_" + System.nanoTime();
+        mVPSQueryFrameCallbacks.put(key, callback);
+        nativeCaptureVPSQueryFrame(mNativeRef, key, maxSide);
+    }
+
+    // Called by native
+    void onVPSQueryFrame(String key, boolean ok, byte[] gray, int width, int height,
+                         float fx, float fy, float cx, float cy) {
+        VPSQueryFrameCallback cb = mVPSQueryFrameCallbacks.remove(key);
+        if (cb != null) {
+            cb.onFrame(ok, gray, width, height, fx, fy, cx, cy);
+        }
+    }
+
+    /**
      * The latest continuous VPS localisation result, as JSON — a pollable
      * stand-in for an onLocalized event. See
      * {@code VROARSession::rvGetVPSLocalizationJson} for the keys.
@@ -2096,6 +2150,9 @@ public class ARScene extends Scene {
     private native boolean nativeSetVPSMapMesh(long sceneControllerRef, byte[] rvwmBytes,
                                                boolean occlusion, boolean physics);
     private native void nativeClearVPSMapMesh(long sceneControllerRef);
+    private native void nativeAddVPSAnchorNode(long sceneControllerRef, long nodeRef);
+    private native void nativeRemoveVPSAnchorNode(long sceneControllerRef, long nodeRef);
+    private native void nativeCaptureVPSQueryFrame(long sceneControllerRef, String key, int maxSide);
     private native void nativeRvGetVPSLocalization(long sceneControllerRef, String key);
     private native void nativeRvCreateSharedFrame(long sceneControllerRef, String key, String groupId);
     private native void nativeRvJoinSharedFrame(long sceneControllerRef, String key, String groupId);
