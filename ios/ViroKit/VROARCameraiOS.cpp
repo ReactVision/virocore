@@ -118,6 +118,24 @@ VROVector3f VROARCameraiOS::getImageSize() {
     return { (float) size.width, (float) size.height, 0 };
 }
 
+bool VROARCameraiOS::getImageIntrinsics(float *outFx, float *outFy,
+                                        float *outCx, float *outCy) {
+    if (!_camera) {
+        return false;
+    }
+    // Column-major: columns[0][0] = fx, columns[1][1] = fy,
+    // columns[2][0] = cx, columns[2][1] = cy.
+    matrix_float3x3 k = _camera.intrinsics;
+    if (!(k.columns[0][0] > 0.f) || !(k.columns[1][1] > 0.f)) {
+        return false;
+    }
+    *outFx = k.columns[0][0];
+    *outFy = k.columns[1][1];
+    *outCx = k.columns[2][0];
+    *outCy = k.columns[2][1];
+    return true;
+}
+
 float* VROARCameraiOS::getIntrinsics() const {
     matrix_float3x3 intrinsics = _camera.intrinsics;
     float *mat = (float *)malloc(9 * sizeof(float));
