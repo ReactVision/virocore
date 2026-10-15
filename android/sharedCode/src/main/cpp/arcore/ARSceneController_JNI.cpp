@@ -905,8 +905,11 @@ VRO_METHOD(void, nativeRvUnloadVPSMap)(VRO_ARGS
     VROPlatformDispatchAsyncRenderer([arScene_w] {
         std::shared_ptr<VROARScene> arScene = arScene_w.lock();
         if (!arScene) return;
-        std::shared_ptr<VROARSession> arSession = arScene->getARSession();
-        if (arSession) arSession->rvUnloadVPSMap();
+        // Queued like the load, so a load queued before the session exists
+        // cannot apply after a later unload.
+        arScene->runWhenARSessionReady([](std::shared_ptr<VROARSession> arSession) {
+            arSession->rvUnloadVPSMap();
+        });
     });
 }
 
