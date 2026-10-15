@@ -89,6 +89,13 @@ public:
     std::string localPeerId() const;
     std::vector<VROColocationPeer> peers() const;
 
+    /**
+     * Sent as x-rv-device on this process's co-location socket. viro's
+     * replication client reads it here and sends the same one, so the relay
+     * bills the device once while either of its sockets is open.
+     */
+    static std::string deviceId();
+
 private:
     VROColocationSession();
     ~VROColocationSession();
