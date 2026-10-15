@@ -1142,11 +1142,12 @@ std::unique_ptr<VROARFrame> &VROARSessioniOS::updateFrame() {
               ifx > 1.f && ify > 1.f &&
               frameiOS->getCameraImageY(&vpsLuma, &vpsLumaW, &vpsLumaH) &&
               vpsLuma != nullptr && vpsLumaW > 0 && vpsLumaH > 0) {
-            VROVector3f vpsCamPos = vpsCam->getPosition();
-            VROMatrix4f vpsCam2World = vpsCam->getRotation();
-            vpsCam2World[12] = vpsCamPos.x;
-            vpsCam2World[13] = vpsCamPos.y;
-            vpsCam2World[14] = vpsCamPos.z;
+            // The sensor pose, as the luma plane and the intrinsics are.
+            // getRotation() adds the display orientation's roll
+            // (VROARCameraiOS), which in portrait turns every hit about the
+            // optical axis, so no two hits agree and the fuser never
+            // converges. Android's VROARFrameSnapshot makes the same swap.
+            VROMatrix4f vpsCam2World = VROConvert::toMatrix4f(arFrame.camera.transform);
             {
               std::lock_guard<std::mutex> lk(_vpsStateMutex);
               _lastVPSCamToWorld    = vpsCam2World;
