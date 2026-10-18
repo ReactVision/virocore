@@ -1662,6 +1662,37 @@ public class ARScene extends Scene {
     }
 
     /**
+     * Starts VPS server mode: the backend localises frames the app sends, and the
+     * fuser runs without a map, fed by {@link #rvReportVPSServerFix}. Unloads any
+     * map. Reports {@code {"success":true|false}}. See
+     * {@code VROARSession::rvStartVPSServerSession}.
+     */
+    public void rvStartVPSServerSession(RvScanJsonCallback callback) {
+        String key = "rvStartVPSServerSession_" + System.nanoTime();
+        mRvScanJsonCallbacks.put(key, callback);
+        nativeRvStartVPSServerSession(mNativeRef, key);
+    }
+
+    /** Ends VPS server mode and resets the fuser. {@link #rvUnloadVPSMap} ends it too. */
+    public void rvStopVPSServerSession() {
+        nativeRvStopVPSServerSession(mNativeRef);
+    }
+
+    /**
+     * One fix from the backend for a frame from {@link #captureVPSQueryFrame}.
+     *
+     * @param worldFromCamera that frame's sensor pose, as the capture callback handed it out.
+     * @param mapFromCamera   the backend's T_map_cam, 16 floats row-major, OpenCV camera axes.
+     * Reports {@code {"success":true|false}}; false outside server mode.
+     */
+    public void rvReportVPSServerFix(float[] worldFromCamera, float[] mapFromCamera, int inliers,
+                                     RvScanJsonCallback callback) {
+        String key = "rvReportVPSServerFix_" + System.nanoTime();
+        mRvScanJsonCallbacks.put(key, callback);
+        nativeRvReportVPSServerFix(mNativeRef, key, worldFromCamera, mapFromCamera, inliers);
+    }
+
+    /**
      * Sets the VPS location's mesh, an RVWM snapshot in the map's frame (the
      * backend's {@code world_mesh}), for occlusion and physics against the real
      * place. It stays hidden until VPS localisation converges, then follows the
@@ -1704,8 +1735,12 @@ public class ARScene extends Scene {
         /**
          * @param ok    false when no frame with intrinsics arrived in time; the rest is then empty.
          * @param gray  the luma plane, width x height bytes, sensor-native orientation.
+         * @param worldFromCamera the camera's sensor pose for that frame, 16 floats column-major (GL camera
+         *                        axes): what a pose a server solves from the image is paired with
+         *                        ({@link #rvReportVPSServerFix}).
          */
-        void onFrame(boolean ok, byte[] gray, int width, int height, float fx, float fy, float cx, float cy);
+        void onFrame(boolean ok, byte[] gray, int width, int height, float fx, float fy, float cx, float cy,
+                     float[] worldFromCamera);
     }
 
     private Map<String, VPSQueryFrameCallback> mVPSQueryFrameCallbacks = new HashMap<>();
@@ -1718,7 +1753,7 @@ public class ARScene extends Scene {
      */
     public void captureVPSQueryFrame(int maxSide, VPSQueryFrameCallback callback) {
         if (mNativeRef == 0) {
-            callback.onFrame(false, new byte[0], 0, 0, 0, 0, 0, 0);
+            callback.onFrame(false, new byte[0], 0, 0, 0, 0, 0, 0, new float[16]);
             return;
         }
         String key = "captureVPSQueryFrame_" + System.nanoTime();
@@ -1728,10 +1763,10 @@ public class ARScene extends Scene {
 
     // Called by native
     void onVPSQueryFrame(String key, boolean ok, byte[] gray, int width, int height,
-                         float fx, float fy, float cx, float cy) {
+                         float fx, float fy, float cx, float cy, float[] worldFromCamera) {
         VPSQueryFrameCallback cb = mVPSQueryFrameCallbacks.remove(key);
         if (cb != null) {
-            cb.onFrame(ok, gray, width, height, fx, fy, cx, cy);
+            cb.onFrame(ok, gray, width, height, fx, fy, cx, cy, worldFromCamera);
         }
     }
 
@@ -2147,6 +2182,10 @@ public class ARScene extends Scene {
     private native void nativeRvFinishScan(long sceneControllerRef, String key, int ttlDays);
     private native void nativeRvLoadVPSMap(long sceneControllerRef, String key, byte[] rvmapBytes);
     private native void nativeRvUnloadVPSMap(long sceneControllerRef);
+    private native void nativeRvStartVPSServerSession(long sceneControllerRef, String key);
+    private native void nativeRvStopVPSServerSession(long sceneControllerRef);
+    private native void nativeRvReportVPSServerFix(long sceneControllerRef, String key, float[] worldFromCamera,
+                                                   float[] mapFromCamera, int inliers);
     private native boolean nativeSetVPSMapMesh(long sceneControllerRef, byte[] rvwmBytes,
                                                boolean occlusion, boolean physics);
     private native void nativeClearVPSMapMesh(long sceneControllerRef);

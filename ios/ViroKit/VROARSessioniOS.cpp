@@ -1125,6 +1125,15 @@ std::unique_ptr<VROARFrame> &VROARSessioniOS::updateFrame() {
         [_cloudAnchorProviderRV updateWithFrame:arFrame];
       }
 #if RVCCA_AVAILABLE
+      {
+        // Server mode has no map to match per frame, but the fuser's render
+        // pose still needs the current sensor pose.
+        std::lock_guard<std::mutex> lk(_vpsStateMutex);
+        if (_vpsServerMode) {
+          _lastVPSCamToWorld    = VROConvert::toMatrix4f(arFrame.camera.transform);
+          _lastVPSCamToWorldSet = true;
+        }
+      }
       // Continuous VPS map localisation: only when rvLoadVPSMap() has a map
       // loaded. updateVPSMapFrame() itself is a cheap no-op without one, but
       // extracting the luma plane and intrinsics below isn't free, so that
@@ -2852,6 +2861,7 @@ bool VROARSessioniOS::rvLoadVPSMap(const std::string& rvmapBytes) {
     if (ok) {
       _vpsLocalizerRV->reset();
       std::lock_guard<std::mutex> lk(_vpsStateMutex);
+      _vpsServerMode = false;
       _lastVPSCamToWorldSet = false;
       _lastVPSHitSet = false;
     }
@@ -2869,6 +2879,7 @@ void VROARSessioniOS::rvUnloadVPSMap() {
   }
   _vpsLocalizerRV->reset();
   std::lock_guard<std::mutex> lk(_vpsStateMutex);
+  _vpsServerMode = false;   // unloading ends a server-mode session too
   _lastVPSCamToWorldSet = false;
   _lastVPSHitSet = false;
 #endif
@@ -2884,6 +2895,52 @@ bool VROARSessioniOS::rvIsVPSMapLoaded() {
   return false;
 }
 
+bool VROARSessioniOS::rvStartVPSServerSession() {
+#if RVCCA_AVAILABLE
+  if (_cloudAnchorProviderRV) {
+    auto p = [_cloudAnchorProviderRV cppProvider];
+    if (p) p->unloadVPSMap();
+  }
+  _vpsLocalizerRV->reset();
+  std::lock_guard<std::mutex> lk(_vpsStateMutex);
+  _vpsServerMode = true;
+  _lastVPSCamToWorldSet = false;
+  _lastVPSHitSet = false;
+  return true;
+#else
+  return false;
+#endif
+}
+
+void VROARSessioniOS::rvStopVPSServerSession() {
+#if RVCCA_AVAILABLE
+  _vpsLocalizerRV->reset();
+  std::lock_guard<std::mutex> lk(_vpsStateMutex);
+  _vpsServerMode = false;
+  _lastVPSCamToWorldSet = false;
+  _lastVPSHitSet = false;
+#endif
+}
+
+bool VROARSessioniOS::rvReportVPSServerFix(const VROMatrix4f &T_world_cam, const VROMatrix4f &T_map_cam,
+                                           int inliers) {
+#if RVCCA_AVAILABLE
+  {
+    std::lock_guard<std::mutex> lk(_vpsStateMutex);
+    if (!_vpsServerMode) return false;
+    _lastVPSHitSet    = true;
+    _lastVPSInliers   = inliers;
+    _lastVPSReprojRms = 0.f;   // the backend reports inliers, not a reprojection error
+  }
+  double nowSec = std::chrono::duration<double>(
+      std::chrono::steady_clock::now().time_since_epoch()).count();
+  _vpsLocalizerRV->reportLocalizationHit(vpsServerFixToWorldMap(T_world_cam, T_map_cam), nowSec);
+  return true;
+#else
+  return false;
+#endif
+}
+
 bool VROARSessioniOS::rvGetVPSWorldFromMap(VROMatrix4f &T_world_map) const {
 #if RVCCA_AVAILABLE
   if (_vpsLocalizerRV->isConverged()) {
@@ -2896,10 +2953,18 @@ bool VROARSessioniOS::rvGetVPSWorldFromMap(VROMatrix4f &T_world_map) const {
 
 std::string VROARSessioniOS::rvGetVPSLocalizationJson() {
 #if RVCCA_AVAILABLE
+  std::shared_ptr<ReactVisionCCA::RVCCACloudAnchorProvider> p;
   if (_cloudAnchorProviderRV) {
-    auto p = [_cloudAnchorProviderRV cppProvider];
-    if (p) {
-      bool loaded = p->isVPSMapLoaded();
+    p = [_cloudAnchorProviderRV cppProvider];
+  }
+  bool serverMode;
+  {
+    std::lock_guard<std::mutex> lk(_vpsStateMutex);
+    serverMode = _vpsServerMode;
+  }
+  {
+    if (p || serverMode) {
+      bool loaded = serverMode || (p && p->isVPSMapLoaded());
       bool converged = _vpsLocalizerRV->isConverged();
       bool hitSet, camSet;
       int inliers;
@@ -2913,6 +2978,7 @@ std::string VROARSessioniOS::rvGetVPSLocalizationJson() {
       std::ostringstream os;
       os << "{\"available\":true"
          << ",\"loaded\":" << (loaded ? "true" : "false")
+         << ",\"mode\":\"" << (serverMode ? "server" : "device") << "\""
          << ",\"converged\":" << (converged ? "true" : "false");
       if (hitSet && std::isfinite(rms)) {
         os << ",\"lastHitInliers\":" << inliers

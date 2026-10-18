@@ -44,6 +44,8 @@ public:
     
     VROMatrix4f getRotation() const;
     VROVector3f getPosition() const;
+    /* ARCamera.transform: the sensor pose the captured image was taken with. */
+    VROMatrix4f getImageTransform() const override;
     VROMatrix4f getProjection(VROViewport viewport, float near, float far, VROFieldOfView *outFOV);
     
     VROVector3f getImageSize();

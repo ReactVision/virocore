@@ -71,6 +71,10 @@ VROARTrackingStateReason VROARCameraiOS::getLimitedTrackingStateReason() const {
     }
 }
 
+VROMatrix4f VROARCameraiOS::getImageTransform() const {
+    return VROConvert::toMatrix4f(_camera.transform);
+}
+
 VROMatrix4f VROARCameraiOS::getRotation() const {
     VROMatrix4f matrix = VROConvert::toMatrix4f(_camera.transform);
     // Remove the translation; this is returned via getPosition()

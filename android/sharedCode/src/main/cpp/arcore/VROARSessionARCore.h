@@ -284,6 +284,10 @@ public:
     bool rvIsVPSMapLoaded() override;
     std::string rvGetVPSLocalizationJson() override;
     bool rvGetVPSWorldFromMap(VROMatrix4f &T_world_map) const override;
+    bool rvStartVPSServerSession() override;
+    void rvStopVPSServerSession() override;
+    bool rvReportVPSServerFix(const VROMatrix4f &T_world_cam, const VROMatrix4f &T_map_cam,
+                              int inliers) override;
 
     /*
      * Scene Semantics API.

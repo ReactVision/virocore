@@ -2681,6 +2681,33 @@ bool VROARSessionARCore::rvIsVPSMapLoaded() {
     return false;
 }
 
+bool VROARSessionARCore::rvStartVPSServerSession() {
+#if RVCCA_AVAILABLE
+    if (_cloudAnchorProviderRV) {
+        return _cloudAnchorProviderRV->startVPSServerSession();
+    }
+#endif
+    return false;
+}
+
+void VROARSessionARCore::rvStopVPSServerSession() {
+#if RVCCA_AVAILABLE
+    if (_cloudAnchorProviderRV) {
+        _cloudAnchorProviderRV->stopVPSServerSession();
+    }
+#endif
+}
+
+bool VROARSessionARCore::rvReportVPSServerFix(const VROMatrix4f &T_world_cam, const VROMatrix4f &T_map_cam,
+                                              int inliers) {
+#if RVCCA_AVAILABLE
+    if (_cloudAnchorProviderRV) {
+        return _cloudAnchorProviderRV->reportVPSServerFix(T_world_cam, T_map_cam, inliers);
+    }
+#endif
+    return false;
+}
+
 bool VROARSessionARCore::rvGetVPSWorldFromMap(VROMatrix4f &T_world_map) const {
 #if RVCCA_AVAILABLE
     if (_cloudAnchorProviderRV) {
@@ -2693,11 +2720,13 @@ bool VROARSessionARCore::rvGetVPSWorldFromMap(VROMatrix4f &T_world_map) const {
 std::string VROARSessionARCore::rvGetVPSLocalizationJson() {
 #if RVCCA_AVAILABLE
     if (_cloudAnchorProviderRV) {
-        bool loaded = _cloudAnchorProviderRV->isVPSMapLoaded();
+        bool serverMode = _cloudAnchorProviderRV->isVPSServerSession();
+        bool loaded = serverMode || _cloudAnchorProviderRV->isVPSMapLoaded();
         bool converged = _cloudAnchorProviderRV->vpsIsConverged();
         std::ostringstream os;
         os << "{\"available\":true"
            << ",\"loaded\":" << (loaded ? "true" : "false")
+           << ",\"mode\":\"" << (serverMode ? "server" : "device") << "\""
            << ",\"converged\":" << (converged ? "true" : "false");
         int inliers = 0; float reprojRms = 0.f;
         if (_cloudAnchorProviderRV->vpsGetLastHit(inliers, reprojRms)) {

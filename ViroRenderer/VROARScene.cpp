@@ -616,7 +616,7 @@ void VROARScene::captureVPSQueryFrame(int maxSide, VPSQueryFrameCallback callbac
     VROPlatformDispatchAsyncRenderer([weakSelf, maxSide, callback]() {
         auto self = weakSelf.lock();
         if (!self) {
-            callback(false, {}, 0, 0, 0, 0, 0, 0);
+            callback(false, {}, 0, 0, 0, 0, 0, 0, VROMatrix4f());
             return;
         }
         // About a second at 60 fps for a frame with intrinsics to show up.
@@ -651,6 +651,7 @@ void VROARScene::serviceVPSQueryFrameRequests() {
     const uint8_t *luma = nullptr;
     int w = 0, h = 0;
     float fx = 0, fy = 0, cx = 0, cy = 0;
+    VROMatrix4f T_world_cam;
     bool have = false;
     std::shared_ptr<VROARSession> session = _arSession.lock();
     if (session) {
@@ -659,6 +660,9 @@ void VROARScene::serviceVPSQueryFrameRequests() {
             const std::shared_ptr<VROARCamera> &cam = frame->getCamera();
             have = cam && cam->getImageIntrinsics(&fx, &fy, &cx, &cy) && fx > 1.f && fy > 1.f &&
                    frame->getCameraImageY(&luma, &w, &h) && luma && w > 0 && h > 0;
+            if (have) {
+                T_world_cam = cam->getImageTransform();
+            }
         }
     }
 
@@ -671,7 +675,7 @@ void VROARScene::serviceVPSQueryFrameRequests() {
             } else {
                 VPSQueryFrameCallback callback = request.callback;
                 VROPlatformDispatchAsyncBackground([callback]() {
-                    callback(false, {}, 0, 0, 0, 0, 0, 0);
+                    callback(false, {}, 0, 0, 0, 0, 0, 0, VROMatrix4f());
                 });
             }
             continue;
@@ -684,11 +688,12 @@ void VROARScene::serviceVPSQueryFrameRequests() {
         int dw = std::max(1, (int)std::lround(w * scale));
         int dh = std::max(1, (int)std::lround(h * scale));
         VPSQueryFrameCallback callback = request.callback;
-        VROPlatformDispatchAsyncBackground([copy, w, h, dw, dh, fx, fy, cx, cy, callback]() {
+        VROPlatformDispatchAsyncBackground([copy, w, h, dw, dh, fx, fy, cx, cy, T_world_cam, callback]() {
             float sx = (float)dw / (float)w, sy = (float)dh / (float)h;
             std::vector<uint8_t> gray = (dw == w && dh == h) ? *copy : downscaleLuma(*copy, w, h, dw, dh);
             // Pixel centres: (c + 0.5) * s - 0.5.
-            callback(true, std::move(gray), dw, dh, fx * sx, fy * sy, (cx + 0.5f) * sx - 0.5f, (cy + 0.5f) * sy - 0.5f);
+            callback(true, std::move(gray), dw, dh, fx * sx, fy * sy, (cx + 0.5f) * sx - 0.5f, (cy + 0.5f) * sy - 0.5f,
+                     T_world_cam);
         });
     }
     _vpsQueryFrameRequests.swap(pending);

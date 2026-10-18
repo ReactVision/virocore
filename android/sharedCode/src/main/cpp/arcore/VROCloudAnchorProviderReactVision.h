@@ -136,6 +136,16 @@ public:
     /** The last raw hit's inlier count/reprojection RMS. Returns false before any hit. */
     bool vpsGetLastHit(int &outInliers, float &outReprojRms) const;
 
+    /**
+     * VPS server mode (VROARSession::rvStartVPSServerSession()): no map, the fuser fed
+     * by the backend's fixes. Starting unloads any map; loading a map or unloading ends it.
+     */
+    bool startVPSServerSession();
+    void stopVPSServerSession();
+    bool isVPSServerSession() const;
+    /** A backend fix, as VROARSession::rvReportVPSServerFix(). False outside server mode. */
+    bool reportVPSServerFix(const VROMatrix4f &T_world_cam, const VROMatrix4f &T_map_cam, int inliers);
+
 private:
     class Impl;
     std::unique_ptr<Impl> _impl;
