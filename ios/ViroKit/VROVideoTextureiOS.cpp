@@ -75,9 +75,13 @@ void VROVideoTextureiOS::deleteGL() {
 
 void VROVideoTextureiOS::prewarm() {
     [_player play];
+    std::weak_ptr<VROVideoTextureiOS> weakTexture = std::dynamic_pointer_cast<VROVideoTextureiOS>(shared_from_this());
+    AVPlayer *player = _player;
+    // A player asked to play since is left alone: AVPlayer starts it once its item is ready.
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-      if (_paused || _player.status != AVPlayerStatusReadyToPlay || _player.currentItem.status != AVPlayerItemStatusReadyToPlay) {
-        [_player pause];
+      std::shared_ptr<VROVideoTextureiOS> texture = weakTexture.lock();
+      if (!texture || texture->isPaused()) {
+        [player pause];
       }
     });
 }
@@ -88,8 +92,8 @@ void VROVideoTextureiOS::play() {
 }
 
 void VROVideoTextureiOS::pause() {
-    [_player pause];
     _paused = true;
+    [_player pause];
 }
 
 void VROVideoTextureiOS::seekToTime(float seconds) {
@@ -452,6 +456,7 @@ CMSampleBufferRef VROVideoTextureiOS::getSampleBuffer() const {
     dispatch_queue_t _videoQueue;
     int _currentTextureIndex;
     std::weak_ptr<VRODriver> _driver;
+    std::weak_ptr<VROVideoTextureiOS> _weakTexture;  // for blocks that run after KVO returns
     std::shared_ptr<VROVideoTextureCache> _videoTextureCache;
 
     /*
@@ -481,6 +486,7 @@ CMSampleBufferRef VROVideoTextureiOS::getSampleBuffer() const {
     self = [super init];
     if (self) {
         _texture = texture;
+        _weakTexture = std::dynamic_pointer_cast<VROVideoTextureiOS>(texture->shared_from_this());
         _player = player;
         _driver = driver;
         _currentTextureIndex = 0;
@@ -520,18 +526,17 @@ CMSampleBufferRef VROVideoTextureiOS::getSampleBuffer() const {
 
             // It's unclear what thread we receive this notification on,
             // so return to main
-            dispatch_async(dispatch_get_main_queue(), ^{
+            [self onMainWithTexture:^(VROVideoTextureiOS *texture) {
                 [self attachVideoOutput];
-                self->_texture->notifyVideoSize();
-            });
+                texture->notifyVideoSize();
+            }];
 
         }
         else if ([path isEqualToString:kPlaybackKeepUpKey]) {
             if ([object isKindOfClass:[AVPlayerItem class]]) {
                 AVPlayerItem *item = object;
-                // call play if playback is likely to keep up and video isn't paused.
-                if (item.playbackLikelyToKeepUp && !self.texture->isPaused()) {
-                    [self.player play];
+                if (item.playbackLikelyToKeepUp) {
+                    [self playUnlessPaused];
                 }
                 if (_buffering == !item.playbackLikelyToKeepUp) {
                     // If the state didn't change, then do nothing!
@@ -539,14 +544,15 @@ CMSampleBufferRef VROVideoTextureiOS::getSampleBuffer() const {
                 }
                 _buffering = !item.playbackLikelyToKeepUp;
                 if (item.playbackLikelyToKeepUp) {
-                    dispatch_async(dispatch_get_main_queue(), ^{
-                        self->_texture->playerDidBuffer();
-                    });
+                    [self onMainWithTexture:^(VROVideoTextureiOS *texture) {
+                        texture->playerDidBuffer();
+                    }];
                 } else {
-                    [self.player pause];
-                    dispatch_async(dispatch_get_main_queue(), ^{
-                        self->_texture->playerWillBuffer();
-                    });
+                    AVPlayer *player = self.player;
+                    [self onMainWithTexture:^(VROVideoTextureiOS *texture) {
+                        [player pause];
+                        texture->playerWillBuffer();
+                    }];
                 }
             }
         }
@@ -554,6 +560,28 @@ CMSampleBufferRef VROVideoTextureiOS::getSampleBuffer() const {
     else {
         [super observeValueForKeyPath:path ofObject:object change:change context:context];
     }
+}
+
+// KVO arrives on any thread, and play() and pause() run on the main queue, so the
+// check and the play happen there: a pause() cannot land between them.
+- (void)playUnlessPaused {
+    AVPlayer *player = self.player;
+    [self onMainWithTexture:^(VROVideoTextureiOS *texture) {
+        if (!texture->isPaused()) {
+            [player play];
+        }
+    }];
+}
+
+// Skipped when a closing scene has freed the texture before the main queue gets to it.
+- (void)onMainWithTexture:(void (^)(VROVideoTextureiOS *texture))block {
+    std::weak_ptr<VROVideoTextureiOS> weakTexture = _weakTexture;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        std::shared_ptr<VROVideoTextureiOS> texture = weakTexture.lock();
+        if (texture) {
+            block(texture.get());
+        }
+    });
 }
 
 - (void)attachVideoOutput {
