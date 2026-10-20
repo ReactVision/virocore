@@ -343,7 +343,10 @@ public class AVPlayer {
         });
     }
 
-    public void play() {
+    // play() and pause() come from more than one thread (nativePause also pauses on the
+    // caller's), so each checks, writes mState and posts under one lock: the player then
+    // gets them in the order mState records.
+    public synchronized void play() {
         if (mState == State.PREPARED || mState == State.PAUSED) {
             // Set now, not when the main thread runs the change: a pause() queued just
             // before would otherwise still read STARTED here and this play() be dropped.
@@ -362,7 +365,7 @@ public class AVPlayer {
         }
     }
 
-    public void pause() {
+    public synchronized void pause() {
         if (mState == State.STARTED) {
             mState = State.PAUSED; // set now, as in play()
             try {
