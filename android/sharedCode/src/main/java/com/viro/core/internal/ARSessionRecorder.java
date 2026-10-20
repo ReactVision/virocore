@@ -44,6 +44,8 @@ import java.util.Locale;
 public class ARSessionRecorder {
 
     private static final String TAG = "Viro";
+    // How long stop() waits for the encoder to take the end of the stream and hand back its last frames.
+    private static final long END_OF_STREAM_TIMEOUT_NS = 2_000_000_000L;
 
     public interface ErrorListener {
         /** Invoked off the calling thread if the encoder/sidecar fails mid-recording. */
@@ -529,13 +531,8 @@ public class ARSessionRecorder {
     }
 
     private void drainEncoder(boolean endOfStream) {
-        if (endOfStream) {
-            try {
-                mEncoder.signalEndOfInputStream();
-            } catch (Exception e) {
-                Log.w(TAG, "ARSessionRecorder: signalEndOfInputStream failed", e);
-            }
-        }
+        boolean waitForEnd = endOfStream && queueEndOfStream();
+        long deadline = System.nanoTime() + END_OF_STREAM_TIMEOUT_NS;
         MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
         while (true) {
             int outputIndex = mEncoder.dequeueOutputBuffer(info, 10_000);
@@ -554,9 +551,33 @@ public class ARSessionRecorder {
                 if ((info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
                     break;
                 }
+            } else if (waitForEnd && System.nanoTime() < deadline) {
+                continue; // the encoder is still flushing the frames before the end
             } else {
+                if (waitForEnd) {
+                    Log.w(TAG, "ARSessionRecorder: encoder did not finish; the last frames may be missing");
+                }
                 break; // INFO_TRY_AGAIN_LATER or INFO_OUTPUT_BUFFERS_CHANGED (deprecated path, ignored)
             }
         }
+    }
+
+    /**
+     * Frames go in as byte buffers, so the stream ends with an empty buffer
+     * flagged end-of-stream: signalEndOfInputStream() is only for an input
+     * Surface, and throws here. False when no input buffer came free in time.
+     */
+    private boolean queueEndOfStream() {
+        long deadline = System.nanoTime() + END_OF_STREAM_TIMEOUT_NS;
+        while (System.nanoTime() < deadline) {
+            int inputIndex = mEncoder.dequeueInputBuffer(10_000);
+            if (inputIndex >= 0) {
+                mEncoder.queueInputBuffer(inputIndex, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+                return true;
+            }
+            drainEncoder(false);
+        }
+        Log.w(TAG, "ARSessionRecorder: no encoder input buffer to end the stream; the last frames may be missing");
+        return false;
     }
 }
