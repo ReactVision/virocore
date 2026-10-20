@@ -74,6 +74,7 @@ public:
     void onTouchEvent(int action, float x, float y);
     void onKeyEvent(int keyCode, int action);
     void setVRModeEnabled(bool enabled) {}
+    // Any thread: the render thread applies it at its next frame.
     void recenterTracking();
 
     // Wire up the Quest MR (AR) session when the scene is a VROARScene. For a
@@ -148,7 +149,7 @@ private:
     XrSessionState  _sessionState             = XR_SESSION_STATE_UNKNOWN;
     bool            _inputFocused             = false;
     bool            _hasBeenFocused           = false;
-    XrTime          _lastPredictedDisplayTime = 0;  // updated each frame; used by recenterTracking()
+    std::atomic<bool> _recenterRequested { false };
     XrPosef         _spaceOffset = { {0, 0, 0, 1}, {0, 0, 0} };  // _stageSpace's pose in LOCAL
 
     // A recentre moves LOCAL, so a point fixed in the room has new scene
@@ -258,6 +259,9 @@ private:
     // ViroViewOpenXR.onNativeRoomMoved, column-major.
     void notifyRoomMoved(const VROMatrix4f &move);
     void renderFrame();
+    // Replaces _stageSpace and returns the old one, which the last frame's layers
+    // still use; XR_NULL_HANDLE when the recentre failed.
+    XrSpace applyRecenter(XrTime time);
     void updateBoundaryVisibility(bool passthroughSubmitted);
 
     // ── Per-eye render ────────────────────────────────────────────────────────
