@@ -89,29 +89,28 @@ static VROARPlaneClassification mapClassification(XrPlaneDetectorSemanticTypeEXT
 
 // Map a Meta scene semantic label (XR_FB_scene) to a Viro plane classification.
 // Labels are strings like "FLOOR", "CEILING", "WALL_FACE", "TABLE", "COUCH", etc.
+// A table is labelled "DESK" unless the app opts into Meta's DESK-to-TABLE
+// migration, which this session does not.
 static VROARPlaneClassification classifyLabel(const std::string &label) {
     if (label == "FLOOR")                                      return VROARPlaneClassification::Floor;
     if (label == "CEILING")                                    return VROARPlaneClassification::Ceiling;
     if (label == "WALL_FACE" || label == "INVISIBLE_WALL_FACE") return VROARPlaneClassification::Wall;
-    if (label == "TABLE" || label == "STORAGE")                return VROARPlaneClassification::Table;
+    if (label == "TABLE" || label == "DESK" || label == "STORAGE") return VROARPlaneClassification::Table;
     if (label == "COUCH" || label == "BED")                    return VROARPlaneClassification::Seat;
     if (label == "DOOR_FRAME")                                 return VROARPlaneClassification::Door;
     if (label == "WINDOW_FRAME")                               return VROARPlaneClassification::Window;
     return VROARPlaneClassification::Unknown;
 }
 
-// Derive a plane alignment from a Meta semantic label (the room model carries
-// semantics rather than an explicit orientation enum).
-static VROARPlaneAlignment alignmentForLabel(const std::string &label) {
-    if (label == "FLOOR" || label == "TABLE" || label == "STORAGE" ||
-        label == "COUCH" || label == "BED")
-        return VROARPlaneAlignment::HorizontalUpward;
-    if (label == "CEILING")
-        return VROARPlaneAlignment::HorizontalDownward;
-    if (label == "WALL_FACE" || label == "INVISIBLE_WALL_FACE" ||
-        label == "DOOR_FRAME" || label == "WINDOW_FRAME")
-        return VROARPlaneAlignment::Vertical;
-    return VROARPlaneAlignment::Horizontal;
+// From the face's normal, not its label: a label names the object, and an
+// OTHER or DESK face can point any way.
+static VROARPlaneAlignment alignmentForTransform(const VROMatrix4f &transform) {
+    // planeAxisCorrection() puts the normal on the plane's local +Y.
+    float normalY = (transform.multiply(VROVector3f(0, 1, 0)) -
+                     transform.extractTranslation()).y;
+    if (normalY > 0.7f)  return VROARPlaneAlignment::HorizontalUpward;
+    if (normalY < -0.7f) return VROARPlaneAlignment::HorizontalDownward;
+    return VROARPlaneAlignment::Vertical;
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -225,6 +224,16 @@ void VROARSessionOpenXR::destroyPlaneDetector() {
 // ──────────────────────────────────────────────────────────────────────────────
 
 std::unique_ptr<VROARFrame> &VROARSessionOpenXR::updateFrame() {
+    if (_relocatePending && _displayTime >= _relocateAt) {
+        _relocatePending = false;
+        for (const auto &entry : _scenePlanes) {
+            _relocateKeys.insert(entry.first);
+        }
+    }
+    if (!_relocateKeys.empty()) {
+        relocateScenePlanes();
+    }
+
     // ── XR_FB_scene path: kick off / re-arm a room query on a slow cadence ────
     // The Meta room model is static within a session, but re-querying lets newly
     // completed Space Setup data appear. Throttle to once every ~5s while idle.
@@ -448,14 +457,38 @@ void VROARSessionOpenXR::setDelegate(std::shared_ptr<VROARSessionDelegate> deleg
     // Each plane is published only once, to the scene attached when it is first
     // located, so a scene attached later is handed the planes found so far.
     if (delegate) {
-        ALOGV("handing %zu planes to the new scene", _planes.size() + _scenePlanes.size());
+        std::vector<std::shared_ptr<VROARPlaneAnchor>> known;
         for (const auto &entry : _planes) {
-            delegate->anchorWasDetected(entry.second);
+            known.push_back(entry.second);
         }
         for (const auto &entry : _scenePlanes) {
-            delegate->anchorWasDetected(entry.second);
+            known.push_back(entry.second);
+        }
+        sortNearestFirst(known);
+        ALOGV("handing %zu planes to the new scene", known.size());
+        for (const auto &anchor : known) {
+            delegate->anchorWasDetected(anchor);
+        }
+        // With none found yet, query now rather than at the next 5 s tick: right
+        // after spatial data is granted the last query still found nothing, and
+        // an app waiting for a plane may give up before the next one.
+        if (_planes.empty() && _scenePlanes.empty()) {
+            _lastSceneQuery = std::chrono::steady_clock::time_point{};
         }
     }
+}
+
+// A ViroARPlane takes the first matching plane it is handed. A phone finds the
+// planes in front of it first, but the room model arrives all at once in no
+// useful order, so it is handed over nearest the wearer first.
+void VROARSessionOpenXR::sortNearestFirst(
+        std::vector<std::shared_ptr<VROARPlaneAnchor>> &anchors) const {
+    std::stable_sort(anchors.begin(), anchors.end(),
+                     [this](const std::shared_ptr<VROARPlaneAnchor> &a,
+                            const std::shared_ptr<VROARPlaneAnchor> &b) {
+                         return a->getTransform().extractTranslation().distance(_headPosition) <
+                                b->getTransform().extractTranslation().distance(_headPosition);
+                     });
 }
 
 void VROARSessionOpenXR::addAnchor(std::shared_ptr<VROARAnchor> anchor) {
@@ -783,6 +816,7 @@ void VROARSessionOpenXR::processSceneQueryResults(XrAsyncRequestIdFB requestId) 
     }
 
     std::set<uint64_t> present;
+    std::vector<std::shared_ptr<VROARPlaneAnchor>> added;
     int built = 0, with2D = 0;
     for (uint32_t i = 0; i < count; ++i) {
         XrSpace space = buf[i].space;
@@ -830,8 +864,12 @@ void VROARSessionOpenXR::processSceneQueryResults(XrAsyncRequestIdFB requestId) 
             anchor->setId(std::to_string(key));
             anchor->recordUpdate(true);
             _scenePlanes[key] = anchor;
-            addAnchor(anchor);  // fires anchorWasDetected → onAnchorFound
+            added.push_back(anchor);
         }
+    }
+    sortNearestFirst(added);
+    for (const auto &anchor : added) {
+        addAnchor(anchor);  // fires anchorWasDetected → onAnchorFound
     }
 
     // Remove planes no longer present (e.g. room re-scanned).
@@ -843,6 +881,38 @@ void VROARSessionOpenXR::processSceneQueryResults(XrAsyncRequestIdFB requestId) 
         } else {
             ++it;
         }
+    }
+}
+
+void VROARSessionOpenXR::onBaseSpaceChangePending(XrTime changeTime) {
+    _relocatePending = true;
+    _relocateAt      = changeTime;
+}
+
+// A plane that cannot be located this frame (tracking lost as the wearer
+// recentred) is tried again on the next.
+void VROARSessionOpenXR::relocateScenePlanes() {
+    for (auto it = _relocateKeys.begin(); it != _relocateKeys.end();) {
+        auto plane = _scenePlanes.find(*it);
+        if (plane == _scenePlanes.end()) {
+            it = _relocateKeys.erase(it);
+            continue;
+        }
+        XrSpaceLocation loc = { XR_TYPE_SPACE_LOCATION };
+        XrResult r = xrLocateSpace((XrSpace)plane->first, _baseSpace, _displayTime, &loc);
+        if (XR_FAILED(r) ||
+            !(loc.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) ||
+            !(loc.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT)) {
+            ++it;
+            continue;
+        }
+        plane->second->setTransform(poseToMatrix(loc.pose).multiply(planeAxisCorrection()));
+        plane->second->recordUpdate(true);
+        updateAnchor(plane->second);
+        it = _relocateKeys.erase(it);
+    }
+    if (_relocateKeys.empty()) {
+        ALOGV("room planes located again after the base space moved");
     }
 }
 
@@ -896,7 +966,7 @@ std::shared_ptr<VROARPlaneAnchor> VROARSessionOpenXR::buildPlaneFromSpace(XrSpac
     float cy = bbox.offset.y + h * 0.5f;
     anchor->setExtent(VROVector3f(w, 0, h));
     anchor->setCenter(VROVector3f(cx, 0, -cy));  // map plane-local (x,y) → (x,0,-y)
-    anchor->setAlignment(alignmentForLabel(label));
+    anchor->setAlignment(alignmentForTransform(transform));
     anchor->setClassification(classifyLabel(label));
 
     // Boundary polygon (plane-local X-Y → anchor-local x,0,-y).

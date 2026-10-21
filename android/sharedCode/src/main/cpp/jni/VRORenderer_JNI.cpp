@@ -707,17 +707,27 @@ VRO_METHOD(void, nativeSetBloomEnabled)(VRO_ARGS
 }
 
 
+void invokeEmptyHitTestResultsCallback(jweak weakCallback);
+
 void invokeHitTestResultsCallback(std::vector<VROHitTestResult> &results, jweak weakCallback) {
     JNIEnv *env = VROPlatformGetJNIEnv();
-    jclass hitTestResultClass = env->FindClass("com/viro/core/HitTestResult");
+    // Runs on the renderer thread; see VROPlatformFindHostClass.
+    jclass hitTestResultClass = VROPlatformFindHostClass(env, "com/viro/core/HitTestResult");
+    if (hitTestResultClass == nullptr) {
+        invokeEmptyHitTestResultsCallback(weakCallback);
+        return;
+    }
 
     jobjectArray resultsArray = env->NewObjectArray(results.size(), hitTestResultClass, NULL);
     for (int i = 0; i < results.size(); i++) {
         jobject result = ARUtilsCreateHitTestResult(results[i]);
         env->SetObjectArrayElement(resultsArray, i, result);
+        env->DeleteLocalRef(result);
     }
 
     jobject globalArrayRef = env->NewGlobalRef(resultsArray);
+    env->DeleteLocalRef(resultsArray);
+    env->DeleteLocalRef(hitTestResultClass);
     VROPlatformDispatchAsyncApplication([weakCallback, globalArrayRef] {
         JNIEnv *env = VROPlatformGetJNIEnv();
         jobject callback = env->NewLocalRef(weakCallback);

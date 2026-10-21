@@ -69,8 +69,18 @@ public:
     /* Predicted display time for the current frame — set before updateFrame(). */
     void setDisplayTime(XrTime displayTime) { _displayTime = displayTime; }
 
+    /* Mid-eye position in the base space, for the order planes are handed over in. */
+    void setHeadPosition(VROVector3f position) { _headPosition = position; }
+
     /* Forward FB spatial-query events (polled by the renderer's xrPollEvent loop). */
     void onSpatialEvent(const XrEventDataBuffer &event);
+
+    /*
+     The base space moves at `changeTime` (a recentre moves LOCAL). Room planes are
+     otherwise located only when first found, so they are located again once it
+     has moved, and what sits on them stays on the real surface.
+     */
+    void onBaseSpaceChangePending(XrTime changeTime);
 
     // ── Hit testing ────────────────────────────────────────────────────────────
     /*
@@ -152,6 +162,7 @@ private:
     XrSession  _session     = XR_NULL_HANDLE;
     XrSpace    _baseSpace    = XR_NULL_HANDLE;
     XrTime     _displayTime  = 0;
+    VROVector3f _headPosition;
 
     // ── XR_EXT_plane_detection ─────────────────────────────────────────────────
     XrPlaneDetectorEXT _planeDetector = XR_NULL_HANDLE;
@@ -182,6 +193,9 @@ private:
     // planeId / space → Viro anchor, for tracking new / updated / removed planes.
     std::map<uint64_t, std::shared_ptr<VROARPlaneAnchor>> _planes;     // EXT path (planeId)
     std::map<uint64_t, std::shared_ptr<VROARPlaneAnchor>> _scenePlanes; // FB path (XrSpace handle)
+    bool   _relocatePending = false;
+    XrTime _relocateAt      = 0;
+    std::set<uint64_t> _relocateKeys;  // room planes not yet located since the base space moved
 
     std::unique_ptr<VROARFrame> _currentFrame;
 
@@ -232,6 +246,8 @@ private:
     void beginSceneQuery();
     void processSceneQueryResults(XrAsyncRequestIdFB requestId);
     std::shared_ptr<VROARPlaneAnchor> buildPlaneFromSpace(XrSpace space);
+    void relocateScenePlanes();
+    void sortNearestFirst(std::vector<std::shared_ptr<VROARPlaneAnchor>> &anchors) const;
 };
 
 #endif  // ANDROID_VROARSESSIONOPENXR_H

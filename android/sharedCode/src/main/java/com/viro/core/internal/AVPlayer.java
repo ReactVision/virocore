@@ -83,7 +83,7 @@ public class AVPlayer {
     private float mVolume;
     private final long mNativeReference;
     private boolean mLoop;
-    private State mState;
+    private volatile State mState;
     private boolean mMute;
     private int mPrevExoPlayerState = -1;
     private boolean mWasBuffering = false;
@@ -193,16 +193,21 @@ public class AVPlayer {
     }
 
     private <T> T runSynchronouslyOnMainThread(PlayerAction<T> action, boolean waitForResult) throws ExecutionException, InterruptedException {
+        Callable<T> callable = () -> action.performAction(mExoPlayer);
+        FutureTask<T> future = new FutureTask<>(callable);
+
+        // Queued even from the main thread, so play() and pause() reach the player
+        // in the order they were called, which is the order mState records.
+        if (!waitForResult) {
+            mainThreadHandler.post(future);
+            return null;
+        }
+
         if (Looper.myLooper() == Looper.getMainLooper()) {
             return action.performAction(mExoPlayer);
         }
 
-        Callable<T> callable = () -> action.performAction(mExoPlayer);
-        FutureTask<T> future = new FutureTask<>(callable);
-
         mainThreadHandler.post(future);
-
-        if (!waitForResult) return null;
 
         try {
             return future.get();
@@ -340,11 +345,13 @@ public class AVPlayer {
 
     public void play() {
         if (mState == State.PREPARED || mState == State.PAUSED) {
+            // Set now, not when the main thread runs the change: a pause() queued just
+            // before would otherwise still read STARTED here and this play() be dropped.
+            mState = State.STARTED;
             try {
                 // Fire-and-forget (see pause()): may run on the render thread; must not block.
                 runSynchronouslyOnMainThread(player -> {
                     player.setPlayWhenReady(true);
-                    mState = State.STARTED;
                     return null;
                 }, false);
             } catch (Exception e) {
@@ -357,13 +364,13 @@ public class AVPlayer {
 
     public void pause() {
         if (mState == State.STARTED) {
+            mState = State.PAUSED; // set now, as in play()
             try {
                 // Fire-and-forget: this can be dispatched to the render (GL) thread (via
                 // nativePause), and blocking there on the main thread deadlocks against
                 // GLSurfaceView.surfaceDestroyed() during teardown. A pause needs no result.
                 runSynchronouslyOnMainThread(player -> {
                     player.setPlayWhenReady(false);
-                    mState = State.PAUSED;
                     return null;
                 }, false);
             } catch (Exception e) {

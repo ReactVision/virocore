@@ -388,12 +388,14 @@ void VROText::buildBitmapText(std::wstring &text,
     // Now add all the remaining glyphs. For line height we will use
     // the maximum found in any run.
     float maxLineHeight = 0;
+    float maxDescender = 0;
     
     for (VROFontRun &fontRun : fontRuns) {
         std::shared_ptr<VROTypeface> &typeface = fontRun.typeface;
         if (typeface->getLineHeight() > maxLineHeight) {
             maxLineHeight = typeface->getLineHeight();
         }
+        maxDescender = std::max(maxDescender, typeface->getDescender());
         
         for (int i = fontRun.start; i < fontRun.end; i++) {
             uint32_t codePoint = text.at(i);
@@ -458,7 +460,7 @@ void VROText::buildBitmapText(std::wstring &text,
     
     std::vector<VROShapeVertexLayout> var;
 
-    VROTextFormatter::formatAndBuild(text, width, height, maxLines, maxLineHeight, horizontalAlignment, verticalAlignment, lineBreakMode, clipMode, glyphMap, outRealizedWidth, outRealizedHeight,
+    VROTextFormatter::formatAndBuild(text, width, height, maxLines, maxLineHeight, maxDescender, horizontalAlignment, verticalAlignment, lineBreakMode, clipMode, glyphMap, outRealizedWidth, outRealizedHeight,
                                      [&var, &materialMap, outlineWidth, outlineOffset] (std::shared_ptr<VROGlyph> &glyph, float x, float y) {
                                          if (outlineWidth > 0) {
                                              const VROGlyphBitmap &bitmap = glyph->getBitmap(outlineWidth);
@@ -632,12 +634,14 @@ void VROText::buildVectorizedText(std::wstring &text,
     // Now add all the remaining glyphs. For line height we will use
     // the maximum found in any run.
     float maxLineHeight = 0;
+    float maxDescender = 0;
     
     for (VROFontRun &fontRun : fontRuns) {
         std::shared_ptr<VROTypeface> &typeface = fontRun.typeface;
         if (typeface->getLineHeight() > maxLineHeight) {
             maxLineHeight = typeface->getLineHeight();
         }
+        maxDescender = std::max(maxDescender, typeface->getDescender());
         
         for (int i = fontRun.start; i < fontRun.end; i++) {
             uint32_t codePoint = text.at(i);
@@ -653,7 +657,7 @@ void VROText::buildVectorizedText(std::wstring &text,
     std::vector<int> backIndices;
     std::vector<int> sideIndices;
     
-    VROTextFormatter::formatAndBuild(text, width, height, maxLines, maxLineHeight, horizontalAlignment, verticalAlignment, lineBreakMode, clipMode, glyphMap, outRealizedWidth, outRealizedHeight,
+    VROTextFormatter::formatAndBuild(text, width, height, maxLines, maxLineHeight, maxDescender, horizontalAlignment, verticalAlignment, lineBreakMode, clipMode, glyphMap, outRealizedWidth, outRealizedHeight,
                                      [&var, &frontIndices, &backIndices, &sideIndices, extrusion] (std::shared_ptr<VROGlyph> &glyph, float x, float y) {
                                          buildVectorizedChar(glyph, x, y, extrusion, var,
                                                              frontIndices, backIndices, sideIndices);

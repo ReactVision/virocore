@@ -83,8 +83,7 @@ jobs:
             -workspace ViroRenderer.xcworkspace \
             -scheme ViroKit \
             -sdk iphoneos \
-            -configuration Release \
-            IPHONEOS_DEPLOYMENT_TARGET=13.0 | xcpretty
+            -configuration Release | xcpretty
 
       - name: Upload iOS Renderer artifact
         uses: actions/upload-artifact@v4.6.0

@@ -159,6 +159,10 @@ float VROTypefaceiOS::getLineHeight() const {
     return _face->size->metrics.height >> 6;
 }
 
+float VROTypefaceiOS::getDescender() const {
+    return -(_face->size->metrics.descender >> 6);
+}
+
 static uint32_t CalcTableCheckSum(const uint32_t *table, uint32_t numberOfBytesInTable) {
     uint32_t sum = 0;
     uint32_t nLongs = (numberOfBytesInTable + 3) / 4;

@@ -63,6 +63,7 @@ public:
      outRealizedHeight will be populated with the final width and height of the text.
      */
     static void formatAndBuild(std::wstring &text, float maxWidth, float maxHeight, int maxLines, float lineHeight,
+                               float descender,
                                VROTextHorizontalAlignment horizontalAlignment,
                                VROTextVerticalAlignment verticalAlignment,
                                VROLineBreakMode lineBreakMode, VROTextClipMode clipMode,
