@@ -269,7 +269,11 @@ VROARSessioniOS::VROARSessioniOS(VROTrackingType trackingType,
       _monocularDepthTargetFPS(0),
       _frontCameraEnabled(false),
       _needsGeospatialModeApply(false),
-      _driver(driver) {
+      _driver(driver)
+#if RVCCA_AVAILABLE
+      , _vpsLocalizerRV(std::make_shared<ReactVisionCCA::VROVPSLocalizer>())
+#endif
+{
 
   if (@available(iOS 11.0, *)) {
     _session = [[ARSession alloc] init];
