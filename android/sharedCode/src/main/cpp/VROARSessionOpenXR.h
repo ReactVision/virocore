@@ -82,6 +82,9 @@ public:
      */
     void onBaseSpaceChangePending(XrTime changeTime);
 
+    /* The renderer replaced the base space (an app's recentre): room planes are located again in it. */
+    void replaceBaseSpace(XrSpace baseSpace);
+
     // ── Hit testing ────────────────────────────────────────────────────────────
     /*
      Ray-vs-plane hit test against the planes this session already tracks, done in

@@ -164,6 +164,7 @@
 		870DD87CEBD4CD29FD336F5D /* VROPostProcessEffectFactory.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1C6D166462AEE6D3597F8EBE /* VROPostProcessEffectFactory.cpp */; };
 		872C18050DC64CA8641985B3 /* VROParticleEmitter.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 109C920CA06532C2E06730BE /* VROParticleEmitter.cpp */; settings = {COMPILER_FLAGS = "-x objective-c++"; }; };
 		88B37E730C83F5E7FBD0F335 /* VRODynamicGeometry.cpp in Sources */ = {isa = PBXBuildFile; fileRef = F4DEA3C82F69605B1C9B7EC7 /* VRODynamicGeometry.cpp */; };
+		E1A0C0022F8A100000A1B2C3 /* VROVPSAnchorNode.h in Headers */ = {isa = PBXBuildFile; fileRef = E1A0C0012F8A100000A1B2C3 /* VROVPSAnchorNode.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		8A11C8F51EF5AB9D0003E829 /* VROARDeclarativePlane.h in Headers */ = {isa = PBXBuildFile; fileRef = 8A11C8F41EF5A8E30003E829 /* VROARDeclarativePlane.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		8A11C8F81EF5B2270003E829 /* VROARConstraintMatcher.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 8A11C8F61EF5B2270003E829 /* VROARConstraintMatcher.cpp */; };
 		8A11C8F91EF5B2270003E829 /* VROARConstraintMatcher.h in Headers */ = {isa = PBXBuildFile; fileRef = 8A11C8F71EF5B2270003E829 /* VROARConstraintMatcher.h */; settings = {ATTRIBUTES = (Public, ); }; };
@@ -1414,6 +1415,7 @@
 		88BB6AECC0D6A5F85E3BEE0E /* VROConcurrentBuffer.cpp */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.cpp; name = VROConcurrentBuffer.cpp; path = ../ViroRenderer/VROConcurrentBuffer.cpp; sourceTree = "<absolute>"; };
 		89663EF17533C4A62E070DD1 /* VROGeometrySubstrateMetal.cpp */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.cpp; name = VROGeometrySubstrateMetal.cpp; path = ../ViroRenderer/VROGeometrySubstrateMetal.cpp; sourceTree = "<absolute>"; };
 		8A07C1891ED8D8DA00757C29 /* AssetsLibrary.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AssetsLibrary.framework; path = System/Library/Frameworks/AssetsLibrary.framework; sourceTree = SDKROOT; };
+		E1A0C0012F8A100000A1B2C3 /* VROVPSAnchorNode.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VROVPSAnchorNode.h; sourceTree = "<group>"; };
 		8A11C8F41EF5A8E30003E829 /* VROARDeclarativePlane.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VROARDeclarativePlane.h; sourceTree = "<group>"; };
 		8A11C8F61EF5B2270003E829 /* VROARConstraintMatcher.cpp */ = {isa = PBXFileReference; explicitFileType = sourcecode.cpp.objcpp; path = VROARConstraintMatcher.cpp; sourceTree = "<group>"; };
 		8A11C8F71EF5B2270003E829 /* VROARConstraintMatcher.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VROARConstraintMatcher.h; sourceTree = "<group>"; };
@@ -3181,6 +3183,7 @@
 			children = (
 				8F828EF01FACB3FF0068159E /* VROARDeclarativeNode.h */,
 				8A11C8F41EF5A8E30003E829 /* VROARDeclarativePlane.h */,
+				E1A0C0012F8A100000A1B2C3 /* VROVPSAnchorNode.h */,
 				8AE44C992021363C00CE8394 /* VROARDeclarativeImageNode.h */,
 				8AD76EA1211B79A50045BD5F /* VROARDeclarativeObjectNode.h */,
 				8A11C8F71EF5B2270003E829 /* VROARConstraintMatcher.h */,
@@ -4231,6 +4234,7 @@
 				8FE572F3246A15C200CD3ED5 /* VROGVRUtil.h in Headers */,
 				8FD4DF341C18F500003DC425 /* VROGeometry.h in Headers */,
 				8A11C8F51EF5AB9D0003E829 /* VROARDeclarativePlane.h in Headers */,
+				E1A0C0022F8A100000A1B2C3 /* VROVPSAnchorNode.h in Headers */,
 				8FE52F4221E835BA00BA63D4 /* VROObjectRecognizeriOS.h in Headers */,
 				8F98F70F21260E4800917430 /* VROSkeletalAnimationLayer.h in Headers */,
 				A5DA443A21B0BDC400F86923 /* VROIKTest.h in Headers */,

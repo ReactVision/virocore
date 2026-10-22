@@ -889,6 +889,13 @@ void VROARSessionOpenXR::onBaseSpaceChangePending(XrTime changeTime) {
     _relocateAt      = changeTime;
 }
 
+void VROARSessionOpenXR::replaceBaseSpace(XrSpace baseSpace) {
+    _baseSpace = baseSpace;
+    for (const auto &entry : _scenePlanes) {
+        _relocateKeys.insert(entry.first);
+    }
+}
+
 // A plane that cannot be located this frame (tracking lost as the wearer
 // recentred) is tried again on the next.
 void VROARSessionOpenXR::relocateScenePlanes() {

@@ -7,6 +7,7 @@
 #include "VROSceneRendererOpenXR.h"
 
 #include <android/log.h>
+#include <algorithm>
 #include <sys/prctl.h>
 #include <unistd.h>
 
@@ -1029,27 +1030,34 @@ void VROSceneRendererOpenXR::onTouchEvent(int /*action*/, float /*x*/, float /*y
 void VROSceneRendererOpenXR::onKeyEvent(int /*keyCode*/, int /*action*/) {}
 
 void VROSceneRendererOpenXR::recenterTracking() {
-    if (_session == XR_NULL_HANDLE) return;
+    _recenterRequested = true;
+}
 
-    // Create a temporary VIEW space to locate the head pose.
-    XrReferenceSpaceCreateInfo viewSpaceInfo = { XR_TYPE_REFERENCE_SPACE_CREATE_INFO };
-    viewSpaceInfo.referenceSpaceType    = XR_REFERENCE_SPACE_TYPE_VIEW;
-    viewSpaceInfo.poseInReferenceSpace  = { {0, 0, 0, 1}, {0, 0, 0} };
-    XrSpace viewSpace = XR_NULL_HANDLE;
-    if (XR_FAILED(xrCreateReferenceSpace(_session, &viewSpaceInfo, &viewSpace))) {
-        ALOGE("recenterTracking: failed to create VIEW space");
-        return;
-    }
+XrSpace VROSceneRendererOpenXR::applyRecenter(XrTime time) {
+    // The head is located in LOCAL, which the new space's pose is relative to,
+    // not in _stageSpace, which an earlier recentre moved away from LOCAL.
+    XrReferenceSpaceCreateInfo refInfo = { XR_TYPE_REFERENCE_SPACE_CREATE_INFO };
+    refInfo.poseInReferenceSpace = { {0, 0, 0, 1}, {0, 0, 0} };
+    XrSpace viewSpace  = XR_NULL_HANDLE;
+    XrSpace localSpace = XR_NULL_HANDLE;
+    refInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_VIEW;
+    bool created = XR_SUCCEEDED(xrCreateReferenceSpace(_session, &refInfo, &viewSpace));
+    refInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
+    created = created && XR_SUCCEEDED(xrCreateReferenceSpace(_session, &refInfo, &localSpace));
 
-    // Locate head (VIEW) relative to the current stage space.
-    // Use _lastPredictedDisplayTime so the pose is from the most recent frame.
     XrSpaceLocation headLoc = { XR_TYPE_SPACE_LOCATION };
-    xrLocateSpace(viewSpace, _stageSpace, _lastPredictedDisplayTime, &headLoc);
-    xrDestroySpace(viewSpace);
-
+    if (created) {
+        xrLocateSpace(viewSpace, localSpace, time, &headLoc);
+    }
+    if (viewSpace != XR_NULL_HANDLE)  xrDestroySpace(viewSpace);
+    if (localSpace != XR_NULL_HANDLE) xrDestroySpace(localSpace);
+    if (!created) {
+        ALOGE("recenterTracking: failed to create the VIEW or LOCAL space");
+        return XR_NULL_HANDLE;
+    }
     if (!(headLoc.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT)) {
         ALOGW("recenterTracking: head orientation not valid — skipped");
-        return;
+        return XR_NULL_HANDLE;
     }
 
     // Extract yaw from head orientation (keep scene upright — Y-axis rotation only).
@@ -1069,14 +1077,27 @@ void VROSceneRendererOpenXR::recenterTracking() {
                                                     cosf(yaw * 0.5f) };
 
     XrSpace newSpace = XR_NULL_HANDLE;
-    if (XR_SUCCEEDED(xrCreateReferenceSpace(_session, &spaceInfo, &newSpace))) {
-        xrDestroySpace(_stageSpace);
-        _stageSpace  = newSpace;
-        _spaceOffset = spaceInfo.poseInReferenceSpace;
-        ALOGV("recenterTracking: recentered (yaw=%.2f rad)", yaw);
-    } else {
+    if (XR_FAILED(xrCreateReferenceSpace(_session, &spaceInfo, &newSpace))) {
         ALOGE("recenterTracking: xrCreateReferenceSpace failed");
+        return XR_NULL_HANDLE;
     }
+
+    // LOCAL stays put, so a point fixed in the room keeps its LOCAL coordinates
+    // and its scene coordinates move, as after a system recentre.
+    VROMatrix4f move = xrPoseToMatrix(spaceInfo.poseInReferenceSpace).invert()
+        .multiply(xrPoseToMatrix(_spaceOffset));
+    _roomMoveAt      = _roomMovePending ? std::max(_roomMoveAt, time) : time;
+    _roomMove        = _roomMovePending ? move.multiply(_roomMove) : move;
+    _roomMovePending = true;
+
+    XrSpace oldSpace = _stageSpace;
+    _stageSpace  = newSpace;
+    _spaceOffset = spaceInfo.poseInReferenceSpace;
+    if (_arSession) {
+        _arSession->replaceBaseSpace(newSpace);
+    }
+    ALOGV("recenterTracking: recentered (yaw=%.2f rad)", yaw);
+    return oldSpace;
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1296,7 +1317,11 @@ void VROSceneRendererOpenXR::renderFrame() {
     XrFrameWaitInfo waitInfo  = { XR_TYPE_FRAME_WAIT_INFO };
     XrFrameState    frameState= { XR_TYPE_FRAME_STATE };
     XR_CHECK(xrWaitFrame(_session, &waitInfo, &frameState));
-    _lastPredictedDisplayTime = frameState.predictedDisplayTime;
+
+    // Applied here, before anything this frame uses _stageSpace
+    XrSpace retiredSpace = _recenterRequested.exchange(false)
+        ? applyRecenter(frameState.predictedDisplayTime)
+        : XR_NULL_HANDLE;
 
     if (_roomMovePending && frameState.predictedDisplayTime >= _roomMoveAt) {
         _roomMovePending = false;
@@ -1454,6 +1479,9 @@ void VROSceneRendererOpenXR::renderFrame() {
     }
 
     XrResult endResult = xrEndFrame(_session, &endInfo);
+    if (retiredSpace != XR_NULL_HANDLE) {
+        xrDestroySpace(retiredSpace);
+    }
     if (XR_FAILED(endResult)) {
         ALOGE("xrEndFrame FAILED: result=%d state=%d shouldRender=%d layerCount=%u",
               (int)endResult, (int)_sessionState,
