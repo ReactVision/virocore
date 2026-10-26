@@ -92,6 +92,10 @@ bool parseMatrixCsv(NSString *csv, VROMatrix4f *out) {
     VROColocationSession::get().leave();
 }
 
+- (void)setAccessToken:(NSString *)accessToken {
+    VROColocationSession::get().setAccessToken(std::string(accessToken.UTF8String ?: ""));
+}
+
 - (void)setLocalPoseCsv:(NSString *)csv {
     VROMatrix4f m;
     if (!parseMatrixCsv(csv, &m)) return;

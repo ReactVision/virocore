@@ -92,6 +92,10 @@ VRO_METHOD(void, nativeLeave)(JNIEnv *, jobject) {
     VROColocationSession::get().leave();
 }
 
+VRO_METHOD(void, nativeSetAccessToken)(JNIEnv *env, jobject, jstring accessToken_j) {
+    VROColocationSession::get().setAccessToken(toStd(env, accessToken_j));
+}
+
 VRO_METHOD(void, nativeSetLocalPose)(JNIEnv *env, jobject, jstring csv_j) {
     VROMatrix4f m;
     if (!parseMatrixCsv(toStd(env, csv_j), &m)) return;
