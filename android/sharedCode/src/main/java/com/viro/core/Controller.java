@@ -55,6 +55,9 @@ public class Controller implements EventDelegate.EventDelegateCallback {
     private boolean mControllerVisible = true;
 
     private EventDelegate mEventDelegate;
+    // The only delegate this controller disposes. One passed to setEventDelegate stays its
+    // caller's, which may install it again (a scene's controller does on returning to the scene).
+    private final EventDelegate mOwnEventDelegate;
     private ClickListener mClickListener;
     private HoverListener mHoverListener;
     private ControllerStatusListener mStatusListener;
@@ -72,7 +75,8 @@ public class Controller implements EventDelegate.EventDelegateCallback {
      */
     Controller(ViroContext viroContext) {
         mViroContext = viroContext;
-        mEventDelegate = new EventDelegate();
+        mOwnEventDelegate = new EventDelegate();
+        mEventDelegate = mOwnEventDelegate;
         mEventDelegate.setEventDelegateCallback(this);
         nativeSetEventDelegate(mViroContext.mNativeRef, mEventDelegate.mNativeRef);
     }
@@ -90,7 +94,7 @@ public class Controller implements EventDelegate.EventDelegateCallback {
      * Release native resources associated with this Controller.
      */
     public void dispose() {
-        mEventDelegate.dispose();
+        mOwnEventDelegate.dispose();
     }
 
     /**
@@ -98,7 +102,10 @@ public class Controller implements EventDelegate.EventDelegateCallback {
      * @param delegate
      */
     public void setEventDelegate(EventDelegate delegate) {
-        if (mEventDelegate != null) {
+        if (delegate == mEventDelegate) {
+            return;
+        }
+        if (mEventDelegate == mOwnEventDelegate) {
             mEventDelegate.dispose();
         }
         mEventDelegate = delegate;
@@ -166,6 +173,21 @@ public class Controller implements EventDelegate.EventDelegateCallback {
      */
     public void getControllerForwardVectorAsync(ControllerJniCallback callback){
         nativeGetControllerForwardVectorAsync(mViroContext.mNativeRef, callback);
+    }
+
+    /**
+     * Reads where the ray that carries the given source last pointed, as onMove last reported
+     * it. A click that hits nothing reports no position, so this is how a caller learns where
+     * it was aimed. The ray is read on the render thread and the callback runs on the
+     * application thread.
+     *
+     * @hide
+     * @param source   The platform specific source ID of the button or component to read the
+     *                 ray for.
+     * @param callback Receives the ray's origin and forward direction.
+     */
+    public void getControllerRayAsync(int source, ControllerRayCallback callback) {
+        nativeGetControllerRayAsync(mViroContext.mNativeRef, source, callback);
     }
 
     /**
@@ -531,11 +553,26 @@ public class Controller implements EventDelegate.EventDelegateCallback {
     private native float[] nativeGetControllerForwardVector(long contextRef);
     private native void nativeGetControllerForwardVectorAsync(long renderContextRef,
                                                               ControllerJniCallback callback);
+    private native void nativeGetControllerRayAsync(long renderContextRef, int source,
+                                                    ControllerRayCallback callback);
 
     /**
      * @hide
      */
     public interface ControllerJniCallback{
         void onGetForwardVector(float x, float y, float z);
+    }
+
+    /**
+     * @hide
+     */
+    public interface ControllerRayCallback {
+        /**
+         * @param origin  The ray's origin in world coordinates, as {x, y, z}.
+         * @param forward The ray's forward direction in world coordinates, as {x, y, z}.
+         * Both are null when the source's ray has never moved or the view's context has been
+         * destroyed.
+         */
+        void onGetRay(float[] origin, float[] forward);
     }
 }

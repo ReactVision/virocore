@@ -35,6 +35,7 @@
 #include <cstdint>
 #include <vector>
 #include <atomic>
+#include <utility>
 #include "VROVector3f.h"
 #include "VROTSDFVolume.h"
 #include "VROMatrix4f.h"
@@ -83,8 +84,17 @@ struct VROWorldMeshConfig {
     // Visualization
     bool debugDrawEnabled = false;         // Enable wireframe visualization of mesh
     bool debugDrawDepthTest = true;        // Depth-test wireframe against scene (occluded by real surfaces)
-    int debugDrawMaxTriangles = 1000;      // Triangle cap for wireframe debug draw
-    float debugDrawLineThickness = 0.001f; // Line thickness for wireframe (meters)
+    int debugDrawMaxEdges = 6000;          // Edge budget for the wireframe. Counted in unique edges,
+                                           // which is what costs: a shared edge is one line, not two.
+                                           // Replaces debugDrawMaxTriangles, whose 1000 was sized for
+                                           // one depth-image grid and starved an accumulated LiDAR mesh.
+    float debugDrawCellSize = 0.04f;       // Vertex-clustering cell size for the wireframe, in meters.
+                                           // Simplifies while keeping the surface connected, instead of
+                                           // dropping whole triangles. Grown automatically to fit the
+                                           // edge budget. 0 disables simplification.
+    float debugDrawLineThickness = 0.004f; // Line thickness for wireframe (meters). 1mm was under a
+                                           // screen pixel at arm's length, which is why the lines
+                                           // shimmered and dropped out.
 };
 
 /**
@@ -358,6 +368,16 @@ public:
      */
     static std::shared_ptr<VROGeometry> buildOcclusionGeometry(std::shared_ptr<VROARDepthMesh> mesh);
 
+    /**
+     * Vertex-clustering simplification. Groups all vertices within cellSize metres
+     * into a single representative, rebuilds triangles, drops degenerate ones.
+     * Produces a gap-free mesh: max gap = sqrt(3)*cellSize.
+     * 0.10m cells → catches objects wider than ~8cm reliably.
+     * Public for the VPS map mesh (VROARScene::setVPSMapMesh()).
+     */
+    static std::shared_ptr<VROARDepthMesh> clusterMesh(
+        std::shared_ptr<VROARDepthMesh> mesh, float cellSize);
+
 private:
     std::weak_ptr<VROPhysicsWorld> _physicsWorld;
 
@@ -390,6 +410,14 @@ private:
      putting the old room back.
      */
     std::atomic<uint64_t> _fusionGeneration{0};
+
+    /*
+     Cached wireframe for debugDraw(). Rebuilding it means clustering the mesh and de-duplicating
+     its edges, which is far too much to redo on every render frame; the mesh only changes at
+     updateIntervalMs. _debugEdgeSource is the mesh _debugEdges was built from, compared by pointer.
+     */
+    std::shared_ptr<VROARDepthMesh> _debugEdgeSource;
+    std::vector<std::pair<VROVector3f, VROVector3f>> _debugEdges;
 
     // Configuration and state
     VROWorldMeshConfig _config;
@@ -425,6 +453,12 @@ private:
      */
     bool fuseFrame(std::shared_ptr<VROARDepthMesh> frameMesh,
                    const std::unique_ptr<VROARFrame> &frame);
+
+    /*
+     Rebuilds _debugEdges from _currentMesh: simplify with vertex clustering, then collect each
+     edge once. Called from debugDraw() when the mesh has changed.
+     */
+    void rebuildDebugWireframe();
 
     /**
      * Remove the current physics body from the world.
@@ -465,14 +499,6 @@ private:
     static std::shared_ptr<VROARDepthMesh> decimateMesh(
         std::shared_ptr<VROARDepthMesh> mesh, int maxTriangles);
 
-    /**
-     * Vertex-clustering simplification. Groups all vertices within cellSize metres
-     * into a single representative, rebuilds triangles, drops degenerate ones.
-     * Produces a gap-free mesh: max gap = sqrt(3)*cellSize.
-     * 0.10m cells → catches objects wider than ~8cm reliably.
-     */
-    static std::shared_ptr<VROARDepthMesh> clusterMesh(
-        std::shared_ptr<VROARDepthMesh> mesh, float cellSize);
 };
 
 #endif /* VROARWorldMesh_h */

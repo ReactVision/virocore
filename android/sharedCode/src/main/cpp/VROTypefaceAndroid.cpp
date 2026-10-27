@@ -115,3 +115,7 @@ std::string VROTypefaceAndroid::getFontPath(std::string fontName, std::string su
 float VROTypefaceAndroid::getLineHeight() const {
     return _face->size->metrics.height >> 6;
 }
+
+float VROTypefaceAndroid::getDescender() const {
+    return -(_face->size->metrics.descender >> 6);
+}

@@ -256,6 +256,7 @@ add_library( # Sets the name of the library.
              ${VIRO_ANDROID_SRC}/arcore/ARNode_JNI.cpp
              ${VIRO_ANDROID_SRC}/arcore/ARDeclarativeNode_JNI.cpp
              ${VIRO_ANDROID_SRC}/arcore/ARDeclarativePlane_JNI.cpp
+             ${VIRO_ANDROID_SRC}/arcore/VPSAnchorNode_JNI.cpp
              ${VIRO_ANDROID_SRC}/arcore/ARSceneController_JNI.cpp
              ${VIRO_ANDROID_SRC}/arcore/ARImageTarget_JNI.cpp
              ${VIRO_ANDROID_SRC}/arcore/ARDeclarativeImageNode_JNI.cpp

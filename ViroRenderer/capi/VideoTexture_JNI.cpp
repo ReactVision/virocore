@@ -121,6 +121,17 @@ VRO_METHOD(void, nativeDeleteVideoDelegate)(VRO_ARGS
 VRO_METHOD(void, nativePause)(VRO_ARGS
                               VRO_REF(VROVideoTexture) textureRef) {
     std::weak_ptr<VROVideoTexture> videoTexture_w = VRO_REF_GET(VROVideoTexture, textureRef);
+#if VRO_PLATFORM_ANDROID
+    // The OpenXR render loop stops draining the renderer queue once its activity
+    // pauses, so a pause queued as the headset sleeps waited for the wake while
+    // the video played on. AVPlayer.pause() never blocks. The queued pause below
+    // still runs after any play queued before this call.
+    std::shared_ptr<VROVideoTextureAVP> videoAVP =
+        std::dynamic_pointer_cast<VROVideoTextureAVP>(videoTexture_w.lock());
+    if (videoAVP) {
+        videoAVP->pauseFromAnyThread();
+    }
+#endif
     VROPlatformDispatchAsyncRenderer([videoTexture_w] {
         std::shared_ptr<VROVideoTexture> videoTexture = videoTexture_w.lock();
         if (!videoTexture) {

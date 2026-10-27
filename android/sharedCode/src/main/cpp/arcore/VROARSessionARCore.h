@@ -26,6 +26,7 @@
 #ifndef VROARSessionARCore_h
 #define VROARSessionARCore_h
 
+#include <mutex>
 #include <jni.h>
 #include "VROARSession.h"
 #include "VROARFrameARCore.h"
@@ -103,6 +104,24 @@ public:
                               double horizAcc, double vertAcc,
                               double heading, double headingAcc);
     void getLastKnownLocation(double& lat, double& lng, double& alt) const;
+    /*
+     Compass bearing of the back camera's forward axis, which recordings write
+     as their heading; a negative accuracy means no valid bearing. Kept apart
+     from the geospatial pose's heading, which GPS anchor placement uses.
+     */
+    void setCameraHeading(double heading, double headingAcc);
+    /*
+     The latest GPS position and camera-forward bearing, for the keyframe
+     collector's setKeyframeLocation(). has* are false when there is none.
+     */
+    void getKeyframeGeo(bool &hasGps, double &lat, double &lng,
+                        bool &hasHeading, double &heading) const;
+    // Bumped every setLastKnownLocation() call, read by
+    // recordFrameForRecording() to attach a `gps` field only to the next
+    // recorded pose after a genuinely fresh fix, not to every one. 0 means
+    // "never set" — getLastKnownLocation()'s callers can't tell "never" apart
+    // from a real (0,0) fix, but this counter only needs "did it change".
+    int getGpsFixSeq() const { return _gpsFixSeq; }
     void setAutofocus(bool enabled);
     bool isCameraAutoFocusEnabled();
 
@@ -258,6 +277,17 @@ public:
         std::function<void(bool, std::string, std::string)> callback) override;
     void rvGetSceneAssets(const std::string& sceneId,
         std::function<void(bool, std::string, std::string)> callback) override;
+
+    // Continuous VPS map localisation against a downloaded .rvmap
+    bool rvLoadVPSMap(const std::string& rvmapBytes) override;
+    void rvUnloadVPSMap() override;
+    bool rvIsVPSMapLoaded() override;
+    std::string rvGetVPSLocalizationJson() override;
+    bool rvGetVPSWorldFromMap(VROMatrix4f &T_world_map) const override;
+    bool rvStartVPSServerSession() override;
+    void rvStopVPSServerSession() override;
+    bool rvReportVPSServerFix(const VROMatrix4f &T_world_cam, const VROMatrix4f &T_map_cam,
+                              int inliers) override;
 
     /*
      * Scene Semantics API.
@@ -458,6 +488,20 @@ private:
      Updated via setLastKnownLocation(); read via getCameraGeospatialPose().
      */
     mutable VROGeospatialPose _lastKnownGPSPose;
+
+    /*
+     Bumped every setLastKnownLocation() call; see getGpsFixSeq().
+     recordFrameForRecording() tracks the last value it already attached in
+     _lastRecordingGpsFixSeq.
+     */
+    int _gpsFixSeq = 0;
+    // Guards _lastKnownGPSPose, _gpsFixSeq and _lastRecordingGpsFixSeq between
+    // the JNI location callback (main thread) and the recorder (render thread).
+    mutable std::mutex _gpsPoseMutex;
+    int _lastRecordingGpsFixSeq = 0;
+    // See setCameraHeading(); guarded by _gpsPoseMutex.
+    double _cameraHeading = 0.0;
+    double _cameraHeadingAccuracy = -1.0;
 
     /*
      Per-frame anchor and trackable update handling.
