@@ -352,10 +352,9 @@ private:
     // Current mesh data
     std::shared_ptr<VROARDepthMesh> _currentMesh;
 
-<<<<<<< HEAD
     // Last source announced to the log, so the line appears on a change rather than every update.
     VROWorldMeshSource _lastReportedSource = VROWorldMeshSource::Unknown;
-=======
+
     /*
      Cached wireframe for debugDraw(). Rebuilding it means clustering the mesh and de-duplicating
      its edges, which is far too much to redo on every render frame; the mesh only changes at
@@ -363,7 +362,6 @@ private:
      */
     std::shared_ptr<VROARDepthMesh> _debugEdgeSource;
     std::vector<std::pair<VROVector3f, VROVector3f>> _debugEdges;
->>>>>>> origin/develop
 
     // Configuration and state
     VROWorldMeshConfig _config;
