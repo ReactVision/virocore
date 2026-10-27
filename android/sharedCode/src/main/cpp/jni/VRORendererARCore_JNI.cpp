@@ -131,9 +131,12 @@ void invokeARResultsCallback(std::vector<std::shared_ptr<VROARHitTestResult>> &r
     for (int i = 0; i < results.size(); i++) {
         jobject result = ARUtilsCreateARHitTestResult(results[i]);
         env->SetObjectArrayElement(resultsArray, i, result);
+        env->DeleteLocalRef(result);
     }
 
     jobject globalArrayRef = env->NewGlobalRef(resultsArray);
+    env->DeleteLocalRef(resultsArray);
+    env->DeleteLocalRef(arHitTestResultClass);
     VROPlatformDispatchAsyncApplication([weakCallback, globalArrayRef] {
         JNIEnv *env = VROPlatformGetJNIEnv();
         jobject callback = env->NewLocalRef(weakCallback);

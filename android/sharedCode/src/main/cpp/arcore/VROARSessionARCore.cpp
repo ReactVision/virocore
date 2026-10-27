@@ -1759,6 +1759,14 @@ VROGeospatialPose VROARSessionARCore::getCameraGeospatialPose() const {
 void VROARSessionARCore::setLastKnownLocation(double lat, double lng, double alt,
                                               double horizAcc, double vertAcc,
                                               double heading, double headingAcc) {
+    std::lock_guard<std::mutex> lk(_gpsPoseMutex);
+    // A new fix is a new position. Callers also push here on every compass
+    // update with the same position, and those must not count as fresh fixes
+    // for the recorder.
+    bool newPosition = lat != _lastKnownGPSPose.latitude ||
+                       lng != _lastKnownGPSPose.longitude ||
+                       alt != _lastKnownGPSPose.altitude ||
+                       horizAcc != _lastKnownGPSPose.horizontalAccuracy;
     _lastKnownGPSPose.latitude           = lat;
     _lastKnownGPSPose.longitude          = lng;
     _lastKnownGPSPose.altitude           = alt;
@@ -1772,6 +1780,25 @@ void VROARSessionARCore::setLastKnownLocation(double lat, double lng, double alt
                                                  (float)std::sin(yaw / 2.0),
                                                  0.0f,
                                                  (float)std::cos(yaw / 2.0));
+    if (newPosition) {
+        _gpsFixSeq++;
+    }
+}
+
+void VROARSessionARCore::setCameraHeading(double heading, double headingAcc) {
+    std::lock_guard<std::mutex> lk(_gpsPoseMutex);
+    _cameraHeading = heading;
+    _cameraHeadingAccuracy = headingAcc;
+}
+
+void VROARSessionARCore::getKeyframeGeo(bool &hasGps, double &lat, double &lng,
+                                        bool &hasHeading, double &heading) const {
+    std::lock_guard<std::mutex> lk(_gpsPoseMutex);
+    hasGps = _lastKnownGPSPose.isValid();
+    lat = _lastKnownGPSPose.latitude;
+    lng = _lastKnownGPSPose.longitude;
+    hasHeading = _cameraHeadingAccuracy >= 0;
+    heading = _cameraHeading;
 }
 
 // Improvement 3: read back the last GPS fix stored by setLastKnownLocation().
@@ -2626,6 +2653,97 @@ void VROARSessionARCore::rvFinishScan(
     if (callback) callback(false, "", "", "ReactVision cloud anchor provider not available");
 }
 
+// ── Continuous VPS map localisation ─────────────────────────────────────────
+
+bool VROARSessionARCore::rvLoadVPSMap(const std::string& rvmapBytes) {
+#if RVCCA_AVAILABLE
+    if (_cloudAnchorProviderRV) {
+        return _cloudAnchorProviderRV->loadVPSMap(rvmapBytes);
+    }
+#endif
+    return false;
+}
+
+void VROARSessionARCore::rvUnloadVPSMap() {
+#if RVCCA_AVAILABLE
+    if (_cloudAnchorProviderRV) {
+        _cloudAnchorProviderRV->unloadVPSMap();
+    }
+#endif
+}
+
+bool VROARSessionARCore::rvIsVPSMapLoaded() {
+#if RVCCA_AVAILABLE
+    if (_cloudAnchorProviderRV) {
+        return _cloudAnchorProviderRV->isVPSMapLoaded();
+    }
+#endif
+    return false;
+}
+
+bool VROARSessionARCore::rvStartVPSServerSession() {
+#if RVCCA_AVAILABLE
+    if (_cloudAnchorProviderRV) {
+        return _cloudAnchorProviderRV->startVPSServerSession();
+    }
+#endif
+    return false;
+}
+
+void VROARSessionARCore::rvStopVPSServerSession() {
+#if RVCCA_AVAILABLE
+    if (_cloudAnchorProviderRV) {
+        _cloudAnchorProviderRV->stopVPSServerSession();
+    }
+#endif
+}
+
+bool VROARSessionARCore::rvReportVPSServerFix(const VROMatrix4f &T_world_cam, const VROMatrix4f &T_map_cam,
+                                              int inliers) {
+#if RVCCA_AVAILABLE
+    if (_cloudAnchorProviderRV) {
+        return _cloudAnchorProviderRV->reportVPSServerFix(T_world_cam, T_map_cam, inliers);
+    }
+#endif
+    return false;
+}
+
+bool VROARSessionARCore::rvGetVPSWorldFromMap(VROMatrix4f &T_world_map) const {
+#if RVCCA_AVAILABLE
+    if (_cloudAnchorProviderRV) {
+        return _cloudAnchorProviderRV->vpsGetWorldFromMap(T_world_map);
+    }
+#endif
+    return false;
+}
+
+std::string VROARSessionARCore::rvGetVPSLocalizationJson() {
+#if RVCCA_AVAILABLE
+    if (_cloudAnchorProviderRV) {
+        bool serverMode = _cloudAnchorProviderRV->isVPSServerSession();
+        bool loaded = serverMode || _cloudAnchorProviderRV->isVPSMapLoaded();
+        bool converged = _cloudAnchorProviderRV->vpsIsConverged();
+        std::ostringstream os;
+        os << "{\"available\":true"
+           << ",\"loaded\":" << (loaded ? "true" : "false")
+           << ",\"mode\":\"" << (serverMode ? "server" : "device") << "\""
+           << ",\"converged\":" << (converged ? "true" : "false");
+        int inliers = 0; float reprojRms = 0.f;
+        if (_cloudAnchorProviderRV->vpsGetLastHit(inliers, reprojRms)) {
+            os << ",\"lastHitInliers\":" << inliers
+               << ",\"lastHitReprojRms\":" << reprojRms;
+        }
+        VROMatrix4f renderPose;
+        if (converged && _cloudAnchorProviderRV->vpsGetRenderPose(renderPose)) {
+            os << ",\"renderPose\":\"" << rvMatrixToCsvARC(renderPose) << "\"";
+        }
+        os << "}";
+        return os.str();
+    }
+#endif
+    return "{\"available\":false}";
+}
+
 void VROARSessionARCore::rvGetCloudAnchor(
     const std::string& anchorId,
     std::function<void(bool, std::string, std::string)> callback) {
@@ -3078,15 +3196,48 @@ void VROARSessionARCore::recordFrameForRecording(VROARFrameARCore *arFrame) {
     jfloatArray poseArr = env->NewFloatArray(11);
     env->SetFloatArrayRegion(poseArr, 0, 11, pose);
 
+    // geo = [hasGps(0/1), lat, lon, alt, hAccuracy, heading,
+    // headingAccuracy], as doubles: float32 would quantise lat/lon to about
+    // half a metre. The heading is the camera's forward bearing (see
+    // setCameraHeading()), which is what the recording format specifies. Only attached when a new position has arrived since the
+    // last recorded pose (see setLastKnownLocation()), so a fix is tagged
+    // once, near the instant it arrived. The Java side writes the heading as
+    // null when its accuracy is negative (no valid heading yet).
+    VROGeospatialPose gps;
+    bool hasFreshGps;
+    double cameraHeading, cameraHeadingAccuracy;
+    {
+        std::lock_guard<std::mutex> lk(_gpsPoseMutex);
+        gps = _lastKnownGPSPose;
+        cameraHeading = _cameraHeading;
+        cameraHeadingAccuracy = _cameraHeadingAccuracy;
+        hasFreshGps = gps.isValid() && _gpsFixSeq != _lastRecordingGpsFixSeq;
+        if (hasFreshGps) {
+            _lastRecordingGpsFixSeq = _gpsFixSeq;
+        }
+    }
+    jdouble geo[7] = {
+        hasFreshGps ? 1.0 : 0.0,
+        gps.latitude,
+        gps.longitude,
+        gps.altitude,
+        gps.horizontalAccuracy,
+        cameraHeading,
+        cameraHeadingAccuracy
+    };
+    jdoubleArray geoArr = env->NewDoubleArray(7);
+    env->SetDoubleArrayRegion(geoArr, 0, 7, geo);
+
     VROPlatformCallHostFunction(_recordingJavaCallback, "onRecordingFrame",
-                                "([B[B[B[IJ[F)V",
-                                yArr, uArr, vArr, dimsArr, (jlong) timestampNs, poseArr);
+                                "([B[B[B[IJ[F[D)V",
+                                yArr, uArr, vArr, dimsArr, (jlong) timestampNs, poseArr, geoArr);
 
     env->DeleteLocalRef(yArr);
     env->DeleteLocalRef(uArr);
     env->DeleteLocalRef(vArr);
     env->DeleteLocalRef(dimsArr);
     env->DeleteLocalRef(poseArr);
+    env->DeleteLocalRef(geoArr);
 
     delete img;
 }

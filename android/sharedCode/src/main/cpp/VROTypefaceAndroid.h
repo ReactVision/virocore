@@ -45,6 +45,7 @@ public:
     virtual ~VROTypefaceAndroid();
 
     float getLineHeight() const;
+    float getDescender() const;
     std::shared_ptr<VROGlyph> loadGlyph(uint32_t charCode, uint32_t variantSelector,
                                         uint32_t outlineWidth, VROGlyphRenderMode renderMode);
 

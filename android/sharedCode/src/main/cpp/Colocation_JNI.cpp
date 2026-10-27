@@ -106,6 +106,10 @@ VRO_METHOD(jstring, nativeGetLocalPeerId)(JNIEnv *env, jobject) {
     return env->NewStringUTF(VROColocationSession::get().localPeerId().c_str());
 }
 
+VRO_METHOD(jstring, nativeGetDeviceId)(JNIEnv *env, jobject) {
+    return env->NewStringUTF(VROColocationSession::deviceId().c_str());
+}
+
 /**
  * Peers as one flat string rather than an object array.
  *

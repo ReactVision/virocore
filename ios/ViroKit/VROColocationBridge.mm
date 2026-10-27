@@ -107,6 +107,11 @@ bool parseMatrixCsv(NSString *csv, VROMatrix4f *out) {
             VROColocationSession::get().localPeerId().c_str()] ?: @"";
 }
 
+- (NSString *)deviceId {
+    return [NSString stringWithUTF8String:
+            VROColocationSession::deviceId().c_str()] ?: @"";
+}
+
 - (NSArray<VROColocationPeerInfo *> *)peers {
     NSMutableArray<VROColocationPeerInfo *> *out = [NSMutableArray array];
     for (const auto &p : VROColocationSession::get().peers()) {

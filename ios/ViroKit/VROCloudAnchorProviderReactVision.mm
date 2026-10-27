@@ -396,6 +396,21 @@ private:
     }
 }
 
+- (void)setKeyframeLocationHasGps:(BOOL)hasGps
+                         latitude:(double)lat
+                        longitude:(double)lng
+                       hasHeading:(BOOL)hasHeading
+                          heading:(double)headingDegrees {
+    if (!_provider) return;
+    ReactVisionCCA::RVCCACloudAnchorProvider::KeyframeGeoReading geo;
+    geo.hasGps         = hasGps;
+    geo.latitude       = lat;
+    geo.longitude      = lng;
+    geo.hasHeading     = hasHeading;
+    geo.headingDegrees = headingDegrees;
+    _provider->setKeyframeLocation(geo);
+}
+
 - (void)cancelAllOperations {
     if (_provider) _provider->cancelAllOperations();
 }
@@ -445,6 +460,12 @@ private:
 - (void)updateWithFrame:(ARFrame *)frame {}
 
 - (void)setLastKnownLocationLat:(double)lat longitude:(double)lng altitude:(double)alt {}
+
+- (void)setKeyframeLocationHasGps:(BOOL)hasGps
+                         latitude:(double)lat
+                        longitude:(double)lng
+                       hasHeading:(BOOL)hasHeading
+                          heading:(double)headingDegrees {}
 
 - (void)cancelAllOperations {}
 
