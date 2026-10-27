@@ -9,6 +9,10 @@
 #include "VROLog.h"
 #include "VROReactVisionAuth.h"
 
+#include <cstdint>
+#include <cstdio>
+#include <random>
+
 // ReactVisionCCA is optional. Without it this compiles to a holder that always
 // reports unavailable, so an open-source build links and runs — it simply has
 // no channel, exactly like it has no cloud anchors.
@@ -33,6 +37,26 @@ VROColocationSession::~VROColocationSession() = default;
 VROColocationSession &VROColocationSession::get() {
     static VROColocationSession instance;
     return instance;
+}
+
+std::string VROColocationSession::deviceId() {
+    // Random per process rather than a hardware or vendor id: all the relay
+    // needs is that the two sockets of one device send the same value.
+    static const std::string id = [] {
+        std::random_device rd;
+        std::mt19937_64 gen((static_cast<uint64_t>(rd()) << 32) ^ rd());
+        const uint64_t hi = (gen() & 0xFFFFFFFFFFFF0FFFULL) | 0x0000000000004000ULL;
+        const uint64_t lo = (gen() & 0x3FFFFFFFFFFFFFFFULL) | 0x8000000000000000ULL;
+        char buf[37];
+        snprintf(buf, sizeof(buf), "%08x-%04x-%04x-%04x-%012llx",
+                 static_cast<unsigned>(hi >> 32),
+                 static_cast<unsigned>((hi >> 16) & 0xFFFF),
+                 static_cast<unsigned>(hi & 0xFFFF),
+                 static_cast<unsigned>(lo >> 48),
+                 static_cast<unsigned long long>(lo & 0xFFFFFFFFFFFFULL));
+        return std::string(buf);
+    }();
+    return id;
 }
 
 bool VROColocationSession::isAvailable() const {
@@ -76,7 +100,9 @@ void VROColocationSession::join(const std::string &roomId,
     // for cloud anchors: the channel sends the key only on a handshake whose
     // headers carry no Authorization. Read at every connect, reconnects included.
     cfg.headersProvider = []() {
-        return VROReactVisionAuth::get().sessionHeaders();
+        auto headers = VROReactVisionAuth::get().sessionHeaders();
+        headers["x-rv-device"] = deviceId();
+        return headers;
     };
 
     // Rebuilt rather than reused: Config is read at construction, so switching

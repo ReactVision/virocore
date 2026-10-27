@@ -137,6 +137,11 @@ public class ColocationSession {
         return nativeGetLocalPeerId();
     }
 
+    /** Sent as x-rv-device on the co-location socket; the same for the whole process. */
+    public String getDeviceId() {
+        return nativeGetDeviceId();
+    }
+
     /**
      * Current peers, excluding this device.
      *
@@ -180,5 +185,6 @@ public class ColocationSession {
     private native void    nativeSetLocalPose(String csv);
     private native int     nativeGetState();
     private native String  nativeGetLocalPeerId();
+    private native String  nativeGetDeviceId();
     private native String  nativeGetPeers();
 }

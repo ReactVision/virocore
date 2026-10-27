@@ -47,6 +47,7 @@ VROVideoTextureAVP::~VROVideoTextureAVP() {
 
 void VROVideoTextureAVP::init() {
     _player = new VROAVPlayer();
+    _playerReady.store(true, std::memory_order_release);
 }
 
 void VROVideoTextureAVP::setDelegate(std::shared_ptr<VROVideoDelegateInternal> delegate) {
@@ -89,6 +90,12 @@ void VROVideoTextureAVP::play() {
 
 void VROVideoTextureAVP::pause() {
     _player->pause();
+}
+
+void VROVideoTextureAVP::pauseFromAnyThread() {
+    if (_playerReady.load(std::memory_order_acquire)) {
+        _player->pause();
+    }
 }
 
 bool VROVideoTextureAVP::isPaused() {

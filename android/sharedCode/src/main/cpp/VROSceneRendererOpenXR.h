@@ -74,6 +74,7 @@ public:
     void onTouchEvent(int action, float x, float y);
     void onKeyEvent(int keyCode, int action);
     void setVRModeEnabled(bool enabled) {}
+    // Any thread: the render thread applies it at its next frame.
     void recenterTracking();
 
     // Wire up the Quest MR (AR) session when the scene is a VROARScene. For a
@@ -146,7 +147,16 @@ private:
     XrSpace         _stageSpace = XR_NULL_HANDLE;  // XR_REFERENCE_SPACE_TYPE_STAGE
 
     XrSessionState  _sessionState             = XR_SESSION_STATE_UNKNOWN;
-    XrTime          _lastPredictedDisplayTime = 0;  // updated each frame; used by recenterTracking()
+    bool            _inputFocused             = false;
+    bool            _hasBeenFocused           = false;
+    std::atomic<bool> _recenterRequested { false };
+    XrPosef         _spaceOffset = { {0, 0, 0, 1}, {0, 0, 0} };  // _stageSpace's pose in LOCAL
+
+    // A recentre moves LOCAL, so a point fixed in the room has new scene
+    // coordinates from _roomMoveAt on: _roomMove maps the old ones to the new.
+    bool            _roomMovePending = false;
+    XrTime          _roomMoveAt      = 0;
+    VROMatrix4f     _roomMove;
     bool            _sessionRunning        = false;
     bool            _passthroughEnabled    = false;
     bool            _handTrackingAvailable = false;  // XR_EXT_hand_tracking present
@@ -243,7 +253,15 @@ private:
     void renderLoop();
     void pollEvents();
     void handleSessionStateChange(XrEventDataSessionStateChanged *event);
+    // ViroViewOpenXR.onNativeInputFocusChanged: Horizon OS took input focus (its
+    // menu, a system dialog, sleep) or gave it back.
+    void notifyInputFocus(bool focused);
+    // ViroViewOpenXR.onNativeRoomMoved, column-major.
+    void notifyRoomMoved(const VROMatrix4f &move);
     void renderFrame();
+    // Replaces _stageSpace and returns the old one, which the last frame's layers
+    // still use; XR_NULL_HANDLE when the recentre failed.
+    XrSpace applyRecenter(XrTime time);
     void updateBoundaryVisibility(bool passthroughSubmitted);
 
     // ── Per-eye render ────────────────────────────────────────────────────────

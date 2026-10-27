@@ -54,10 +54,14 @@
 #include "VROVisionModel.h"
 #include "VROMonocularDepthEstimator.h"
 #include <algorithm>
+#include <cmath>
+#include <mutex>
+#include <chrono>
 
 #import "VROCloudAnchorProviderARCore.h"
 #import "VROCloudAnchorProviderReactVision.h"
 #import <CoreLocation/CoreLocation.h>
+#import <CoreMotion/CoreMotion.h>
 #import <simd/simd.h>
 
 // ============================================================================
@@ -68,18 +72,37 @@
 @property (nonatomic, strong) CLLocationManager *locationManager;
 // Raw pointer into the owning VROARSessioniOS; cleared before the session dies.
 @property (nonatomic, assign) VROGeospatialPose *poseOut;
+// True while the latest didUpdateHeading callback carried a valid heading
+// (headingAccuracy >= 0); false before the first one and after an invalid
+// one. Not derivable from poseOut->headingAccuracy, whose default 0 would
+// read as a perfect heading. A separate out-pointer rather than a field on
+// VROGeospatialPose, because two VROGeospatial.h headers share that
+// struct's include guard.
+@property (nonatomic, assign) BOOL *headingValidOut;
+// Guards the pose and heading flag this delegate writes on the main thread;
+// the session reads them on the render thread. Optional.
+@property (nonatomic, assign) std::mutex *poseMutex;
 // WS-D: true once we've confirmed the OS will only give approximate location
 // (iOS 14+ "Precise Location" off) and a temporary full-accuracy request was
 // denied, is pending, or unavailable pre-iOS 14. See start's accuracyAuthorization check.
 @property (nonatomic, assign) BOOL reducedAccuracy;
+// Attitude against true north, for the camera-forward bearing recordings
+// write. Nil when the device cannot give a true-north attitude.
+@property (atomic, strong) CMMotionManager *motionManager; // read on the render thread
+// The compass bearing of the back camera's forward axis, from the latest
+// true-north attitude. NO when there is none, or the camera points too far up
+// or down for a bearing to mean anything. Any thread.
+- (BOOL)cameraForwardBearing:(double *)outDegrees;
 @end
 
 @implementation VROLocationDelegate
 
-- (instancetype)initWithPosePtr:(VROGeospatialPose *)posePtr {
+- (instancetype)initWithPosePtr:(VROGeospatialPose *)posePtr
+                  headingValidOut:(BOOL *)headingValidPtr {
     self = [super init];
     if (self) {
         _poseOut = posePtr;
+        _headingValidOut = headingValidPtr;
         _locationManager = [[CLLocationManager alloc] init];
         _locationManager.delegate = self;
         _locationManager.desiredAccuracy = kCLLocationAccuracyBest;
@@ -130,18 +153,52 @@
 
     [_locationManager startUpdatingLocation];
     [_locationManager startUpdatingHeading];
+
+    if ([CMMotionManager availableAttitudeReferenceFrames] &
+            CMAttitudeReferenceFrameXTrueNorthZVertical) {
+        CMMotionManager *motion = [[CMMotionManager alloc] init];
+        motion.deviceMotionUpdateInterval = 1.0 / 30.0;
+        [motion startDeviceMotionUpdatesUsingReferenceFrame:
+                CMAttitudeReferenceFrameXTrueNorthZVertical];
+        self.motionManager = motion;
+    }
+}
+
+- (BOOL)cameraForwardBearing:(double *)outDegrees {
+    CMDeviceMotion *motion = self.motionManager.deviceMotion;
+    if (!motion) return NO;
+    // The rotation matrix maps the reference frame (X true north, Y west,
+    // Z up) into device axes, so its rows are the device axes in the reference
+    // frame. The back camera looks along device -Z: minus the third row.
+    CMRotationMatrix m = motion.attitude.rotationMatrix;
+    double north = -m.m31;
+    double east  =  m.m32; // -(west) of -Z
+    // Below this horizontal component (about 80 degrees of pitch) the bearing
+    // is noise.
+    if (hypot(north, east) < 0.17) return NO;
+    double deg = atan2(east, north) * 180.0 / M_PI;
+    *outDegrees = deg < 0 ? deg + 360.0 : deg;
+    return YES;
 }
 
 - (void)stop {
     [_locationManager stopUpdatingLocation];
     [_locationManager stopUpdatingHeading];
+    CMMotionManager *motion = self.motionManager;
+    self.motionManager = nil;
+    [motion stopDeviceMotionUpdates];
     _poseOut = nullptr;
+    _headingValidOut = nullptr;
 }
 
 - (void)locationManager:(CLLocationManager *)manager
      didUpdateLocations:(NSArray<CLLocation *> *)locations {
     if (!_poseOut || locations.count == 0) return;
     CLLocation *loc = locations.lastObject;
+    // A negative horizontal accuracy means CoreLocation has no valid fix.
+    if (loc.horizontalAccuracy < 0) return;
+    std::unique_lock<std::mutex> lk;
+    if (_poseMutex) lk = std::unique_lock<std::mutex>(*_poseMutex);
     _poseOut->latitude           = loc.coordinate.latitude;
     _poseOut->longitude          = loc.coordinate.longitude;
     _poseOut->altitude           = loc.altitude;
@@ -153,10 +210,23 @@
 - (void)locationManager:(CLLocationManager *)manager
        didUpdateHeading:(CLHeading *)newHeading {
     if (!_poseOut) return;
+    std::unique_lock<std::mutex> lk;
+    if (_poseMutex) lk = std::unique_lock<std::mutex>(*_poseMutex);
+    // A negative headingAccuracy means the heading is invalid: stop reporting
+    // one instead of passing it on as perfectly accurate.
+    if (newHeading.headingAccuracy < 0) {
+        if (_headingValidOut) {
+            *_headingValidOut = NO;
+        }
+        return;
+    }
     double deg = newHeading.trueHeading >= 0 ? newHeading.trueHeading
                                               : newHeading.magneticHeading;
     _poseOut->heading         = deg;
-    _poseOut->headingAccuracy = fmax(0.0, newHeading.headingAccuracy);
+    _poseOut->headingAccuracy = newHeading.headingAccuracy;
+    if (_headingValidOut) {
+        *_headingValidOut = YES;
+    }
     // Build yaw quaternion in EUS frame (rotation around Y by heading radians)
     double yaw = deg * M_PI / 180.0;
     _poseOut->quaternion = VROQuaternion(0.0f,
@@ -182,6 +252,7 @@
 #if RVCCA_AVAILABLE
 #  include "ReactVisionCCA/RVCCAGeospatialProvider.h"
 #  include "ReactVisionCCA/RVCCACloudAnchorProvider.h"
+#  include "ReactVisionCCA/VROVPSLocalizer.h"
 #endif
 
 #pragma mark - Lifecycle and Initialization
@@ -198,7 +269,11 @@ VROARSessioniOS::VROARSessioniOS(VROTrackingType trackingType,
       _monocularDepthTargetFPS(0),
       _frontCameraEnabled(false),
       _needsGeospatialModeApply(false),
-      _driver(driver) {
+      _driver(driver)
+#if RVCCA_AVAILABLE
+      , _vpsLocalizerRV(std::make_shared<ReactVisionCCA::VROVPSLocalizer>())
+#endif
+{
 
   if (@available(iOS 11.0, *)) {
     _session = [[ARSession alloc] init];
@@ -693,7 +768,9 @@ VROCloudAnchorProviderReactVision *VROARSessioniOS::ensureReactVisionProvider(st
     // anyway. An anchor hosted on a session carries no location.
     if (!_rvLocationDelegate && apiKey.length && projectId.length) {
       _rvLocationDelegate = [[VROLocationDelegate alloc]
-                              initWithPosePtr:&_lastKnownGPSPose];
+                              initWithPosePtr:&_lastKnownGPSPose
+                              headingValidOut:&_hasReceivedHeadingFix];
+      [(VROLocationDelegate *)_rvLocationDelegate setPoseMutex:&_gpsPoseMutex];
       [(VROLocationDelegate *)_rvLocationDelegate start];
     }
 #endif
@@ -1031,9 +1108,128 @@ std::unique_ptr<VROARFrame> &VROARSessioniOS::updateFrame() {
       // Improvement 1 + 6B: drive multi-frame host accumulation and resolve
       // localization for the ReactVision provider (no-op when nothing is pending).
       if (_cloudAnchorProviderRV != nil) {
+        // The keyframe collector tags the keyframes it captures with the
+        // reading in effect, for geo-registration; the heading is the camera's
+        // forward bearing, as in AR recordings.
+        VROGeospatialPose gps;
+        bool compassValid;
+        {
+          std::lock_guard<std::mutex> lk(_gpsPoseMutex);
+          gps = _lastKnownGPSPose;
+          compassValid = _hasReceivedHeadingFix;
+        }
+        double cameraBearing = 0.0;
+        bool hasHeading = compassValid &&
+            [(VROLocationDelegate *)_rvLocationDelegate cameraForwardBearing:&cameraBearing];
+        [_cloudAnchorProviderRV setKeyframeLocationHasGps:gps.isValid()
+                                                 latitude:gps.latitude
+                                                longitude:gps.longitude
+                                               hasHeading:hasHeading
+                                                  heading:cameraBearing];
         [_cloudAnchorProviderRV updateWithFrame:arFrame];
       }
+#if RVCCA_AVAILABLE
+      {
+        // Server mode has no map to match per frame, but the fuser's render
+        // pose still needs the current sensor pose.
+        std::lock_guard<std::mutex> lk(_vpsStateMutex);
+        if (_vpsServerMode) {
+          _lastVPSCamToWorld    = VROConvert::toMatrix4f(arFrame.camera.transform);
+          _lastVPSCamToWorldSet = true;
+        }
+      }
+      // Continuous VPS map localisation: only when rvLoadVPSMap() has a map
+      // loaded. updateVPSMapFrame() itself is a cheap no-op without one, but
+      // extracting the luma plane and intrinsics below isn't free, so that
+      // work is skipped entirely when there's nothing loaded to match against.
+      if (_cloudAnchorProviderRV != nil) {
+        auto rvProvider = [_cloudAnchorProviderRV cppProvider];
+        if (rvProvider && rvProvider->isVPSMapLoaded()) {
+          const std::shared_ptr<VROARCamera> &vpsCam = frameiOS->getCamera();
+          const uint8_t *vpsLuma = nullptr;
+          int vpsLumaW = 0, vpsLumaH = 0;
+          float ifx = 0.f, ify = 0.f, icx = 0.f, icy = 0.f;
+          // Intrinsics first: they are cheap, and without them the luma copy
+          // would be wasted.
+          if (vpsCam && vpsCam->getImageIntrinsics(&ifx, &ify, &icx, &icy) &&
+              ifx > 1.f && ify > 1.f &&
+              frameiOS->getCameraImageY(&vpsLuma, &vpsLumaW, &vpsLumaH) &&
+              vpsLuma != nullptr && vpsLumaW > 0 && vpsLumaH > 0) {
+            // The sensor pose, as the luma plane and the intrinsics are.
+            // getRotation() adds the display orientation's roll
+            // (VROARCameraiOS), which in portrait turns every hit about the
+            // optical axis, so no two hits agree and the fuser never
+            // converges. Android's VROARFrameSnapshot makes the same swap.
+            VROMatrix4f vpsCam2World = VROConvert::toMatrix4f(arFrame.camera.transform);
+            {
+              std::lock_guard<std::mutex> lk(_vpsStateMutex);
+              _lastVPSCamToWorld    = vpsCam2World;
+              _lastVPSCamToWorldSet = true;
+            }
+
+            double nowSec = std::chrono::duration<double>(
+                std::chrono::steady_clock::now().time_since_epoch()).count();
+            std::weak_ptr<VROARSessioniOS> weakSelf = shared_from_this();
+
+            // onHit, if called at all, runs synchronously inside this call (a
+            // previous attempt's result being consumed), never on the matching
+            // thread. Its transform is the map-to-world transform solved
+            // against that attempt's own camera pose.
+            rvProvider->updateVPSMapFrame(
+                vpsLuma, vpsLumaW, vpsLumaH,
+                (double)ifx, (double)ify, (double)icx, (double)icy,
+                vpsCam2World,
+                [weakSelf, nowSec]
+                (const VROMatrix4f &T_world_map, int inlierCount, float reprojRms) {
+                  auto strongSelf = weakSelf.lock();
+                  if (!strongSelf) return;
+                  {
+                    std::lock_guard<std::mutex> lk(strongSelf->_vpsStateMutex);
+                    strongSelf->_lastVPSHitSet    = true;
+                    strongSelf->_lastVPSInliers   = inlierCount;
+                    strongSelf->_lastVPSReprojRms = reprojRms;
+                  }
+                  strongSelf->_vpsLocalizerRV->reportLocalizationHit(T_world_map, nowSec);
+                });
+          }
+        }
+      }
+#endif
       if (_recorder && _recorder->getStatus() == VROARRecordingStatus::Recording) {
+        // Tag the next pose line with the latest GPS/heading
+        // fix, but only when it is genuinely new (timestamp changed) — a
+        // location fix arrives far slower than frames, and re-attaching the
+        // same one to every frame would misrepresent it as taken "at the
+        // instant" of each of them. _lastKnownGPSPose is reused as-is from
+        // the ReactVision geospatial path (VROLocationDelegate, started by
+        // ensureReactVisionProvider()); nothing here acquires location or
+        // heading itself, so this is empty until that provider has been used
+        // at least once. The heading is the camera's forward bearing from
+        // CoreMotion's true-north attitude, as the recording format specifies,
+        // not CLHeading's device heading that geospatial anchors use; its
+        // accuracy is CLHeading's, so it needs a valid compass reading too.
+        VROGeospatialPose pose;
+        bool headingValid;
+        {
+          std::lock_guard<std::mutex> lk(_gpsPoseMutex);
+          pose = _lastKnownGPSPose;
+          headingValid = _hasReceivedHeadingFix;
+        }
+        if (pose.isValid() && pose.timestamp != _lastGpsTimestampPushedToRecorder) {
+          _lastGpsTimestampPushedToRecorder = pose.timestamp;
+          VROARSessionRecorderIOS::VROARRecordingGeoReading geo;
+          geo.hasGps          = true;
+          geo.latitude        = pose.latitude;
+          geo.longitude       = pose.longitude;
+          geo.altitude        = pose.altitude;
+          geo.hAccuracy       = pose.horizontalAccuracy;
+          double cameraBearing = 0.0;
+          geo.hasHeading      = headingValid &&
+              [(VROLocationDelegate *)_rvLocationDelegate cameraForwardBearing:&cameraBearing];
+          geo.headingDegrees  = cameraBearing;
+          geo.headingAccuracyDegrees = pose.headingAccuracy;
+          _recorder->setLocationReading(geo);
+        }
         _recorder->recordFrame(arFrame);
       }
     }
@@ -2656,6 +2852,152 @@ void VROARSessioniOS::rvFinishScan(
   }
 #endif
   if (callback) callback(false, "", "", rvError.empty() ? "ReactVision cloud anchor provider not available" : rvError);
+}
+
+// ── Continuous VPS map localisation ─────────────────────────────────────────
+
+bool VROARSessioniOS::rvLoadVPSMap(const std::string& rvmapBytes) {
+#if RVCCA_AVAILABLE
+  std::string rvError;
+  auto p = [ensureReactVisionProvider(rvError) cppProvider];
+  if (p) {
+    bool ok = p->loadVPSMap(rvmapBytes);
+    if (ok) {
+      _vpsLocalizerRV->reset();
+      std::lock_guard<std::mutex> lk(_vpsStateMutex);
+      _vpsServerMode = false;
+      _lastVPSCamToWorldSet = false;
+      _lastVPSHitSet = false;
+    }
+    return ok;
+  }
+#endif
+  return false;
+}
+
+void VROARSessioniOS::rvUnloadVPSMap() {
+#if RVCCA_AVAILABLE
+  if (_cloudAnchorProviderRV) {
+    auto p = [_cloudAnchorProviderRV cppProvider];
+    if (p) p->unloadVPSMap();
+  }
+  _vpsLocalizerRV->reset();
+  std::lock_guard<std::mutex> lk(_vpsStateMutex);
+  _vpsServerMode = false;   // unloading ends a server-mode session too
+  _lastVPSCamToWorldSet = false;
+  _lastVPSHitSet = false;
+#endif
+}
+
+bool VROARSessioniOS::rvIsVPSMapLoaded() {
+#if RVCCA_AVAILABLE
+  if (_cloudAnchorProviderRV) {
+    auto p = [_cloudAnchorProviderRV cppProvider];
+    if (p) return p->isVPSMapLoaded();
+  }
+#endif
+  return false;
+}
+
+bool VROARSessioniOS::rvStartVPSServerSession() {
+#if RVCCA_AVAILABLE
+  if (_cloudAnchorProviderRV) {
+    auto p = [_cloudAnchorProviderRV cppProvider];
+    if (p) p->unloadVPSMap();
+  }
+  _vpsLocalizerRV->reset();
+  std::lock_guard<std::mutex> lk(_vpsStateMutex);
+  _vpsServerMode = true;
+  _lastVPSCamToWorldSet = false;
+  _lastVPSHitSet = false;
+  return true;
+#else
+  return false;
+#endif
+}
+
+void VROARSessioniOS::rvStopVPSServerSession() {
+#if RVCCA_AVAILABLE
+  _vpsLocalizerRV->reset();
+  std::lock_guard<std::mutex> lk(_vpsStateMutex);
+  _vpsServerMode = false;
+  _lastVPSCamToWorldSet = false;
+  _lastVPSHitSet = false;
+#endif
+}
+
+bool VROARSessioniOS::rvReportVPSServerFix(const VROMatrix4f &T_world_cam, const VROMatrix4f &T_map_cam,
+                                           int inliers) {
+#if RVCCA_AVAILABLE
+  {
+    std::lock_guard<std::mutex> lk(_vpsStateMutex);
+    if (!_vpsServerMode) return false;
+    _lastVPSHitSet    = true;
+    _lastVPSInliers   = inliers;
+    _lastVPSReprojRms = 0.f;   // the backend reports inliers, not a reprojection error
+  }
+  double nowSec = std::chrono::duration<double>(
+      std::chrono::steady_clock::now().time_since_epoch()).count();
+  _vpsLocalizerRV->reportLocalizationHit(vpsServerFixToWorldMap(T_world_cam, T_map_cam), nowSec);
+  return true;
+#else
+  return false;
+#endif
+}
+
+bool VROARSessioniOS::rvGetVPSWorldFromMap(VROMatrix4f &T_world_map) const {
+#if RVCCA_AVAILABLE
+  if (_vpsLocalizerRV->isConverged()) {
+    T_world_map = _vpsLocalizerRV->getSmoothedTMapWorld().invert();
+    return true;
+  }
+#endif
+  return false;
+}
+
+std::string VROARSessioniOS::rvGetVPSLocalizationJson() {
+#if RVCCA_AVAILABLE
+  std::shared_ptr<ReactVisionCCA::RVCCACloudAnchorProvider> p;
+  if (_cloudAnchorProviderRV) {
+    p = [_cloudAnchorProviderRV cppProvider];
+  }
+  bool serverMode;
+  {
+    std::lock_guard<std::mutex> lk(_vpsStateMutex);
+    serverMode = _vpsServerMode;
+  }
+  {
+    if (p || serverMode) {
+      bool loaded = serverMode || (p && p->isVPSMapLoaded());
+      bool converged = _vpsLocalizerRV->isConverged();
+      bool hitSet, camSet;
+      int inliers;
+      float rms;
+      VROMatrix4f cam;
+      {
+        std::lock_guard<std::mutex> lk(_vpsStateMutex);
+        hitSet = _lastVPSHitSet;   inliers = _lastVPSInliers; rms = _lastVPSReprojRms;
+        camSet = _lastVPSCamToWorldSet; cam = _lastVPSCamToWorld;
+      }
+      std::ostringstream os;
+      os << "{\"available\":true"
+         << ",\"loaded\":" << (loaded ? "true" : "false")
+         << ",\"mode\":\"" << (serverMode ? "server" : "device") << "\""
+         << ",\"converged\":" << (converged ? "true" : "false");
+      if (hitSet && std::isfinite(rms)) {
+        os << ",\"lastHitInliers\":" << inliers
+           << ",\"lastHitReprojRms\":" << rms;
+      }
+      if (converged && camSet) {
+        VROMatrix4f renderPose = _vpsLocalizerRV->getRenderPose(cam);
+        os << ",\"renderPose\":\"" << rvMatrixToCsv(renderPose) << "\"";
+      }
+      os << "}";
+      return os.str();
+    }
+  }
+#endif
+  return "{\"available\":false}";
 }
 
 void VROARSessioniOS::rvGetCloudAnchor(

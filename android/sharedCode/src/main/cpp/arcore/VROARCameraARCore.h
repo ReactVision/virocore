@@ -58,6 +58,8 @@ public:
      */
     VROMatrix4f getImageRotation() const;
     VROVector3f getImagePosition() const;
+    /* getImageRotation() and getImagePosition() as one transform. */
+    VROMatrix4f getImageTransform() const override;
 
     VROMatrix4f getProjection(VROViewport viewport, float near, float far, VROFieldOfView *outFOV);
 
