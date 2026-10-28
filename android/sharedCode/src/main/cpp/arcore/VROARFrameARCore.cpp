@@ -357,6 +357,16 @@ bool VROARFrameARCore::getCameraImageDimensions(int *outWidth, int *outHeight) {
         *outWidth = _cameraImageW; *outHeight = _cameraImageH;
         return true;
     }
+    // The intrinsics carry the size with no image to acquire. Acquiring one only to read its size
+    // failed with ResourceExhausted whenever other code held images, and the depth mesh — the
+    // world mesh's only source on most phones — went with it.
+    int w = 0, h = 0;
+    _frame->getImageDimensions(&w, &h);
+    if (w > 0 && h > 0) {
+        _cameraImageW = w; _cameraImageH = h;
+        *outWidth = _cameraImageW; *outHeight = _cameraImageH;
+        return true;
+    }
     arcore::Image *img = nullptr;
     if (_frame->acquireCameraImage(&img) != arcore::ImageRetrievalStatus::Success || !img) {
         return false;

@@ -229,7 +229,8 @@ public:
      serializeCurrentMesh() has nothing to upload until the next frame fuses — a snapshot taken
      between a reset and the next frame must not carry the previous room.
 
-     No-op on the mesh-anchor path, where ARKit owns the accumulation.
+     On the mesh-anchor path ARKit owns the accumulation, so there is no volume to empty: the
+     current mesh is still dropped and comes back with ARKit's next mesh-anchor update.
 
      Must be called on the render thread: it touches the physics world and the current mesh.
      */
@@ -243,7 +244,10 @@ public:
     /**
      * Get the current mesh data (may be nullptr if no mesh generated yet).
      */
-    std::shared_ptr<VROARDepthMesh> getCurrentMesh() const { return _currentMesh; }
+    std::shared_ptr<VROARDepthMesh> getCurrentMesh() const {
+        std::lock_guard<std::mutex> lock(_currentMeshMutex);
+        return _currentMesh;
+    }
 
     /**
      * Get statistics about the current mesh state.
@@ -387,8 +391,23 @@ private:
     std::unique_ptr<btDefaultMotionState> _motionState;
     std::shared_ptr<VROPhysicsShape> _physicsShape;
 
-    // Current mesh data
+    // Current mesh data. Replaced on the render thread only, but read from others too: Android
+    // snapshots it on the UI thread (rvSnapshotWorldMeshToFile → serializeCurrentMesh). Writes and
+    // off-thread reads hold _currentMeshMutex, and readers work on their own shared_ptr copy, so a
+    // replacement mid-serialisation cannot free the vectors being read.
     std::shared_ptr<VROARDepthMesh> _currentMesh;
+    mutable std::mutex _currentMeshMutex;
+    void setCurrentMesh(std::shared_ptr<VROARDepthMesh> mesh);
+
+    /*
+     Bumped whenever the physics body is torn down (a new mesh, a reset, a disable). The BVH for a
+     mesh is built on a background thread and its body installed later on the render thread; that
+     continuation compares the generation it was started under and drops itself if anything
+     happened since. Without it a reset could be undone by a build already in flight, and two
+     overlapping builds could finish out of order and leave the newer body out of the world.
+     Render thread only.
+     */
+    uint64_t _physicsGeneration = 0;
 
     // Last source announced to the log, so the line appears on a change rather than every update.
     VROWorldMeshSource _lastReportedSource = VROWorldMeshSource::Unknown;

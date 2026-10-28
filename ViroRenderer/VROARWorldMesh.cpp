@@ -84,7 +84,25 @@ VROARWorldMesh::~VROARWorldMesh() {
 }
 
 void VROARWorldMesh::setConfig(const VROWorldMeshConfig& config) {
+    // The volume is built with the voxel size and block budget in force at its first frame. A room
+    // fused at one resolution cannot be carried into another, so a change to either starts a new
+    // one, on the next fused frame, at the new values. Silently keeping the old volume made both
+    // settings dead after the first frame.
+    const bool volumeChanged = config.voxelSize != _config.voxelSize
+                            || config.maxMemoryMB != _config.maxMemoryMB;
     _config = config;
+    if (volumeChanged) {
+        bool hadVolume;
+        {
+            std::lock_guard<std::mutex> lock(_volumeMutex);
+            hadVolume = (bool)_volume;
+        }
+        if (hadVolume) {
+            resetAccumulation();
+            std::lock_guard<std::mutex> lock(_volumeMutex);
+            _volume.reset();
+        }
+    }
 
     // Update physics properties on existing rigid body
     if (_rigidBody) {
@@ -210,10 +228,17 @@ void VROARWorldMesh::forceUpdate(const std::unique_ptr<VROARFrame>& frame) {
     }
 }
 
+void VROARWorldMesh::setCurrentMesh(std::shared_ptr<VROARDepthMesh> mesh) {
+    std::lock_guard<std::mutex> lock(_currentMeshMutex);
+    _currentMesh = std::move(mesh);
+}
+
 void VROARWorldMesh::applyMeshToPhysics(std::shared_ptr<VROARDepthMesh> mesh) {
-    // Remove old body immediately on the render thread (fast — just unlinking).
+    // Remove old body immediately on the render thread (fast — just unlinking). This also bumps
+    // _physicsGeneration, so any build still in flight for an older mesh drops itself.
     removeFromPhysicsWorld();
-    _currentMesh = mesh;
+    setCurrentMesh(mesh);
+    const uint64_t physicsGeneration = _physicsGeneration;
 
     // Simplify for physics. Vertex clustering (gap-free) takes priority over stride decimation.
     std::shared_ptr<VROARDepthMesh> physicsMesh = mesh;
@@ -248,7 +273,7 @@ void VROARWorldMesh::applyMeshToPhysics(std::shared_ptr<VROARDepthMesh> mesh) {
     float restitution = _config.restitution;
     std::weak_ptr<VROPhysicsWorld> weakPhysicsWorld = _physicsWorld;
 
-    VROPlatformDispatchAsyncBackground([weakSelf, vertices, indices,
+    VROPlatformDispatchAsyncBackground([weakSelf, vertices, indices, physicsGeneration,
                                         friction, restitution, weakPhysicsWorld]() {
         // Build the expensive BVH on the background thread.
         auto shape = std::make_shared<VROPhysicsShape>(vertices, indices);
@@ -259,11 +284,13 @@ void VROARWorldMesh::applyMeshToPhysics(std::shared_ptr<VROARDepthMesh> mesh) {
 
         // Marshal rigid-body creation + physics-world insertion back to render thread.
         VROPlatformDispatchAsyncRenderer([weakSelf, shape, friction, restitution,
-                                          weakPhysicsWorld]() {
+                                          weakPhysicsWorld, physicsGeneration]() {
             auto self = weakSelf.lock();
             if (!self) return;
-            // Abort if the world mesh was disabled or a newer update arrived first.
-            if (!self->_enabled) return;
+            // Abort if the world mesh was disabled, or if a newer mesh, a reset or a disable tore
+            // the body down since this build started: installing it now would bring back a room
+            // the app cleared, or replace a newer body that is already in the world.
+            if (!self->_enabled || self->_physicsGeneration != physicsGeneration) return;
 
             self->_physicsShape = shape;
 
@@ -315,6 +342,7 @@ void VROARWorldMesh::addToPhysicsWorld() {
 }
 
 void VROARWorldMesh::removeFromPhysicsWorld() {
+    ++_physicsGeneration;
     _isAddedToPhysicsWorld = false;
     // BulletRigidBodyDeleter removes the body from the world before deleting it.
     _rigidBody.reset();
@@ -357,9 +385,20 @@ bool VROARWorldMesh::fuseFrame(std::shared_ptr<VROARDepthMesh> frameMesh,
     const VROVector3f cameraPosition = camera->getPosition();
     std::vector<VROVector3f> points = frameMesh->getVertices();
     std::vector<float> confidences = frameMesh->getConfidences();
+    // Read here, on the render thread that writes them: the background task must not read
+    // _config while setConfig() may be assigning it.
+    const float voxelSize = _config.voxelSize;
+    const int maxMemoryMB = _config.maxMemoryMB;
+    // The fused surface keeps the tag of what it was fused from, so getWorldMeshStats().source
+    // says "monocular" for estimated depth instead of claiming a depth sensor.
+    const std::string sourceTag = frameMesh->getSource();
+    // A reset between here and the integration below must also drop this frame: it belongs to the
+    // room being cleared, not to the next scan.
+    const uint64_t capturedGeneration = _fusionGeneration.load();
 
     std::weak_ptr<VROARWorldMesh> weakSelf = shared_from_this();
-    VROPlatformDispatchAsyncBackground([weakSelf, points, confidences, cameraPosition]() {
+    VROPlatformDispatchAsyncBackground([weakSelf, points, confidences, cameraPosition, voxelSize,
+                                        maxMemoryMB, sourceTag, capturedGeneration]() {
         std::shared_ptr<VROARWorldMesh> self = weakSelf.lock();
         if (!self) return;
 
@@ -372,13 +411,15 @@ bool VROARWorldMesh::fuseFrame(std::shared_ptr<VROARDepthMesh> frameMesh,
         uint64_t generation;
         {
             std::lock_guard<std::mutex> lock(self->_volumeMutex);
+            if (self->_fusionGeneration.load() != capturedGeneration) {
+                self->_fusionInFlight = false;
+                return;
+            }
             if (!self->_volume) {
                 const size_t blockBytes = VROTSDFVolume::getBytesPerBlock();
                 const size_t maxBlocks =
-                    std::max<size_t>(1, ((size_t)std::max(1, self->_config.maxMemoryMB) << 20) / blockBytes);
-                self->_volume.reset(new VROTSDFVolume(self->_config.voxelSize,
-                                                      self->_config.voxelSize * 3.0f,
-                                                      maxBlocks));
+                    std::max<size_t>(1, ((size_t)std::max(1, maxMemoryMB) << 20) / blockBytes);
+                self->_volume.reset(new VROTSDFVolume(voxelSize, voxelSize * 3.0f, maxBlocks));
             }
             self->_volume->integrate(points, confidences, cameraPosition);
             if (self->_volume->consumeDirty()) {
@@ -392,7 +433,8 @@ bool VROARWorldMesh::fuseFrame(std::shared_ptr<VROARDepthMesh> frameMesh,
             return;
         }
 
-        VROPlatformDispatchAsyncRenderer([weakSelf, vertices, outConfidences, indices, generation]() {
+        VROPlatformDispatchAsyncRenderer([weakSelf, vertices, outConfidences, indices, generation,
+                                          sourceTag]() {
             std::shared_ptr<VROARWorldMesh> self = weakSelf.lock();
             if (!self) return;
             if (self->_fusionGeneration.load() != generation) {
@@ -405,7 +447,7 @@ bool VROARWorldMesh::fuseFrame(std::shared_ptr<VROARDepthMesh> frameMesh,
                 std::vector<VROVector3f>(vertices),
                 std::vector<int>(indices),
                 std::vector<float>(outConfidences),
-                "depth");
+                sourceTag);
             if (fused->isValid()) {
                 self->_lastMeshWasAccumulated = true;
                 self->applyMeshToPhysics(fused);
@@ -430,7 +472,7 @@ void VROARWorldMesh::resetAccumulation() {
     // that matters — what serializeCurrentMesh() uploads. Leaving it behind meant a snapshot taken
     // after a reset attached the *previous* room to the cloud anchor.
     removeFromPhysicsWorld();
-    _currentMesh.reset();
+    setCurrentMesh(nullptr);
     _lastMeshWasAccumulated = false;
 
     // Say so now rather than letting the app read the old counts until the next frame lands. The
@@ -771,13 +813,17 @@ namespace {
 }
 
 std::vector<uint8_t> VROARWorldMesh::serializeCurrentMesh(const VROMatrix4f& locationTransform) const {
-    if (!_currentMesh || !_currentMesh->isValid()) {
+    // Called from the UI thread on Android. Hold our own reference for the whole serialisation:
+    // the render thread may replace _currentMesh at any moment, and the vectors read below belong
+    // to the mesh, not to us.
+    const std::shared_ptr<VROARDepthMesh> mesh = getCurrentMesh();
+    if (!mesh || !mesh->isValid()) {
         return {};
     }
 
-    const std::vector<VROVector3f>& vertices    = _currentMesh->getVertices();
-    const std::vector<float>&       confidences  = _currentMesh->getConfidences();
-    const std::vector<int>&         indices      = _currentMesh->getIndices();
+    const std::vector<VROVector3f>& vertices    = mesh->getVertices();
+    const std::vector<float>&       confidences  = mesh->getConfidences();
+    const std::vector<int>&         indices      = mesh->getIndices();
 
     const uint32_t vertexCount   = (uint32_t)vertices.size();
     const uint32_t triangleCount = (uint32_t)(indices.size() / 3);

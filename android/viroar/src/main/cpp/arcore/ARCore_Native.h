@@ -170,6 +170,7 @@ namespace arcore {
         virtual void getCameraPose(float *outMatrix);
         virtual void getProjectionMatrix(float near, float far, float *outMatrix);
         virtual void getImageIntrinsics(float *outFx, float *outFy, float *outCx, float *outCy);
+        virtual void getImageDimensions(int *outWidth, int *outHeight);
         virtual TrackingState getTrackingState();
         virtual TrackingFailureReason getTrackingFailureReason();
         virtual void getLightEstimate(LightEstimate *outLightEstimate);
