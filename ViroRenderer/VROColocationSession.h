@@ -67,8 +67,8 @@ public:
      * visionOS session id that already names the shared frame.
      *
      * Leaves any room already joined. `endpoint` may be empty for the default.
-     * A VROReactVisionAuth session wins over `apiKey` when both exist; an empty
-     * `apiKey` joins on the session alone.
+     * A setAccessToken() token wins over a VROReactVisionAuth session, which
+     * wins over `apiKey`; an empty `apiKey` joins on either alone.
      */
     void join(const std::string &roomId,
               const std::string &apiKey,
@@ -76,7 +76,17 @@ public:
               const std::string &endpoint,
               std::function<void(bool success, std::string error)> callback);
 
+    /** Leaves the room and clears the setAccessToken() token. */
     void leave();
+
+    /**
+     * An app user token (rv_ut_...) the channel sends as `Authorization:
+     * Bearer`, with no x-api-key, in place of the session and `apiKey`. Set it
+     * before join(); it is read at every connect, so one set while joined
+     * reaches the next reconnect. Empty clears it. Nothing else reads it:
+     * cloud anchors keep their own credential.
+     */
+    void setAccessToken(const std::string &accessToken);
 
     /**
      * Publish the local pose, **in the shared location frame** — not world

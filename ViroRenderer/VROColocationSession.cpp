@@ -11,6 +11,7 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <mutex>
 #include <random>
 
 // ReactVisionCCA is optional. Without it this compiles to a holder that always
@@ -23,8 +24,30 @@
 #  define VRO_RVCCA_COLOCATION 0
 #endif
 
+namespace {
+
+// Shared with the headers provider, which transport threads can call after the
+// session that installed it is gone.
+class AccessToken {
+public:
+    void set(const std::string &value) {
+        std::lock_guard<std::mutex> lock(_mutex);
+        _value = value;
+    }
+    std::string get() const {
+        std::lock_guard<std::mutex> lock(_mutex);
+        return _value;
+    }
+private:
+    mutable std::mutex _mutex;
+    std::string _value;
+};
+
+} // namespace
+
 class VROColocationSession::Impl {
 public:
+    std::shared_ptr<AccessToken> accessToken = std::make_shared<AccessToken>();
 #if VRO_RVCCA_COLOCATION
     std::unique_ptr<ReactVisionCCA::RVCCAColocationSession> session;
     std::string roomId;
@@ -81,7 +104,11 @@ void VROColocationSession::join(const std::string &roomId,
         if (callback) callback(false, "roomId is required");
         return;
     }
-    if (!VROReactVisionAuth::get().hasCredentials(apiKey)) {
+    std::shared_ptr<AccessToken> accessToken = _impl->accessToken;
+    auto hasCredentials = [accessToken, apiKey]() {
+        return !accessToken->get().empty() || VROReactVisionAuth::get().hasCredentials(apiKey);
+    };
+    if (!hasCredentials()) {
         if (callback) callback(false, VROReactVisionAuth::kNoCredentialsError);
         return;
     }
@@ -96,11 +123,18 @@ void VROColocationSession::join(const std::string &roomId,
     // The endpoint is the relay, a different host from the session's platform
     // base URL, so the session has nothing to say about it.
     if (!endpoint.empty()) cfg.endpoint = endpoint;
-    // Always set, so a session wins over a key whenever one exists, as it does
-    // for cloud anchors: the channel sends the key only on a handshake whose
-    // headers carry no Authorization. Read at every connect, reconnects included.
-    cfg.headersProvider = []() {
-        auto headers = VROReactVisionAuth::get().sessionHeaders();
+    // Always set, so a token or session wins over a key whenever one exists, as
+    // a session does for cloud anchors: the channel sends the key only on a
+    // handshake whose headers carry no Authorization. Read at every connect,
+    // reconnects included.
+    cfg.headersProvider = [accessToken]() {
+        std::map<std::string, std::string> headers;
+        std::string token = accessToken->get();
+        if (!token.empty()) {
+            headers["Authorization"] = "Bearer " + token;
+        } else {
+            headers = VROReactVisionAuth::get().sessionHeaders();
+        }
         headers["x-rv-device"] = deviceId();
         return headers;
     };
@@ -124,11 +158,11 @@ void VROColocationSession::join(const std::string &roomId,
     // A session cleared between the check above and the handshake leaves the
     // connect with no credential, and the relay's 401 would read as a bad
     // token. With neither a session nor a key now, say that instead.
-    cb.onError = [callback, done, apiKey](const std::string &error) {
+    cb.onError = [callback, done, hasCredentials](const std::string &error) {
         if (*done) return;
         *done = true;
         if (!callback) return;
-        if (!VROReactVisionAuth::get().hasCredentials(apiKey)) {
+        if (!hasCredentials()) {
             callback(false, VROReactVisionAuth::kNoCredentialsError);
         } else {
             callback(false, error);
@@ -137,7 +171,7 @@ void VROColocationSession::join(const std::string &roomId,
 
     // Checked again at the last moment before connecting: nothing above waits,
     // but a sign-out on another thread can land in between.
-    if (!VROReactVisionAuth::get().hasCredentials(apiKey)) {
+    if (!hasCredentials()) {
         _impl->session.reset();
         _impl->roomId.clear();
         if (callback) callback(false, VROReactVisionAuth::kNoCredentialsError);
@@ -151,11 +185,16 @@ void VROColocationSession::join(const std::string &roomId,
 }
 
 void VROColocationSession::leave() {
+    _impl->accessToken->set("");
 #if VRO_RVCCA_COLOCATION
     if (_impl->session) _impl->session->leave();
     _impl->session.reset();
     _impl->roomId.clear();
 #endif
+}
+
+void VROColocationSession::setAccessToken(const std::string &accessToken) {
+    _impl->accessToken->set(accessToken);
 }
 
 void VROColocationSession::setLocalPose(const VROMatrix4f &locationFramePose) {
