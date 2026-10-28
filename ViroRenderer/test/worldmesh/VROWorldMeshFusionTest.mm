@@ -491,6 +491,55 @@ int main() {
               vol.getBlockCount() <= maxBlocks && vol.getApproximateBytes() <= budgetBytes, buf);
     }
 
+    // ── 11. A new voxel size takes effect ──────────────────────────────────
+    // The volume used to be built once, at the first fused frame, so a later voxelSize or
+    // maxMemoryMB never applied. A change now starts a new room at the new resolution.
+    {
+        auto resized = std::make_shared<VROARWorldMesh>(nullptr);
+        resized->setEnabled(true);
+        VROWorldMeshConfig rcfg = cfg;
+        rcfg.voxelSize = 0.08f;
+        resized->setConfig(rcfg);
+        FakeFrame rf; rf.bind();
+        rf.camera->position = VROVector3f(0, 0, 0);
+        rf.depthMesh = wallMesh(-2.0f, 0, 0, 40);
+        { std::unique_ptr<VROARFrame> frame(&rf); resized->updateFromFrame(frame); frame.release(); }
+        const int coarse = resized->getStats().vertexCount;
+
+        rcfg.voxelSize = 0.02f;
+        resized->setConfig(rcfg);
+        const int afterChange = resized->getStats().vertexCount;
+        { std::unique_ptr<VROARFrame> frame(&rf); resized->updateFromFrame(frame); frame.release(); }
+        const int fine = resized->getStats().vertexCount;
+
+        // The same frame fused by a mesh that was at 2 cm from the start: the changed one must match.
+        auto fresh = std::make_shared<VROARWorldMesh>(nullptr);
+        fresh->setEnabled(true);
+        fresh->setConfig(rcfg);
+        { std::unique_ptr<VROARFrame> frame(&rf); fresh->updateFromFrame(frame); frame.release(); }
+        const int reference = fresh->getStats().vertexCount;
+        snprintf(buf, sizeof(buf), "(%d at 8 cm, %d right after, %d at 2 cm, %d fused at 2 cm from the start)",
+                 coarse, afterChange, fine, reference);
+        check("a new voxel size starts a new room at that size",
+              coarse > 0 && afterChange == 0 && fine > 0 && fine == reference && fine != coarse, buf);
+    }
+
+    // ── 12. Estimated depth says so ────────────────────────────────────────
+    // The fused surface carries the tag of what it was fused from; it used to be "depth" whatever
+    // the input, so an iPhone without LiDAR reported a depth sensor it does not have.
+    {
+        auto mono = std::make_shared<VROARWorldMesh>(nullptr);
+        mono->setEnabled(true);
+        mono->setConfig(cfg);
+        FakeFrame mf; mf.bind();
+        mf.camera->position = VROVector3f(0, 0, 0);
+        mf.depthMesh = wallMesh(-2.0f, 0, 0, 40, "monocular");
+        { std::unique_ptr<VROARFrame> frame(&mf); mono->updateFromFrame(frame); frame.release(); }
+        VROWorldMeshStats ms = mono->getStats();
+        snprintf(buf, sizeof(buf), "(source=%s, accumulated=%d)", VROWorldMeshSourceToString(ms.source), ms.accumulated);
+        check("fused monocular depth reports monocular", ms.source == VROWorldMeshSource::Monocular && ms.accumulated, buf);
+    }
+
     printf("\n%s  (%d failures)\n", fails == 0 ? "ALL GREEN" : "FAILURES", fails);
     return fails;
 }
