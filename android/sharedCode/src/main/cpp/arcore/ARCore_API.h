@@ -331,6 +331,12 @@ namespace arcore {
         virtual void getCameraPose(float *outMatrix) = 0;
         virtual void getProjectionMatrix(float near, float far, float *outMatrix) = 0;
         virtual void getImageIntrinsics(float *outFx, float *outFy, float *outCx, float *outCy) = 0;
+        /*
+         Size of the CPU camera image those intrinsics are in, without acquiring the image: an
+         acquire can fail (ResourceExhausted while other code holds images), and the size never
+         needed one.
+         */
+        virtual void getImageDimensions(int *outWidth, int *outHeight) = 0;
         virtual TrackingState getTrackingState() = 0;
         virtual TrackingFailureReason getTrackingFailureReason() = 0;
         virtual void getLightEstimate(LightEstimate *outLightEstimate) = 0;
