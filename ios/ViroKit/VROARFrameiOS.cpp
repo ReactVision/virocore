@@ -767,7 +767,12 @@ std::shared_ptr<VROARDepthMesh> VROARFrameiOS::generateDepthMesh(
 
             std::vector<float> monoDepth, monoConf;
             int depthW = 0, depthH = 0;
-            if (!est->snapshotDepthBuffers(monoDepth, monoConf, depthW, depthH)) return nullptr;
+            // The pose the depth was inferred at, not this frame's: inference lags the camera,
+            // and the world mesh fuses whatever pose the surface is placed with.
+            VROMatrix4f monoCameraToWorld;
+            if (!est->snapshotDepthBuffers(monoDepth, monoConf, depthW, depthH, &monoCameraToWorld)) {
+                return nullptr;
+            }
 
             matrix_float3x3 intrinsics = _frame.camera.intrinsics;
             float fx = intrinsics.columns[0][0];
@@ -789,7 +794,7 @@ std::shared_ptr<VROARDepthMesh> VROARFrameiOS::generateDepthMesh(
             float visU = 1.0f - 2.0f * cropU;
             float visV = 1.0f - 2.0f * cropV;
 
-            VROMatrix4f cameraToWorld = VROConvert::toMatrix4f(_frame.camera.transform);
+            VROMatrix4f cameraToWorld = monoCameraToWorld;
             int gridW = (depthW + stride - 1) / stride;
             int gridH = (depthH + stride - 1) / stride;
 
