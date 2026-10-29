@@ -493,6 +493,12 @@ void VROARSessioniOS::run() {
   }
 }
 
+void VROARSessioniOS::rerunIfRunning() {
+  if (!_sessionPaused) {
+    [_session runWithConfiguration:_sessionConfiguration];
+  }
+}
+
 void VROARSessioniOS::pause() {
   _sessionPaused = true;
   [_session pause];
@@ -536,7 +542,7 @@ void VROARSessioniOS::setAutofocus(bool enabled) {
             isKindOfClass:[ARWorldTrackingConfiguration class]]) {
       ((ARWorldTrackingConfiguration *)_sessionConfiguration).autoFocusEnabled =
           enabled;
-      [_session runWithConfiguration:_sessionConfiguration];
+      rerunIfRunning();
     }
   }
 #endif
@@ -580,7 +586,7 @@ void VROARSessioniOS::setVideoQuality(VROVideoQuality quality) {
         }
       }
     }
-    [_session runWithConfiguration:_sessionConfiguration];
+    rerunIfRunning();
   }
 #endif
 }
@@ -616,7 +622,7 @@ void VROARSessioniOS::setNumberOfTrackedImages(int numImages) {
         ((ARImageTrackingConfiguration *)_sessionConfiguration)
             .maximumNumberOfTrackedImages = numImages;
       }
-      [_session runWithConfiguration:_sessionConfiguration];
+      rerunIfRunning();
     }
   }
 #endif
@@ -651,10 +657,7 @@ bool VROARSessioniOS::setAnchorDetection(std::set<VROAnchorDetection> types) {
     }
   }
 
-  // apply the configuration
-  if (!_sessionPaused) {
-    [_session runWithConfiguration:_sessionConfiguration];
-  }
+  rerunIfRunning();
   return true;
 }
 
