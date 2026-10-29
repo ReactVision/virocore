@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## Unreleased
+
+### Added
+
+- **Quest: optional hand occlusion in passthrough (`VROHandOcclusionOpenXR`, `VROSceneRendererOpenXR`, `VRORenderContext`, `VROPortalTreeRenderPass`, `ViroViewOpenXR`, `Renderer`).** In mixed reality the real hands exist only in the passthrough video beneath the projection layer, so anything virtual in front of a hand hid it, and a user carrying a part could not see what they were about to pinch. Each eye, before the scene is drawn, the tracked hands are now drawn into the depth buffer only: scene pixels behind a hand fail the depth test and are never written, the layer stays transparent there, and the passthrough hand shows through. Content in front of the hand still covers it, and translucent content behind it is clipped too. No depth submission or environment-depth API is used, so it works on Quest 2, 3, 3S and Pro. The hand geometry is the runtime's skinned hand mesh (`XR_FB_hand_tracking_mesh`, now enabled when offered), skinned on the GPU from the joints located at the frame's predicted display time; without the extension, or in `capsules` mode, it is about 29 capsules between the `XR_EXT_hand_tracking` joints sized from their radii. Either is grown by `inflateMm` (default 2) to cover small tracking misfit, and a hand that drops out of tracking keeps its last pose for 100 ms so the hole does not flicker.
+
+  It is off by default and costs nothing while off. `ViroViewOpenXR.setHandOcclusionEnabled`, `setHandOcclusionMode("mesh" | "capsules")` and `setHandOcclusionInflateMm` change it at runtime, applying on the next frame, and are cached and re-applied when set before the renderer exists, like the passthrough props. It only draws while passthrough and hand tracking are both on; otherwise it is a no-op and logs once. The pass runs from a new depth-prepass slot on `VRORenderContext` that the base render pass calls right after clearing its target, because on Quest the scene is drawn into the HDR target, not the swapchain image. A per-node opt-out (`drawOverHands`, for wrist menus and held virtual tools) is not part of this change. The ViroReact props (`handOcclusion`, `handOcclusionMode`, `handOcclusionInflateMm` on the VR/XR scene navigators) still need to be forwarded to these setters in the bridge.
+
 ## v3.0.3 — 6 October 2026
 
 ### Added

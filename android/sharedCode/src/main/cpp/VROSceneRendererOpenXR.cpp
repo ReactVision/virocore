@@ -17,6 +17,7 @@
 #include "VROARSessionOpenXR.h"
 #include "VRONode.h"
 #include "VRONodeCamera.h"
+#include "VRORenderContext.h"
 #include "VROARScene.h"
 #include "VROSceneController.h"
 #include "VROLog.h"
@@ -52,6 +53,7 @@ static constexpr const char *const kOptionalExtensions[] = {
     XR_FB_SPATIAL_ENTITY_QUERY_EXTENSION_NAME,  // M5: query stored room entities
     XR_EXT_EYE_GAZE_INTERACTION_EXTENSION_NAME, // eye-gaze ray as an onHover source (Quest Pro only)
     XR_META_BOUNDARY_VISIBILITY_EXTENSION_NAME, // hide the boundary while passthrough shows the room
+    XR_FB_HAND_TRACKING_MESH_EXTENSION_NAME,    // skinned hand mesh for hand occlusion (capsules without it)
 
     // CL-H: co-location. All three are needed and none of them is optional to
     // each other — an anchor has to be STORABLE before it can be SHARABLE, and
@@ -230,6 +232,28 @@ VROSceneRendererOpenXR::VROSceneRendererOpenXR(VRORendererConfiguration config,
     // platform (GVR, OVR) does the equivalent in their constructor.
     _renderer = std::make_shared<VRORenderer>(config, _inputController);
 
+    // Hand occlusion shares the input controller's hand trackers (null when
+    // hand tracking is unavailable, in which case it never draws). The base
+    // render pass calls the prepass per eye, right after clearing its target —
+    // the HDR target on Quest, not the swapchain, so it cannot live here in
+    // renderEye().
+    _handOcclusion = std::make_shared<VROHandOcclusionOpenXR>();
+    _handOcclusion->init(_instance, _handMeshAvailable,
+                         _inputController->getLocateHandJointsFn(),
+                         _inputController->getHandTracker(0),
+                         _inputController->getHandTracker(1));
+    {
+        std::weak_ptr<VROHandOcclusionOpenXR> handOcclusion_w = _handOcclusion;
+        _renderer->getRenderContext()->setDepthPrepass(
+            [handOcclusion_w](const VRORenderContext &context, std::shared_ptr<VRODriver> &driver) {
+                std::shared_ptr<VROHandOcclusionOpenXR> handOcclusion = handOcclusion_w.lock();
+                if (handOcclusion) {
+                    handOcclusion->renderDepth(
+                        context.getProjectionMatrix().multiply(context.getViewMatrix()), driver);
+                }
+            });
+    }
+
     // Point-of-view node for the head position; updated each frame in renderFrame().
     _pointOfView = std::make_shared<VRONode>();
     _pointOfView->setCamera(std::make_shared<VRONodeCamera>());
@@ -328,6 +352,8 @@ bool VROSceneRendererOpenXR::initOpenXR() {
                     _eyeGazeAvailable = true;
                 if (strcmp(optExt, XR_META_BOUNDARY_VISIBILITY_EXTENSION_NAME) == 0)
                     _boundaryVisibilityAvailable = true;
+                if (strcmp(optExt, XR_FB_HAND_TRACKING_MESH_EXTENSION_NAME) == 0)
+                    _handMeshAvailable = true;
                 break;
             }
         }
@@ -794,6 +820,25 @@ void VROSceneRendererOpenXR::setHandTrackingEnabled(bool enabled) {
     }
 }
 
+void VROSceneRendererOpenXR::setHandOcclusionEnabled(bool enabled) {
+    if (_handOcclusion) {
+        _handOcclusion->setEnabled(enabled);
+    }
+    ALOGV("setHandOcclusionEnabled: %s", enabled ? "true" : "false");
+}
+
+void VROSceneRendererOpenXR::setHandOcclusionMode(VROHandOcclusionMode mode) {
+    if (_handOcclusion) {
+        _handOcclusion->setMode(mode);
+    }
+}
+
+void VROSceneRendererOpenXR::setHandOcclusionInflateMm(float mm) {
+    if (_handOcclusion) {
+        _handOcclusion->setInflateMm(mm);
+    }
+}
+
 void VROSceneRendererOpenXR::setSceneController(
         std::shared_ptr<VROSceneController> sceneController) {
     VROSceneRenderer::setSceneController(sceneController);
@@ -1125,6 +1170,12 @@ void VROSceneRendererOpenXR::renderLoop() {
         }
     }
 
+    // The hand occlusion GL objects belong to this context; free them while
+    // it is still current. They are recreated if the render thread restarts.
+    if (_handOcclusion) {
+        _handOcclusion->destroyGL();
+    }
+
     _jvm->DetachCurrentThread();
     eglMakeCurrent(_eglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     ALOGV("Render thread exited");
@@ -1297,6 +1348,14 @@ void VROSceneRendererOpenXR::renderFrame() {
             _inputController->onProcess(_session, _stageSpace,
                                          frameState.predictedDisplayTime,
                                          _renderer->getCamera());
+        }
+
+        // Locate the hands at this frame's predicted display time (the time
+        // the views were located at) for the depth prepass in each eye.
+        if (_handOcclusion) {
+            bool handTracking = _inputController && _inputController->isHandTrackingEnabled();
+            _handOcclusion->update(_stageSpace, frameState.predictedDisplayTime,
+                                   _passthroughEnabled && handTracking);
         }
 
         for (uint32_t eye = 0; eye < 2; ++eye) {

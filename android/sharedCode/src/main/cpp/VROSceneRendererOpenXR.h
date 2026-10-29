@@ -41,6 +41,7 @@
 #include <openxr/openxr.h>
 #include <openxr/openxr_platform.h>
 #include "VROOpenXRBoundaryVisibility.h"
+#include "VROHandOcclusionOpenXR.h"
 
 class VRORendererConfiguration;
 class VRODriverOpenGLAndroidOpenXR;
@@ -98,6 +99,27 @@ public:
      */
     void setPassthroughStyle(float opacity, float edgeR, float edgeG, float edgeB, float edgeA);
     void setHandTrackingEnabled(bool enabled);
+
+    /**
+     * Let the user's real hands show through virtual content in passthrough:
+     * each eye, the tracked hands are drawn depth-only before the scene, so
+     * whatever is behind them is never written and the passthrough hand shows.
+     * Off by default. Only draws while passthrough and hand tracking are both
+     * on (otherwise a no-op, logged once). Safe from any thread; applies on the
+     * next frame.
+     */
+    void setHandOcclusionEnabled(bool enabled);
+    /**
+     * Hand geometry: Mesh (XR_FB_hand_tracking_mesh, the default) or Capsules
+     * built from the joints. Mesh falls back to Capsules when the extension is
+     * absent.
+     */
+    void setHandOcclusionMode(VROHandOcclusionMode mode);
+    /**
+     * Grow the hand geometry by this many millimetres (default 2) so tracking
+     * misfit does not leave slivers of the real hand covered.
+     */
+    void setHandOcclusionInflateMm(float mm);
 
     /*
      Per-eye swapchain dimensions, or 0 until the session has created them.
@@ -158,6 +180,7 @@ private:
     bool            _eyeGazeAvailable         = false;  // XR_EXT_eye_gaze_interaction present
     bool            _eyeGazeSupported         = false;  // system actually has eye tracking (Quest Pro)
     bool            _boundaryVisibilityAvailable = false;  // XR_META_boundary_visibility present
+    bool            _handMeshAvailable        = false;  // XR_FB_hand_tracking_mesh present
 
     // The boundary is suppressed while passthrough is submitted and shown again
     // when it is not; the runtime refuses suppression without passthrough.
@@ -210,6 +233,10 @@ private:
     // planes into the standard VROARScene anchor pipeline. Null when plane
     // detection is unavailable on the device. Driven once per renderFrame().
     std::shared_ptr<VROARSessionOpenXR>           _arSession;
+
+    // Draws the tracked hands depth-only ahead of each eye's scene pass, via
+    // the render context's depth prepass. Always present; off until enabled.
+    std::shared_ptr<VROHandOcclusionOpenXR>       _handOcclusion;
 
     // Carries the head position into the scene camera each frame. The head
     // matrix passed to prepareFrame() is rotation-only, and the renderer takes
