@@ -7,6 +7,7 @@
 //  Copyright © 2026 ReactVision. All rights reserved.
 //
 
+#include <cmath>
 #include "VROARSessionRecorderIOS.h"
 #if __IPHONE_OS_VERSION_MAX_ALLOWED >= 110000
 
@@ -225,7 +226,7 @@ void VROARSessionRecorderIOS::writeHeaderIfNeeded(ARFrame *frame) {
     CGSize res = frame.camera.imageResolution;
 
     char buf[512];
-    // Extrinsics default to identity — a safe fallback per the plan; iOS
+    // Extrinsics default to identity — a safe fallback; iOS
     // does not expose a per-device IMU/camera calibration to do better here.
     snprintf(buf, sizeof(buf),
         "{\"type\":\"header\",\"intrinsics\":{\"fx\":%.4f,\"fy\":%.4f,\"cx\":%.4f,\"cy\":%.4f,\"width\":%d,\"height\":%d},"
@@ -262,6 +263,11 @@ void VROARSessionRecorderIOS::writeImuLine(double tSec, double ax, double ay, do
     }
 }
 
+void VROARSessionRecorderIOS::setLocationReading(const VROARRecordingGeoReading &reading) {
+    std::lock_guard<std::mutex> lock(_geoMutex);
+    _pendingGeo = reading;
+}
+
 void VROARSessionRecorderIOS::writePoseLine(ARFrame *frame) {
     VROMatrix4f transform = VROConvert::toMatrix4f(frame.camera.transform);
     VROMatrix4f rotationOnly = transform;
@@ -274,6 +280,17 @@ void VROARSessionRecorderIOS::writePoseLine(ARFrame *frame) {
         gravity = _motionManager.deviceMotion.gravity;
     }
 
+    // Take and clear whatever setLocationReading() last
+    // delivered — a pose only ever carries a reading taken at (as close as
+    // the caller can manage) this instant, not a stale one repeated on every
+    // subsequent frame. See the header's VROARRecordingGeoReading doc.
+    VROARRecordingGeoReading geo;
+    {
+        std::lock_guard<std::mutex> lock(_geoMutex);
+        geo = _pendingGeo;
+        _pendingGeo = VROARRecordingGeoReading();
+    }
+
     int64_t tNs = (int64_t)(frame.timestamp * 1e9);
     char buf[384];
     snprintf(buf, sizeof(buf),
@@ -283,12 +300,46 @@ void VROARSessionRecorderIOS::writePoseLine(ARFrame *frame) {
         gravity.x * kGravityMetresPerSecondSquared,
         gravity.y * kGravityMetresPerSecondSquared,
         gravity.z * kGravityMetresPerSecondSquared);
+    std::string line(buf);
+
+    // A position without a valid heading is still written, with the heading
+    // fields null: the reader judges position and heading separately.
+    if (geo.hasGps && std::isfinite(geo.latitude) && std::isfinite(geo.longitude) &&
+        std::isfinite(geo.altitude)) {
+        char gpsBuf[256];
+        char hAccField[48];
+        char headingField[48];
+        char headingAccField[48];
+        bool headingOk = geo.hasHeading && std::isfinite(geo.headingDegrees) &&
+                         geo.headingDegrees >= 0 && geo.headingDegrees < 360;
+        if (geo.hAccuracy >= 0) {
+            snprintf(hAccField, sizeof(hAccField), "%.3f", geo.hAccuracy);
+        } else {
+            snprintf(hAccField, sizeof(hAccField), "null");
+        }
+        if (headingOk) {
+            snprintf(headingField, sizeof(headingField), "%.3f", geo.headingDegrees);
+        } else {
+            snprintf(headingField, sizeof(headingField), "null");
+        }
+        if (headingOk && geo.headingAccuracyDegrees >= 0) {
+            snprintf(headingAccField, sizeof(headingAccField), "%.3f", geo.headingAccuracyDegrees);
+        } else {
+            snprintf(headingAccField, sizeof(headingAccField), "null");
+        }
+        snprintf(gpsBuf, sizeof(gpsBuf),
+            ",\"gps\":{\"lat\":%.8f,\"lon\":%.8f,\"alt\":%.3f,"
+            "\"h_accuracy\":%s,\"heading\":%s,\"heading_accuracy\":%s}",
+            geo.latitude, geo.longitude, geo.altitude,
+            hAccField, headingField, headingAccField);
+        line.insert(line.size() - 1, gpsBuf); // before the closing '}'
+    }
 
     // Buffered, not written immediately — see the _bufferedLines comment in
     // the header. Sorted by `t` and flushed at stop().
     std::lock_guard<std::mutex> lock(_sidecarMutex);
     if (_sidecar.is_open()) {
-        _bufferedLines.push_back({tNs, std::string(buf)});
+        _bufferedLines.push_back({tNs, line});
     }
 }
 

@@ -24,6 +24,7 @@
 //  SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #include <jni/ARImageDatabaseLoaderDelegate.h>
+#include <array>
 #include <cstdlib>
 #include <sstream>
 #include "ARSceneController_JNI.h"
@@ -41,6 +42,7 @@
 #include "arcore/VROARCameraARCore.h"
 #include "ViroContextAndroid_JNI.h"
 #include "VROARWorldMesh.h"
+#include "VROVPSAnchorNode.h"
 #include "VROARImageTargetAndroid.h"
 #include "arcore/ARUtils_JNI.h"
 #include "VROARFrame.h"
@@ -177,6 +179,21 @@ VRO_METHOD(void, nativeSetLastKnownLocation)(VRO_ARGS
             arcoreSession->setLastKnownLocation(lat, lng, alt,
                                                 horizAcc, vertAcc,
                                                 heading, headingAcc);
+        }
+    }
+}
+
+VRO_METHOD(void, nativeSetCameraHeading)(VRO_ARGS
+                                         VRO_REF(VROARSceneController) arSceneControllerPtr,
+                                         jdouble heading, jdouble headingAcc) {
+    std::shared_ptr<VROARScene> arScene = std::dynamic_pointer_cast<VROARScene>(
+            VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
+    std::shared_ptr<VROARSession> arSession = arScene->getARSession();
+    if (arSession) {
+        std::shared_ptr<VROARSessionARCore> arcoreSession =
+                std::dynamic_pointer_cast<VROARSessionARCore>(arSession);
+        if (arcoreSession) {
+            arcoreSession->setCameraHeading(heading, headingAcc);
         }
     }
 }
@@ -794,6 +811,8 @@ VRO_METHOD(void, nativeRvGetWorldMeshStats)(VRO_ARGS
            << ",\"averageConfidence\":" << stats.averageConfidence
            << ",\"lastUpdateTimeMs\":" << stats.lastUpdateTimeMs
            << ",\"isStale\":" << (stats.isStale ? "true" : "false")
+           << ",\"source\":\"" << VROWorldMeshSourceToString(stats.source) << "\""
+           << ",\"accumulated\":" << (stats.accumulated ? "true" : "false")
            << "}";
         rvFireScanJson(weakObj, keyStr, ss.str());
     });
@@ -845,6 +864,148 @@ VRO_METHOD(void, nativeRvFinishScan)(VRO_ARGS
                                   std::string locationTransformCsv, std::string error) {
                     rvFireFinishScanResult(weakObj, keyStr, success, cloudAnchorId, locationTransformCsv, error);
                 });
+        });
+    });
+}
+
+// ── Continuous VPS map localisation ─────────────────────────────────────────
+// Reuses rvFireScanJson/the "onRvScanJson" Java callback already wired for
+// the scan/mesh-stats getters above — a caller polling this JSON gets the
+// same shape (key, json) those already resolve with.
+
+VRO_METHOD(void, nativeRvLoadVPSMap)(VRO_ARGS
+                                     VRO_REF(VROARSceneController) arSceneControllerPtr,
+                                     jstring key_j, jbyteArray rvmapBytes_j) {
+    std::string keyStr = VRO_STRING_STL(key_j);
+    jsize len = env->GetArrayLength(rvmapBytes_j);
+    std::string rvmapBytes((size_t)len, '\0');
+    if (len > 0) {
+        env->GetByteArrayRegion(rvmapBytes_j, 0, len,
+                                 reinterpret_cast<jbyte*>(&rvmapBytes[0]));
+    }
+
+    std::weak_ptr<VROARScene> arScene_w = std::dynamic_pointer_cast<VROARScene>(
+        VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
+    VRO_WEAK weakObj = VRO_NEW_WEAK_GLOBAL_REF(obj);
+    VROPlatformDispatchAsyncRenderer([arScene_w, weakObj, keyStr, rvmapBytes] {
+        std::shared_ptr<VROARScene> arScene = arScene_w.lock();
+        if (!arScene) {
+            rvFireScanJson(weakObj, keyStr, "{\"success\":false}");
+            return;
+        }
+        arScene->runWhenARSessionReady(
+            [weakObj, keyStr, rvmapBytes](std::shared_ptr<VROARSession> arSession) {
+                bool ok = arSession->rvLoadVPSMap(rvmapBytes);
+                rvFireScanJson(weakObj, keyStr, ok ? "{\"success\":true}" : "{\"success\":false}");
+            });
+    });
+}
+
+VRO_METHOD(void, nativeRvUnloadVPSMap)(VRO_ARGS
+                                       VRO_REF(VROARSceneController) arSceneControllerPtr) {
+    std::weak_ptr<VROARScene> arScene_w = std::dynamic_pointer_cast<VROARScene>(
+        VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
+    VROPlatformDispatchAsyncRenderer([arScene_w] {
+        std::shared_ptr<VROARScene> arScene = arScene_w.lock();
+        if (!arScene) return;
+        // Queued like the load, so a load queued before the session exists
+        // cannot apply after a later unload.
+        arScene->runWhenARSessionReady([](std::shared_ptr<VROARSession> arSession) {
+            arSession->rvUnloadVPSMap();
+        });
+    });
+}
+
+// VPS server mode: the backend localises frames, the fuser runs without a map.
+// Queued like the load and unload, so the three apply in the order they were made.
+VRO_METHOD(void, nativeRvStartVPSServerSession)(VRO_ARGS
+                                                VRO_REF(VROARSceneController) arSceneControllerPtr,
+                                                jstring key_j) {
+    std::string keyStr = VRO_STRING_STL(key_j);
+    std::weak_ptr<VROARScene> arScene_w = std::dynamic_pointer_cast<VROARScene>(
+        VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
+    VRO_WEAK weakObj = VRO_NEW_WEAK_GLOBAL_REF(obj);
+    VROPlatformDispatchAsyncRenderer([arScene_w, weakObj, keyStr] {
+        std::shared_ptr<VROARScene> arScene = arScene_w.lock();
+        if (!arScene) {
+            rvFireScanJson(weakObj, keyStr, "{\"success\":false}");
+            return;
+        }
+        arScene->runWhenARSessionReady([weakObj, keyStr](std::shared_ptr<VROARSession> arSession) {
+            bool ok = arSession->rvStartVPSServerSession();
+            rvFireScanJson(weakObj, keyStr, ok ? "{\"success\":true}" : "{\"success\":false}");
+        });
+    });
+}
+
+VRO_METHOD(void, nativeRvStopVPSServerSession)(VRO_ARGS
+                                               VRO_REF(VROARSceneController) arSceneControllerPtr) {
+    std::weak_ptr<VROARScene> arScene_w = std::dynamic_pointer_cast<VROARScene>(
+        VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
+    VROPlatformDispatchAsyncRenderer([arScene_w] {
+        std::shared_ptr<VROARScene> arScene = arScene_w.lock();
+        if (!arScene) return;
+        arScene->runWhenARSessionReady([](std::shared_ptr<VROARSession> arSession) {
+            arSession->rvStopVPSServerSession();
+        });
+    });
+}
+
+// worldFromCamera: column-major, as onVPSQueryFrame handed it out. mapFromCamera:
+// row-major, as the backend answers it (OpenCV camera axes).
+VRO_METHOD(void, nativeRvReportVPSServerFix)(VRO_ARGS
+                                             VRO_REF(VROARSceneController) arSceneControllerPtr,
+                                             jstring key_j, jfloatArray worldFromCamera_j,
+                                             jfloatArray mapFromCamera_j, jint inliers) {
+    std::string keyStr = VRO_STRING_STL(key_j);
+    VRO_WEAK weakObj = VRO_NEW_WEAK_GLOBAL_REF(obj);
+    if (env->GetArrayLength(worldFromCamera_j) != 16 || env->GetArrayLength(mapFromCamera_j) != 16) {
+        rvFireScanJson(weakObj, keyStr, "{\"success\":false}");
+        return;
+    }
+    float wc[16], mcRow[16], mc[16];
+    env->GetFloatArrayRegion(worldFromCamera_j, 0, 16, wc);
+    env->GetFloatArrayRegion(mapFromCamera_j, 0, 16, mcRow);
+    for (int r = 0; r < 4; ++r) {
+        for (int c = 0; c < 4; ++c) {
+            mc[c * 4 + r] = mcRow[r * 4 + c];
+        }
+    }
+    VROMatrix4f T_world_cam(wc), T_map_cam(mc);
+    std::weak_ptr<VROARScene> arScene_w = std::dynamic_pointer_cast<VROARScene>(
+        VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
+    VROPlatformDispatchAsyncRenderer([arScene_w, weakObj, keyStr, T_world_cam, T_map_cam, inliers] {
+        std::shared_ptr<VROARScene> arScene = arScene_w.lock();
+        if (!arScene) {
+            rvFireScanJson(weakObj, keyStr, "{\"success\":false}");
+            return;
+        }
+        arScene->runWhenARSessionReady(
+            [weakObj, keyStr, T_world_cam, T_map_cam, inliers](std::shared_ptr<VROARSession> arSession) {
+                bool ok = arSession->rvReportVPSServerFix(T_world_cam, T_map_cam, (int)inliers);
+                rvFireScanJson(weakObj, keyStr, ok ? "{\"success\":true}" : "{\"success\":false}");
+            });
+    });
+}
+
+// Pollable stand-in for an onLocalized event — see rvGetScanStatusJson()'s
+// own reasoning above for why this crosses as JSON rather than a callback
+// carrying the native RVCCACloudAnchorProvider/VROVPSLocalizer types.
+VRO_METHOD(void, nativeRvGetVPSLocalization)(VRO_ARGS
+                                             VRO_REF(VROARSceneController) arSceneControllerPtr,
+                                             jstring key_j) {
+    std::string keyStr = VRO_STRING_STL(key_j);
+    std::weak_ptr<VROARScene> arScene_w = std::dynamic_pointer_cast<VROARScene>(
+        VRO_REF_GET(VROARSceneController, arSceneControllerPtr)->getScene());
+    VRO_WEAK weakObj = VRO_NEW_WEAK_GLOBAL_REF(obj);
+    VROPlatformDispatchAsyncRenderer([arScene_w, weakObj, keyStr] {
+        std::shared_ptr<VROARScene> arScene = arScene_w.lock();
+        if (!arScene) {
+            rvFireScanJson(weakObj, keyStr, "{\"available\":false}");
+            return;
+        }
+        arScene->runWhenARSessionReady([weakObj, keyStr](std::shared_ptr<VROARSession> arSession) {
+            rvFireScanJson(weakObj, keyStr, arSession->rvGetVPSLocalizationJson());
         });
     });
 }
@@ -2064,6 +2225,36 @@ VRO_METHOD(void, nativeSetWorldMeshEnabled)(VRO_ARGS
     });
 }
 
+VRO_METHOD(void, nativeSetWorldMeshFusion)(VRO_ARGS
+                                          VRO_REF(VROARSceneController) sceneController_j,
+                                          VRO_BOOL accumulate,
+                                          VRO_FLOAT voxelSize,
+                                          VRO_INT maxMemoryMB) {
+    std::weak_ptr<VROARScene> scene_w = std::dynamic_pointer_cast<VROARScene>(
+            VRO_REF_GET(VROARSceneController, sceneController_j)->getScene());
+    VROPlatformDispatchAsyncRenderer([scene_w, accumulate, voxelSize, maxMemoryMB] {
+        std::shared_ptr<VROARScene> scene = scene_w.lock();
+        if (!scene) return;
+        VROWorldMeshConfig config = scene->getWorldMeshConfig();
+        config.accumulate = (bool) accumulate;
+        if (voxelSize > 0.0f) config.voxelSize = voxelSize;
+        if (maxMemoryMB > 0) config.maxMemoryMB = maxMemoryMB;
+        scene->setWorldMeshConfig(config);
+    });
+}
+
+VRO_METHOD(void, nativeResetWorldMesh)(VRO_ARGS
+                                      VRO_REF(VROARSceneController) sceneController_j) {
+    std::weak_ptr<VROARScene> scene_w = std::dynamic_pointer_cast<VROARScene>(
+            VRO_REF_GET(VROARSceneController, sceneController_j)->getScene());
+    VROPlatformDispatchAsyncRenderer([scene_w] {
+        std::shared_ptr<VROARScene> scene = scene_w.lock();
+        if (!scene) return;
+        std::shared_ptr<VROARWorldMesh> worldMesh = scene->getWorldMesh();
+        if (worldMesh) worldMesh->resetAccumulation();
+    });
+}
+
 VRO_METHOD(void, nativeSetWorldMeshConfig)(VRO_ARGS
                                            VRO_REF(VROARSceneController) sceneController_j,
                                            VRO_INT stride,
@@ -2187,6 +2378,100 @@ VRO_METHOD(jboolean, nativeRvLoadWorldMesh)(VRO_ARGS
 
     worldMesh->attachResolvedMesh(mesh, scene);
     return JNI_TRUE;
+}
+
+// The VPS location's mesh (an RVWM snapshot in the map's frame), placed each
+// frame by the VPS fuser. See VROARScene::setVPSMapMesh(). Returns false for
+// bytes that are not an RVWM snapshot, or without a scene.
+VRO_METHOD(jboolean, nativeSetVPSMapMesh)(VRO_ARGS
+                                          VRO_REF(VROARSceneController) sceneController_j,
+                                          jbyteArray meshBytes_j,
+                                          jboolean occlusion,
+                                          jboolean physics) {
+    std::shared_ptr<VROARScene> scene = std::dynamic_pointer_cast<VROARScene>(
+            VRO_REF_GET(VROARSceneController, sceneController_j)->getScene());
+    if (!scene) {
+        return JNI_FALSE;
+    }
+    jsize len = env->GetArrayLength(meshBytes_j);
+    std::vector<uint8_t> bytes((size_t)len);
+    env->GetByteArrayRegion(meshBytes_j, 0, len, reinterpret_cast<jbyte*>(bytes.data()));
+    return scene->setVPSMapMesh(bytes, occlusion == JNI_TRUE, physics == JNI_TRUE) ? JNI_TRUE : JNI_FALSE;
+}
+
+VRO_METHOD(void, nativeClearVPSMapMesh)(VRO_ARGS
+                                        VRO_REF(VROARSceneController) sceneController_j) {
+    std::shared_ptr<VROARScene> scene = std::dynamic_pointer_cast<VROARScene>(
+            VRO_REF_GET(VROARSceneController, sceneController_j)->getScene());
+    if (scene) {
+        scene->clearVPSMapMesh();
+    }
+}
+
+VRO_METHOD(void, nativeAddVPSAnchorNode)(VRO_ARGS
+                                         VRO_REF(VROARSceneController) sceneController_j,
+                                         VRO_REF(VROVPSAnchorNode) node_j) {
+    std::shared_ptr<VROARScene> scene = std::dynamic_pointer_cast<VROARScene>(
+            VRO_REF_GET(VROARSceneController, sceneController_j)->getScene());
+    if (scene) {
+        scene->addVPSAnchorNode(VRO_REF_GET(VROVPSAnchorNode, node_j));
+    }
+}
+
+VRO_METHOD(void, nativeRemoveVPSAnchorNode)(VRO_ARGS
+                                            VRO_REF(VROARSceneController) sceneController_j,
+                                            VRO_REF(VROVPSAnchorNode) node_j) {
+    std::shared_ptr<VROARScene> scene = std::dynamic_pointer_cast<VROARScene>(
+            VRO_REF_GET(VROARSceneController, sceneController_j)->getScene());
+    if (scene) {
+        scene->removeVPSAnchorNode(VRO_REF_GET(VROVPSAnchorNode, node_j));
+    }
+}
+
+VRO_METHOD(void, nativeCaptureVPSQueryFrame)(VRO_ARGS
+                                             VRO_REF(VROARSceneController) sceneController_j,
+                                             jstring key_j,
+                                             jint maxSide) {
+    std::string keyStr = VRO_STRING_STL(key_j);
+    VRO_WEAK weakObj = VRO_NEW_WEAK_GLOBAL_REF(obj);
+    auto fire = [weakObj, keyStr](bool ok, std::vector<uint8_t> gray, int w, int h,
+                                  float fx, float fy, float cx, float cy, const VROMatrix4f &T_world_cam) {
+        auto bytes = std::make_shared<std::vector<uint8_t>>(std::move(gray));
+        // column-major, VROMatrix4f::getArray() order
+        std::array<float, 16> pose;
+        std::copy(T_world_cam.getArray(), T_world_cam.getArray() + 16, pose.begin());
+        VROPlatformDispatchAsyncApplication([weakObj, keyStr, ok, bytes, w, h, fx, fy, cx, cy, pose] {
+            VRO_ENV env = VROPlatformGetJNIEnv();
+            VRO_OBJECT localObj = VRO_NEW_LOCAL_REF(weakObj);
+            if (VRO_IS_OBJECT_NULL(localObj)) {
+                VRO_DELETE_WEAK_GLOBAL_REF(weakObj);
+                return;
+            }
+            jbyteArray jBytes = env->NewByteArray((jsize)bytes->size());
+            if (!bytes->empty()) {
+                env->SetByteArrayRegion(jBytes, 0, (jsize)bytes->size(),
+                                        reinterpret_cast<const jbyte *>(bytes->data()));
+            }
+            jfloatArray jPose = env->NewFloatArray(16);
+            env->SetFloatArrayRegion(jPose, 0, 16, pose.data());
+            VRO_STRING jKey = VRO_NEW_STRING(keyStr.c_str());
+            VROPlatformCallHostFunction(localObj, "onVPSQueryFrame", "(Ljava/lang/String;Z[BIIFFFF[F)V",
+                                        jKey, (jboolean)ok, jBytes, (jint)w, (jint)h,
+                                        (jfloat)fx, (jfloat)fy, (jfloat)cx, (jfloat)cy, jPose);
+            VRO_DELETE_LOCAL_REF(jPose);
+            VRO_DELETE_LOCAL_REF(jKey);
+            VRO_DELETE_LOCAL_REF(jBytes);
+            VRO_DELETE_LOCAL_REF(localObj);
+            VRO_DELETE_WEAK_GLOBAL_REF(weakObj);
+        });
+    };
+    std::shared_ptr<VROARScene> scene = std::dynamic_pointer_cast<VROARScene>(
+            VRO_REF_GET(VROARSceneController, sceneController_j)->getScene());
+    if (!scene) {
+        fire(false, {}, 0, 0, 0, 0, 0, 0, VROMatrix4f());
+        return;
+    }
+    scene->captureVPSQueryFrame((int)maxSide, fire);
 }
 
 // +---------------------------------------------------------------------------+

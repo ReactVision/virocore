@@ -1090,9 +1090,10 @@ public class ARScene extends Scene {
     // Called by native (VROARSessionARCore::recordFrameForRecording) once per
     // frame while recording — see ARSessionRecorder.onRecordingFrame() for
     // the actual encode/sidecar-write work.
-    void onRecordingFrame(byte[] y, byte[] u, byte[] v, int[] dims, long timestampNs, float[] pose) {
+    void onRecordingFrame(byte[] y, byte[] u, byte[] v, int[] dims, long timestampNs, float[] pose,
+                          double[] geo) {
         if (mSessionRecorder != null) {
-            mSessionRecorder.onRecordingFrame(y, u, v, dims, timestampNs, pose);
+            mSessionRecorder.onRecordingFrame(y, u, v, dims, timestampNs, pose, geo);
         }
     }
 
@@ -1297,6 +1298,20 @@ public class ARScene extends Scene {
         if (mNativeRef == 0) return;
         nativeSetLastKnownLocation(mNativeRef, lat, lng, alt,
                                    horizAcc, vertAcc, heading, headingAcc);
+    }
+
+    /**
+     * Sets the compass bearing of the back camera's forward axis, which AR recordings
+     * write as their heading (geo-registration needs the camera's bearing, not the
+     * device's). The geospatial pose keeps the heading given to
+     * {@link #setLastKnownLocation}.
+     *
+     * @param heading    Bearing in degrees (0 = North, clockwise).
+     * @param headingAcc Accuracy in degrees; negative when there is no valid bearing.
+     */
+    public void setCameraHeading(double heading, double headingAcc) {
+        if (mNativeRef == 0) return;
+        nativeSetCameraHeading(mNativeRef, heading, headingAcc);
     }
 
     /**
@@ -1628,6 +1643,144 @@ public class ARScene extends Scene {
         nativeRvFinishScan(mNativeRef, key, ttlDays);
     }
 
+    /**
+     * Loads a downloaded {@code .rvmap}'s raw bytes for continuous VPS
+     * localisation against the live camera (see {@link #rvGetVPSLocalization}).
+     * Reports {@code {"success":true|false}} as JSON — false means the bytes
+     * didn't parse as a supported map (truncated, empty, or an unsupported
+     * format/version). See {@code VROARSession::rvLoadVPSMap}.
+     */
+    public void rvLoadVPSMap(byte[] rvmapBytes, RvScanJsonCallback callback) {
+        String key = "rvLoadVPSMap_" + System.nanoTime();
+        mRvScanJsonCallbacks.put(key, callback);
+        nativeRvLoadVPSMap(mNativeRef, key, rvmapBytes);
+    }
+
+    /** Drops whatever {@link #rvLoadVPSMap} loaded; per-frame matching becomes a no-op. */
+    public void rvUnloadVPSMap() {
+        nativeRvUnloadVPSMap(mNativeRef);
+    }
+
+    /**
+     * Starts VPS server mode: the backend localises frames the app sends, and the
+     * fuser runs without a map, fed by {@link #rvReportVPSServerFix}. Unloads any
+     * map. Reports {@code {"success":true|false}}. See
+     * {@code VROARSession::rvStartVPSServerSession}.
+     */
+    public void rvStartVPSServerSession(RvScanJsonCallback callback) {
+        String key = "rvStartVPSServerSession_" + System.nanoTime();
+        mRvScanJsonCallbacks.put(key, callback);
+        nativeRvStartVPSServerSession(mNativeRef, key);
+    }
+
+    /** Ends VPS server mode and resets the fuser. {@link #rvUnloadVPSMap} ends it too. */
+    public void rvStopVPSServerSession() {
+        nativeRvStopVPSServerSession(mNativeRef);
+    }
+
+    /**
+     * One fix from the backend for a frame from {@link #captureVPSQueryFrame}.
+     *
+     * @param worldFromCamera that frame's sensor pose, as the capture callback handed it out.
+     * @param mapFromCamera   the backend's T_map_cam, 16 floats row-major, OpenCV camera axes.
+     * Reports {@code {"success":true|false}}; false outside server mode.
+     */
+    public void rvReportVPSServerFix(float[] worldFromCamera, float[] mapFromCamera, int inliers,
+                                     RvScanJsonCallback callback) {
+        String key = "rvReportVPSServerFix_" + System.nanoTime();
+        mRvScanJsonCallbacks.put(key, callback);
+        nativeRvReportVPSServerFix(mNativeRef, key, worldFromCamera, mapFromCamera, inliers);
+    }
+
+    /**
+     * Sets the VPS location's mesh, an RVWM snapshot in the map's frame (the
+     * backend's {@code world_mesh}), for occlusion and physics against the real
+     * place. It stays hidden until VPS localisation converges, then follows the
+     * map's transform every frame. Independent of the live world mesh. Replaces
+     * any mesh set before.
+     *
+     * @return false when the bytes are not an RVWM snapshot.
+     */
+    public boolean setVPSMapMesh(byte[] rvwmBytes, boolean occlusion, boolean physics) {
+        if (mNativeRef == 0) return false;
+        return nativeSetVPSMapMesh(mNativeRef, rvwmBytes, occlusion, physics);
+    }
+
+    /** Removes the mesh {@link #setVPSMapMesh} set. */
+    public void clearVPSMapMesh() {
+        if (mNativeRef == 0) return;
+        nativeClearVPSMapMesh(mNativeRef);
+    }
+
+    /**
+     * @hide
+     * Registers a node whose children are in the VPS map's frame: it follows the
+     * map's transform every frame and stays hidden until VPS localisation converges.
+     */
+    public void addVPSAnchorNode(com.viro.core.internal.VPSAnchorNode node) {
+        if (mNativeRef == 0) return;
+        nativeAddVPSAnchorNode(mNativeRef, node.getNativeRef());
+    }
+
+    /** @hide */
+    public void removeVPSAnchorNode(com.viro.core.internal.VPSAnchorNode node) {
+        if (mNativeRef == 0) return;
+        nativeRemoveVPSAnchorNode(mNativeRef, node.getNativeRef());
+    }
+
+    /**
+     * Receives one camera image for a VPS visual query; see {@link #captureVPSQueryFrame}.
+     */
+    public interface VPSQueryFrameCallback {
+        /**
+         * @param ok    false when no frame with intrinsics arrived in time; the rest is then empty.
+         * @param gray  the luma plane, width x height bytes, sensor-native orientation.
+         * @param worldFromCamera the camera's sensor pose for that frame, 16 floats column-major (GL camera
+         *                        axes): what a pose a server solves from the image is paired with
+         *                        ({@link #rvReportVPSServerFix}).
+         */
+        void onFrame(boolean ok, byte[] gray, int width, int height, float fx, float fy, float cx, float cy,
+                     float[] worldFromCamera);
+    }
+
+    private Map<String, VPSQueryFrameCallback> mVPSQueryFrameCallbacks = new HashMap<>();
+
+    /**
+     * @hide
+     * Captures the latest AR camera image for a VPS visual query, scaled so its
+     * longest side is at most maxSide, with intrinsics to match. The callback runs
+     * on the application thread.
+     */
+    public void captureVPSQueryFrame(int maxSide, VPSQueryFrameCallback callback) {
+        if (mNativeRef == 0) {
+            callback.onFrame(false, new byte[0], 0, 0, 0, 0, 0, 0, new float[16]);
+            return;
+        }
+        String key = "captureVPSQueryFrame_" + System.nanoTime();
+        mVPSQueryFrameCallbacks.put(key, callback);
+        nativeCaptureVPSQueryFrame(mNativeRef, key, maxSide);
+    }
+
+    // Called by native
+    void onVPSQueryFrame(String key, boolean ok, byte[] gray, int width, int height,
+                         float fx, float fy, float cx, float cy, float[] worldFromCamera) {
+        VPSQueryFrameCallback cb = mVPSQueryFrameCallbacks.remove(key);
+        if (cb != null) {
+            cb.onFrame(ok, gray, width, height, fx, fy, cx, cy, worldFromCamera);
+        }
+    }
+
+    /**
+     * The latest continuous VPS localisation result, as JSON — a pollable
+     * stand-in for an onLocalized event. See
+     * {@code VROARSession::rvGetVPSLocalizationJson} for the keys.
+     */
+    public void rvGetVPSLocalization(RvScanJsonCallback callback) {
+        String key = "rvGetVPSLocalization_" + System.nanoTime();
+        mRvScanJsonCallbacks.put(key, callback);
+        nativeRvGetVPSLocalization(mNativeRef, key);
+    }
+
     public void rvGetCloudAnchor(String anchorId, RvCloudAnchorCallback callback) {
         String key = "rvGetCloud_" + System.nanoTime();
         mRvCloudCallbacks.put(key, callback);
@@ -1902,6 +2055,33 @@ public class ARScene extends Scene {
     }
 
     /**
+     * Configures how depth frames are fused across time.
+     *
+     * Additive rather than more parameters on setWorldMeshConfig, whose signature is public API.
+     * Changing the voxel size or the memory budget once a room has been fused starts a new room at
+     * the new values: a volume fused at one resolution cannot be carried into another.
+     *
+     * @param accumulate   false rebuilds from the current frame, as before fusion existed
+     * @param voxelSize    fusion voxel edge in meters; 0 keeps the current value
+     * @param maxMemoryMB  budget for the fused volume; 0 keeps the current value
+     */
+    public void setWorldMeshFusion(boolean accumulate, float voxelSize, int maxMemoryMB) {
+        nativeSetWorldMeshFusion(mNativeRef, accumulate, voxelSize, maxMemoryMB);
+    }
+
+    /**
+     * Clears the world mesh, so the next scan starts from an empty room instead of carrying the
+     * last one into it.
+     *
+     * On the depth-image and monocular paths this empties the fused volume. On a LiDAR device ARKit
+     * owns the accumulation, so the mesh is cleared until ARKit's next mesh-anchor update puts it
+     * back: a snapshot taken in between finds no mesh.
+     */
+    public void resetWorldMesh() {
+        nativeResetWorldMesh(mNativeRef);
+    }
+
+    /**
      * Configure the world mesh generation and physics properties.
      *
      * @param stride Sample every Nth pixel from depth image (lower = more detail)
@@ -1985,6 +2165,8 @@ public class ARScene extends Scene {
                                                    double lat, double lng, double alt,
                                                    double horizAcc, double vertAcc,
                                                    double heading, double headingAcc);
+    private native void nativeSetCameraHeading(long sceneControllerRef,
+                                               double heading, double headingAcc);
     private native void nativeCheckVPSAvailability(long sceneControllerRef, double latitude, double longitude);
     private native void nativeCreateGeospatialAnchor(long sceneControllerRef, String key,
                                                       double latitude, double longitude, double altitude,
@@ -2025,6 +2207,19 @@ public class ARScene extends Scene {
     private native void nativeRvGetScanStatus(long sceneControllerRef, String key);
     private native void nativeRvGetScanDiagnostics(long sceneControllerRef, String key);
     private native void nativeRvFinishScan(long sceneControllerRef, String key, int ttlDays);
+    private native void nativeRvLoadVPSMap(long sceneControllerRef, String key, byte[] rvmapBytes);
+    private native void nativeRvUnloadVPSMap(long sceneControllerRef);
+    private native void nativeRvStartVPSServerSession(long sceneControllerRef, String key);
+    private native void nativeRvStopVPSServerSession(long sceneControllerRef);
+    private native void nativeRvReportVPSServerFix(long sceneControllerRef, String key, float[] worldFromCamera,
+                                                   float[] mapFromCamera, int inliers);
+    private native boolean nativeSetVPSMapMesh(long sceneControllerRef, byte[] rvwmBytes,
+                                               boolean occlusion, boolean physics);
+    private native void nativeClearVPSMapMesh(long sceneControllerRef);
+    private native void nativeAddVPSAnchorNode(long sceneControllerRef, long nodeRef);
+    private native void nativeRemoveVPSAnchorNode(long sceneControllerRef, long nodeRef);
+    private native void nativeCaptureVPSQueryFrame(long sceneControllerRef, String key, int maxSide);
+    private native void nativeRvGetVPSLocalization(long sceneControllerRef, String key);
     private native void nativeRvCreateSharedFrame(long sceneControllerRef, String key, String groupId);
     private native void nativeRvJoinSharedFrame(long sceneControllerRef, String key, String groupId);
     private native void nativeRvGetCloudAnchor(long sceneControllerRef, String key, String anchorId);
@@ -2061,6 +2256,8 @@ public class ARScene extends Scene {
     private native void nativeSetWorldMeshEnabled(long sceneControllerRef, boolean enabled);
     private native byte[] nativeRvSnapshotWorldMesh(long sceneControllerRef, String locationTransformCsv);
     private native boolean nativeRvLoadWorldMesh(long sceneControllerRef, byte[] meshBytes, String resolvedTransformCsv);
+    private native void nativeResetWorldMesh(long sceneControllerRef);
+    private native void nativeSetWorldMeshFusion(long sceneControllerRef, boolean accumulate, float voxelSize, int maxMemoryMB);
     private native void nativeSetWorldMeshConfig(long sceneControllerRef,
                                                   int stride,
                                                   float minConfidence,
