@@ -8,8 +8,6 @@
 .DS_Store
 
 # Macos
-/macos/ViroRenderer.xcodeproj/xcuserdata/*
-/macos/ViroRenderer.xcodeproj/project.xcworkspace/xcuserdata/**
 
 # WASM
 /wasm/products/
