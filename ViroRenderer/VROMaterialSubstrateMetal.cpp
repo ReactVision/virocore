@@ -672,8 +672,9 @@ void VROMaterialSubstrateMetal::bindLights(int lightsHash,
             light_uniforms.attenuation_start_distance = light->getAttenuationStartDistance();
             light_uniforms.attenuation_end_distance = light->getAttenuationEndDistance();
             light_uniforms.attenuation_falloff_exp = light->getAttenuationFalloffExponent();
-            light_uniforms.spot_inner_angle = degrees_to_radians(light->getSpotInnerAngle());
-            light_uniforms.spot_outer_angle = degrees_to_radians(light->getSpotOuterAngle());
+            // cosines of the half angles, as VROLightingUBO gives the GL shaders
+            light_uniforms.spot_inner_angle = cos(degrees_to_radians(light->getSpotInnerAngle() * 0.5));
+            light_uniforms.spot_outer_angle = cos(degrees_to_radians(light->getSpotOuterAngle() * 0.5));
             light_uniforms.intensity = light->getIntensity();
 
             // Shadowing. VROShadowPreprocess assigns each shadow-casting light a slice

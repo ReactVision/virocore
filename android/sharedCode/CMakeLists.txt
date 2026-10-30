@@ -21,7 +21,6 @@ include_directories(${VIRO_RENDERER_SRC}
                     ${VIRO_ANDROID_INCLUDES}/freetype/include
                     ${VIRO_ANDROID_INCLUDES}/protobuf/include
                     ${VIRO_ANDROID_INCLUDES}/bullet/include
-                    ${VIRO_ANDROID_INCLUDES}/opencv/include
                     ${VIRO_ANDROID_INCLUDES}/arcore/include)
 
 # ── OpenXR loader (via Prefab from openxr_loader_for_android AAR) ─────────────
@@ -59,6 +58,7 @@ add_library( # Sets the name of the library.
              # superseded by the OpenXR (Quest) path. Excluding it drops the libvrapi.so
              # dependency, which was not 16 KB-page compliant (see viro#491).
              ${VIRO_ANDROID_SRC}/VROSceneRendererOpenXR.cpp
+             ${VIRO_ANDROID_SRC}/VROHandOcclusionOpenXR.cpp
              ${VIRO_ANDROID_SRC}/VROARSessionOpenXR.cpp
              ${VIRO_ANDROID_SRC}/VROARSessionOpenXRSharedFrame.cpp
              ${VIRO_ANDROID_SRC}/Colocation_JNI.cpp

@@ -301,6 +301,12 @@ private:
     bool _sessionPaused;
 
     /*
+     Runs the configuration again so a change to it takes effect, unless the session is
+     paused: run() applies the whole configuration when it resumes.
+     */
+    void rerunIfRunning();
+
+    /*
      The cloud anchor provider to use for hosting/resolving cloud anchors.
      */
     VROCloudAnchorProvider _cloudAnchorProvider = VROCloudAnchorProvider::None;
