@@ -336,7 +336,8 @@ VROVector3f VROARFrameARCore::getAmbientLightColor() const {
     arcore::LightEstimate *estimate = session->getSessionInternal()->createLightEstimate();
     _frame->getLightEstimate(estimate);
 
-    float correction[4];
+    // white when there is no valid estimate, as the intensity falls back to 1
+    float correction[4] = { 1, 1, 1, 1 };
     if (estimate->isValid()) {
         estimate->getColorCorrection(correction);
     }

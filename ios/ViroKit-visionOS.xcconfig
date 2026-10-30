@@ -106,14 +106,6 @@ EXCLUDED_SOURCE_FILE_NAMES[sdk=xros*] = \
     VROARSceneDelegateiOS.h \
     VROARCameraPrerecorded.h \
     VROARCameraPrerecorded.cpp \
-    VROApiKeyValidatorDynamo.h \
-    VROApiKeyValidatorDynamo.m \
-    VROApiKeyMetrics.h \
-    VROApiKeyMetrics.m \
-    VROApiMetricsIncrementRequest.h \
-    VROApiMetricsIncrementRequest.m \
-    VROApiMetricsRequest.h \
-    VROApiMetricsRequest.m \
     VROWeakProxy.h \
     VROWeakProxy.mm \
     VROHeadTracker.h \

@@ -13,7 +13,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 RENDERER="$PWD/ViroRenderer"
-BULLET="$PWD/macos/Libraries/bullet/include"
+BULLET="$PWD/ios/Libraries/bullet/include"
 TEST="$RENDERER/test/worldmesh"
 OUT="${TMPDIR:-/tmp}/viro-worldmesh-test"
 mkdir -p "$OUT"

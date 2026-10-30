@@ -1,5 +1,29 @@
 # CHANGELOG
 
+## Unreleased
+
+### Added
+
+- **Quest: optional hand occlusion in passthrough (`VROHandOcclusionOpenXR`, `VROSceneRendererOpenXR`, `VRORenderContext`, `VROPortalTreeRenderPass`, `ViroViewOpenXR`, `Renderer`).** In mixed reality the real hands exist only in the passthrough video beneath the projection layer, so anything virtual in front of a hand hid it, and a user carrying a part could not see what they were about to pinch. Each eye, before the scene is drawn, the tracked hands are now drawn into the depth buffer only: scene pixels behind a hand fail the depth test and are never written, the layer stays transparent there, and the passthrough hand shows through. Content in front of the hand still covers it, and translucent content behind it is clipped too. No depth submission or environment-depth API is used, so it works on Quest 2, 3, 3S and Pro. The hand geometry is the runtime's skinned hand mesh (`XR_FB_hand_tracking_mesh`, now enabled when offered), skinned on the GPU from the joints located at the frame's predicted display time; without the extension, or in `capsules` mode, it is about 29 capsules between the `XR_EXT_hand_tracking` joints sized from their radii. Either is grown by `inflateMm` (default 2) to cover small tracking misfit, and a hand that drops out of tracking keeps its last pose for 100 ms so the hole does not flicker.
+
+  It is off by default and costs nothing while off. `ViroViewOpenXR.setHandOcclusionEnabled`, `setHandOcclusionMode("mesh" | "capsules")` and `setHandOcclusionInflateMm` change it at runtime, applying on the next frame, and are cached and re-applied when set before the renderer exists, like the passthrough props. It only draws while passthrough and hand tracking are both on; otherwise it is a no-op and logs once. The pass runs from a new depth-prepass slot on `VRORenderContext` that the base render pass calls right after clearing its target, because on Quest the scene is drawn into the HDR target, not the swapchain image. A per-node opt-out (`drawOverHands`, for wrist menus and held virtual tools) is not part of this change. ViroReact sets them through `handOcclusion`, `handOcclusionMode` and `handOcclusionInflateMm` on the VR/XR scene navigators.
+
+### Fixed
+
+- **Physics runs at real time on every display (`VROPhysicsWorld`).** Each frame advanced the world a fixed 1/60 s, so it ran 1.5× fast on Quest at 90 Hz, 2× on 120 Hz displays and at half speed at 30 fps. It now steps by the time that passed, in fixed 1/60 s substeps that Bullet interpolates. (#426)
+- **ARCore reports the ambient light (`VROARSessionARCore`, `VROARFrameARCore`).** Light estimation ran in `EnvironmentalHDR`, where ARCore returns zero for the pixel intensity and colour correction the frame reads, so `onAmbientLightUpdate` reported no light and black. It runs in `AmbientIntensity` again, and the colour is white without a valid estimate instead of uninitialised memory. (#427)
+- **`VROARSession` initialises its image tracking implementation on visionOS and web** (`VROImageTrackingImpl::None`); it was left uninitialised there. (#428)
+- **Changing an AR option no longer resumes a paused session** (iOS `VROARSessioniOS`, Android `VROARSessionARCore`). (#429)
+- **Web: vertex colours show (`wasm/preload`).** The web copies of the fragment shaders had not picked up the vertex colour multiply that the native ones have since 3.0.0. (#430)
+- **visionOS: spot light cones match GL (`Shaders.metal`, `VROMaterialSubstrateMetal`).** Metal got the full angles where GL gets the cosines of the half angles, so the cone came out twice as wide with another falloff. (#432)
+- **visionOS: morph targets blend on the CPU (`VROMorpher`).** GPU and hybrid morphing need a GLSL shader modifier and vertex attributes the Metal backend does not have. (#433)
+- **GitHub releases attach the AARs, and Dependabot targets `develop`.** (#431)
+
+### Removed
+
+- **The macOS target (`macos/`).** macOS is not a supported platform, the target no longer linked and nothing built it. The world mesh test takes Bullet's headers from `ios/Libraries/bullet`. (#434)
+- **Dead code:** `MetricsClient.java` (with a Keen write key), the iOS API key validator and metrics files, the OpenCV headers, the OpenXR loader 1.1.38 and the Jenkinsfile. (#435)
+
 ## v3.1.0 — 27 October 2026
 
 ### Added
@@ -79,7 +103,6 @@
 - **The world mesh wireframe draws a surface rather than scattered triangles (`VROARWorldMesh`).** `debugDraw` kept every Nth triangle and discarded its neighbours, so a LiDAR room came out as loose triangles floating in the air; below twice the cap it did something else again, drawing a contiguous run and nothing beyond it. It now simplifies with `clusterMesh`, which already served the physics shape and keeps the surface connected, and collects each edge once — drawing three edges per triangle repainted every interior edge twice. `debugDrawMaxTriangles` becomes `debugDrawMaxEdges`, counted in unique edges and raised from 1000 to 6000, since the old figure was sized for one depth-image grid rather than an accumulated mesh of tens of thousands; over budget, the cluster size grows once by `sqrt(edges / budget)`. `debugDrawLineThickness` goes from 1 mm to 4 mm, having been under a screen pixel at arm's length, which is why the lines shimmered and dropped out. The wireframe is cached and rebuilt when the mesh changes rather than every frame.
 
 - **`worldMeshConfig.maxMemoryMB` is a ceiling rather than an estimate (`VROTSDFVolume`, `VROARWorldMesh`).** The budget was turned into a block count by multiplying out the voxel array alone, which ignores the block's eviction timestamp and the hash node holding it: 64 MB asked for about 68 MB of blocks. `VROTSDFVolume::getBytesPerBlock()` now reports what a block actually costs, and both the budget and `getApproximateBytes()` are computed from it.
-
 
 ## v3.0.3 — 6 October 2026
 

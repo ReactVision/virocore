@@ -42,6 +42,7 @@ typedef struct {
     float attenuation_end_distance;
     float attenuation_falloff_exp;
     
+    // cosines of the half angles of the spot's cones, as in VROLightingUBO
     float spot_inner_angle;
     float spot_outer_angle;
 
