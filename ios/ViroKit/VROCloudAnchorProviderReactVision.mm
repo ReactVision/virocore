@@ -19,8 +19,8 @@
 // Detect ReactVisionCCA availability at compile time.
 // The build_ios.sh script deploys libreactvisioncca.a to
 //   virocore/ios/Libraries/reactvisioncca/{arch}/
-// and the headers live in reactvisioncca/include/ (sibling repo).
-// HEADER_SEARCH_PATHS includes $(SRCROOT)/../../reactvisioncca/include so
+// and the headers live in spatial/include/ (sibling repo; reactvisioncca/ is its old name).
+// HEADER_SEARCH_PATHS includes $(SRCROOT)/../../spatial/include (and the old name) so
 // __has_include returns true only when the SDK is actually present.
 #if __has_include("ReactVisionCCA/RVCCACloudAnchorProvider.h")
 #  define RVCCA_AVAILABLE 1
