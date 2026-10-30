@@ -407,7 +407,7 @@ void VROHandOcclusionOpenXR::destroyGL() {
 // ──────────────────────────────────────────────────────────────────────────────
 
 bool VROHandOcclusionOpenXR::useMesh(const Hand &hand) const {
-    return _mode == VROHandOcclusionMode::Mesh && hand.mesh.loaded;
+    return _frameMode == VROHandOcclusionMode::Mesh && hand.mesh.loaded;
 }
 
 void VROHandOcclusionOpenXR::buildCapsules(const XrHandJointLocationEXT *joints, Hand &hand) {
@@ -426,6 +426,9 @@ void VROHandOcclusionOpenXR::buildCapsules(const XrHandJointLocationEXT *joints,
 
 void VROHandOcclusionOpenXR::update(XrSpace baseSpace, XrTime predictedDisplayTime, bool active) {
     _drawThisFrame = false;
+    // read once: update() and the eyes' renderDepth() must agree, or a mode switch between them
+    // draws the mesh with skin matrices this frame never set
+    _frameMode = _mode.load();
     if (!_enabled) {
         _loggedInactive = false;
         return;

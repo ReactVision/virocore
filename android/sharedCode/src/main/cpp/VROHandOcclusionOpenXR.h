@@ -123,6 +123,7 @@ private:
     PFN_xrLocateHandJointsEXT _pfnLocateHandJoints = nullptr;
     Hand                      _hands[2];
     bool                      _drawThisFrame = false;
+    VROHandOcclusionMode      _frameMode     = VROHandOcclusionMode::Mesh;   // _mode as this frame's update() read it
     bool                      _loggedInactive = false;
 
     // GL — created on first renderDepth().
