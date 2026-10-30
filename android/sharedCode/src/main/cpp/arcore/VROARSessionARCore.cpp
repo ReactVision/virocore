@@ -94,7 +94,9 @@ static const float kMinPlaneExtent = 0.10f;  // 10cm minimum size in any dimensi
 
 VROARSessionARCore::VROARSessionARCore(std::shared_ptr<VRODriverOpenGL> driver)
     : VROARSession(VROTrackingType::DOF6, VROWorldAlignment::Gravity),
-      _lightingMode(arcore::LightingMode::EnvironmentalHDR),
+      // AmbientIntensity: VROARFrameARCore reads the pixel intensity and colour correction, which
+      // ARCore returns as zero in any other mode. Nothing reads the HDR estimate yet.
+      _lightingMode(arcore::LightingMode::AmbientIntensity),
       _planeFindingMode(arcore::PlaneFindingMode::Horizontal),
       _updateMode(arcore::UpdateMode::Blocking),
       _cloudAnchorMode(arcore::CloudAnchorMode::Enabled),
