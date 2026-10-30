@@ -5696,6 +5696,7 @@
 					"$(SRCROOT)/Libraries/bullet/include",
 					"$(SRCROOT)/Libraries/harfbuzz/include",
 					"$(SRCROOT)/../ViroRenderer/",
+					"$(SRCROOT)/../../spatial/include",
 					"$(SRCROOT)/../../reactvisioncca/include",
 				);
 				IPHONEOS_DEPLOYMENT_TARGET = 10.0;
@@ -5757,6 +5758,7 @@
 					"$(SRCROOT)/Libraries/bullet/include",
 					"$(SRCROOT)/Libraries/harfbuzz/include",
 					"$(SRCROOT)/../ViroRenderer/",
+					"$(SRCROOT)/../../spatial/include",
 					"$(SRCROOT)/../../reactvisioncca/include",
 				);
 				IPHONEOS_DEPLOYMENT_TARGET = 10.0;
