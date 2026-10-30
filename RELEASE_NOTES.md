@@ -8,7 +8,7 @@
 
 - **VPS map localisation in the AR session.** `VROARSession` gains map load, unload and localisation, implemented on ARKit and ARCore, and exposed on `ARScene` and through JNI. A loaded `.rvmap` is matched against camera frames while the session runs.
 - **Server mode.** The engine hands frames out for the server to localise and feeds the answers into the same fuser, without loading a map (`rvStartVPSServerSession`, `rvReportVPSServerFix`, `rvStopVPSServerSession`, `VROARCamera::getImageTransform()`).
-- **Every fix goes through ReactVisionCCA's `VROVPSLocalizer`,** which keeps one smoothed map-to-world transform. `VROVPSAnchorNode` keeps content placed in map coordinates following it, and `VROARScene::setVPSMapMesh()` loads the place's mesh as occlusion and a kinematic physics body tagged `"world"`.
+- **Every fix goes through Spatial's `VROVPSLocalizer`,** which keeps one smoothed map-to-world transform. `VROVPSAnchorNode` keeps content placed in map coordinates following it, and `VROARScene::setVPSMapMesh()` loads the place's mesh as occlusion and a kinematic physics body tagged `"world"`.
 - **Recordings carry GPS and a camera-forward heading** on each pose, which ViroScan turns into the map's geo-registration.
 
 ### World mesh
