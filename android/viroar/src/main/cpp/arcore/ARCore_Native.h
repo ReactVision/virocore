@@ -157,6 +157,7 @@ namespace arcore {
         virtual int32_t getPlanePixelStride(int planeIdx);
         virtual int32_t getPlaneRowStride(int planeIdx);
         virtual void getPlaneData(int planeIdx, const uint8_t **outData, int *outDataLength);
+        virtual int64_t getTimestampNs();
     private:
         ArImage *_arImage;
         ArSession *_session;

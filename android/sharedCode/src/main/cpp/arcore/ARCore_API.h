@@ -315,6 +315,11 @@ namespace arcore {
         virtual int32_t getPlanePixelStride(int planeIdx) = 0;
         virtual int32_t getPlaneRowStride(int planeIdx) = 0;
         virtual void getPlaneData(int planeIdx, const uint8_t **outData, int *outDataLength) = 0;
+        /*
+         Time the image was measured, in nanoseconds on the clock of Frame::getTimestampNs().
+         A depth image can be older than the frame it is acquired with.
+         */
+        virtual int64_t getTimestampNs() = 0;
     };
 
     class Frame {
