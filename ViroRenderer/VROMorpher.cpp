@@ -35,12 +35,16 @@
 #include "VROAnimationFloat.h"
 
 const int kMaxSupportedAttirbutes = 7;
+
+// GPU and Hybrid morphing inject a GLSL shader modifier and extra vertex attributes; the Metal
+// backend (visionOS) declares neither, so it blends on the CPU.
+static const bool kGPUMorphSupported = !VRO_METAL;
 static std::vector<VROGeometrySourceSemantic> VRO_MORPH_TYPES = {VROGeometrySourceSemantic::Vertex,
                                                                  VROGeometrySourceSemantic::Normal,
                                                                  VROGeometrySourceSemantic::Tangent};
 
 VROMorpher::VROMorpher(std::vector<std::shared_ptr<VROGeometrySource>> &baseSources, std::shared_ptr<VROMaterial> mat) {
-    _computeLocation = VROMorpher::ComputeLocation::GPU;
+    _computeLocation = kGPUMorphSupported ? VROMorpher::ComputeLocation::GPU : VROMorpher::ComputeLocation::CPU;
     _material = mat;
     _needsUpdate = true;
     _shaderMod = nullptr;
@@ -603,6 +607,10 @@ const VROMorpher::ComputeLocation VROMorpher::getComputeLocation() {
 }
 
 bool VROMorpher::setComputeLocation(VROMorpher::ComputeLocation mode) {
+    if (mode != ComputeLocation::CPU && !kGPUMorphSupported) {
+        pwarn("GPU and hybrid morphing are not supported on this platform; morphing stays on the CPU.");
+        return false;
+    }
     if (mode == ComputeLocation::GPU && _morphTargets.size() > kMaxSupportedAttirbutes) {
         pwarn("Unable to set GPU Render Mode for this VROMorpher.");
         return false;
