@@ -1273,7 +1273,7 @@ void VROARSessioniOS::addARImageTarget(
       [_arKitImageDetectionSet addObject:refImage];
       ((ARWorldTrackingConfiguration *)_sessionConfiguration).detectionImages =
           _arKitImageDetectionSet;
-      [_session runWithConfiguration:_sessionConfiguration];
+      rerunIfRunning();
     }
   } else {
     pwarn("[Viro] attempting to use ARKit 1.5 features while not on iOS 11.3+");
@@ -1315,7 +1315,7 @@ void VROARSessioniOS::removeARImageTarget(
 
         ((ARWorldTrackingConfiguration *)_sessionConfiguration)
             .detectionImages = _arKitImageDetectionSet;
-        [_session runWithConfiguration:_sessionConfiguration];
+        rerunIfRunning();
       }
     }
   } else {
@@ -1346,7 +1346,7 @@ void VROARSessioniOS::addARObjectTarget(
       [_arKitObjectDetectionSet addObject:refObject];
       ((ARWorldTrackingConfiguration *)_sessionConfiguration).detectionObjects =
           _arKitObjectDetectionSet;
-      [_session runWithConfiguration:_sessionConfiguration];
+      rerunIfRunning();
     }
   }
 #endif
@@ -1383,7 +1383,7 @@ void VROARSessioniOS::removeARObjectTarget(
 
         ((ARWorldTrackingConfiguration *)_sessionConfiguration)
             .detectionObjects = _arKitObjectDetectionSet;
-        [_session runWithConfiguration:_sessionConfiguration];
+        rerunIfRunning();
       }
     }
   }
