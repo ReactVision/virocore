@@ -140,6 +140,39 @@ VRO_METHOD(void, nativeGetControllerForwardVectorAsync)(VRO_ARGS
         VRO_DELETE_WEAK_GLOBAL_REF(weakCallback);
     });
 }
+
+VRO_METHOD(void, nativeGetControllerRayAsync)(VRO_ARGS
+                                              VRO_REF(ViroContext) native_render_context_ref,
+                                              VRO_INT source,
+                                              VRO_OBJECT callback) {
+    if (native_render_context_ref == 0) {
+        return;
+    }
+    VRO_WEAK weakCallback = VRO_NEW_WEAK_GLOBAL_REF(callback);
+    std::weak_ptr<ViroContext> helperContext_w = VRO_REF_GET(ViroContext, native_render_context_ref);
+
+    // The poses are written on the render thread, so they are read there too.
+    VROPlatformDispatchAsyncRenderer([helperContext_w, weakCallback, source] {
+        std::shared_ptr<ViroContext> helperContext = helperContext_w.lock();
+        VROVector3f origin, forward;
+        bool found = helperContext &&
+                     helperContext->getInputController()->getSourceRay(source, &origin, &forward);
+
+        VROPlatformDispatchAsyncApplication([weakCallback, found, origin, forward] {
+            VRO_ENV env = VROPlatformGetJNIEnv();
+            VRO_OBJECT jCallback = VRO_NEW_LOCAL_REF(weakCallback);
+            if (VRO_IS_OBJECT_NULL(jCallback)) {
+                VRO_DELETE_WEAK_GLOBAL_REF(weakCallback);
+                return;
+            }
+            VRO_FLOAT_ARRAY jOrigin = found ? ARUtilsCreateFloatArrayFromVector3f(origin) : nullptr;
+            VRO_FLOAT_ARRAY jForward = found ? ARUtilsCreateFloatArrayFromVector3f(forward) : nullptr;
+            VROPlatformCallHostFunction(jCallback, "onGetRay", "([F[F)V", jOrigin, jForward);
+            VRO_DELETE_LOCAL_REF(jCallback);
+            VRO_DELETE_WEAK_GLOBAL_REF(weakCallback);
+        });
+    });
+}
 /**
  * TODO VIRO-704: Add APIs for custom controls - replacing Obj or adding tooltip support.
  */

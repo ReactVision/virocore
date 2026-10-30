@@ -157,6 +157,7 @@ namespace arcore {
         virtual int32_t getPlanePixelStride(int planeIdx);
         virtual int32_t getPlaneRowStride(int planeIdx);
         virtual void getPlaneData(int planeIdx, const uint8_t **outData, int *outDataLength);
+        virtual int64_t getTimestampNs();
     private:
         ArImage *_arImage;
         ArSession *_session;
@@ -170,6 +171,7 @@ namespace arcore {
         virtual void getCameraPose(float *outMatrix);
         virtual void getProjectionMatrix(float near, float far, float *outMatrix);
         virtual void getImageIntrinsics(float *outFx, float *outFy, float *outCx, float *outCy);
+        virtual void getImageDimensions(int *outWidth, int *outHeight);
         virtual TrackingState getTrackingState();
         virtual TrackingFailureReason getTrackingFailureReason();
         virtual void getLightEstimate(LightEstimate *outLightEstimate);

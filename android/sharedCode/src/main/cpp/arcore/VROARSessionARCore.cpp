@@ -59,6 +59,9 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
+#include <memory>
+#include <vector>
 #include <fcntl.h>
 #include <unistd.h>
 
@@ -94,7 +97,9 @@ static const float kMinPlaneExtent = 0.10f;  // 10cm minimum size in any dimensi
 
 VROARSessionARCore::VROARSessionARCore(std::shared_ptr<VRODriverOpenGL> driver)
     : VROARSession(VROTrackingType::DOF6, VROWorldAlignment::Gravity),
-      _lightingMode(arcore::LightingMode::EnvironmentalHDR),
+      // AmbientIntensity: VROARFrameARCore reads the pixel intensity and colour correction, which
+      // ARCore returns as zero in any other mode. Nothing reads the HDR estimate yet.
+      _lightingMode(arcore::LightingMode::AmbientIntensity),
       _planeFindingMode(arcore::PlaneFindingMode::Horizontal),
       _updateMode(arcore::UpdateMode::Blocking),
       _cloudAnchorMode(arcore::CloudAnchorMode::Enabled),
@@ -214,6 +219,7 @@ VROARSessionARCore::~VROARSessionARCore() {
 #pragma mark - Lifecycle and Setup
 
 void VROARSessionARCore::run() {
+  _paused = false;
   if (_session != nullptr) {
     // ARCore requires setCameraTextureName to be called after every pause/resume cycle.
     // Re-register here so the camera stream is always wired to our OES texture before
@@ -229,6 +235,7 @@ void VROARSessionARCore::run() {
 }
 
 void VROARSessionARCore::pause() {
+  _paused = true;
   if (_session != nullptr) {
     _session->pause();
     pinfo("AR session paused");
@@ -525,6 +532,13 @@ bool VROARSessionARCore::updateARCoreConfig() {
     }
   }
 
+  if (_paused) {
+    // configure() needs the session paused; leave it so; run() resumes it with the new config
+    if (status != arcore::ConfigStatus::Success) {
+      pwarn("Failed to configure AR session (status %d)", (int)status);
+    }
+    return status == arcore::ConfigStatus::Success;
+  }
   if (status == arcore::ConfigStatus::Success) {
     _session->resume();
     // After pause→configure→resume the camera hardware stream is reset.
@@ -1548,9 +1562,10 @@ void VROARSessionARCore::setOcclusionMode(VROOcclusionMode mode) {
       break;
     case VROOcclusionMode::Disabled:
     default:
-      // Keep depth active if world mesh still needs it
-      newDepthMode = _worldMeshDepthNeeded ? arcore::DepthMode::Automatic
-                                           : arcore::DepthMode::Disabled;
+      // Keep depth active if world mesh or depth capture still needs it
+      newDepthMode = (_worldMeshDepthNeeded || isDepthCaptureEnabled())
+          ? arcore::DepthMode::Automatic
+          : arcore::DepthMode::Disabled;
       break;
   }
 
@@ -1599,7 +1614,7 @@ bool VROARSessionARCore::isOcclusionModeSupported(VROOcclusionMode mode) const {
 
 arcore::DepthMode VROARSessionARCore::computeNeededDepthMode() const {
   bool occlusionNeedsDepth = (getOcclusionMode() != VROOcclusionMode::Disabled);
-  return (_worldMeshDepthNeeded || occlusionNeedsDepth)
+  return (_worldMeshDepthNeeded || occlusionNeedsDepth || isDepthCaptureEnabled())
       ? arcore::DepthMode::Automatic
       : arcore::DepthMode::Disabled;
 }
@@ -1622,6 +1637,19 @@ void VROARSessionARCore::onWorldMeshEnabled(bool enabled) {
     if (_session != nullptr) {
       updateARCoreConfig();
       pinfo("VROARSessionARCore: world mesh %s, depth mode set to %d",
+            enabled ? "enabled" : "disabled", (int)_depthMode);
+    }
+  }
+}
+
+void VROARSessionARCore::setDepthCaptureEnabled(bool enabled) {
+  VROARSession::setDepthCaptureEnabled(enabled);
+  arcore::DepthMode needed = computeNeededDepthMode();
+  if (needed != _depthMode) {
+    _depthMode = needed;
+    if (_session != nullptr) {
+      updateARCoreConfig();
+      pinfo("VROARSessionARCore: depth capture %s, depth mode set to %d",
             enabled ? "enabled" : "disabled", (int)_depthMode);
     }
   }
@@ -1759,6 +1787,14 @@ VROGeospatialPose VROARSessionARCore::getCameraGeospatialPose() const {
 void VROARSessionARCore::setLastKnownLocation(double lat, double lng, double alt,
                                               double horizAcc, double vertAcc,
                                               double heading, double headingAcc) {
+    std::lock_guard<std::mutex> lk(_gpsPoseMutex);
+    // A new fix is a new position. Callers also push here on every compass
+    // update with the same position, and those must not count as fresh fixes
+    // for the recorder.
+    bool newPosition = lat != _lastKnownGPSPose.latitude ||
+                       lng != _lastKnownGPSPose.longitude ||
+                       alt != _lastKnownGPSPose.altitude ||
+                       horizAcc != _lastKnownGPSPose.horizontalAccuracy;
     _lastKnownGPSPose.latitude           = lat;
     _lastKnownGPSPose.longitude          = lng;
     _lastKnownGPSPose.altitude           = alt;
@@ -1772,6 +1808,25 @@ void VROARSessionARCore::setLastKnownLocation(double lat, double lng, double alt
                                                  (float)std::sin(yaw / 2.0),
                                                  0.0f,
                                                  (float)std::cos(yaw / 2.0));
+    if (newPosition) {
+        _gpsFixSeq++;
+    }
+}
+
+void VROARSessionARCore::setCameraHeading(double heading, double headingAcc) {
+    std::lock_guard<std::mutex> lk(_gpsPoseMutex);
+    _cameraHeading = heading;
+    _cameraHeadingAccuracy = headingAcc;
+}
+
+void VROARSessionARCore::getKeyframeGeo(bool &hasGps, double &lat, double &lng,
+                                        bool &hasHeading, double &heading) const {
+    std::lock_guard<std::mutex> lk(_gpsPoseMutex);
+    hasGps = _lastKnownGPSPose.isValid();
+    lat = _lastKnownGPSPose.latitude;
+    lng = _lastKnownGPSPose.longitude;
+    hasHeading = _cameraHeadingAccuracy >= 0;
+    heading = _cameraHeading;
 }
 
 // Improvement 3: read back the last GPS fix stored by setLastKnownLocation().
@@ -2626,6 +2681,97 @@ void VROARSessionARCore::rvFinishScan(
     if (callback) callback(false, "", "", "ReactVision cloud anchor provider not available");
 }
 
+// ── Continuous VPS map localisation ─────────────────────────────────────────
+
+bool VROARSessionARCore::rvLoadVPSMap(const std::string& rvmapBytes) {
+#if RVCCA_AVAILABLE
+    if (_cloudAnchorProviderRV) {
+        return _cloudAnchorProviderRV->loadVPSMap(rvmapBytes);
+    }
+#endif
+    return false;
+}
+
+void VROARSessionARCore::rvUnloadVPSMap() {
+#if RVCCA_AVAILABLE
+    if (_cloudAnchorProviderRV) {
+        _cloudAnchorProviderRV->unloadVPSMap();
+    }
+#endif
+}
+
+bool VROARSessionARCore::rvIsVPSMapLoaded() {
+#if RVCCA_AVAILABLE
+    if (_cloudAnchorProviderRV) {
+        return _cloudAnchorProviderRV->isVPSMapLoaded();
+    }
+#endif
+    return false;
+}
+
+bool VROARSessionARCore::rvStartVPSServerSession() {
+#if RVCCA_AVAILABLE
+    if (_cloudAnchorProviderRV) {
+        return _cloudAnchorProviderRV->startVPSServerSession();
+    }
+#endif
+    return false;
+}
+
+void VROARSessionARCore::rvStopVPSServerSession() {
+#if RVCCA_AVAILABLE
+    if (_cloudAnchorProviderRV) {
+        _cloudAnchorProviderRV->stopVPSServerSession();
+    }
+#endif
+}
+
+bool VROARSessionARCore::rvReportVPSServerFix(const VROMatrix4f &T_world_cam, const VROMatrix4f &T_map_cam,
+                                              int inliers) {
+#if RVCCA_AVAILABLE
+    if (_cloudAnchorProviderRV) {
+        return _cloudAnchorProviderRV->reportVPSServerFix(T_world_cam, T_map_cam, inliers);
+    }
+#endif
+    return false;
+}
+
+bool VROARSessionARCore::rvGetVPSWorldFromMap(VROMatrix4f &T_world_map) const {
+#if RVCCA_AVAILABLE
+    if (_cloudAnchorProviderRV) {
+        return _cloudAnchorProviderRV->vpsGetWorldFromMap(T_world_map);
+    }
+#endif
+    return false;
+}
+
+std::string VROARSessionARCore::rvGetVPSLocalizationJson() {
+#if RVCCA_AVAILABLE
+    if (_cloudAnchorProviderRV) {
+        bool serverMode = _cloudAnchorProviderRV->isVPSServerSession();
+        bool loaded = serverMode || _cloudAnchorProviderRV->isVPSMapLoaded();
+        bool converged = _cloudAnchorProviderRV->vpsIsConverged();
+        std::ostringstream os;
+        os << "{\"available\":true"
+           << ",\"loaded\":" << (loaded ? "true" : "false")
+           << ",\"mode\":\"" << (serverMode ? "server" : "device") << "\""
+           << ",\"converged\":" << (converged ? "true" : "false");
+        int inliers = 0; float reprojRms = 0.f;
+        if (_cloudAnchorProviderRV->vpsGetLastHit(inliers, reprojRms)) {
+            os << ",\"lastHitInliers\":" << inliers
+               << ",\"lastHitReprojRms\":" << reprojRms;
+        }
+        VROMatrix4f renderPose;
+        if (converged && _cloudAnchorProviderRV->vpsGetRenderPose(renderPose)) {
+            os << ",\"renderPose\":\"" << rvMatrixToCsvARC(renderPose) << "\"";
+        }
+        os << "}";
+        return os.str();
+    }
+#endif
+    return "{\"available\":false}";
+}
+
 void VROARSessionARCore::rvGetCloudAnchor(
     const std::string& anchorId,
     std::function<void(bool, std::string, std::string)> callback) {
@@ -2991,6 +3137,12 @@ void VROARSessionARCore::startRecording(const VROARRecordingConfig &config,
     // The actual video/IMU/sidecar setup already happened in Java before this
     // was called (see ARScene.startRecording()) — this just tells updateFrame()
     // to start calling recordFrameForRecording() each frame.
+    // Depth only flows if the session was already measuring it: enabling it here
+    // would reconfigure ARCore mid-recording.
+    _recordingDepth = config.depth && _session != nullptr && isDepthCaptureEnabled() &&
+                      isDepthModeEnabled() &&
+                      _session->isDepthModeSupported(arcore::DepthMode::Automatic);
+    _lastRecordedDepthTimestampNs = -1;
     _recordingStatus = VROARRecordingStatus::Recording;
     if (onSuccess) {
         onSuccess();
@@ -2999,6 +3151,7 @@ void VROARSessionARCore::startRecording(const VROARRecordingConfig &config,
 
 void VROARSessionARCore::stopRecording() {
     _recordingStatus = VROARRecordingStatus::None;
+    _recordingDepth = false;
     setRecordingJavaCallback(nullptr);
 }
 
@@ -3062,6 +3215,12 @@ void VROARSessionARCore::recordFrameForRecording(VROARFrameARCore *arFrame) {
 
     int64_t timestampNs = _frame->getTimestampNs();
 
+    std::vector<uint8_t> depthData, confidenceData;
+    int depthWidth = 0, depthHeight = 0;
+    int64_t depthTimestampNs = 0;
+    bool hasDepth = _recordingDepth &&
+        copyDepthForRecording(depthData, confidenceData, &depthWidth, &depthHeight, &depthTimestampNs);
+
     JNIEnv *env = VROPlatformGetJNIEnv();
     jbyteArray yArr = env->NewByteArray(yLen);
     env->SetByteArrayRegion(yArr, 0, yLen, (const jbyte *) yData);
@@ -3078,17 +3237,130 @@ void VROARSessionARCore::recordFrameForRecording(VROARFrameARCore *arFrame) {
     jfloatArray poseArr = env->NewFloatArray(11);
     env->SetFloatArrayRegion(poseArr, 0, 11, pose);
 
-    VROPlatformCallHostFunction(_recordingJavaCallback, "onRecordingFrame",
-                                "([B[B[B[IJ[F)V",
-                                yArr, uArr, vArr, dimsArr, (jlong) timestampNs, poseArr);
+    // geo = [hasGps(0/1), lat, lon, alt, hAccuracy, heading,
+    // headingAccuracy], as doubles: float32 would quantise lat/lon to about
+    // half a metre. The heading is the camera's forward bearing (see
+    // setCameraHeading()), which is what the recording format specifies. Only attached when a new position has arrived since the
+    // last recorded pose (see setLastKnownLocation()), so a fix is tagged
+    // once, near the instant it arrived. The Java side writes the heading as
+    // null when its accuracy is negative (no valid heading yet).
+    VROGeospatialPose gps;
+    bool hasFreshGps;
+    double cameraHeading, cameraHeadingAccuracy;
+    {
+        std::lock_guard<std::mutex> lk(_gpsPoseMutex);
+        gps = _lastKnownGPSPose;
+        cameraHeading = _cameraHeading;
+        cameraHeadingAccuracy = _cameraHeadingAccuracy;
+        hasFreshGps = gps.isValid() && _gpsFixSeq != _lastRecordingGpsFixSeq;
+        if (hasFreshGps) {
+            _lastRecordingGpsFixSeq = _gpsFixSeq;
+        }
+    }
+    jdouble geo[7] = {
+        hasFreshGps ? 1.0 : 0.0,
+        gps.latitude,
+        gps.longitude,
+        gps.altitude,
+        gps.horizontalAccuracy,
+        cameraHeading,
+        cameraHeadingAccuracy
+    };
+    jdoubleArray geoArr = env->NewDoubleArray(7);
+    env->SetDoubleArrayRegion(geoArr, 0, 7, geo);
 
+    // depth = [width, height] of the depth map; the depth and confidence arrays
+    // and the depth timestamp are null/0 when this frame carries no new depth.
+    jbyteArray depthArr = nullptr, confidenceArr = nullptr;
+    jintArray depthDimsArr = nullptr;
+    if (hasDepth) {
+        depthArr = env->NewByteArray((jsize) depthData.size());
+        env->SetByteArrayRegion(depthArr, 0, (jsize) depthData.size(), (const jbyte *) depthData.data());
+        confidenceArr = env->NewByteArray((jsize) confidenceData.size());
+        env->SetByteArrayRegion(confidenceArr, 0, (jsize) confidenceData.size(), (const jbyte *) confidenceData.data());
+        jint depthDims[2] = { depthWidth, depthHeight };
+        depthDimsArr = env->NewIntArray(2);
+        env->SetIntArrayRegion(depthDimsArr, 0, 2, depthDims);
+    }
+
+    VROPlatformCallHostFunction(_recordingJavaCallback, "onRecordingFrame",
+                                "([B[B[B[IJ[F[D[B[B[IJ)V",
+                                yArr, uArr, vArr, dimsArr, (jlong) timestampNs, poseArr, geoArr,
+                                depthArr, confidenceArr, depthDimsArr, (jlong) depthTimestampNs);
+
+    if (depthArr) {
+        env->DeleteLocalRef(depthArr);
+        env->DeleteLocalRef(confidenceArr);
+        env->DeleteLocalRef(depthDimsArr);
+    }
     env->DeleteLocalRef(yArr);
     env->DeleteLocalRef(uArr);
     env->DeleteLocalRef(vArr);
     env->DeleteLocalRef(dimsArr);
     env->DeleteLocalRef(poseArr);
+    env->DeleteLocalRef(geoArr);
 
     delete img;
+}
+
+// Depth frames go out at most every 100 ms by their own timestamp; a depth image
+// ARCore has not refreshed since the last one carries the same timestamp.
+static const int64_t kRecordingMinDepthIntervalNs = 100000000;
+
+bool VROARSessionARCore::copyDepthForRecording(std::vector<uint8_t> &depth,
+                                               std::vector<uint8_t> &confidence,
+                                               int *width, int *height, int64_t *timestampNs) {
+    arcore::Image *depthRaw = nullptr;
+    if (_frame->acquireDepthImage(&depthRaw) != arcore::ImageRetrievalStatus::Success || !depthRaw) {
+        return false;
+    }
+    std::unique_ptr<arcore::Image> depthImage(depthRaw);
+
+    int64_t depthTimestamp = depthImage->getTimestampNs();
+    if (_lastRecordedDepthTimestampNs >= 0 &&
+        depthTimestamp - _lastRecordedDepthTimestampNs < kRecordingMinDepthIntervalNs) {
+        return false;
+    }
+
+    arcore::Image *confidenceRaw = nullptr;
+    if (_frame->acquireDepthConfidenceImage(&confidenceRaw) != arcore::ImageRetrievalStatus::Success ||
+        !confidenceRaw) {
+        return false;
+    }
+    std::unique_ptr<arcore::Image> confidenceImage(confidenceRaw);
+
+    int w = depthImage->getWidth();
+    int h = depthImage->getHeight();
+    if (w <= 0 || h <= 0 || confidenceImage->getWidth() != w || confidenceImage->getHeight() != h) {
+        return false;
+    }
+
+    const uint8_t *depthPlane = nullptr; int depthLen = 0;
+    const uint8_t *confidencePlane = nullptr; int confidenceLen = 0;
+    depthImage->getPlaneData(0, &depthPlane, &depthLen);
+    confidenceImage->getPlaneData(0, &confidencePlane, &confidenceLen);
+    int depthRowStride = depthImage->getPlaneRowStride(0);
+    int confidenceRowStride = confidenceImage->getPlaneRowStride(0);
+    if (!depthPlane || !confidencePlane ||
+        depthImage->getPlanePixelStride(0) != 2 || confidenceImage->getPlanePixelStride(0) != 1 ||
+        depthRowStride < w * 2 || confidenceRowStride < w ||
+        depthLen < (h - 1) * depthRowStride + w * 2 ||
+        confidenceLen < (h - 1) * confidenceRowStride + w) {
+        return false;
+    }
+
+    depth.resize((size_t) w * h * 2);
+    confidence.resize((size_t) w * h);
+    for (int row = 0; row < h; row++) {
+        memcpy(depth.data() + (size_t) row * w * 2, depthPlane + (size_t) row * depthRowStride, (size_t) w * 2);
+        memcpy(confidence.data() + (size_t) row * w, confidencePlane + (size_t) row * confidenceRowStride, (size_t) w);
+    }
+
+    *width = w;
+    *height = h;
+    *timestampNs = depthTimestamp;
+    _lastRecordedDepthTimestampNs = depthTimestamp;
+    return true;
 }
 
 void VROARSessionARCore::updateDepthTexture() {

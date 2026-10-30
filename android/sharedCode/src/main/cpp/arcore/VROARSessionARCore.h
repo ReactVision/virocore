@@ -26,6 +26,7 @@
 #ifndef VROARSessionARCore_h
 #define VROARSessionARCore_h
 
+#include <mutex>
 #include <jni.h>
 #include "VROARSession.h"
 #include "VROARFrameARCore.h"
@@ -103,6 +104,24 @@ public:
                               double horizAcc, double vertAcc,
                               double heading, double headingAcc);
     void getLastKnownLocation(double& lat, double& lng, double& alt) const;
+    /*
+     Compass bearing of the back camera's forward axis, which recordings write
+     as their heading; a negative accuracy means no valid bearing. Kept apart
+     from the geospatial pose's heading, which GPS anchor placement uses.
+     */
+    void setCameraHeading(double heading, double headingAcc);
+    /*
+     The latest GPS position and camera-forward bearing, for the keyframe
+     collector's setKeyframeLocation(). has* are false when there is none.
+     */
+    void getKeyframeGeo(bool &hasGps, double &lat, double &lng,
+                        bool &hasHeading, double &heading) const;
+    // Bumped every setLastKnownLocation() call, read by
+    // recordFrameForRecording() to attach a `gps` field only to the next
+    // recorded pose after a genuinely fresh fix, not to every one. 0 means
+    // "never set" — getLastKnownLocation()'s callers can't tell "never" apart
+    // from a real (0,0) fix, but this counter only needs "did it change".
+    int getGpsFixSeq() const { return _gpsFixSeq; }
     void setAutofocus(bool enabled);
     bool isCameraAutoFocusEnabled();
 
@@ -166,6 +185,7 @@ public:
     void setOcclusionMode(VROOcclusionMode mode) override;
     bool isOcclusionSupported() const override;
     void onWorldMeshEnabled(bool enabled) override;
+    void setDepthCaptureEnabled(bool enabled) override;
     void setFrontCameraEnabled(bool enabled);
     bool isFrontCameraEnabled() const { return _frontCameraEnabled; }
 
@@ -259,6 +279,17 @@ public:
     void rvGetSceneAssets(const std::string& sceneId,
         std::function<void(bool, std::string, std::string)> callback) override;
 
+    // Continuous VPS map localisation against a downloaded .rvmap
+    bool rvLoadVPSMap(const std::string& rvmapBytes) override;
+    void rvUnloadVPSMap() override;
+    bool rvIsVPSMapLoaded() override;
+    std::string rvGetVPSLocalizationJson() override;
+    bool rvGetVPSWorldFromMap(VROMatrix4f &T_world_map) const override;
+    bool rvStartVPSServerSession() override;
+    void rvStopVPSServerSession() override;
+    bool rvReportVPSServerFix(const VROMatrix4f &T_world_cam, const VROMatrix4f &T_map_cam,
+                              int inliers) override;
+
     /*
      * Scene Semantics API.
      */
@@ -279,6 +310,12 @@ public:
                          std::function<void(std::string error)> onFailure) override;
     void stopRecording() override;
     VROARRecordingStatus getRecordingStatus() const override;
+
+    /*
+     Whether the recording started last writes depth: it asked for it and the
+     session was measuring depth. Valid from the startRecording() success callback.
+     */
+    bool isRecordingDepth() const { return _recordingDepth; }
 
     /*
      Android-only, not part of VROARSession's shared interface: the JNI layer
@@ -355,6 +392,23 @@ private:
     void recordFrameForRecording(VROARFrameARCore *arFrame);
 
     /*
+     Whether the running recording writes depth (see isRecordingDepth()), and the timestamp of the last
+     depth image handed to it (-1 before the first). Only touched on the render
+     thread.
+     */
+    bool _recordingDepth = false;
+    int64_t _lastRecordedDepthTimestampNs = -1;
+
+    /*
+     Copies the frame's smoothed depth (16-bit, millimetres) and the raw depth's
+     confidence (8-bit) into tightly packed buffers, unless the depth image is
+     not newer than the last recorded one by the recording's minimum interval.
+     Returns false, with the outputs unspecified, when there is nothing to record.
+     */
+    bool copyDepthForRecording(std::vector<uint8_t> &depth, std::vector<uint8_t> &confidence,
+                               int *width, int *height, int64_t *timestampNs);
+
+    /*
      The ARCore session.
      */
     arcore::Session *_session;
@@ -394,6 +448,7 @@ private:
     bool _semanticModeEnabled = false;
     bool _worldMeshDepthNeeded = false;  // set by onWorldMeshEnabled
     bool _frontCameraEnabled = false;            // use front camera via AR_AUGMENTED_FACE_MODE_MESH3D
+    bool _paused = false;  // pause() was called and run() has not been since: a config change keeps it paused
     bool _cloudAnchorsDisabledForFaceMode = false; // once disabled for face mode, keep disabled
 
     bool updateARCoreConfig();
@@ -458,6 +513,20 @@ private:
      Updated via setLastKnownLocation(); read via getCameraGeospatialPose().
      */
     mutable VROGeospatialPose _lastKnownGPSPose;
+
+    /*
+     Bumped every setLastKnownLocation() call; see getGpsFixSeq().
+     recordFrameForRecording() tracks the last value it already attached in
+     _lastRecordingGpsFixSeq.
+     */
+    int _gpsFixSeq = 0;
+    // Guards _lastKnownGPSPose, _gpsFixSeq and _lastRecordingGpsFixSeq between
+    // the JNI location callback (main thread) and the recorder (render thread).
+    mutable std::mutex _gpsPoseMutex;
+    int _lastRecordingGpsFixSeq = 0;
+    // See setCameraHeading(); guarded by _gpsPoseMutex.
+    double _cameraHeading = 0.0;
+    double _cameraHeadingAccuracy = -1.0;
 
     /*
      Per-frame anchor and trackable update handling.

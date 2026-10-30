@@ -29,11 +29,14 @@
 #include <btBulletDynamicsCommon.h>
 #include "VROPhysicsContactResultCallback.h"
 #include "VROPhysicsDebugDraw.h"
+#include "VROTime.h"
+#include <algorithm>
 
 static const float kPhysicsStepTime = 1 / 60.f;
 static const float kPhysicsMaxSteps = 10;
 
-VROPhysicsWorld::VROPhysicsWorld() {
+VROPhysicsWorld::VROPhysicsWorld() :
+    _lastStepTime(0) {
     // Set to a default DbvtBroadphase (Dynamic AABB tree) as recommended by bullet.
     _broadphase = new btDbvtBroadphase();
 
@@ -156,8 +159,15 @@ void VROPhysicsWorld::computePhysics(const VRORenderContext &context) {
         physicsBody->applyPresetVelocity();
     }
 
-    // Step through the physics simulation
-    _dynamicsWorld->stepSimulation(kPhysicsStepTime, kPhysicsMaxSteps);
+    // Step through the physics simulation by the time that really passed, in fixed substeps of
+    // kPhysicsStepTime that Bullet interpolates through the motion states. Advancing a fixed
+    // kPhysicsStepTime every frame ran the world 1.5x fast at 90 Hz and at half speed at 30 fps.
+    // A long gap (the app paused) is capped at kPhysicsMaxSteps substeps.
+    double now = VROTimeCurrentSeconds();
+    double elapsed = _lastStepTime > 0 ? now - _lastStepTime : kPhysicsStepTime;
+    _lastStepTime = now;
+    elapsed = std::min(elapsed, (double) (kPhysicsStepTime * kPhysicsMaxSteps));
+    _dynamicsWorld->stepSimulation((btScalar) elapsed, (int) kPhysicsMaxSteps, kPhysicsStepTime);
 
     // Cycle through collisions that has resulted from the step.
     computeCollisions();

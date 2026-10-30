@@ -7,6 +7,7 @@
 #include "VROSceneRendererOpenXR.h"
 
 #include <android/log.h>
+#include <algorithm>
 #include <sys/prctl.h>
 #include <unistd.h>
 
@@ -17,6 +18,7 @@
 #include "VROARSessionOpenXR.h"
 #include "VRONode.h"
 #include "VRONodeCamera.h"
+#include "VRORenderContext.h"
 #include "VROARScene.h"
 #include "VROSceneController.h"
 #include "VROLog.h"
@@ -52,6 +54,7 @@ static constexpr const char *const kOptionalExtensions[] = {
     XR_FB_SPATIAL_ENTITY_QUERY_EXTENSION_NAME,  // M5: query stored room entities
     XR_EXT_EYE_GAZE_INTERACTION_EXTENSION_NAME, // eye-gaze ray as an onHover source (Quest Pro only)
     XR_META_BOUNDARY_VISIBILITY_EXTENSION_NAME, // hide the boundary while passthrough shows the room
+    XR_FB_HAND_TRACKING_MESH_EXTENSION_NAME,    // skinned hand mesh for hand occlusion (capsules without it)
 
     // CL-H: co-location. All three are needed and none of them is optional to
     // each other — an anchor has to be STORABLE before it can be SHARABLE, and
@@ -202,7 +205,7 @@ VROSceneRendererOpenXR::VROSceneRendererOpenXR(VRORendererConfiguration config,
     _inputController->createActionSet(_instance, _session, _eyeGazeSupported);
     initHandTracking();  // no-op if XR_EXT_hand_tracking not available on this device
 
-    // Wire the B/Menu button back to Android's back-press so React Native's
+    // Wire the B and Y buttons to Android's back-press so React Native's
     // BackHandler fires in VRActivity. The callback runs on the render thread;
     // ViroViewOpenXR.onNativeBackButton() posts to the UI thread internally.
     {
@@ -229,6 +232,28 @@ VROSceneRendererOpenXR::VROSceneRendererOpenXR(VRORendererConfiguration config,
     // VROSceneRenderer::_renderer is null until explicitly set here — every other
     // platform (GVR, OVR) does the equivalent in their constructor.
     _renderer = std::make_shared<VRORenderer>(config, _inputController);
+
+    // Hand occlusion shares the input controller's hand trackers (null when
+    // hand tracking is unavailable, in which case it never draws). The base
+    // render pass calls the prepass per eye, right after clearing its target —
+    // the HDR target on Quest, not the swapchain, so it cannot live here in
+    // renderEye().
+    _handOcclusion = std::make_shared<VROHandOcclusionOpenXR>();
+    _handOcclusion->init(_instance, _handMeshAvailable,
+                         _inputController->getLocateHandJointsFn(),
+                         _inputController->getHandTracker(0),
+                         _inputController->getHandTracker(1));
+    {
+        std::weak_ptr<VROHandOcclusionOpenXR> handOcclusion_w = _handOcclusion;
+        _renderer->getRenderContext()->setDepthPrepass(
+            [handOcclusion_w](const VRORenderContext &context, std::shared_ptr<VRODriver> &driver) {
+                std::shared_ptr<VROHandOcclusionOpenXR> handOcclusion = handOcclusion_w.lock();
+                if (handOcclusion) {
+                    handOcclusion->renderDepth(
+                        context.getProjectionMatrix().multiply(context.getViewMatrix()), driver);
+                }
+            });
+    }
 
     // Point-of-view node for the head position; updated each frame in renderFrame().
     _pointOfView = std::make_shared<VRONode>();
@@ -328,6 +353,8 @@ bool VROSceneRendererOpenXR::initOpenXR() {
                     _eyeGazeAvailable = true;
                 if (strcmp(optExt, XR_META_BOUNDARY_VISIBILITY_EXTENSION_NAME) == 0)
                     _boundaryVisibilityAvailable = true;
+                if (strcmp(optExt, XR_FB_HAND_TRACKING_MESH_EXTENSION_NAME) == 0)
+                    _handMeshAvailable = true;
                 break;
             }
         }
@@ -569,6 +596,8 @@ bool VROSceneRendererOpenXR::createReferenceSpace() {
         ALOGE("LOCAL reference space creation failed: %d", r);
         return false;
     }
+    _spaceOffset     = spaceInfo.poseInReferenceSpace;
+    _roomMovePending = false;
     ALOGV("Reference space created (LOCAL — eye-level origin)");
     return true;
 }
@@ -746,7 +775,9 @@ void VROSceneRendererOpenXR::setPassthroughEnabled(bool enabled) {
 
     if (enabled) {
         // Ensure the passthrough subsystem is running before resuming the layer.
-        XR_CHECK(_pfnPassthroughStart(_passthrough));
+        // Starting it while it runs fails with UNEXPECTED_STATE, which a switch
+        // from one AR scene to another would otherwise do.
+        if (!_passthroughEnabled) XR_CHECK(_pfnPassthroughStart(_passthrough));
         XR_CHECK(_pfnPassthroughLayerResume(_passthroughLayer));
     } else {
         // Pause the layer first, then pause the subsystem (saves power).
@@ -791,6 +822,25 @@ void VROSceneRendererOpenXR::setPassthroughStyle(float opacity, float edgeR, flo
 void VROSceneRendererOpenXR::setHandTrackingEnabled(bool enabled) {
     if (_inputController) {
         _inputController->setHandTrackingEnabled(enabled);
+    }
+}
+
+void VROSceneRendererOpenXR::setHandOcclusionEnabled(bool enabled) {
+    if (_handOcclusion) {
+        _handOcclusion->setEnabled(enabled);
+    }
+    ALOGV("setHandOcclusionEnabled: %s", enabled ? "true" : "false");
+}
+
+void VROSceneRendererOpenXR::setHandOcclusionMode(VROHandOcclusionMode mode) {
+    if (_handOcclusion) {
+        _handOcclusion->setMode(mode);
+    }
+}
+
+void VROSceneRendererOpenXR::setHandOcclusionInflateMm(float mm) {
+    if (_handOcclusion) {
+        _handOcclusion->setInflateMm(mm);
     }
 }
 
@@ -980,6 +1030,7 @@ void VROSceneRendererOpenXR::onDestroy() {
     if (_inputController) {
         _inputController->destroyHandTrackers();
         _inputController->destroySpaces();
+        _inputController->destroyActionSet();
     }
     destroySession();
     destroyEGLContext();
@@ -1024,27 +1075,34 @@ void VROSceneRendererOpenXR::onTouchEvent(int /*action*/, float /*x*/, float /*y
 void VROSceneRendererOpenXR::onKeyEvent(int /*keyCode*/, int /*action*/) {}
 
 void VROSceneRendererOpenXR::recenterTracking() {
-    if (_session == XR_NULL_HANDLE) return;
+    _recenterRequested = true;
+}
 
-    // Create a temporary VIEW space to locate the head pose.
-    XrReferenceSpaceCreateInfo viewSpaceInfo = { XR_TYPE_REFERENCE_SPACE_CREATE_INFO };
-    viewSpaceInfo.referenceSpaceType    = XR_REFERENCE_SPACE_TYPE_VIEW;
-    viewSpaceInfo.poseInReferenceSpace  = { {0, 0, 0, 1}, {0, 0, 0} };
-    XrSpace viewSpace = XR_NULL_HANDLE;
-    if (XR_FAILED(xrCreateReferenceSpace(_session, &viewSpaceInfo, &viewSpace))) {
-        ALOGE("recenterTracking: failed to create VIEW space");
-        return;
-    }
+XrSpace VROSceneRendererOpenXR::applyRecenter(XrTime time) {
+    // The head is located in LOCAL, which the new space's pose is relative to,
+    // not in _stageSpace, which an earlier recentre moved away from LOCAL.
+    XrReferenceSpaceCreateInfo refInfo = { XR_TYPE_REFERENCE_SPACE_CREATE_INFO };
+    refInfo.poseInReferenceSpace = { {0, 0, 0, 1}, {0, 0, 0} };
+    XrSpace viewSpace  = XR_NULL_HANDLE;
+    XrSpace localSpace = XR_NULL_HANDLE;
+    refInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_VIEW;
+    bool created = XR_SUCCEEDED(xrCreateReferenceSpace(_session, &refInfo, &viewSpace));
+    refInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
+    created = created && XR_SUCCEEDED(xrCreateReferenceSpace(_session, &refInfo, &localSpace));
 
-    // Locate head (VIEW) relative to the current stage space.
-    // Use _lastPredictedDisplayTime so the pose is from the most recent frame.
     XrSpaceLocation headLoc = { XR_TYPE_SPACE_LOCATION };
-    xrLocateSpace(viewSpace, _stageSpace, _lastPredictedDisplayTime, &headLoc);
-    xrDestroySpace(viewSpace);
-
+    if (created) {
+        xrLocateSpace(viewSpace, localSpace, time, &headLoc);
+    }
+    if (viewSpace != XR_NULL_HANDLE)  xrDestroySpace(viewSpace);
+    if (localSpace != XR_NULL_HANDLE) xrDestroySpace(localSpace);
+    if (!created) {
+        ALOGE("recenterTracking: failed to create the VIEW or LOCAL space");
+        return XR_NULL_HANDLE;
+    }
     if (!(headLoc.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT)) {
         ALOGW("recenterTracking: head orientation not valid — skipped");
-        return;
+        return XR_NULL_HANDLE;
     }
 
     // Extract yaw from head orientation (keep scene upright — Y-axis rotation only).
@@ -1064,13 +1122,27 @@ void VROSceneRendererOpenXR::recenterTracking() {
                                                     cosf(yaw * 0.5f) };
 
     XrSpace newSpace = XR_NULL_HANDLE;
-    if (XR_SUCCEEDED(xrCreateReferenceSpace(_session, &spaceInfo, &newSpace))) {
-        xrDestroySpace(_stageSpace);
-        _stageSpace = newSpace;
-        ALOGV("recenterTracking: recentered (yaw=%.2f rad)", yaw);
-    } else {
+    if (XR_FAILED(xrCreateReferenceSpace(_session, &spaceInfo, &newSpace))) {
         ALOGE("recenterTracking: xrCreateReferenceSpace failed");
+        return XR_NULL_HANDLE;
     }
+
+    // LOCAL stays put, so a point fixed in the room keeps its LOCAL coordinates
+    // and its scene coordinates move, as after a system recentre.
+    VROMatrix4f move = xrPoseToMatrix(spaceInfo.poseInReferenceSpace).invert()
+        .multiply(xrPoseToMatrix(_spaceOffset));
+    _roomMoveAt      = _roomMovePending ? std::max(_roomMoveAt, time) : time;
+    _roomMove        = _roomMovePending ? move.multiply(_roomMove) : move;
+    _roomMovePending = true;
+
+    XrSpace oldSpace = _stageSpace;
+    _stageSpace  = newSpace;
+    _spaceOffset = spaceInfo.poseInReferenceSpace;
+    if (_arSession) {
+        _arSession->replaceBaseSpace(newSpace);
+    }
+    ALOGV("recenterTracking: recentered (yaw=%.2f rad)", yaw);
+    return oldSpace;
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1125,6 +1197,12 @@ void VROSceneRendererOpenXR::renderLoop() {
         }
     }
 
+    // The hand occlusion GL objects belong to this context; free them while
+    // it is still current. They are recreated if the render thread restarts.
+    if (_handOcclusion) {
+        _handOcclusion->destroyGL();
+    }
+
     _jvm->DetachCurrentThread();
     eglMakeCurrent(_eglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     ALOGV("Render thread exited");
@@ -1140,9 +1218,30 @@ void VROSceneRendererOpenXR::pollEvents() {
                 handleSessionStateChange(stateEvent);
                 break;
             }
-            case XR_TYPE_EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING:
-                ALOGV("Reference space change pending — content may shift");
+            case XR_TYPE_EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING: {
+                auto *change =
+                    reinterpret_cast<XrEventDataReferenceSpaceChangePending *>(&event);
+                ALOGV("Reference space change pending (type %d, pose valid %d)",
+                      (int)change->referenceSpaceType, (int)change->poseValid);
+                // A recentre moves LOCAL, the space the scene is drawn in.
+                if (change->referenceSpaceType == XR_REFERENCE_SPACE_TYPE_LOCAL) {
+                    if (_arSession) {
+                        _arSession->onBaseSpaceChangePending(change->changeTime);
+                    }
+                    if (change->poseValid) {
+                        // poseInPreviousSpace is the new LOCAL origin in the old one.
+                        // _stageSpace keeps its offset from whichever LOCAL is current.
+                        VROMatrix4f offset = xrPoseToMatrix(_spaceOffset);
+                        VROMatrix4f move = offset.invert()
+                            .multiply(xrPoseToMatrix(change->poseInPreviousSpace).invert())
+                            .multiply(offset);
+                        _roomMove        = _roomMovePending ? move.multiply(_roomMove) : move;
+                        _roomMoveAt      = change->changeTime;
+                        _roomMovePending = true;
+                    }
+                }
                 break;
+            }
             case XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING:
                 ALOGE("Instance loss pending — shutting down");
                 _running = false;
@@ -1185,6 +1284,16 @@ void VROSceneRendererOpenXR::handleSessionStateChange(
     _sessionState = event->state;
     ALOGV("Session state → %d", (int)_sessionState);
 
+    // The first focus is the scene starting, so only later changes are reported.
+    bool focused = _sessionState == XR_SESSION_STATE_FOCUSED;
+    if (focused != _inputFocused) {
+        _inputFocused = focused;
+        if (_hasBeenFocused) {
+            notifyInputFocus(focused);
+        }
+        _hasBeenFocused = _hasBeenFocused || focused;
+    }
+
     switch (_sessionState) {
         case XR_SESSION_STATE_READY: {
             XrSessionBeginInfo beginInfo = { XR_TYPE_SESSION_BEGIN_INFO };
@@ -1209,6 +1318,43 @@ void VROSceneRendererOpenXR::handleSessionStateChange(
     }
 }
 
+void VROSceneRendererOpenXR::notifyInputFocus(bool focused) {
+    JNIEnv *env = nullptr;
+    bool attached = false;
+    if (_jvm->GetEnv((void **)&env, JNI_VERSION_1_6) == JNI_EDETACHED) {
+        _jvm->AttachCurrentThread(&env, nullptr);
+        attached = true;
+    }
+    if (env) {
+        jclass cls = env->GetObjectClass(_jview);
+        jmethodID mid = env->GetMethodID(cls, "onNativeInputFocusChanged", "(Z)V");
+        env->DeleteLocalRef(cls);
+        if (mid) env->CallVoidMethod(_jview, mid, (jboolean)focused);
+    }
+    if (attached) _jvm->DetachCurrentThread();
+}
+
+void VROSceneRendererOpenXR::notifyRoomMoved(const VROMatrix4f &move) {
+    JNIEnv *env = nullptr;
+    bool attached = false;
+    if (_jvm->GetEnv((void **)&env, JNI_VERSION_1_6) == JNI_EDETACHED) {
+        _jvm->AttachCurrentThread(&env, nullptr);
+        attached = true;
+    }
+    if (env) {
+        jclass cls = env->GetObjectClass(_jview);
+        jmethodID mid = env->GetMethodID(cls, "onNativeRoomMoved", "([F)V");
+        env->DeleteLocalRef(cls);
+        jfloatArray array = env->NewFloatArray(16);
+        if (mid && array) {
+            env->SetFloatArrayRegion(array, 0, 16, move.getArray());
+            env->CallVoidMethod(_jview, mid, array);
+        }
+        if (array) env->DeleteLocalRef(array);
+    }
+    if (attached) _jvm->DetachCurrentThread();
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // Frame render
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1222,7 +1368,16 @@ void VROSceneRendererOpenXR::renderFrame() {
     XrFrameWaitInfo waitInfo  = { XR_TYPE_FRAME_WAIT_INFO };
     XrFrameState    frameState= { XR_TYPE_FRAME_STATE };
     XR_CHECK(xrWaitFrame(_session, &waitInfo, &frameState));
-    _lastPredictedDisplayTime = frameState.predictedDisplayTime;
+
+    // Applied here, before anything this frame uses _stageSpace
+    XrSpace retiredSpace = _recenterRequested.exchange(false)
+        ? applyRecenter(frameState.predictedDisplayTime)
+        : XR_NULL_HANDLE;
+
+    if (_roomMovePending && frameState.predictedDisplayTime >= _roomMoveAt) {
+        _roomMovePending = false;
+        notifyRoomMoved(_roomMove);
+    }
 
     // ── Begin frame ───────────────────────────────────────────────────────────
     XrFrameBeginInfo beginInfo = { XR_TYPE_FRAME_BEGIN_INFO };
@@ -1244,6 +1399,10 @@ void VROSceneRendererOpenXR::renderFrame() {
     // prepareFrame() so anchor node transforms are current for this frame.
     if (_arSession) {
         _arSession->setDisplayTime(frameState.predictedDisplayTime);
+        if (viewState.viewStateFlags & XR_VIEW_STATE_POSITION_VALID_BIT) {
+            _arSession->setHeadPosition((xrVec3ToVRO(views[0].pose.position) +
+                                         xrVec3ToVRO(views[1].pose.position)).scale(0.5f));
+        }
         _arSession->updateFrame();
     }
 
@@ -1297,6 +1456,14 @@ void VROSceneRendererOpenXR::renderFrame() {
             _inputController->onProcess(_session, _stageSpace,
                                          frameState.predictedDisplayTime,
                                          _renderer->getCamera());
+        }
+
+        // Locate the hands at this frame's predicted display time (the time
+        // the views were located at) for the depth prepass in each eye.
+        if (_handOcclusion) {
+            bool handTracking = _inputController && _inputController->isHandTrackingEnabled();
+            _handOcclusion->update(_stageSpace, frameState.predictedDisplayTime,
+                                   _passthroughEnabled && handTracking);
         }
 
         for (uint32_t eye = 0; eye < 2; ++eye) {
@@ -1371,6 +1538,9 @@ void VROSceneRendererOpenXR::renderFrame() {
     }
 
     XrResult endResult = xrEndFrame(_session, &endInfo);
+    if (retiredSpace != XR_NULL_HANDLE) {
+        xrDestroySpace(retiredSpace);
+    }
     if (XR_FAILED(endResult)) {
         ALOGE("xrEndFrame FAILED: result=%d state=%d shouldRender=%d layerCount=%u",
               (int)endResult, (int)_sessionState,
@@ -1427,6 +1597,7 @@ void VROSceneRendererOpenXR::renderEye(int eyeIndex,
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     }
+    display->discardDepth();
 
     // ── Release swapchain image ───────────────────────────────────────────────
     XrSwapchainImageReleaseInfo releaseInfo = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };

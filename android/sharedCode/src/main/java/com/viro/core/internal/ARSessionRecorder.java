@@ -36,14 +36,26 @@ import android.os.Looper;
 import android.util.Log;
 
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class ARSessionRecorder {
 
     private static final String TAG = "Viro";
+    // How long stop() waits for the encoder to take the end of the stream and hand back its last frames.
+    private static final long END_OF_STREAM_TIMEOUT_NS = 2_000_000_000L;
+    // Depth frames waiting to be encoded and written; past this, new ones are dropped rather
+    // than letting a slow disk grow the queue (each holds a depth map and its confidence).
+    private static final int MAX_PENDING_DEPTH_FRAMES = 12;
+    // How long stop() waits for queued depth frames to reach the disk.
+    private static final long DEPTH_DRAIN_TIMEOUT_S = 30;
 
     public interface ErrorListener {
         /** Invoked off the calling thread if the encoder/sidecar fails mid-recording. */
@@ -86,6 +98,14 @@ public class ARSessionRecorder {
     private byte[] mI420Buffer;
     private boolean mWarnedNoInputImage = false;
 
+    // Depth: PNG encoding and file writes happen on mDepthExecutor, since
+    // onRecordingFrame() runs on the GL thread. mDepthActive is set once from native
+    // before the first frame; the rest is touched by onRecordingFrame() and the executor.
+    private boolean mDepthActive = false;
+    private ExecutorService mDepthExecutor;
+    private final AtomicInteger mPendingDepthFrames = new AtomicInteger();
+    private int mNextDepthIndex = 0;
+
     public ARSessionRecorder(Context context, ErrorListener errorListener) {
         mContext = context;
         mErrorListener = errorListener;
@@ -100,6 +120,8 @@ public class ARSessionRecorder {
         mWroteHeader = false;
         mFirstTimestampNs = -1;
         mHaveGyro = false;
+        mDepthActive = false;
+        mNextDepthIndex = 0;
 
         mSidecar = new FileWriter(new File(dir, "session.jsonl"), false);
 
@@ -152,6 +174,25 @@ public class ARSessionRecorder {
         mVideoTrackIndex = -1;
     }
 
+    /**
+     * Called from native once the recording has started, before the first frame: whether
+     * this recording carries depth. The header's `depth` field says so, so it is only
+     * true when depth can really be written (ARCore measuring it, and depth/ creatable).
+     */
+    public synchronized void setDepthActive(boolean active) {
+        if (active && mOutputDir != null) {
+            File depthDir = new File(mOutputDir, "depth");
+            active = depthDir.isDirectory() || depthDir.mkdirs();
+            if (!active) {
+                Log.w(TAG, "ARSessionRecorder: could not create " + depthDir + ", recording without depth");
+            }
+        }
+        mDepthActive = active;
+        if (active && mDepthExecutor == null) {
+            mDepthExecutor = Executors.newSingleThreadExecutor();
+        }
+    }
+
     public synchronized void stop() {
         if (mSensorManager != null && mSensorListener != null) {
             mSensorManager.unregisterListener(mSensorListener);
@@ -194,8 +235,30 @@ public class ARSessionRecorder {
             mMuxer = null;
         }
         mMuxerStarted = false;
+        drainDepthWrites();
         flushBufferedLinesSorted();
         closeSidecarQuietly();
+    }
+
+    // Every depth line must be buffered before the sorted flush, so wait for the queue.
+    private void drainDepthWrites() {
+        ExecutorService executor = mDepthExecutor;
+        mDepthExecutor = null;
+        mDepthActive = false;
+        if (executor == null) {
+            return;
+        }
+        executor.shutdown();
+        try {
+            if (!executor.awaitTermination(DEPTH_DRAIN_TIMEOUT_S, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+                reportError("depth frames were still being written after "
+                        + DEPTH_DRAIN_TIMEOUT_S + " s, the recording's depth is incomplete");
+            }
+        } catch (InterruptedException e) {
+            executor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
     }
 
     private void closeSidecarQuietly() {
@@ -223,11 +286,22 @@ public class ARSessionRecorder {
      * JNI) once per frame. dims = [width, height, yRowStride, uRowStride,
      * uPixelStride, vRowStride, vPixelStride]; pose = [qx,qy,qz,qw, px,py,pz,
      * fx,fy,cx,cy] (11 floats) — orientation as a quaternion rather than a
-     * full matrix, same convention as the iOS recorder and the plan's
-     * session.jsonl format.
+     * full matrix, same convention as the iOS recorder's session.jsonl
+     * format. geo = [hasGps(0/1), lat, lon, alt, hAccuracy, heading,
+     * headingAccuracy], doubles so lat/lon keep centimetre precision; only
+     * attached to this one pose line when hasGps is 1. A negative or
+     * non-finite heading accuracy means there is no valid heading, and the
+     * heading is written as null.
+     * <p>
+     * depth, depthConfidence, depthDims = [width, height] and depthTimestampNs are null/0
+     * unless this frame carries a new depth image: depth is tightly packed little-endian
+     * 16-bit millimetres, depthConfidence tightly packed 8-bit, both of the depth map's
+     * size. The depth image can be older than this frame, hence its own timestamp.
      */
     public synchronized void onRecordingFrame(byte[] y, byte[] u, byte[] v, int[] dims,
-                                               long timestampNs, float[] pose) {
+                                               long timestampNs, float[] pose, double[] geo,
+                                               byte[] depth, byte[] depthConfidence, int[] depthDims,
+                                               long depthTimestampNs) {
         if (mSidecar == null) {
             return; // stop() already ran
         }
@@ -240,7 +314,11 @@ public class ARSessionRecorder {
         }
 
         writeHeaderIfNeeded(width, height, pose[7], pose[8], pose[9], pose[10]);
-        writePoseLine(timestampNs, pose);
+        writePoseLine(timestampNs, pose, geo);
+        if (mDepthActive && depth != null && depthConfidence != null && depthDims != null) {
+            enqueueDepthFrame(depth, depthConfidence, depthDims[0], depthDims[1], depthTimestampNs,
+                              width, height, pose[7], pose[8], pose[9], pose[10]);
+        }
 
         try {
             encodeFrame(y, u, v, width, height, yStride, uStride, uPixelStride, vStride, vPixelStride,
@@ -255,13 +333,13 @@ public class ARSessionRecorder {
             return;
         }
         mWroteHeader = true;
-        // Extrinsics default to identity — a safe fallback per the plan;
+        // Extrinsics default to identity — a safe fallback;
         // ARCore does not expose a per-device IMU/camera calibration to do
         // better here (matches the iOS recorder's same default).
         String line = String.format(Locale.US,
             "{\"type\":\"header\",\"intrinsics\":{\"fx\":%.4f,\"fy\":%.4f,\"cx\":%.4f,\"cy\":%.4f,\"width\":%d,\"height\":%d}," +
-            "\"extrinsics\":{\"q_imu_cam\":[0,0,0,1],\"p_imu_cam\":[0,0,0],\"time_offset\":0.0}}",
-            fx, fy, cx, cy, width, height);
+            "\"extrinsics\":{\"q_imu_cam\":[0,0,0,1],\"p_imu_cam\":[0,0,0],\"time_offset\":0.0},\"depth\":%b}",
+            fx, fy, cx, cy, width, height, mDepthActive);
         // Written immediately, not buffered — the header must be the sidecar's
         // first line, which it always is as long as it's flushed before any
         // buffered imu/pose line (guaranteed: header is only ever written from
@@ -281,13 +359,90 @@ public class ARSessionRecorder {
         }
     }
 
-    private void writePoseLine(long timestampNs, float[] pose) {
-        String line = String.format(Locale.US,
+    private void writePoseLine(long timestampNs, float[] pose, double[] geo) {
+        StringBuilder sb = new StringBuilder(192);
+        sb.append(String.format(Locale.US,
             "{\"type\":\"pose\",\"t\":%d,\"orientation\":[%.6f,%.6f,%.6f,%.6f]," +
-            "\"position\":[%.6f,%.6f,%.6f],\"gravity\":[%.6f,%.6f,%.6f]}",
+            "\"position\":[%.6f,%.6f,%.6f],\"gravity\":[%.6f,%.6f,%.6f]",
             timestampNs, pose[0], pose[1], pose[2], pose[3], pose[4], pose[5], pose[6],
-            mLastGravity[0], mLastGravity[1], mLastGravity[2]);
-        bufferLine(timestampNs, line);
+            mLastGravity[0], mLastGravity[1], mLastGravity[2]));
+        // geo[0] (hasGps) gates the whole field. A position without a valid
+        // heading is still written, with the heading fields null.
+        if (geo != null && geo.length >= 7 && geo[0] != 0
+                && isFinite(geo[1]) && isFinite(geo[2]) && isFinite(geo[3])) {
+            String hAcc = isFinite(geo[4]) && geo[4] >= 0 ? String.format(Locale.US, "%.3f", geo[4]) : "null";
+            boolean headingOk = isFinite(geo[5]) && geo[5] >= 0 && geo[5] < 360
+                    && isFinite(geo[6]) && geo[6] >= 0;
+            String heading = headingOk ? String.format(Locale.US, "%.3f", geo[5]) : "null";
+            String headingAcc = headingOk ? String.format(Locale.US, "%.3f", geo[6]) : "null";
+            sb.append(String.format(Locale.US,
+                ",\"gps\":{\"lat\":%.8f,\"lon\":%.8f,\"alt\":%.3f," +
+                "\"h_accuracy\":%s,\"heading\":%s,\"heading_accuracy\":%s}",
+                geo[1], geo[2], geo[3], hAcc, heading, headingAcc));
+        }
+        sb.append("}");
+        bufferLine(timestampNs, sb.toString());
+    }
+
+    // Intrinsics are the camera image's; the depth map is a different size, so each axis is
+    // scaled by its own ratio. Encoding and writing happen off this thread; the depth line goes
+    // through the same sorted buffer as pose, and only once both PNGs are on disk.
+    private void enqueueDepthFrame(final byte[] depth, final byte[] confidence,
+                                   final int depthWidth, final int depthHeight,
+                                   final long depthTimestampNs, int imageWidth, int imageHeight,
+                                   float fx, float fy, float cx, float cy) {
+        ExecutorService executor = mDepthExecutor;
+        if (executor == null || depthWidth <= 0 || depthHeight <= 0 || imageWidth <= 0 || imageHeight <= 0) {
+            return;
+        }
+        if (mPendingDepthFrames.get() >= MAX_PENDING_DEPTH_FRAMES) {
+            Log.w(TAG, "ARSessionRecorder: depth writes are behind, dropping a depth frame");
+            return;
+        }
+        final float sx = (float) depthWidth / imageWidth;
+        final float sy = (float) depthHeight / imageHeight;
+        final float dfx = fx * sx, dfy = fy * sy, dcx = cx * sx, dcy = cy * sy;
+        final String depthName = String.format(Locale.US, "depth/%06d.png", mNextDepthIndex);
+        final String confidenceName = String.format(Locale.US, "depth/%06d_c.png", mNextDepthIndex);
+        mNextDepthIndex++;
+        final String outputDir = mOutputDir;
+
+        mPendingDepthFrames.incrementAndGet();
+        executor.execute(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    writeFile(new File(outputDir, depthName),
+                              PngGrayEncoder.encodeGray16(depth, depthWidth, depthHeight, true));
+                    writeFile(new File(outputDir, confidenceName),
+                              PngGrayEncoder.encodeGray8(confidence, depthWidth, depthHeight));
+                } catch (Exception e) {
+                    Log.w(TAG, "ARSessionRecorder: depth frame " + depthName + " not written", e);
+                    new File(outputDir, depthName).delete();
+                    new File(outputDir, confidenceName).delete();
+                    return;
+                } finally {
+                    mPendingDepthFrames.decrementAndGet();
+                }
+                String line = String.format(Locale.US,
+                    "{\"type\":\"depth\",\"t\":%d,\"file\":\"%s\",\"confidence\":\"%s\"," +
+                    "\"width\":%d,\"height\":%d,\"scale\":1000," +
+                    "\"fx\":%.4f,\"fy\":%.4f,\"cx\":%.4f,\"cy\":%.4f,\"source\":\"arcore\"}",
+                    depthTimestampNs, depthName, confidenceName, depthWidth, depthHeight,
+                    dfx, dfy, dcx, dcy);
+                bufferLine(depthTimestampNs, line);
+            }
+        });
+    }
+
+    private static void writeFile(File file, byte[] bytes) throws IOException {
+        try (FileOutputStream out = new FileOutputStream(file)) {
+            out.write(bytes);
+        }
+    }
+
+    private static boolean isFinite(double v) {
+        return !Double.isNaN(v) && !Double.isInfinite(v);
     }
 
     private void writeImuLine(long timestampNs, float ax, float ay, float az,
@@ -505,13 +660,8 @@ public class ARSessionRecorder {
     }
 
     private void drainEncoder(boolean endOfStream) {
-        if (endOfStream) {
-            try {
-                mEncoder.signalEndOfInputStream();
-            } catch (Exception e) {
-                Log.w(TAG, "ARSessionRecorder: signalEndOfInputStream failed", e);
-            }
-        }
+        boolean waitForEnd = endOfStream && queueEndOfStream();
+        long deadline = System.nanoTime() + END_OF_STREAM_TIMEOUT_NS;
         MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
         while (true) {
             int outputIndex = mEncoder.dequeueOutputBuffer(info, 10_000);
@@ -530,9 +680,33 @@ public class ARSessionRecorder {
                 if ((info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
                     break;
                 }
+            } else if (waitForEnd && System.nanoTime() < deadline) {
+                continue; // the encoder is still flushing the frames before the end
             } else {
+                if (waitForEnd) {
+                    Log.w(TAG, "ARSessionRecorder: encoder did not finish; the last frames may be missing");
+                }
                 break; // INFO_TRY_AGAIN_LATER or INFO_OUTPUT_BUFFERS_CHANGED (deprecated path, ignored)
             }
         }
+    }
+
+    /**
+     * Frames go in as byte buffers, so the stream ends with an empty buffer
+     * flagged end-of-stream: signalEndOfInputStream() is only for an input
+     * Surface, and throws here. False when no input buffer came free in time.
+     */
+    private boolean queueEndOfStream() {
+        long deadline = System.nanoTime() + END_OF_STREAM_TIMEOUT_NS;
+        while (System.nanoTime() < deadline) {
+            int inputIndex = mEncoder.dequeueInputBuffer(10_000);
+            if (inputIndex >= 0) {
+                mEncoder.queueInputBuffer(inputIndex, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+                return true;
+            }
+            drainEncoder(false);
+        }
+        Log.w(TAG, "ARSessionRecorder: no encoder input buffer to end the stream; the last frames may be missing");
+        return false;
     }
 }

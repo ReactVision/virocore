@@ -116,6 +116,8 @@ public class ViroViewOpenXR extends ViroView {
     private List<FrameListener> mFrameListeners = new CopyOnWriteArrayList<>();
     private PlatformUtil mPlatformUtil;
     private StartupListener mStartupListener;
+    private volatile InputFocusListener mInputFocusListener;
+    private volatile RoomMoveListener mRoomMoveListener;
     private Application mApplication; // for unregistering ActivityLifecycleCallbacks
     private boolean mResumed = false;  // tracks renderer.onResume / onPause balance
     private ViroMediaRecorder mMediaRecorder; // lazily created; see getRecorder()
@@ -129,6 +131,9 @@ public class ViroViewOpenXR extends ViroView {
     private Boolean mPendingHandTrackingEnabled = null;
     // {opacity, edgeR, edgeG, edgeB, edgeA} or null if never set.
     private float[] mPendingPassthroughStyle = null;
+    private Boolean mPendingHandOcclusionEnabled = null;
+    private Boolean mPendingHandOcclusionUseMesh = null;
+    private Float mPendingHandOcclusionInflateMm = null;
 
     // ── Constructors ─────────────────────────────────────────────────────────────
 
@@ -253,6 +258,15 @@ public class ViroViewOpenXR extends ViroView {
         if (mPendingPassthroughStyle != null) {
             float[] s = mPendingPassthroughStyle;
             mNativeRenderer.setPassthroughStyle(s[0], s[1], s[2], s[3], s[4]);
+        }
+        if (mPendingHandOcclusionUseMesh != null) {
+            mNativeRenderer.setHandOcclusionMode(mPendingHandOcclusionUseMesh);
+        }
+        if (mPendingHandOcclusionInflateMm != null) {
+            mNativeRenderer.setHandOcclusionInflateMm(mPendingHandOcclusionInflateMm);
+        }
+        if (mPendingHandOcclusionEnabled != null) {
+            mNativeRenderer.setHandOcclusionEnabled(mPendingHandOcclusionEnabled);
         }
 
         // Notify caller that the renderer is ready. Posted async to keep the
@@ -446,6 +460,47 @@ public class ViroViewOpenXR extends ViroView {
         mPendingHandTrackingEnabled = enabled;
         if (mNativeRenderer != null) {
             mNativeRenderer.setHandTrackingEnabled(enabled);
+        }
+    }
+
+    /**
+     * Let the user's real hands show through virtual content in passthrough. Each
+     * frame the tracked hands are drawn into the depth buffer only, before the
+     * scene, so virtual content behind a hand is not drawn and the passthrough
+     * hand shows. Off by default. Only takes effect while passthrough and hand
+     * tracking are both enabled; otherwise a no-op. Can be toggled at runtime.
+     *
+     * @param enabled {@code true} to cut the hands out of virtual content.
+     */
+    public void setHandOcclusionEnabled(boolean enabled) {
+        mPendingHandOcclusionEnabled = enabled;
+        if (mNativeRenderer != null) {
+            mNativeRenderer.setHandOcclusionEnabled(enabled);
+        }
+    }
+
+    /**
+     * Hand geometry used for hand occlusion: {@code "mesh"} (default) for the
+     * runtime's skinned hand mesh (XR_FB_hand_tracking_mesh, falling back to
+     * capsules when absent), or {@code "capsules"} for capsules built from the
+     * hand joints. Unknown values are treated as {@code "mesh"}.
+     */
+    public void setHandOcclusionMode(String mode) {
+        boolean useMesh = !"capsules".equals(mode);
+        mPendingHandOcclusionUseMesh = useMesh;
+        if (mNativeRenderer != null) {
+            mNativeRenderer.setHandOcclusionMode(useMesh);
+        }
+    }
+
+    /**
+     * Grow the hand occlusion geometry by this many millimetres (default 2), so
+     * small tracking misfit does not leave slivers of the real hand covered.
+     */
+    public void setHandOcclusionInflateMm(float mm) {
+        mPendingHandOcclusionInflateMm = mm;
+        if (mNativeRenderer != null) {
+            mNativeRenderer.setHandOcclusionInflateMm(mm);
         }
     }
 
@@ -719,10 +774,9 @@ public class ViroViewOpenXR extends ViroView {
     // ── Callbacks from native (VROSceneRendererOpenXR) ─────────────────────────────
 
     /**
-     * Called by native code (render thread) when the B or Menu controller button
-     * is pressed, or the left-palm menu pinch is made with hand tracking. Posts
-     * Activity.onBackPressed() to the UI thread so React Native's BackHandler
-     * receives the event in VRActivity.
+     * Called by native code (render thread) when the B or Y controller button is
+     * pressed. Posts Activity.onBackPressed() to the UI thread so React Native's
+     * BackHandler receives the event in VRActivity.
      *
      * @hide
      */
@@ -731,6 +785,66 @@ public class ViroViewOpenXR extends ViroView {
         if (activity != null) {
             activity.runOnUiThread(activity::onBackPressed);
         }
+    }
+
+    /**
+     * Called by native code (render thread) when the session gains or loses
+     * input focus after its first focus. Posts to the UI thread.
+     *
+     * @hide
+     */
+    void onNativeInputFocusChanged(boolean focused) {
+        new Handler(Looper.getMainLooper()).post(() -> {
+            InputFocusListener listener = mInputFocusListener;
+            if (listener != null) {
+                listener.onInputFocusChanged(focused);
+            }
+        });
+    }
+
+    /**
+     * Told on the UI thread when Horizon OS takes input focus from the scene
+     * (its menu, a system dialog, the headset sleeping) and when it gives it
+     * back. Meta's store requires a single-player app to pause meanwhile; the
+     * renderer keeps drawing, and controller and hand input stops on its own.
+     */
+    public interface InputFocusListener {
+        void onInputFocusChanged(boolean focused);
+    }
+
+    public void setInputFocusListener(InputFocusListener listener) {
+        mInputFocusListener = listener;
+    }
+
+    /**
+     * Called by native code (render thread) on the frame a recentre takes
+     * effect. Posts to the UI thread.
+     *
+     * @hide
+     */
+    void onNativeRoomMoved(float[] move) {
+        new Handler(Looper.getMainLooper()).post(() -> {
+            RoomMoveListener listener = mRoomMoveListener;
+            if (listener != null) {
+                listener.onRoomMoved(move);
+            }
+        });
+    }
+
+    /**
+     * Told on the UI thread when the scene's coordinates move against the room:
+     * a recentre, or the headset waking. A point fixed in the room was at p and
+     * is now at {@code move} times p ({@code move} is a column-major 4x4).
+     * Room planes follow on their own; content an app placed in the room at
+     * scene coordinates follows only if the app applies {@code move} to it.
+     * Content left alone follows the wearer, which is what a recentre is for.
+     */
+    public interface RoomMoveListener {
+        void onRoomMoved(float[] move);
+    }
+
+    public void setRoomMoveListener(RoomMoveListener listener) {
+        mRoomMoveListener = listener;
     }
 
     /**

@@ -41,6 +41,7 @@
 #include <openxr/openxr.h>
 #include <openxr/openxr_platform.h>
 #include "VROOpenXRBoundaryVisibility.h"
+#include "VROHandOcclusionOpenXR.h"
 
 class VRORendererConfiguration;
 class VRODriverOpenGLAndroidOpenXR;
@@ -74,6 +75,7 @@ public:
     void onTouchEvent(int action, float x, float y);
     void onKeyEvent(int keyCode, int action);
     void setVRModeEnabled(bool enabled) {}
+    // Any thread: the render thread applies it at its next frame.
     void recenterTracking();
 
     // Wire up the Quest MR (AR) session when the scene is a VROARScene. For a
@@ -98,6 +100,27 @@ public:
      */
     void setPassthroughStyle(float opacity, float edgeR, float edgeG, float edgeB, float edgeA);
     void setHandTrackingEnabled(bool enabled);
+
+    /**
+     * Let the user's real hands show through virtual content in passthrough:
+     * each eye, the tracked hands are drawn depth-only before the scene, so
+     * whatever is behind them is never written and the passthrough hand shows.
+     * Off by default. Only draws while passthrough and hand tracking are both
+     * on (otherwise a no-op, logged once). Safe from any thread; applies on the
+     * next frame.
+     */
+    void setHandOcclusionEnabled(bool enabled);
+    /**
+     * Hand geometry: Mesh (XR_FB_hand_tracking_mesh, the default) or Capsules
+     * built from the joints. Mesh falls back to Capsules when the extension is
+     * absent.
+     */
+    void setHandOcclusionMode(VROHandOcclusionMode mode);
+    /**
+     * Grow the hand geometry by this many millimetres (default 2) so tracking
+     * misfit does not leave slivers of the real hand covered.
+     */
+    void setHandOcclusionInflateMm(float mm);
 
     /*
      Per-eye swapchain dimensions, or 0 until the session has created them.
@@ -146,7 +169,16 @@ private:
     XrSpace         _stageSpace = XR_NULL_HANDLE;  // XR_REFERENCE_SPACE_TYPE_STAGE
 
     XrSessionState  _sessionState             = XR_SESSION_STATE_UNKNOWN;
-    XrTime          _lastPredictedDisplayTime = 0;  // updated each frame; used by recenterTracking()
+    bool            _inputFocused             = false;
+    bool            _hasBeenFocused           = false;
+    std::atomic<bool> _recenterRequested { false };
+    XrPosef         _spaceOffset = { {0, 0, 0, 1}, {0, 0, 0} };  // _stageSpace's pose in LOCAL
+
+    // A recentre moves LOCAL, so a point fixed in the room has new scene
+    // coordinates from _roomMoveAt on: _roomMove maps the old ones to the new.
+    bool            _roomMovePending = false;
+    XrTime          _roomMoveAt      = 0;
+    VROMatrix4f     _roomMove;
     bool            _sessionRunning        = false;
     bool            _passthroughEnabled    = false;
     bool            _handTrackingAvailable = false;  // XR_EXT_hand_tracking present
@@ -158,6 +190,7 @@ private:
     bool            _eyeGazeAvailable         = false;  // XR_EXT_eye_gaze_interaction present
     bool            _eyeGazeSupported         = false;  // system actually has eye tracking (Quest Pro)
     bool            _boundaryVisibilityAvailable = false;  // XR_META_boundary_visibility present
+    bool            _handMeshAvailable        = false;  // XR_FB_hand_tracking_mesh present
 
     // The boundary is suppressed while passthrough is submitted and shown again
     // when it is not; the runtime refuses suppression without passthrough.
@@ -211,6 +244,10 @@ private:
     // detection is unavailable on the device. Driven once per renderFrame().
     std::shared_ptr<VROARSessionOpenXR>           _arSession;
 
+    // Draws the tracked hands depth-only ahead of each eye's scene pass, via
+    // the render context's depth prepass. Always present; off until enabled.
+    std::shared_ptr<VROHandOcclusionOpenXR>       _handOcclusion;
+
     // Carries the head position into the scene camera each frame. The head
     // matrix passed to prepareFrame() is rotation-only, and the renderer takes
     // the camera position from this node alone. Same pattern as ARCore/ARKit.
@@ -243,7 +280,15 @@ private:
     void renderLoop();
     void pollEvents();
     void handleSessionStateChange(XrEventDataSessionStateChanged *event);
+    // ViroViewOpenXR.onNativeInputFocusChanged: Horizon OS took input focus (its
+    // menu, a system dialog, sleep) or gave it back.
+    void notifyInputFocus(bool focused);
+    // ViroViewOpenXR.onNativeRoomMoved, column-major.
+    void notifyRoomMoved(const VROMatrix4f &move);
     void renderFrame();
+    // Replaces _stageSpace and returns the old one, which the last frame's layers
+    // still use; XR_NULL_HANDLE when the recentre failed.
+    XrSpace applyRecenter(XrTime time);
     void updateBoundaryVisibility(bool passthroughSubmitted);
 
     // ── Per-eye render ────────────────────────────────────────────────────────
