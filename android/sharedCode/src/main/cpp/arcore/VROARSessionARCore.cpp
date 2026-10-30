@@ -59,6 +59,9 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
+#include <memory>
+#include <vector>
 #include <fcntl.h>
 #include <unistd.h>
 
@@ -1548,9 +1551,10 @@ void VROARSessionARCore::setOcclusionMode(VROOcclusionMode mode) {
       break;
     case VROOcclusionMode::Disabled:
     default:
-      // Keep depth active if world mesh still needs it
-      newDepthMode = _worldMeshDepthNeeded ? arcore::DepthMode::Automatic
-                                           : arcore::DepthMode::Disabled;
+      // Keep depth active if world mesh or depth capture still needs it
+      newDepthMode = (_worldMeshDepthNeeded || isDepthCaptureEnabled())
+          ? arcore::DepthMode::Automatic
+          : arcore::DepthMode::Disabled;
       break;
   }
 
@@ -1599,7 +1603,7 @@ bool VROARSessionARCore::isOcclusionModeSupported(VROOcclusionMode mode) const {
 
 arcore::DepthMode VROARSessionARCore::computeNeededDepthMode() const {
   bool occlusionNeedsDepth = (getOcclusionMode() != VROOcclusionMode::Disabled);
-  return (_worldMeshDepthNeeded || occlusionNeedsDepth)
+  return (_worldMeshDepthNeeded || occlusionNeedsDepth || isDepthCaptureEnabled())
       ? arcore::DepthMode::Automatic
       : arcore::DepthMode::Disabled;
 }
@@ -1622,6 +1626,19 @@ void VROARSessionARCore::onWorldMeshEnabled(bool enabled) {
     if (_session != nullptr) {
       updateARCoreConfig();
       pinfo("VROARSessionARCore: world mesh %s, depth mode set to %d",
+            enabled ? "enabled" : "disabled", (int)_depthMode);
+    }
+  }
+}
+
+void VROARSessionARCore::setDepthCaptureEnabled(bool enabled) {
+  VROARSession::setDepthCaptureEnabled(enabled);
+  arcore::DepthMode needed = computeNeededDepthMode();
+  if (needed != _depthMode) {
+    _depthMode = needed;
+    if (_session != nullptr) {
+      updateARCoreConfig();
+      pinfo("VROARSessionARCore: depth capture %s, depth mode set to %d",
             enabled ? "enabled" : "disabled", (int)_depthMode);
     }
   }
@@ -3109,6 +3126,12 @@ void VROARSessionARCore::startRecording(const VROARRecordingConfig &config,
     // The actual video/IMU/sidecar setup already happened in Java before this
     // was called (see ARScene.startRecording()) — this just tells updateFrame()
     // to start calling recordFrameForRecording() each frame.
+    // Depth only flows if the session was already measuring it: enabling it here
+    // would reconfigure ARCore mid-recording.
+    _recordingDepth = config.depth && _session != nullptr && isDepthCaptureEnabled() &&
+                      isDepthModeEnabled() &&
+                      _session->isDepthModeSupported(arcore::DepthMode::Automatic);
+    _lastRecordedDepthTimestampNs = -1;
     _recordingStatus = VROARRecordingStatus::Recording;
     if (onSuccess) {
         onSuccess();
@@ -3117,6 +3140,7 @@ void VROARSessionARCore::startRecording(const VROARRecordingConfig &config,
 
 void VROARSessionARCore::stopRecording() {
     _recordingStatus = VROARRecordingStatus::None;
+    _recordingDepth = false;
     setRecordingJavaCallback(nullptr);
 }
 
@@ -3180,6 +3204,12 @@ void VROARSessionARCore::recordFrameForRecording(VROARFrameARCore *arFrame) {
 
     int64_t timestampNs = _frame->getTimestampNs();
 
+    std::vector<uint8_t> depthData, confidenceData;
+    int depthWidth = 0, depthHeight = 0;
+    int64_t depthTimestampNs = 0;
+    bool hasDepth = _recordingDepth &&
+        copyDepthForRecording(depthData, confidenceData, &depthWidth, &depthHeight, &depthTimestampNs);
+
     JNIEnv *env = VROPlatformGetJNIEnv();
     jbyteArray yArr = env->NewByteArray(yLen);
     env->SetByteArrayRegion(yArr, 0, yLen, (const jbyte *) yData);
@@ -3228,10 +3258,30 @@ void VROARSessionARCore::recordFrameForRecording(VROARFrameARCore *arFrame) {
     jdoubleArray geoArr = env->NewDoubleArray(7);
     env->SetDoubleArrayRegion(geoArr, 0, 7, geo);
 
-    VROPlatformCallHostFunction(_recordingJavaCallback, "onRecordingFrame",
-                                "([B[B[B[IJ[F[D)V",
-                                yArr, uArr, vArr, dimsArr, (jlong) timestampNs, poseArr, geoArr);
+    // depth = [width, height] of the depth map; the depth and confidence arrays
+    // and the depth timestamp are null/0 when this frame carries no new depth.
+    jbyteArray depthArr = nullptr, confidenceArr = nullptr;
+    jintArray depthDimsArr = nullptr;
+    if (hasDepth) {
+        depthArr = env->NewByteArray((jsize) depthData.size());
+        env->SetByteArrayRegion(depthArr, 0, (jsize) depthData.size(), (const jbyte *) depthData.data());
+        confidenceArr = env->NewByteArray((jsize) confidenceData.size());
+        env->SetByteArrayRegion(confidenceArr, 0, (jsize) confidenceData.size(), (const jbyte *) confidenceData.data());
+        jint depthDims[2] = { depthWidth, depthHeight };
+        depthDimsArr = env->NewIntArray(2);
+        env->SetIntArrayRegion(depthDimsArr, 0, 2, depthDims);
+    }
 
+    VROPlatformCallHostFunction(_recordingJavaCallback, "onRecordingFrame",
+                                "([B[B[B[IJ[F[D[B[B[IJ)V",
+                                yArr, uArr, vArr, dimsArr, (jlong) timestampNs, poseArr, geoArr,
+                                depthArr, confidenceArr, depthDimsArr, (jlong) depthTimestampNs);
+
+    if (depthArr) {
+        env->DeleteLocalRef(depthArr);
+        env->DeleteLocalRef(confidenceArr);
+        env->DeleteLocalRef(depthDimsArr);
+    }
     env->DeleteLocalRef(yArr);
     env->DeleteLocalRef(uArr);
     env->DeleteLocalRef(vArr);
@@ -3240,6 +3290,66 @@ void VROARSessionARCore::recordFrameForRecording(VROARFrameARCore *arFrame) {
     env->DeleteLocalRef(geoArr);
 
     delete img;
+}
+
+// Depth frames go out at most every 100 ms by their own timestamp; a depth image
+// ARCore has not refreshed since the last one carries the same timestamp.
+static const int64_t kRecordingMinDepthIntervalNs = 100000000;
+
+bool VROARSessionARCore::copyDepthForRecording(std::vector<uint8_t> &depth,
+                                               std::vector<uint8_t> &confidence,
+                                               int *width, int *height, int64_t *timestampNs) {
+    arcore::Image *depthRaw = nullptr;
+    if (_frame->acquireDepthImage(&depthRaw) != arcore::ImageRetrievalStatus::Success || !depthRaw) {
+        return false;
+    }
+    std::unique_ptr<arcore::Image> depthImage(depthRaw);
+
+    int64_t depthTimestamp = depthImage->getTimestampNs();
+    if (_lastRecordedDepthTimestampNs >= 0 &&
+        depthTimestamp - _lastRecordedDepthTimestampNs < kRecordingMinDepthIntervalNs) {
+        return false;
+    }
+
+    arcore::Image *confidenceRaw = nullptr;
+    if (_frame->acquireDepthConfidenceImage(&confidenceRaw) != arcore::ImageRetrievalStatus::Success ||
+        !confidenceRaw) {
+        return false;
+    }
+    std::unique_ptr<arcore::Image> confidenceImage(confidenceRaw);
+
+    int w = depthImage->getWidth();
+    int h = depthImage->getHeight();
+    if (w <= 0 || h <= 0 || confidenceImage->getWidth() != w || confidenceImage->getHeight() != h) {
+        return false;
+    }
+
+    const uint8_t *depthPlane = nullptr; int depthLen = 0;
+    const uint8_t *confidencePlane = nullptr; int confidenceLen = 0;
+    depthImage->getPlaneData(0, &depthPlane, &depthLen);
+    confidenceImage->getPlaneData(0, &confidencePlane, &confidenceLen);
+    int depthRowStride = depthImage->getPlaneRowStride(0);
+    int confidenceRowStride = confidenceImage->getPlaneRowStride(0);
+    if (!depthPlane || !confidencePlane ||
+        depthImage->getPlanePixelStride(0) != 2 || confidenceImage->getPlanePixelStride(0) != 1 ||
+        depthRowStride < w * 2 || confidenceRowStride < w ||
+        depthLen < (h - 1) * depthRowStride + w * 2 ||
+        confidenceLen < (h - 1) * confidenceRowStride + w) {
+        return false;
+    }
+
+    depth.resize((size_t) w * h * 2);
+    confidence.resize((size_t) w * h);
+    for (int row = 0; row < h; row++) {
+        memcpy(depth.data() + (size_t) row * w * 2, depthPlane + (size_t) row * depthRowStride, (size_t) w * 2);
+        memcpy(confidence.data() + (size_t) row * w, confidencePlane + (size_t) row * confidenceRowStride, (size_t) w);
+    }
+
+    *width = w;
+    *height = h;
+    *timestampNs = depthTimestamp;
+    _lastRecordedDepthTimestampNs = depthTimestamp;
+    return true;
 }
 
 void VROARSessionARCore::updateDepthTexture() {

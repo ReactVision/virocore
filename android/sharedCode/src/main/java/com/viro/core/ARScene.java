@@ -1018,6 +1018,19 @@ public class ARScene extends Scene {
      * @param listener  Invoked once recording has started, or with an error if it couldn't.
      */
     public void startRecording(String outputDir, Context context, RecordingStartListener listener) {
+        startRecording(outputDir, context, false, listener);
+    }
+
+    /**
+     * Same as {@link #startRecording(String, Context, RecordingStartListener)}, and with
+     * depth also records ARCore's depth under outputDir/depth/. It only takes effect if
+     * {@link #setDepthCaptureEnabled(boolean)} was called with true before this, on a
+     * device that supports the Depth API; otherwise the recording has no depth, and its
+     * header says so.
+     *
+     * @param depth Also record the device's depth.
+     */
+    public void startRecording(String outputDir, Context context, boolean depth, RecordingStartListener listener) {
         if (mSessionRecorder != null) {
             if (listener != null) {
                 listener.onFailure("Already recording");
@@ -1040,7 +1053,7 @@ public class ARScene extends Scene {
             return;
         }
         mRecordingStartListener = listener;
-        nativeStartRecording(mNativeRef, outputDir);
+        nativeStartRecording(mNativeRef, outputDir, depth);
     }
 
     /**
@@ -1067,7 +1080,10 @@ public class ARScene extends Scene {
 
     // Called by native (ARSceneController_JNI.cpp::nativeStartRecording) once
     // the session has actually started recording.
-    void onRecordingStartSuccess() {
+    void onRecordingStartSuccess(boolean depthActive) {
+        if (mSessionRecorder != null) {
+            mSessionRecorder.setDepthActive(depthActive);
+        }
         if (mRecordingStartListener != null) {
             mRecordingStartListener.onSuccess();
         }
@@ -1091,9 +1107,11 @@ public class ARScene extends Scene {
     // frame while recording — see ARSessionRecorder.onRecordingFrame() for
     // the actual encode/sidecar-write work.
     void onRecordingFrame(byte[] y, byte[] u, byte[] v, int[] dims, long timestampNs, float[] pose,
-                          double[] geo) {
+                          double[] geo, byte[] depth, byte[] depthConfidence, int[] depthDims,
+                          long depthTimestampNs) {
         if (mSessionRecorder != null) {
-            mSessionRecorder.onRecordingFrame(y, u, v, dims, timestampNs, pose, geo);
+            mSessionRecorder.onRecordingFrame(y, u, v, dims, timestampNs, pose, geo,
+                                              depth, depthConfidence, depthDims, depthTimestampNs);
         }
     }
 
@@ -2028,6 +2046,18 @@ public class ARScene extends Scene {
     }
 
     /**
+     * Ask the AR session to measure depth so a recording started with depth can write it.
+     * Reconfigures the AR session, which can make tracking jump, so call it before
+     * recording starts rather than by it. Combined with what occlusion and the world mesh
+     * need: it never turns their depth off. Does nothing on a device without the Depth API.
+     *
+     * @param enabled true to measure depth for recording.
+     */
+    public void setDepthCaptureEnabled(boolean enabled) {
+        nativeSetDepthCaptureEnabled(mNativeRef, enabled);
+    }
+
+    /**
      * WS-C: serialize the current world mesh (vertices, confidences, triangle
      * indices) into a compact binary format for persisting as a cloud anchor
      * asset. Returns null if there is no current mesh.
@@ -2254,6 +2284,7 @@ public class ARScene extends Scene {
 
     // World Mesh API native methods
     private native void nativeSetWorldMeshEnabled(long sceneControllerRef, boolean enabled);
+    private native void nativeSetDepthCaptureEnabled(long sceneControllerRef, boolean enabled);
     private native byte[] nativeRvSnapshotWorldMesh(long sceneControllerRef, String locationTransformCsv);
     private native boolean nativeRvLoadWorldMesh(long sceneControllerRef, byte[] meshBytes, String resolvedTransformCsv);
     private native void nativeResetWorldMesh(long sceneControllerRef);
@@ -2268,7 +2299,7 @@ public class ARScene extends Scene {
                                                   float restitution,
                                                   String collisionTag,
                                                   boolean debugDrawEnabled);
-    private native void nativeStartRecording(long sceneControllerRef, String outputDir);
+    private native void nativeStartRecording(long sceneControllerRef, String outputDir, boolean depth);
     private native void nativeStopRecording(long sceneControllerRef);
     private native int nativeGetRecordingStatus(long sceneControllerRef);
     private native void nativeReportRecordingError(long sceneControllerRef, String error);
