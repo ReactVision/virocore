@@ -185,6 +185,7 @@ public:
     void setOcclusionMode(VROOcclusionMode mode) override;
     bool isOcclusionSupported() const override;
     void onWorldMeshEnabled(bool enabled) override;
+    void setDepthCaptureEnabled(bool enabled) override;
     void setFrontCameraEnabled(bool enabled);
     bool isFrontCameraEnabled() const { return _frontCameraEnabled; }
 
@@ -311,6 +312,12 @@ public:
     VROARRecordingStatus getRecordingStatus() const override;
 
     /*
+     Whether the recording started last writes depth: it asked for it and the
+     session was measuring depth. Valid from the startRecording() success callback.
+     */
+    bool isRecordingDepth() const { return _recordingDepth; }
+
+    /*
      Android-only, not part of VROARSession's shared interface: the JNI layer
      (ARSceneController_JNI.cpp) calls this with a global ref to the Java
      ARScene object before calling startRecording(), so recordFrameForRecording()
@@ -383,6 +390,23 @@ private:
     jobject _recordingJavaCallback = nullptr;
     VROARRecordingStatus _recordingStatus = VROARRecordingStatus::None;
     void recordFrameForRecording(VROARFrameARCore *arFrame);
+
+    /*
+     Whether the running recording writes depth (see isRecordingDepth()), and the timestamp of the last
+     depth image handed to it (-1 before the first). Only touched on the render
+     thread.
+     */
+    bool _recordingDepth = false;
+    int64_t _lastRecordedDepthTimestampNs = -1;
+
+    /*
+     Copies the frame's smoothed depth (16-bit, millimetres) and the raw depth's
+     confidence (8-bit) into tightly packed buffers, unless the depth image is
+     not newer than the last recorded one by the recording's minimum interval.
+     Returns false, with the outputs unspecified, when there is nothing to record.
+     */
+    bool copyDepthForRecording(std::vector<uint8_t> &depth, std::vector<uint8_t> &confidence,
+                               int *width, int *height, int64_t *timestampNs);
 
     /*
      The ARCore session.

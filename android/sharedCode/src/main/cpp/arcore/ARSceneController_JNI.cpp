@@ -1869,7 +1869,8 @@ VRO_METHOD(void, nativeHostCloudAnchor)(VRO_ARGS
 // VROARSessionARCore::recordFrameForRecording()'s header comment for why.
 VRO_METHOD(void, nativeStartRecording)(VRO_ARGS
                                        VRO_REF(VROARSceneController) sceneController_j,
-                                       VRO_STRING outputDir_j) {
+                                       VRO_STRING outputDir_j,
+                                       VRO_BOOL depth) {
     VRO_METHOD_PREAMBLE;
 
     std::weak_ptr<VROARScene> scene_w = std::dynamic_pointer_cast<VROARScene>(
@@ -1877,7 +1878,7 @@ VRO_METHOD(void, nativeStartRecording)(VRO_ARGS
     std::string outputDir = VRO_STRING_STL(outputDir_j);
     VRO_WEAK obj_w = VRO_NEW_WEAK_GLOBAL_REF(obj);
 
-    VROPlatformDispatchAsyncRenderer([obj_w, outputDir, scene_w] {
+    VROPlatformDispatchAsyncRenderer([obj_w, outputDir, depth, scene_w] {
         VRO_ENV env = VROPlatformGetJNIEnv();
         VRO_OBJECT obj_j = VRO_NEW_LOCAL_REF(obj_w);
         if (VRO_IS_OBJECT_NULL(obj_j)) {
@@ -1903,12 +1904,14 @@ VRO_METHOD(void, nativeStartRecording)(VRO_ARGS
 
         VROARRecordingConfig config;
         config.outputDir = outputDir;
+        config.depth = depth;
         session->startRecording(config,
-            [obj_w] {
+            [obj_w, session] {
                 VRO_ENV env = VROPlatformGetJNIEnv();
                 VRO_OBJECT obj_j2 = VRO_NEW_LOCAL_REF(obj_w);
                 if (!VRO_IS_OBJECT_NULL(obj_j2)) {
-                    VROPlatformCallHostFunction(obj_j2, "onRecordingStartSuccess", "()V");
+                    VROPlatformCallHostFunction(obj_j2, "onRecordingStartSuccess", "(Z)V",
+                                                (jboolean) session->isRecordingDepth());
                     VRO_DELETE_LOCAL_REF(obj_j2);
                 }
                 VRO_DELETE_WEAK_GLOBAL_REF(obj_w);
@@ -2221,6 +2224,20 @@ VRO_METHOD(void, nativeSetWorldMeshEnabled)(VRO_ARGS
         std::shared_ptr<VROARScene> scene = scene_w.lock();
         if (scene) {
             scene->setWorldMeshEnabled(enabled);
+        }
+    });
+}
+
+VRO_METHOD(void, nativeSetDepthCaptureEnabled)(VRO_ARGS
+                                               VRO_REF(VROARSceneController) sceneController_j,
+                                               VRO_BOOL enabled) {
+    std::weak_ptr<VROARScene> scene_w = std::dynamic_pointer_cast<VROARScene>(
+            VRO_REF_GET(VROARSceneController, sceneController_j)->getScene());
+    VROPlatformDispatchAsyncRenderer([scene_w, enabled] {
+        std::shared_ptr<VROARScene> scene = scene_w.lock();
+        std::shared_ptr<VROARSession> session = scene ? scene->getARSession() : nullptr;
+        if (session) {
+            session->setDepthCaptureEnabled(enabled);
         }
     });
 }

@@ -587,6 +587,12 @@ namespace arcore {
         ArImage_getPlaneData(_session, _arImage, planeIdx, outData, outDataLength);
     }
 
+    int64_t ImageNative::getTimestampNs() {
+        int64_t timestampNs = 0;
+        ArImage_getTimestamp(_session, _arImage, &timestampNs);
+        return timestampNs;
+    }
+
 #pragma mark - Frame
 
     FrameNative::~FrameNative() {
