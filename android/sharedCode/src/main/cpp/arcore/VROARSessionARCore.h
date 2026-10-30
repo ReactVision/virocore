@@ -448,6 +448,7 @@ private:
     bool _semanticModeEnabled = false;
     bool _worldMeshDepthNeeded = false;  // set by onWorldMeshEnabled
     bool _frontCameraEnabled = false;            // use front camera via AR_AUGMENTED_FACE_MODE_MESH3D
+    bool _paused = false;  // pause() was called and run() has not been since: a config change keeps it paused
     bool _cloudAnchorsDisabledForFaceMode = false; // once disabled for face mode, keep disabled
 
     bool updateARCoreConfig();

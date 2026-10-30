@@ -94,6 +94,7 @@ enum class VROVideoQuality {
 enum class VROImageTrackingImpl {
     ARCore,
     ARKit,
+    None,   // no image tracking (visionOS, web)
 };
 
 enum class VROCloudAnchorProvider {
@@ -160,6 +161,8 @@ public:
         _imageTrackingImpl = VROImageTrackingImpl::ARKit;
 #elif VRO_PLATFORM_ANDROID
         _imageTrackingImpl = VROImageTrackingImpl::ARCore;
+#else
+        _imageTrackingImpl = VROImageTrackingImpl::None;
 #endif
     }
     virtual ~VROARSession() {}

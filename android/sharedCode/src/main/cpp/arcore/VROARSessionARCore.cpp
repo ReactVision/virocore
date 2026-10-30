@@ -97,7 +97,9 @@ static const float kMinPlaneExtent = 0.10f;  // 10cm minimum size in any dimensi
 
 VROARSessionARCore::VROARSessionARCore(std::shared_ptr<VRODriverOpenGL> driver)
     : VROARSession(VROTrackingType::DOF6, VROWorldAlignment::Gravity),
-      _lightingMode(arcore::LightingMode::EnvironmentalHDR),
+      // AmbientIntensity: VROARFrameARCore reads the pixel intensity and colour correction, which
+      // ARCore returns as zero in any other mode. Nothing reads the HDR estimate yet.
+      _lightingMode(arcore::LightingMode::AmbientIntensity),
       _planeFindingMode(arcore::PlaneFindingMode::Horizontal),
       _updateMode(arcore::UpdateMode::Blocking),
       _cloudAnchorMode(arcore::CloudAnchorMode::Enabled),
@@ -217,6 +219,7 @@ VROARSessionARCore::~VROARSessionARCore() {
 #pragma mark - Lifecycle and Setup
 
 void VROARSessionARCore::run() {
+  _paused = false;
   if (_session != nullptr) {
     // ARCore requires setCameraTextureName to be called after every pause/resume cycle.
     // Re-register here so the camera stream is always wired to our OES texture before
@@ -232,6 +235,7 @@ void VROARSessionARCore::run() {
 }
 
 void VROARSessionARCore::pause() {
+  _paused = true;
   if (_session != nullptr) {
     _session->pause();
     pinfo("AR session paused");
@@ -528,6 +532,13 @@ bool VROARSessionARCore::updateARCoreConfig() {
     }
   }
 
+  if (_paused) {
+    // configure() needs the session paused; leave it so; run() resumes it with the new config
+    if (status != arcore::ConfigStatus::Success) {
+      pwarn("Failed to configure AR session (status %d)", (int)status);
+    }
+    return status == arcore::ConfigStatus::Success;
+  }
   if (status == arcore::ConfigStatus::Success) {
     _session->resume();
     // After pause→configure→resume the camera hardware stream is reset.

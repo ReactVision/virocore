@@ -299,6 +299,17 @@ private:
 public:
     /** Enable or disable hand tracking gesture processing. Thread-safe (atomic store). */
     void setHandTrackingEnabled(bool enabled) { _handTrackingEnabled = enabled; }
+    bool isHandTrackingEnabled() const { return _handTrackingEnabled; }
+
+    /*
+     The hand trackers and joint locator, shared with hand occlusion so the
+     hands are not tracked twice. Null until initHandTracking() succeeds.
+     0 = left, 1 = right.
+     */
+    XrHandTrackerEXT getHandTracker(int hand) const {
+        return hand == 0 ? _leftHandTracker : _rightHandTracker;
+    }
+    PFN_xrLocateHandJointsEXT getLocateHandJointsFn() const { return _pfnLocateHandJoints; }
 };
 
 #endif  // ANDROID_VROINPUTCONTROLLEROPENXR_H

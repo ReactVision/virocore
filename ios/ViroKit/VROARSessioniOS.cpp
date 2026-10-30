@@ -497,6 +497,12 @@ void VROARSessioniOS::run() {
   }
 }
 
+void VROARSessioniOS::rerunIfRunning() {
+  if (!_sessionPaused) {
+    [_session runWithConfiguration:_sessionConfiguration];
+  }
+}
+
 void VROARSessioniOS::pause() {
   _sessionPaused = true;
   [_session pause];
@@ -540,7 +546,7 @@ void VROARSessioniOS::setAutofocus(bool enabled) {
             isKindOfClass:[ARWorldTrackingConfiguration class]]) {
       ((ARWorldTrackingConfiguration *)_sessionConfiguration).autoFocusEnabled =
           enabled;
-      [_session runWithConfiguration:_sessionConfiguration];
+      rerunIfRunning();
     }
   }
 #endif
@@ -584,7 +590,7 @@ void VROARSessioniOS::setVideoQuality(VROVideoQuality quality) {
         }
       }
     }
-    [_session runWithConfiguration:_sessionConfiguration];
+    rerunIfRunning();
   }
 #endif
 }
@@ -620,7 +626,7 @@ void VROARSessioniOS::setNumberOfTrackedImages(int numImages) {
         ((ARImageTrackingConfiguration *)_sessionConfiguration)
             .maximumNumberOfTrackedImages = numImages;
       }
-      [_session runWithConfiguration:_sessionConfiguration];
+      rerunIfRunning();
     }
   }
 #endif
@@ -655,10 +661,7 @@ bool VROARSessioniOS::setAnchorDetection(std::set<VROAnchorDetection> types) {
     }
   }
 
-  // apply the configuration
-  if (!_sessionPaused) {
-    [_session runWithConfiguration:_sessionConfiguration];
-  }
+  rerunIfRunning();
   return true;
 }
 
@@ -1274,7 +1277,7 @@ void VROARSessioniOS::addARImageTarget(
       [_arKitImageDetectionSet addObject:refImage];
       ((ARWorldTrackingConfiguration *)_sessionConfiguration).detectionImages =
           _arKitImageDetectionSet;
-      [_session runWithConfiguration:_sessionConfiguration];
+      rerunIfRunning();
     }
   } else {
     pwarn("[Viro] attempting to use ARKit 1.5 features while not on iOS 11.3+");
@@ -1316,7 +1319,7 @@ void VROARSessioniOS::removeARImageTarget(
 
         ((ARWorldTrackingConfiguration *)_sessionConfiguration)
             .detectionImages = _arKitImageDetectionSet;
-        [_session runWithConfiguration:_sessionConfiguration];
+        rerunIfRunning();
       }
     }
   } else {
@@ -1347,7 +1350,7 @@ void VROARSessioniOS::addARObjectTarget(
       [_arKitObjectDetectionSet addObject:refObject];
       ((ARWorldTrackingConfiguration *)_sessionConfiguration).detectionObjects =
           _arKitObjectDetectionSet;
-      [_session runWithConfiguration:_sessionConfiguration];
+      rerunIfRunning();
     }
   }
 #endif
@@ -1384,7 +1387,7 @@ void VROARSessioniOS::removeARObjectTarget(
 
         ((ARWorldTrackingConfiguration *)_sessionConfiguration)
             .detectionObjects = _arKitObjectDetectionSet;
-        [_session runWithConfiguration:_sessionConfiguration];
+        rerunIfRunning();
       }
     }
   }
@@ -1434,7 +1437,7 @@ NSUInteger VROARSessioniOS::computeNeededFrameSemantics() const {
         VROOcclusionMode mode = getOcclusionMode();
         bool depthOcclusion = (mode == VROOcclusionMode::DepthBased || mode == VROOcclusionMode::DepthOnly);
 
-        if ((depthOcclusion || _worldMeshDepthNeeded || _depthCaptureEnabled) && sceneDepthSupported) {
+        if ((depthOcclusion || _worldMeshDepthNeeded || isDepthCaptureEnabled()) && sceneDepthSupported) {
             needed |= ARFrameSemanticSceneDepth;
         }
         if (mode == VROOcclusionMode::PeopleOnly) {
@@ -1458,10 +1461,7 @@ void VROARSessioniOS::updateFrameSemantics() {
                 return;
             }
             config.frameSemantics = needed;
-
-            if (!_sessionPaused) {
-                [_session runWithConfiguration:_sessionConfiguration];
-            }
+            rerunIfRunning();
         }
     }
 }
