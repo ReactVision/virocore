@@ -503,14 +503,14 @@ void VROARSessionRecorderIOS::recordDepth(ARFrame *frame) {
             bool written = writeGrayscalePNG(depthPath, millimetres.data(), width, height, 16) &&
                            writeGrayscalePNG(confidencePath, confidenceCopy->data(), width, height, 8);
             if (written) {
+                int64_t tNs = (int64_t)(timestamp * 1e9);
                 char buf[512];
                 snprintf(buf, sizeof(buf),
-                    "{\"type\":\"depth\",\"t\":%.9f,\"file\":\"%s\",\"confidence\":\"%s\","
+                    "{\"type\":\"depth\",\"t\":%lld,\"file\":\"%s\",\"confidence\":\"%s\","
                     "\"width\":%d,\"height\":%d,\"scale\":1000,"
                     "\"fx\":%.4f,\"fy\":%.4f,\"cx\":%.4f,\"cy\":%.4f,\"source\":\"lidar\"}",
-                    timestamp, [depthRel UTF8String], [confidenceRel UTF8String],
+                    (long long)tNs, [depthRel UTF8String], [confidenceRel UTF8String],
                     (int)width, (int)height, fx, fy, cx, cy);
-                int64_t tNs = (int64_t)(timestamp * 1e9);
                 std::lock_guard<std::mutex> lock(_sidecarMutex);
                 if (_sidecar.is_open()) {
                     _bufferedLines.push_back({tNs, std::string(buf)});
