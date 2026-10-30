@@ -2,7 +2,7 @@
 
 ## v3.1.0
 
-**Advanced VPS, a world mesh that persists, device depth in AR recordings, and a Meta Quest pass with hand occlusion.** The native build ships inside `@reactvision/react-viro` 3.1.0. It links ReactVisionCCA 1.4.0, which adds continuous localisation against a scanned place and the VPS fuser.
+**Advanced VPS, a world mesh that persists, device depth in AR recordings, and a Meta Quest pass with hand occlusion.** The native build ships inside `@reactvision/react-viro` 3.1.0. It links Spatial 1.4.0, which adds continuous localisation against a scanned place and the VPS fuser.
 
 ### Advanced VPS
 
