@@ -216,6 +216,7 @@ VROARSessionARCore::~VROARSessionARCore() {
 #pragma mark - Lifecycle and Setup
 
 void VROARSessionARCore::run() {
+  _paused = false;
   if (_session != nullptr) {
     // ARCore requires setCameraTextureName to be called after every pause/resume cycle.
     // Re-register here so the camera stream is always wired to our OES texture before
@@ -231,6 +232,7 @@ void VROARSessionARCore::run() {
 }
 
 void VROARSessionARCore::pause() {
+  _paused = true;
   if (_session != nullptr) {
     _session->pause();
     pinfo("AR session paused");
@@ -527,6 +529,13 @@ bool VROARSessionARCore::updateARCoreConfig() {
     }
   }
 
+  if (_paused) {
+    // configure() needs the session paused; leave it so; run() resumes it with the new config
+    if (status != arcore::ConfigStatus::Success) {
+      pwarn("Failed to configure AR session (status %d)", (int)status);
+    }
+    return status == arcore::ConfigStatus::Success;
+  }
   if (status == arcore::ConfigStatus::Success) {
     _session->resume();
     // After pause→configure→resume the camera hardware stream is reset.
