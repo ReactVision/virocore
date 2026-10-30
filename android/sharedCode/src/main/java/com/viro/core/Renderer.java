@@ -137,6 +137,28 @@ public class Renderer {
     }
 
     /**
+     * Enable or disable hand occlusion in passthrough (Quest only): the tracked
+     * hands are drawn depth-only before the scene so the real hands show through
+     * virtual content. Only draws while passthrough and hand tracking are on.
+     */
+    public void setHandOcclusionEnabled(boolean enabled) {
+        nativeSetHandOcclusionEnabled(mNativeRef, enabled);
+    }
+
+    /**
+     * Hand occlusion geometry: {@code true} for the skinned hand mesh
+     * (XR_FB_hand_tracking_mesh, capsules when absent), {@code false} for capsules.
+     */
+    public void setHandOcclusionMode(boolean useMesh) {
+        nativeSetHandOcclusionMode(mNativeRef, useMesh);
+    }
+
+    /** Grow the hand occlusion geometry by this many millimetres. */
+    public void setHandOcclusionInflateMm(float mm) {
+        nativeSetHandOcclusionInflateMm(mNativeRef, mm);
+    }
+
+    /**
      * Width of one eye's swapchain image (Quest only; 0 on other renderers, and 0
      * until the XR session has created its swapchains). A frame captured off the
      * OpenXR renderer measures this, since there is no Android surface to size
@@ -386,6 +408,9 @@ public class Renderer {
     private native void nativeSetPassthroughStyle(long nativeRenderer, float opacity,
                                                   float edgeR, float edgeG, float edgeB, float edgeA);
     private native void nativeSetHandTrackingEnabled(long nativeRenderer, boolean enabled);
+    private native void nativeSetHandOcclusionEnabled(long nativeRenderer, boolean enabled);
+    private native void nativeSetHandOcclusionMode(long nativeRenderer, boolean useMesh);
+    private native void nativeSetHandOcclusionInflateMm(long nativeRenderer, float mm);
     private native int nativeGetEyeWidth(long nativeRenderer);
     private native int nativeGetEyeHeight(long nativeRenderer);
     private native void nativePerformARHitTestWithRayOpenXR(long nativeRenderer, float[] ray, ARHitTestListener callback);

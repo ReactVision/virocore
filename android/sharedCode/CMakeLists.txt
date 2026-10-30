@@ -59,6 +59,7 @@ add_library( # Sets the name of the library.
              # superseded by the OpenXR (Quest) path. Excluding it drops the libvrapi.so
              # dependency, which was not 16 KB-page compliant (see viro#491).
              ${VIRO_ANDROID_SRC}/VROSceneRendererOpenXR.cpp
+             ${VIRO_ANDROID_SRC}/VROHandOcclusionOpenXR.cpp
              ${VIRO_ANDROID_SRC}/VROARSessionOpenXR.cpp
              ${VIRO_ANDROID_SRC}/VROARSessionOpenXRSharedFrame.cpp
              ${VIRO_ANDROID_SRC}/Colocation_JNI.cpp

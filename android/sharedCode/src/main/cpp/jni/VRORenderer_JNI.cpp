@@ -173,6 +173,37 @@ VRO_METHOD(void, nativeSetHandTrackingEnabled)(VRO_ARGS
     }
 }
 
+VRO_METHOD(void, nativeSetHandOcclusionEnabled)(VRO_ARGS
+                                                jlong rendererRef,
+                                                jboolean enabled) {
+    auto base = Renderer::native(rendererRef);
+    auto xrRenderer = std::dynamic_pointer_cast<VROSceneRendererOpenXR>(base);
+    if (xrRenderer) {
+        xrRenderer->setHandOcclusionEnabled((bool)enabled);
+    }
+}
+
+VRO_METHOD(void, nativeSetHandOcclusionMode)(VRO_ARGS
+                                             jlong rendererRef,
+                                             jboolean useMesh) {
+    auto base = Renderer::native(rendererRef);
+    auto xrRenderer = std::dynamic_pointer_cast<VROSceneRendererOpenXR>(base);
+    if (xrRenderer) {
+        xrRenderer->setHandOcclusionMode(useMesh ? VROHandOcclusionMode::Mesh
+                                                 : VROHandOcclusionMode::Capsules);
+    }
+}
+
+VRO_METHOD(void, nativeSetHandOcclusionInflateMm)(VRO_ARGS
+                                                  jlong rendererRef,
+                                                  jfloat mm) {
+    auto base = Renderer::native(rendererRef);
+    auto xrRenderer = std::dynamic_pointer_cast<VROSceneRendererOpenXR>(base);
+    if (xrRenderer) {
+        xrRenderer->setHandOcclusionInflateMm((float)mm);
+    }
+}
+
 VRO_METHOD(jint, nativeGetEyeWidth)(VRO_ARGS
                                     jlong rendererRef) {
     auto base = Renderer::native(rendererRef);
