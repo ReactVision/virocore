@@ -20,6 +20,9 @@
 #include <algorithm>
 
 #import <Foundation/Foundation.h>
+#import <ImageIO/ImageIO.h>
+#include <cstring>
+#include <memory>
 
 // Matches ARFrame.capturedImage's documented format. If a future OS/device
 // combination hands us something else, recordFrame() logs once and skips
@@ -30,6 +33,41 @@ static const OSType kExpectedPixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanar
 // CoreMotion reports acceleration in G, Android in m/s^2, and session.jsonl has one
 // schema for both. m/s^2 wins (it matches the gyro and the SLAM convention).
 static const double kGravityMetresPerSecondSquared = 9.80665;
+
+// Depth is sampled at most this often (10 Hz), by ARFrame.timestamp.
+static const double kDepthMinIntervalSeconds = 0.1;
+
+// Depth frames waiting to be written before new ones are dropped.
+static const int kMaxPendingDepthFrames = 12;
+
+// Writes tightly packed grayscale pixels as a PNG. bitsPerComponent is 8 or 16;
+// 16-bit samples are host-endian (little) and ImageIO stores them big-endian.
+static bool writeGrayscalePNG(NSString *path, const void *pixels, size_t width, size_t height,
+                              size_t bitsPerComponent) {
+    size_t bytesPerRow = width * (bitsPerComponent / 8);
+    CGColorSpaceRef gray = CGColorSpaceCreateDeviceGray();
+    CGDataProviderRef provider = CGDataProviderCreateWithData(NULL, pixels, bytesPerRow * height, NULL);
+    CGBitmapInfo bitmapInfo = kCGImageAlphaNone |
+        (bitsPerComponent == 16 ? kCGBitmapByteOrder16Little : kCGBitmapByteOrderDefault);
+    CGImageRef image = CGImageCreate(width, height, bitsPerComponent, bitsPerComponent, bytesPerRow,
+                                     gray, bitmapInfo, provider, NULL, false, kCGRenderingIntentDefault);
+    CGDataProviderRelease(provider);
+    CGColorSpaceRelease(gray);
+    if (!image) {
+        return false;
+    }
+
+    bool written = false;
+    CGImageDestinationRef destination = CGImageDestinationCreateWithURL(
+        (__bridge CFURLRef)[NSURL fileURLWithPath:path], CFSTR("public.png"), 1, NULL);
+    if (destination) {
+        CGImageDestinationAddImage(destination, image, NULL);
+        written = CGImageDestinationFinalize(destination);
+        CFRelease(destination);
+    }
+    CGImageRelease(image);
+    return written;
+}
 
 VROARSessionRecorderIOS::VROARSessionRecorderIOS() :
     _status(VROARRecordingStatus::None),
@@ -42,6 +80,11 @@ VROARSessionRecorderIOS::VROARSessionRecorderIOS() :
     _videoWidth(0),
     _videoHeight(0),
     _lastFrameTimestamp(0),
+    _depthRequested(false),
+    _lastDepthTimestamp(0),
+    _depthCount(0),
+    _depthQueue(nil),
+    _depthPending(0),
     _motionManager(nil),
     _imuQueue(nil),
     _wroteHeader(false) {
@@ -78,6 +121,27 @@ bool VROARSessionRecorderIOS::start(const VROARRecordingConfig &config,
     _videoWidth = 0;
     _videoHeight = 0;
     _lastFrameTimestamp = 0;
+    _lastDepthTimestamp = 0;
+    _depthCount = 0;
+    _depthPending = 0;
+
+    _depthRequested = config.depth;
+    if (_depthRequested) {
+        NSError *depthDirError = nil;
+        NSString *depthDir = [dir stringByAppendingPathComponent:@"depth"];
+        if (![[NSFileManager defaultManager] createDirectoryAtPath:depthDir
+                                        withIntermediateDirectories:YES
+                                                         attributes:nil
+                                                              error:&depthDirError]) {
+            perr("VROARSessionRecorderIOS: could not create depth directory (%s), recording without depth",
+                 [depthDirError.localizedDescription UTF8String]);
+            _depthRequested = false;
+        } else if (!_depthQueue) {
+            dispatch_queue_attr_t attr = dispatch_queue_attr_make_with_qos_class(
+                DISPATCH_QUEUE_SERIAL, QOS_CLASS_UTILITY, 0);
+            _depthQueue = dispatch_queue_create("com.viro.ar.recorder.depth", attr);
+        }
+    }
 
     // video.mp4 itself is created lazily, on the first recordFrame(), once we
     // know the camera's actual image resolution (AVAssetWriterInput's output
@@ -170,6 +234,12 @@ void VROARSessionRecorderIOS::stop() {
         _videoAdaptor = nil;
     }
 
+    // Depth frames still queued write their sidecar lines, so they must land
+    // before the sidecar is flushed and closed.
+    if (_depthQueue) {
+        dispatch_sync(_depthQueue, ^{});
+    }
+
     if (_motionManager) {
         [_motionManager stopAccelerometerUpdates];
         [_motionManager stopGyroUpdates];
@@ -225,15 +295,15 @@ void VROARSessionRecorderIOS::writeHeaderIfNeeded(ARFrame *frame) {
     matrix_float3x3 intrinsics = frame.camera.intrinsics;
     CGSize res = frame.camera.imageResolution;
 
-    char buf[512];
+    char buf[640];
     // Extrinsics default to identity — a safe fallback; iOS
     // does not expose a per-device IMU/camera calibration to do better here.
     snprintf(buf, sizeof(buf),
         "{\"type\":\"header\",\"intrinsics\":{\"fx\":%.4f,\"fy\":%.4f,\"cx\":%.4f,\"cy\":%.4f,\"width\":%d,\"height\":%d},"
-        "\"extrinsics\":{\"q_imu_cam\":[0,0,0,1],\"p_imu_cam\":[0,0,0],\"time_offset\":0.0}}",
+        "\"extrinsics\":{\"q_imu_cam\":[0,0,0,1],\"p_imu_cam\":[0,0,0],\"time_offset\":0.0},\"depth\":%s}",
         intrinsics.columns[0][0], intrinsics.columns[1][1],
         intrinsics.columns[2][0], intrinsics.columns[2][1],
-        (int)res.width, (int)res.height);
+        (int)res.width, (int)res.height, _depthRequested ? "true" : "false");
 
     std::lock_guard<std::mutex> lock(_sidecarMutex);
     _sidecar << buf << "\n";
@@ -343,6 +413,116 @@ void VROARSessionRecorderIOS::writePoseLine(ARFrame *frame) {
     }
 }
 
+void VROARSessionRecorderIOS::recordDepth(ARFrame *frame) {
+    if (@available(iOS 14.0, *)) {
+        ARDepthData *depthData = frame.sceneDepth;
+        if (!depthData || !depthData.depthMap || !depthData.confidenceMap) {
+            return;
+        }
+        if (_lastDepthTimestamp != 0 && frame.timestamp - _lastDepthTimestamp < kDepthMinIntervalSeconds) {
+            return;
+        }
+        if (_depthPending.load() >= kMaxPendingDepthFrames) {
+            return;
+        }
+
+        CVPixelBufferRef depthMap = depthData.depthMap;
+        CVPixelBufferRef confidenceMap = depthData.confidenceMap;
+        if (CVPixelBufferGetPixelFormatType(depthMap) != kCVPixelFormatType_DepthFloat32 ||
+            CVPixelBufferGetPixelFormatType(confidenceMap) != kCVPixelFormatType_OneComponent8) {
+            return;
+        }
+        size_t width = CVPixelBufferGetWidth(depthMap);
+        size_t height = CVPixelBufferGetHeight(depthMap);
+        if (width == 0 || height == 0 ||
+            CVPixelBufferGetWidth(confidenceMap) != width || CVPixelBufferGetHeight(confidenceMap) != height) {
+            return;
+        }
+
+        // ARKit recycles these buffers, so take tightly packed copies here (a few
+        // hundred KB) and leave the conversion and encoding to the queue.
+        auto depthCopy = std::make_shared<std::vector<float>>(width * height);
+        auto confidenceCopy = std::make_shared<std::vector<uint8_t>>(width * height);
+
+        CVPixelBufferLockBaseAddress(depthMap, kCVPixelBufferLock_ReadOnly);
+        const uint8_t *depthBase = (const uint8_t *)CVPixelBufferGetBaseAddress(depthMap);
+        size_t depthStride = CVPixelBufferGetBytesPerRow(depthMap);
+        for (size_t y = 0; y < height; y++) {
+            memcpy(depthCopy->data() + y * width, depthBase + y * depthStride, width * sizeof(float));
+        }
+        CVPixelBufferUnlockBaseAddress(depthMap, kCVPixelBufferLock_ReadOnly);
+
+        CVPixelBufferLockBaseAddress(confidenceMap, kCVPixelBufferLock_ReadOnly);
+        const uint8_t *confidenceBase = (const uint8_t *)CVPixelBufferGetBaseAddress(confidenceMap);
+        size_t confidenceStride = CVPixelBufferGetBytesPerRow(confidenceMap);
+        for (size_t y = 0; y < height; y++) {
+            memcpy(confidenceCopy->data() + y * width, confidenceBase + y * confidenceStride, width);
+        }
+        CVPixelBufferUnlockBaseAddress(confidenceMap, kCVPixelBufferLock_ReadOnly);
+
+        // The camera's intrinsics are for the captured image; the depth map has its
+        // own size, and not necessarily the same aspect, so scale each axis.
+        matrix_float3x3 intrinsics = frame.camera.intrinsics;
+        CGSize res = frame.camera.imageResolution;
+        double sx = (double)width / res.width;
+        double sy = (double)height / res.height;
+        double fx = intrinsics.columns[0][0] * sx;
+        double fy = intrinsics.columns[1][1] * sy;
+        double cx = intrinsics.columns[2][0] * sx;
+        double cy = intrinsics.columns[2][1] * sy;
+
+        double timestamp = frame.timestamp;
+        int index = _depthCount++;
+        _lastDepthTimestamp = frame.timestamp;
+        _depthPending++;
+
+        NSString *dir = [NSString stringWithUTF8String:_outputDir.c_str()];
+        NSString *name = [NSString stringWithFormat:@"%06d", index];
+        NSString *depthRel = [NSString stringWithFormat:@"depth/%@.png", name];
+        NSString *confidenceRel = [NSString stringWithFormat:@"depth/%@_c.png", name];
+        NSString *depthPath = [dir stringByAppendingPathComponent:depthRel];
+        NSString *confidencePath = [dir stringByAppendingPathComponent:confidenceRel];
+
+        dispatch_async(_depthQueue, ^{
+            // Metres to millimetres; no measurement (NaN, zero, negative) stays 0.
+            std::vector<uint16_t> millimetres(width * height);
+            for (size_t i = 0; i < millimetres.size(); i++) {
+                float metres = (*depthCopy)[i];
+                if (!(metres > 0.0f)) {
+                    millimetres[i] = 0;
+                } else {
+                    float mm = metres * 1000.0f + 0.5f;
+                    millimetres[i] = mm >= 65535.0f ? 65535 : (uint16_t)mm;
+                }
+            }
+            // ARConfidenceLevel is 0 (low), 1 (medium), 2 (high): stretched over 0-255
+            for (uint8_t &c : *confidenceCopy) {
+                c = c >= 2 ? 255 : (uint8_t)(c * 127);
+            }
+
+            bool written = writeGrayscalePNG(depthPath, millimetres.data(), width, height, 16) &&
+                           writeGrayscalePNG(confidencePath, confidenceCopy->data(), width, height, 8);
+            if (written) {
+                int64_t tNs = (int64_t)(timestamp * 1e9);
+                char buf[512];
+                snprintf(buf, sizeof(buf),
+                    "{\"type\":\"depth\",\"t\":%lld,\"file\":\"%s\",\"confidence\":\"%s\","
+                    "\"width\":%d,\"height\":%d,\"scale\":1000,"
+                    "\"fx\":%.4f,\"fy\":%.4f,\"cx\":%.4f,\"cy\":%.4f,\"source\":\"lidar\"}",
+                    (long long)tNs, [depthRel UTF8String], [confidenceRel UTF8String],
+                    (int)width, (int)height, fx, fy, cx, cy);
+                std::lock_guard<std::mutex> lock(_sidecarMutex);
+                if (_sidecar.is_open()) {
+                    _bufferedLines.push_back({tNs, std::string(buf)});
+                }
+            } else {
+                perr("VROARSessionRecorderIOS: could not write depth frame %s, skipping it", [name UTF8String]);
+            }
+            _depthPending--;
+        });
+    }
+}
+
 void VROARSessionRecorderIOS::flushBufferedLinesSorted() {
     std::lock_guard<std::mutex> lock(_sidecarMutex);
     if (!_sidecar.is_open()) {
@@ -379,6 +559,10 @@ void VROARSessionRecorderIOS::recordFrame(ARFrame *frame) {
     }
 
     writeHeaderIfNeeded(frame);
+
+    if (_depthRequested) {
+        recordDepth(frame);
+    }
 
     CVPixelBufferRef pixelBuffer = frame.capturedImage;
     bool appended = false;

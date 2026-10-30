@@ -460,6 +460,10 @@ void VROARSessioniOS::updateTrackingType(VROTrackingType trackingType) {
       }
     }
 
+    if (@available(iOS 14.0, *)) {
+      config.frameSemantics = (ARFrameSemantics)computeNeededFrameSemantics();
+    }
+
     _sessionConfiguration = config;
   }
 }
@@ -1400,31 +1404,8 @@ void VROARSessioniOS::setOcclusionMode(VROOcclusionMode mode) {
     lidarSupported = [ARWorldTrackingConfiguration supportsFrameSemantics:ARFrameSemanticSceneDepth];
   }
 
-    // Enable scene depth in ARKit configuration for depth-based occlusion
-    if (@available(iOS 14.0, *)) {
-        if ([_sessionConfiguration isKindOfClass:[ARWorldTrackingConfiguration class]]) {
-            ARWorldTrackingConfiguration *config = (ARWorldTrackingConfiguration *)_sessionConfiguration;
-
-            if (mode == VROOcclusionMode::DepthBased || mode == VROOcclusionMode::DepthOnly) {
-              // Enable scene depth if supported (requires LiDAR)
-              if (lidarSupported) {
-                config.frameSemantics = ARFrameSemanticSceneDepth;
-              }
-            } else if (mode == VROOcclusionMode::PeopleOnly) {
-                // Enable person segmentation with depth
-                if ([ARWorldTrackingConfiguration supportsFrameSemantics:ARFrameSemanticPersonSegmentationWithDepth]) {
-                    config.frameSemantics = ARFrameSemanticPersonSegmentationWithDepth;
-                }
-            } else {
-                // Disable depth semantics
-                config.frameSemantics = ARFrameSemanticNone;
-            }
-
-            if (!_sessionPaused) {
-                [_session runWithConfiguration:_sessionConfiguration];
-            }
-        }
-    }
+    // Scene depth / person segmentation for the new mode, merged with the other depth needs
+    updateFrameSemantics();
 
         // Transparent monocular fallback for depth-based occlusion on non-LiDAR devices
         // Also enable monocular for DepthOnly so hit tests with depth data work on all devices
@@ -1445,6 +1426,54 @@ void VROARSessioniOS::setOcclusionMode(VROOcclusionMode mode) {
             setMonocularDepthEnabled(true);
           }
         }
+}
+
+NSUInteger VROARSessioniOS::computeNeededFrameSemantics() const {
+    NSUInteger semantics = 0;
+    if (@available(iOS 14.0, *)) {
+        ARFrameSemantics needed = ARFrameSemanticNone;
+        bool sceneDepthSupported =
+            [ARWorldTrackingConfiguration supportsFrameSemantics:ARFrameSemanticSceneDepth];
+        VROOcclusionMode mode = getOcclusionMode();
+        bool depthOcclusion = (mode == VROOcclusionMode::DepthBased || mode == VROOcclusionMode::DepthOnly);
+
+        if ((depthOcclusion || _worldMeshDepthNeeded || isDepthCaptureEnabled()) && sceneDepthSupported) {
+            needed |= ARFrameSemanticSceneDepth;
+        }
+        if (mode == VROOcclusionMode::PeopleOnly) {
+            ARFrameSemantics people = needed | ARFrameSemanticPersonSegmentationWithDepth;
+            // Not every device can run both: scene depth wins, since recording and the mesh rely on it
+            if ([ARWorldTrackingConfiguration supportsFrameSemantics:people]) {
+                needed = people;
+            }
+        }
+        semantics = (NSUInteger)needed;
+    }
+    return semantics;
+}
+
+void VROARSessioniOS::updateFrameSemantics() {
+    if (@available(iOS 14.0, *)) {
+        if ([_sessionConfiguration isKindOfClass:[ARWorldTrackingConfiguration class]]) {
+            ARWorldTrackingConfiguration *config = (ARWorldTrackingConfiguration *)_sessionConfiguration;
+            ARFrameSemantics needed = (ARFrameSemantics)computeNeededFrameSemantics();
+            if (config.frameSemantics == needed) {
+                return;
+            }
+            config.frameSemantics = needed;
+            rerunIfRunning();
+        }
+    }
+}
+
+void VROARSessioniOS::onWorldMeshEnabled(bool enabled) {
+    _worldMeshDepthNeeded = enabled;
+    updateFrameSemantics();
+}
+
+void VROARSessioniOS::setDepthCaptureEnabled(bool enabled) {
+    VROARSession::setDepthCaptureEnabled(enabled);
+    updateFrameSemantics();
 }
 
 bool VROARSessioniOS::isOcclusionSupported() const {
@@ -3325,7 +3354,24 @@ void VROARSessioniOS::startRecording(const VROARRecordingConfig &config,
   if (!_recorder) {
     _recorder.reset(new VROARSessionRecorderIOS());
   }
-  _recorder->start(config, onSuccess, onFailure);
+
+  // Depth is recorded only when the running configuration already delivers it:
+  // turning it on here would re-run the session in the middle of the scan.
+  VROARRecordingConfig recordingConfig = config;
+  if (recordingConfig.depth) {
+    bool depthActive = false;
+    if (@available(iOS 14.0, *)) {
+      if ([_sessionConfiguration isKindOfClass:[ARWorldTrackingConfiguration class]]) {
+        ARWorldTrackingConfiguration *worldConfig = (ARWorldTrackingConfiguration *)_sessionConfiguration;
+        depthActive = (worldConfig.frameSemantics & ARFrameSemanticSceneDepth) != 0;
+      }
+    }
+    if (!depthActive) {
+      pinfo("VROARSession: depth recording requested but scene depth is not enabled on the session, recording without depth");
+    }
+    recordingConfig.depth = depthActive;
+  }
+  _recorder->start(recordingConfig, onSuccess, onFailure);
 }
 
 void VROARSessioniOS::stopRecording() {
