@@ -5928,10 +5928,7 @@
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks";
-				LIBRARY_SEARCH_PATHS = (
-					"$(inherited)",
-					"$(PROJECT_DIR)/Libraries/reactvisioncca/arm64",
-				);
+				LIBRARY_SEARCH_PATHS = "$(inherited)";
 				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = (
 					"$(inherited)",
 					"$(PROJECT_DIR)/Libraries/freetype/armv7_arm64",
@@ -5941,6 +5938,7 @@
 					"$(PROJECT_DIR)/Libraries/reactvisioncca/arm64",
 				);
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = (
+					"$(PROJECT_DIR)/Libraries/GVRAudioSDK/simulator",
 					"$(inherited)",
 					"$(PROJECT_DIR)/Libraries/freetype/x86_64",
 					"$(PROJECT_DIR)/Libraries/protobuf/x86_64",
@@ -6036,7 +6034,6 @@
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(PROJECT_DIR)/Libraries/harfbuzz/armv7_arm64",
-					"$(PROJECT_DIR)/Libraries/reactvisioncca/arm64",
 				);
 				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = (
 					"$(inherited)",
@@ -6047,6 +6044,7 @@
 					"$(PROJECT_DIR)/Libraries/reactvisioncca/arm64",
 				);
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = (
+					"$(PROJECT_DIR)/Libraries/GVRAudioSDK/simulator",
 					"$(inherited)",
 					"$(PROJECT_DIR)/Libraries/freetype/x86_64",
 					"$(PROJECT_DIR)/Libraries/protobuf/x86_64",
