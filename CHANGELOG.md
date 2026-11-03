@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## Unreleased
+
+### Fixed
+
+- **Android hit tests always deliver their results (`VRORendererARCore_JNI`, `VRORenderer_JNI`).** The AR point, ray and position hit tests, the Quest OpenXR hit tests and the scene hit test kept the caller's one-shot listener only as a weak global reference, so the garbage collector could take it before the renderer thread answered, and the results never arrived. It is now a global reference, deleted once the callback has run.
+
 ## v3.1.0 — 27 October 2026
 
 ### Added
