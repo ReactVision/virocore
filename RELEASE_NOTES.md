@@ -37,7 +37,7 @@
 - **A click goes to the node drawn on top,** and a click in open space reaches the controller's own delegates again.
 - **Text sits where its vertical alignment puts it,** and a back-culled draw after a front-culled one culls back faces again.
 - **Video:** a paused iOS video stays paused and its late callbacks no longer reach a freed texture; Android play and pause keep their order.
-- **iOS:** `ViroKit.framework` targets iOS 15.1.
+- **iOS:** ViroKit targets iOS 15.1, and builds for the iOS Simulator (arm64 and x86_64) as well as the device. The copy into viro now makes `ViroKit.xcframework`, replacing only the slice just built. `ios/build_ios_simulator_libs.sh` adds the simulator builds of LinearMath, protobuf-lite and GVR Audio that ViroKit links.
 - **Removed:** the macOS target, which no longer linked and nothing built, and dead code (an unused metrics client, the API key validator, the OpenCV headers, an old OpenXR loader).
 
 See `CHANGELOG.md` for every change.
