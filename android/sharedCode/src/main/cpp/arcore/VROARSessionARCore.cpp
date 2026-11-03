@@ -3149,10 +3149,25 @@ void VROARSessionARCore::startRecording(const VROARRecordingConfig &config,
     }
 }
 
-void VROARSessionARCore::stopRecording() {
+bool VROARSessionARCore::isRecordingDepthSupported() const {
+    return _session != nullptr && _session->isDepthModeSupported(arcore::DepthMode::Automatic);
+}
+
+void VROARSessionARCore::stopRecording(std::function<void(const VROARRecordingResult &result)> onStopped) {
+    VROARRecordingStatus status = _recordingStatus;
     _recordingStatus = VROARRecordingStatus::None;
     _recordingDepth = false;
     setRecordingJavaCallback(nullptr);
+    if (onStopped) {
+        VROARRecordingResult result;
+        if (status == VROARRecordingStatus::Recording) {
+            result.success = true;
+        } else {
+            result.error = status == VROARRecordingStatus::IOError ? "Recording stopped after a write error"
+                                                                    : "Not recording";
+        }
+        onStopped(result);
+    }
 }
 
 VROARRecordingStatus VROARSessionARCore::getRecordingStatus() const {

@@ -179,6 +179,38 @@ public class ARScene extends Scene {
     }
 
     /**
+     * What a finished recording wrote, returned by {@link #stopRecording()} once video.mp4,
+     * session.jsonl and any depth files are complete.
+     */
+    public static final class RecordingResult {
+        /** True when every file was written and closed and at least one frame was recorded. */
+        public final boolean success;
+        /** Why the recording failed, or null on success. */
+        public final String error;
+        /** Seconds from the first to the last recorded frame. */
+        public final double durationSec;
+        /** Camera frames recorded, one {@code pose} line each in session.jsonl. */
+        public final int frames;
+        /** Depth frames written under depth/; 0 for a recording without depth. */
+        public final int depthFrames;
+        /** {@code pose} lines carrying a {@code gps} object. */
+        public final int gpsFixes;
+        /** Size in bytes of every file written, or -1 when unknown. */
+        public final long bytes;
+
+        public RecordingResult(boolean success, String error, double durationSec, int frames,
+                               int depthFrames, int gpsFixes, long bytes) {
+            this.success = success;
+            this.error = error;
+            this.durationSec = durationSec;
+            this.frames = frames;
+            this.depthFrames = depthFrames;
+            this.gpsFixes = gpsFixes;
+            this.bytes = bytes;
+        }
+    }
+
+    /**
      * Callback interface for {@link #startRecording(String, Context, RecordingStartListener)}.
      */
     public interface RecordingStartListener {
@@ -499,7 +531,8 @@ public class ARScene extends Scene {
     // AR Session Recording API state. mSessionRecorder does the actual work
     // (MediaCodec/MediaMuxer/SensorManager/file I/O — see ARSessionRecorder);
     // this class only bridges native's per-frame calls to it.
-    private com.viro.core.internal.ARSessionRecorder mSessionRecorder;
+    // stopRecording() may run off the UI thread.
+    private volatile com.viro.core.internal.ARSessionRecorder mSessionRecorder;
     private RecordingStartListener mRecordingStartListener;
 
     // Geospatial API state
@@ -1058,14 +1091,31 @@ public class ARScene extends Scene {
 
     /**
      * Stop the recording started by {@link #startRecording(String, Context, RecordingStartListener)}
-     * and finalize video.mp4 + session.jsonl. No-op if not currently recording.
+     * and finalize video.mp4 + session.jsonl. Blocks until the files are complete.
+     *
+     * @return What was written. When no recording was running, success is false and the
+     * error is "Not recording".
      */
-    public void stopRecording() {
+    public RecordingResult stopRecording() {
         nativeStopRecording(mNativeRef);
-        if (mSessionRecorder != null) {
-            mSessionRecorder.stop();
-            mSessionRecorder = null;
+        if (mSessionRecorder == null) {
+            return new RecordingResult(false, "Not recording", 0, 0, 0, 0, -1);
         }
+        RecordingResult result = mSessionRecorder.stop();
+        mSessionRecorder = null;
+        return result;
+    }
+
+    /**
+     * Whether this session can record, and with depth true, also record depth (the device
+     * supports the ARCore Depth API). Depth is only recorded if
+     * {@link #setDepthCaptureEnabled(boolean)} was also called with true.
+     */
+    public boolean isRecordingSupported(boolean depth) {
+        if (mNativeRef == 0) {
+            return false;
+        }
+        return nativeIsRecordingSupported(mNativeRef, depth);
     }
 
     /** The current recording state. See {@link RecordingStatus}. */
@@ -2302,6 +2352,7 @@ public class ARScene extends Scene {
     private native void nativeStartRecording(long sceneControllerRef, String outputDir, boolean depth);
     private native void nativeStopRecording(long sceneControllerRef);
     private native int nativeGetRecordingStatus(long sceneControllerRef);
+    private native boolean nativeIsRecordingSupported(long sceneControllerRef, boolean depth);
     private native void nativeReportRecordingError(long sceneControllerRef, String error);
 
     // Called by JNI

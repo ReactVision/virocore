@@ -1971,6 +1971,22 @@ VRO_METHOD(VRO_INT, nativeGetRecordingStatus)(VRO_ARGS
     return (VRO_INT) session->getRecordingStatus();
 }
 
+VRO_METHOD(VRO_BOOL, nativeIsRecordingSupported)(VRO_ARGS
+                                                  VRO_REF(VROARSceneController) sceneController_j,
+                                                  VRO_BOOL depth) {
+    VRO_METHOD_PREAMBLE;
+    std::shared_ptr<VROARScene> scene = std::dynamic_pointer_cast<VROARScene>(
+            VRO_REF_GET(VROARSceneController, sceneController_j)->getScene());
+    if (!scene) {
+        return false;
+    }
+    std::shared_ptr<VROARSession> session = scene->getARSession();
+    if (!session || !session->isRecordingSupported()) {
+        return false;
+    }
+    return !depth || session->isRecordingDepthSupported();
+}
+
 // Called by Java (ARSessionRecorder, via ARScene) when the encoder/sidecar
 // hits an IOException mid-recording — flips native's getRecordingStatus() to
 // IOError so the JS layer can surface it instead of silently losing frames.

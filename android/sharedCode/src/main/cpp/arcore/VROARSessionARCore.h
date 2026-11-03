@@ -305,10 +305,16 @@ public:
      recordFrameForRecording() and setRecordingJavaCallback() below.
      */
     bool isRecordingSupported() const override { return true; }
+    bool isRecordingDepthSupported() const override;
     void startRecording(const VROARRecordingConfig &config,
                          std::function<void()> onSuccess,
                          std::function<void(std::string error)> onFailure) override;
-    void stopRecording() override;
+    /*
+     The files are written in Java, so the result passed here carries only
+     success; ARScene.stopRecording() returns the counts and sizes.
+     */
+    using VROARSession::stopRecording;
+    void stopRecording(std::function<void(const VROARRecordingResult &result)> onStopped) override;
     VROARRecordingStatus getRecordingStatus() const override;
 
     /*
