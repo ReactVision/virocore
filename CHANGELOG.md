@@ -1,5 +1,18 @@
 # CHANGELOG
 
+## Unreleased
+
+### Added
+
+- **`VROARSession::stopRecording` takes a completion receiving a `VROARRecordingResult`** (`success`, `error`, `durationSec`, `frames`, `depthFrames`, `gpsFixes`, `bytes`), called once the files are complete. The no-argument form remains. On Android, `ARScene.stopRecording()` returns an `ARScene.RecordingResult` with the same fields.
+- **`VROARSession::isRecordingDepthSupported()` and `ARScene.isRecordingSupported(boolean depth)`.** iOS checks for LiDAR scene depth and ARCore for the Depth API. On Android `ARScene.isRecordingSupported` answers false, with or without depth, until the ARCore session exists.
+
+### Fixed
+
+- **Android reports a recording whose encoder did not finish as failed.** It logged a warning and the recording counted as complete, while iOS reports the same case as an error.
+- **Android: a failure while a recording is being stopped no longer leaves `getRecordingStatus()` at IOError (`ARSessionRecorder`).** `encoder.stop()` and `muxer.stop()` failures reported it to the scene after the stop had already set the status back to None, so the status read IOError with nothing recording. Such a failure is now reported in the stop's result only. `ARScene.stopRecording()` may be called off the UI thread.
+- **Android hit tests always deliver their results (`VRORendererARCore_JNI`, `VRORenderer_JNI`).** The AR point, ray and position hit tests, the Quest OpenXR hit tests and the scene hit test kept the caller's one-shot listener only as a weak global reference, so the garbage collector could take it before the renderer thread answered, and the results never arrived. It is now a global reference, deleted once the callback has run.
+
 ## v3.1.0 — 27 October 2026
 
 ### Added
