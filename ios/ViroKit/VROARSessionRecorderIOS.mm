@@ -71,6 +71,8 @@ static bool writeGrayscalePNG(NSString *path, const void *pixels, size_t width, 
 
 VROARSessionRecorderIOS::VROARSessionRecorderIOS() :
     _status(VROARRecordingStatus::None),
+    _running(false),
+    _stopping(false),
     _startTimestamp(0),
     _videoWriter(nil),
     _videoWriterInput(nil),
@@ -80,11 +82,16 @@ VROARSessionRecorderIOS::VROARSessionRecorderIOS() :
     _videoWidth(0),
     _videoHeight(0),
     _lastFrameTimestamp(0),
+    _poseCount(0),
+    _gpsFixCount(0),
+    _lastPoseTimestamp(0),
     _depthRequested(false),
     _lastDepthTimestamp(0),
     _depthCount(0),
     _depthQueue(nil),
     _depthPending(0),
+    _depthWritten(0),
+    _depthBytes(0),
     _motionManager(nil),
     _imuQueue(nil),
     _wroteHeader(false) {
@@ -99,6 +106,10 @@ bool VROARSessionRecorderIOS::start(const VROARRecordingConfig &config,
                                      std::function<void(std::string error)> onFailure) {
     if (_status == VROARRecordingStatus::Recording) {
         if (onFailure) onFailure("Already recording");
+        return false;
+    }
+    if (_stopping) {
+        if (onFailure) onFailure("The previous recording is still being saved");
         return false;
     }
 
@@ -121,9 +132,14 @@ bool VROARSessionRecorderIOS::start(const VROARRecordingConfig &config,
     _videoWidth = 0;
     _videoHeight = 0;
     _lastFrameTimestamp = 0;
+    _lastPoseTimestamp = 0;
+    _poseCount = 0;
+    _gpsFixCount = 0;
     _lastDepthTimestamp = 0;
     _depthCount = 0;
     _depthPending = 0;
+    _depthWritten = 0;
+    _depthBytes = 0;
 
     _depthRequested = config.depth;
     if (_depthRequested) {
@@ -207,13 +223,16 @@ bool VROARSessionRecorderIOS::start(const VROARRecordingConfig &config,
     }
 
     _status = VROARRecordingStatus::Recording;
+    _running = true;
     if (onSuccess) onSuccess();
     return true;
 }
 
-void VROARSessionRecorderIOS::stop() {
+VROARRecordingResult VROARSessionRecorderIOS::stop() {
+    VROARRecordingResult result;
     AVAssetWriter *writerToFinish = nil;
     AVAssetWriterInput *inputToFinish = nil;
+    bool failedWhileRecording = false;
     {
         // Flip _status away from Recording under the same lock recordFrame()
         // takes around its own status check + appendPixelBuffer call — see
@@ -223,9 +242,13 @@ void VROARSessionRecorderIOS::stop() {
         // returns early, so markAsFinished below can never race a concurrent
         // append.
         std::lock_guard<std::mutex> lock(_stateMutex);
-        if (_status != VROARRecordingStatus::Recording && _status != VROARRecordingStatus::IOError) {
-            return;
+        if (!_running) {
+            result.error = "Not recording";
+            return result;
         }
+        _running = false;
+        _stopping = true;
+        failedWhileRecording = _status == VROARRecordingStatus::IOError;
         _status = VROARRecordingStatus::None;
         writerToFinish = _videoWriter;
         inputToFinish = _videoWriterInput;
@@ -248,6 +271,7 @@ void VROARSessionRecorderIOS::stop() {
     }
     _imuQueue = nil;
 
+    bool finishFailed = false;
     if (writerToFinish && writerToFinish.status == AVAssetWriterStatusWriting) {
         [inputToFinish markAsFinished];
         dispatch_semaphore_t sema = dispatch_semaphore_create(0);
@@ -270,10 +294,42 @@ void VROARSessionRecorderIOS::stop() {
                  writerToFinish.error ? [writerToFinish.error.localizedDescription UTF8String] : "none");
             std::lock_guard<std::mutex> lock(_stateMutex);
             _status = VROARRecordingStatus::IOError;
+            finishFailed = true;
         }
     }
 
     closeSidecar();
+
+    {
+        std::lock_guard<std::mutex> lock(_sidecarMutex);
+        result.frames = _poseCount;
+        result.gpsFixes = _gpsFixCount;
+        result.durationSec = _poseCount > 0 ? _lastPoseTimestamp - _startTimestamp : 0;
+    }
+    result.depthFrames = _depthWritten.load();
+
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    NSString *dir = [NSString stringWithUTF8String:_outputDir.c_str()];
+    int64_t bytes = _depthBytes.load();
+    for (NSString *name in @[ @"video.mp4", @"session.jsonl" ]) {
+        NSDictionary *attributes = [fileManager attributesOfItemAtPath:[dir stringByAppendingPathComponent:name]
+                                                                 error:nil];
+        bytes += (int64_t)[attributes fileSize];
+    }
+    result.bytes = bytes;
+
+    if (finishFailed) {
+        result.error = "video.mp4 could not be finalized";
+    } else if (failedWhileRecording) {
+        result.error = "Recording stopped after a write error";
+    } else if (_videoDisabled || _loggedPixelFormatMismatch) {
+        result.error = "Video could not be written, video.mp4 is incomplete";
+    } else if (result.frames == 0) {
+        result.error = "No frames were recorded";
+    }
+    result.success = result.error.empty();
+    _stopping = false;
+    return result;
 }
 
 VROARRecordingStatus VROARSessionRecorderIOS::getStatus() const {
@@ -374,6 +430,7 @@ void VROARSessionRecorderIOS::writePoseLine(ARFrame *frame) {
 
     // A position without a valid heading is still written, with the heading
     // fields null: the reader judges position and heading separately.
+    bool hasGps = false;
     if (geo.hasGps && std::isfinite(geo.latitude) && std::isfinite(geo.longitude) &&
         std::isfinite(geo.altitude)) {
         char gpsBuf[256];
@@ -403,6 +460,7 @@ void VROARSessionRecorderIOS::writePoseLine(ARFrame *frame) {
             geo.latitude, geo.longitude, geo.altitude,
             hAccField, headingField, headingAccField);
         line.insert(line.size() - 1, gpsBuf); // before the closing '}'
+        hasGps = true;
     }
 
     // Buffered, not written immediately — see the _bufferedLines comment in
@@ -410,6 +468,9 @@ void VROARSessionRecorderIOS::writePoseLine(ARFrame *frame) {
     std::lock_guard<std::mutex> lock(_sidecarMutex);
     if (_sidecar.is_open()) {
         _bufferedLines.push_back({tNs, line});
+        _poseCount++;
+        if (hasGps) _gpsFixCount++;
+        _lastPoseTimestamp = frame.timestamp;
     }
 }
 
@@ -511,9 +572,14 @@ void VROARSessionRecorderIOS::recordDepth(ARFrame *frame) {
                     "\"fx\":%.4f,\"fy\":%.4f,\"cx\":%.4f,\"cy\":%.4f,\"source\":\"lidar\"}",
                     (long long)tNs, [depthRel UTF8String], [confidenceRel UTF8String],
                     (int)width, (int)height, fx, fy, cx, cy);
+                NSFileManager *fileManager = [NSFileManager defaultManager];
+                int64_t pngBytes = (int64_t)[[fileManager attributesOfItemAtPath:depthPath error:nil] fileSize] +
+                                   (int64_t)[[fileManager attributesOfItemAtPath:confidencePath error:nil] fileSize];
                 std::lock_guard<std::mutex> lock(_sidecarMutex);
                 if (_sidecar.is_open()) {
                     _bufferedLines.push_back({tNs, std::string(buf)});
+                    _depthWritten++;
+                    _depthBytes += pngBytes;
                 }
             } else {
                 perr("VROARSessionRecorderIOS: could not write depth frame %s, skipping it", [name UTF8String]);

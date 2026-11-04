@@ -3348,6 +3348,13 @@ bool VROARSessioniOS::isRecordingSupported() const {
   return true;
 }
 
+bool VROARSessioniOS::isRecordingDepthSupported() const {
+  if (@available(iOS 14.0, *)) {
+    return [ARWorldTrackingConfiguration supportsFrameSemantics:ARFrameSemanticSceneDepth];
+  }
+  return false;
+}
+
 void VROARSessioniOS::startRecording(const VROARRecordingConfig &config,
                                      std::function<void()> onSuccess,
                                      std::function<void(std::string error)> onFailure) {
@@ -3374,9 +3381,15 @@ void VROARSessioniOS::startRecording(const VROARRecordingConfig &config,
   _recorder->start(recordingConfig, onSuccess, onFailure);
 }
 
-void VROARSessioniOS::stopRecording() {
+void VROARSessioniOS::stopRecording(std::function<void(const VROARRecordingResult &result)> onStopped) {
+  VROARRecordingResult result;
   if (_recorder) {
-    _recorder->stop();
+    result = _recorder->stop();
+  } else {
+    result.error = "Not recording";
+  }
+  if (onStopped) {
+    onStopped(result);
   }
 }
 

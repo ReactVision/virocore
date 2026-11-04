@@ -35,6 +35,8 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 
+import com.viro.core.ARScene;
+
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.FileWriter;
@@ -45,6 +47,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class ARSessionRecorder {
 
@@ -70,6 +73,15 @@ public class ARSessionRecorder {
     private boolean mWroteHeader;
     private final Object mSidecarLock = new Object();
     private long mFirstTimestampNs = -1;
+    private long mLastTimestampNs = -1;
+    // `pose` lines written, and those of them carrying a `gps` object.
+    private int mPoseCount;
+    private int mGpsFixCount;
+    // The first failure reportError() saw; the recording's result is a failure when set.
+    private volatile String mFirstError;
+    // Set once stop() begins: its errors go into the result, not to the listener, which
+    // would mark a session that has stopped recording as failed.
+    private volatile boolean mStopping;
 
     // Raw IMU (SensorManager.TYPE_ACCELEROMETER/TYPE_GYROSCOPE — NOT the fused
     // rotation-vector sensor VRTARSceneNavigator uses elsewhere for heading).
@@ -105,6 +117,9 @@ public class ARSessionRecorder {
     private ExecutorService mDepthExecutor;
     private final AtomicInteger mPendingDepthFrames = new AtomicInteger();
     private int mNextDepthIndex = 0;
+    // Depth frames whose PNGs were written and line buffered, and the PNGs' size.
+    private final AtomicInteger mDepthFramesWritten = new AtomicInteger();
+    private final AtomicLong mDepthBytesWritten = new AtomicLong();
 
     public ARSessionRecorder(Context context, ErrorListener errorListener) {
         mContext = context;
@@ -119,9 +134,16 @@ public class ARSessionRecorder {
         mOutputDir = outputDir;
         mWroteHeader = false;
         mFirstTimestampNs = -1;
+        mLastTimestampNs = -1;
+        mPoseCount = 0;
+        mGpsFixCount = 0;
+        mFirstError = null;
+        mStopping = false;
         mHaveGyro = false;
         mDepthActive = false;
         mNextDepthIndex = 0;
+        mDepthFramesWritten.set(0);
+        mDepthBytesWritten.set(0);
 
         mSidecar = new FileWriter(new File(dir, "session.jsonl"), false);
 
@@ -193,7 +215,12 @@ public class ARSessionRecorder {
         }
     }
 
-    public synchronized void stop() {
+    /**
+     * Stops recording and blocks until video.mp4, session.jsonl and any depth files are
+     * complete, then returns what was written.
+     */
+    public synchronized ARScene.RecordingResult stop() {
+        mStopping = true;
         if (mSensorManager != null && mSensorListener != null) {
             mSensorManager.unregisterListener(mSensorListener);
         }
@@ -238,6 +265,22 @@ public class ARSessionRecorder {
         drainDepthWrites();
         flushBufferedLinesSorted();
         closeSidecarQuietly();
+        return buildResult();
+    }
+
+    private ARScene.RecordingResult buildResult() {
+        long bytes = mDepthBytesWritten.get();
+        if (mOutputDir != null) {
+            bytes += new File(mOutputDir, "video.mp4").length() + new File(mOutputDir, "session.jsonl").length();
+        }
+        double durationSec = mFirstTimestampNs >= 0 && mLastTimestampNs >= mFirstTimestampNs
+                ? (mLastTimestampNs - mFirstTimestampNs) / 1e9 : 0;
+        String error = mFirstError;
+        if (error == null && mPoseCount == 0) {
+            error = "No frames were recorded";
+        }
+        return new ARScene.RecordingResult(error == null, error, durationSec, mPoseCount,
+                mDepthFramesWritten.get(), mGpsFixCount, bytes);
     }
 
     // Every depth line must be buffered before the sorted flush, so wait for the queue.
@@ -276,7 +319,10 @@ public class ARSessionRecorder {
 
     private void reportError(String message) {
         Log.e(TAG, "ARSessionRecorder: " + message);
-        if (mErrorListener != null) {
+        if (mFirstError == null) {
+            mFirstError = message;
+        }
+        if (mErrorListener != null && !mStopping) {
             mErrorListener.onRecordingError(message);
         }
     }
@@ -312,6 +358,7 @@ public class ARSessionRecorder {
         if (mFirstTimestampNs < 0) {
             mFirstTimestampNs = timestampNs;
         }
+        mLastTimestampNs = timestampNs;
 
         writeHeaderIfNeeded(width, height, pose[7], pose[8], pose[9], pose[10]);
         writePoseLine(timestampNs, pose, geo);
@@ -379,9 +426,11 @@ public class ARSessionRecorder {
                 ",\"gps\":{\"lat\":%.8f,\"lon\":%.8f,\"alt\":%.3f," +
                 "\"h_accuracy\":%s,\"heading\":%s,\"heading_accuracy\":%s}",
                 geo[1], geo[2], geo[3], hAcc, heading, headingAcc));
+            mGpsFixCount++;
         }
         sb.append("}");
         bufferLine(timestampNs, sb.toString());
+        mPoseCount++;
     }
 
     // Intrinsics are the camera image's; the depth map is a different size, so each axis is
@@ -411,11 +460,13 @@ public class ARSessionRecorder {
         executor.execute(new Runnable() {
             @Override
             public void run() {
+                long pngBytes;
                 try {
-                    writeFile(new File(outputDir, depthName),
-                              PngGrayEncoder.encodeGray16(depth, depthWidth, depthHeight, true));
-                    writeFile(new File(outputDir, confidenceName),
-                              PngGrayEncoder.encodeGray8(confidence, depthWidth, depthHeight));
+                    byte[] depthPng = PngGrayEncoder.encodeGray16(depth, depthWidth, depthHeight, true);
+                    byte[] confidencePng = PngGrayEncoder.encodeGray8(confidence, depthWidth, depthHeight);
+                    writeFile(new File(outputDir, depthName), depthPng);
+                    writeFile(new File(outputDir, confidenceName), confidencePng);
+                    pngBytes = depthPng.length + confidencePng.length;
                 } catch (Exception e) {
                     Log.w(TAG, "ARSessionRecorder: depth frame " + depthName + " not written", e);
                     new File(outputDir, depthName).delete();
@@ -431,6 +482,8 @@ public class ARSessionRecorder {
                     depthTimestampNs, depthName, confidenceName, depthWidth, depthHeight,
                     dfx, dfy, dcx, dcy);
                 bufferLine(depthTimestampNs, line);
+                mDepthFramesWritten.incrementAndGet();
+                mDepthBytesWritten.addAndGet(pngBytes);
             }
         });
     }
@@ -684,7 +737,7 @@ public class ARSessionRecorder {
                 continue; // the encoder is still flushing the frames before the end
             } else {
                 if (waitForEnd) {
-                    Log.w(TAG, "ARSessionRecorder: encoder did not finish; the last frames may be missing");
+                    reportError("encoder did not finish; the last frames may be missing");
                 }
                 break; // INFO_TRY_AGAIN_LATER or INFO_OUTPUT_BUFFERS_CHANGED (deprecated path, ignored)
             }
