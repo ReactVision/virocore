@@ -72,6 +72,7 @@ static bool writeGrayscalePNG(NSString *path, const void *pixels, size_t width, 
 VROARSessionRecorderIOS::VROARSessionRecorderIOS() :
     _status(VROARRecordingStatus::None),
     _running(false),
+    _stopping(false),
     _startTimestamp(0),
     _videoWriter(nil),
     _videoWriterInput(nil),
@@ -105,6 +106,10 @@ bool VROARSessionRecorderIOS::start(const VROARRecordingConfig &config,
                                      std::function<void(std::string error)> onFailure) {
     if (_status == VROARRecordingStatus::Recording) {
         if (onFailure) onFailure("Already recording");
+        return false;
+    }
+    if (_stopping) {
+        if (onFailure) onFailure("The previous recording is still being saved");
         return false;
     }
 
@@ -242,6 +247,7 @@ VROARRecordingResult VROARSessionRecorderIOS::stop() {
             return result;
         }
         _running = false;
+        _stopping = true;
         failedWhileRecording = _status == VROARRecordingStatus::IOError;
         _status = VROARRecordingStatus::None;
         writerToFinish = _videoWriter;
@@ -322,6 +328,7 @@ VROARRecordingResult VROARSessionRecorderIOS::stop() {
         result.error = "No frames were recorded";
     }
     result.success = result.error.empty();
+    _stopping = false;
     return result;
 }
 
