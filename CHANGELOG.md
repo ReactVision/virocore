@@ -12,6 +12,7 @@
 - **Android reports a recording whose encoder did not finish as failed.** It logged a warning and the recording counted as complete, while iOS reports the same case as an error.
 - **Android: a failure while a recording is being stopped no longer leaves `getRecordingStatus()` at IOError (`ARSessionRecorder`).** `encoder.stop()` and `muxer.stop()` failures reported it to the scene after the stop had already set the status back to None, so the status read IOError with nothing recording. Such a failure is now reported in the stop's result only. `ARScene.stopRecording()` may be called off the UI thread.
 - **Android hit tests always deliver their results (`VRORendererARCore_JNI`, `VRORenderer_JNI`).** The AR point, ray and position hit tests, the Quest OpenXR hit tests and the scene hit test kept the caller's one-shot listener only as a weak global reference, so the garbage collector could take it before the renderer thread answered, and the results never arrived. It is now a global reference, deleted once the callback has run.
+- **iOS downloads from a signed URL are saved (`VROPlatformDownloadURLToFile`, `VROPlatformDownloadURLToFileAsync`).** The temporary file was named after the URL's last path component with its query, and a signed URL's token pushed the name past the 255-byte file name limit, so the write failed and the download still reported success with a file that did not exist. `VROPlatformLastPathComponent` drops the query and fragment, and a failed write now fails the download.
 
 ## v3.1.0 — 27 October 2026
 

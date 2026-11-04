@@ -42,6 +42,9 @@ VROPlatformType VROPlatformGetType() {
 }
 
 std::string VROPlatformLastPathComponent(std::string url, std::string fallback) {
+    // Callers name files with it, and a signed URL's query (a JWT) pushes the
+    // name past the 255-byte file name limit.
+    url = url.substr(0, url.find_first_of("?#"));
     size_t lastIndex = url.find_last_of("/");
     if (lastIndex == std::string::npos || (lastIndex + 1) >= url.size()) {
         return fallback;
@@ -118,8 +121,10 @@ std::string VROPlatformDownloadURLToFile(std::string url, bool *temp, bool *succ
                                   [[NSProcessInfo processInfo] globallyUniqueString],
                                   VROPlatformLastPathComponent(url, "download.tmp").c_str()];
             NSURL *fileURL = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:fileName]];
-            [data writeToURL:fileURL atomically:NO];
-            
+            if (![data writeToURL:fileURL atomically:NO]) {
+                return;
+            }
+
             *temp = true;
             tempFilePath = [fileURL path];
         }
@@ -144,13 +149,18 @@ void VROPlatformDownloadURLToFileAsync(std::string url,
             return;
         }
         
+        NSURL *fileURL = nil;
         if (data && !error) {
             NSString *fileName = [NSString stringWithFormat:@"%@_%s",
                                   [[NSProcessInfo processInfo] globallyUniqueString],
                                   VROPlatformLastPathComponent(url, "download.tmp").c_str()];
-            NSURL *fileURL = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:fileName]];
-            [data writeToURL:fileURL atomically:NO];
-            
+            fileURL = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:fileName]];
+            if (![data writeToURL:fileURL atomically:NO]) {
+                perr("Failed to write a download to %s", [[fileURL path] UTF8String]);
+                fileURL = nil;
+            }
+        }
+        if (fileURL) {
             VROPlatformDispatchAsyncRenderer([fileURL, onSuccess] {
                 onSuccess([[fileURL path] UTF8String], true);
             });
