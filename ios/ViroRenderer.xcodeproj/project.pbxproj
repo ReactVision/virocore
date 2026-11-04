@@ -4520,9 +4520,9 @@
 				8FD4DECA1C18ECD4003DC425 /* Headers */,
 				8FD4DECB1C18ECD4003DC425 /* Resources */,
 				8AE44C932021084A00CE8394 /* Copy GLM Files to Framework */,
+				F889831C70414DF33A563C8A /* [CP] Copy Pods Resources */,
 				8A8B69DD2036344C00D98723 /* Lipo Framework and Copy to Bridge */,
 				E82CFD5E20AECB790091154F /* Lipo Framework and Copy to Bridge (build intermediates for Jenkins) */,
-				F889831C70414DF33A563C8A /* [CP] Copy Pods Resources */,
 			);
 			buildRules = (
 			);
@@ -4914,13 +4914,14 @@
 			files = (
 			);
 			inputPaths = (
+				"$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)",
 			);
 			name = "Lipo Framework and Copy to Bridge";
 			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "VIRO_FRAMEWORK_PATH=$PROJECT_DIR/../../viro/ios/dist/ViroRenderer                          \n                                                                                    \nmkdir -p $VIRO_FRAMEWORK_PATH                                                              \ncp -r $TARGET_BUILD_DIR/ViroKit.framework $VIRO_FRAMEWORK_PATH                             \n                                                                                         \n# Copy over the podspec                                                                    \ncp -r $PROJECT_DIR/ViroKit.podspec $PROJECT_DIR/../../viro/ios/dist/ViroRenderer  \n";
+			shellScript = "# Stage the build into viro as ViroKit.xcframework. Only this platform's slice is replaced, so a\n# device build and a simulator build can run in either order and each keeps the other's slice.\n# A simulator slice must carry arm64 and x86_64: an app's Release simulator build asks for both,\n# and CocoaPods will not pick a slice that lacks one. Builds of the active arch only are skipped.\n# Info.plist is an input file: without it a clean build can copy the framework before its plist exists.\nif [ \"$PLATFORM_NAME\" = iphonesimulator ]; then\n  case \" $ARCHS \" in *\" arm64 \"*) ;; *) echo \"warning: not staging a simulator slice without arm64 ($ARCHS)\"; exit 0 ;; esac\n  case \" $ARCHS \" in *\" x86_64 \"*) ;; *) echo \"warning: not staging a simulator slice without x86_64 ($ARCHS)\"; exit 0 ;; esac\nfi\nVIRO_FRAMEWORK_PATH=\"$PROJECT_DIR/../../viro/ios/dist/ViroRenderer\"\nXCFRAMEWORK=\"$VIRO_FRAMEWORK_PATH/ViroKit.xcframework\"\nSTAGE=\"$TARGET_TEMP_DIR/xcframework-slices\"\nset -e\nrm -rf \"$STAGE\"\nmkdir -p \"$STAGE/$PLATFORM_NAME\" \"$VIRO_FRAMEWORK_PATH\"\ncp -R \"$TARGET_BUILD_DIR/ViroKit.framework\" \"$STAGE/$PLATFORM_NAME/\"\nset -- -framework \"$STAGE/$PLATFORM_NAME/ViroKit.framework\"\nfor slice in \"$XCFRAMEWORK\"/*/ViroKit.framework; do\n  [ -d \"$slice\" ] || continue\n  platform=$(/usr/libexec/PlistBuddy -c 'Print :DTPlatformName' \"$slice/Info.plist\")\n  [ \"$platform\" = \"$PLATFORM_NAME\" ] && continue\n  mkdir -p \"$STAGE/$platform\"\n  cp -R \"$slice\" \"$STAGE/$platform/\"\n  set -- \"$@\" -framework \"$STAGE/$platform/ViroKit.framework\"\ndone\nxcodebuild -create-xcframework \"$@\" -output \"$STAGE/ViroKit.xcframework\"\nrm -rf \"$XCFRAMEWORK\"\nmv \"$STAGE/ViroKit.xcframework\" \"$XCFRAMEWORK\"\n\n# Copy over the podspec\ncp \"$PROJECT_DIR/ViroKit.podspec\" \"$VIRO_FRAMEWORK_PATH\"\n";
 			showEnvVarsInLog = 0;
 		};
 		B31028429A1A7BF8A56724FA /* [CP] Check Pods Manifest.lock */ = {
@@ -5034,7 +5035,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "mkdir -p /var/tmp/build_intermediates/react_viro_kit/ViroRenderer\nVIRO_FRAMEWORK_PATH=/var/tmp/build_intermediates/react_viro_kit/ViroRenderer\nVIRO_DEVICE_FRAMEWORK=$VIRO_FRAMEWORK_PATH/armv7_arm64\nVIRO_SIMULATOR_FRAMEWORK=$VIRO_FRAMEWORK_PATH/x86_64\n\n# Copy the framework (device or simulator) to react-viro\nif [ ${PLATFORM_NAME} = \"iphonesimulator\" ]; then\nmkdir -p $VIRO_SIMULATOR_FRAMEWORK\ncp -r $TARGET_BUILD_DIR/ViroKit.framework $VIRO_SIMULATOR_FRAMEWORK\nelse\nmkdir -p $VIRO_DEVICE_FRAMEWORK\ncp -r $TARGET_BUILD_DIR/ViroKit.framework $VIRO_DEVICE_FRAMEWORK\nfi\n\n# If both the device and simulator frameworks now exist, create the Universal framework\nif [ -f $VIRO_DEVICE_FRAMEWORK/ViroKit.framework/ViroKit ] && [ -f $VIRO_SIMULATOR_FRAMEWORK/ViroKit.framework/ViroKit ]; then\ncp -r $TARGET_BUILD_DIR/ViroKit.framework $VIRO_FRAMEWORK_PATH\nlipo $VIRO_SIMULATOR_FRAMEWORK/ViroKit.framework/ViroKit $VIRO_DEVICE_FRAMEWORK/ViroKit.framework/ViroKit -create -output $VIRO_FRAMEWORK_PATH/ViroKit.framework/ViroKit\nfi\n\n# Copy over the podspec\ncp -r $PROJECT_DIR/ViroKit.podspec $VIRO_FRAMEWORK_PATH\n";
+			shellScript = "mkdir -p /var/tmp/build_intermediates/react_viro_kit/ViroRenderer\nVIRO_FRAMEWORK_PATH=/var/tmp/build_intermediates/react_viro_kit/ViroRenderer\nVIRO_DEVICE_FRAMEWORK=$VIRO_FRAMEWORK_PATH/armv7_arm64\nVIRO_SIMULATOR_FRAMEWORK=$VIRO_FRAMEWORK_PATH/x86_64\n\n# Copy the framework (device or simulator) to react-viro\nif [ ${PLATFORM_NAME} = \"iphonesimulator\" ]; then\nmkdir -p $VIRO_SIMULATOR_FRAMEWORK\ncp -r $TARGET_BUILD_DIR/ViroKit.framework $VIRO_SIMULATOR_FRAMEWORK\nelse\nmkdir -p $VIRO_DEVICE_FRAMEWORK\ncp -r $TARGET_BUILD_DIR/ViroKit.framework $VIRO_DEVICE_FRAMEWORK\nfi\n\n# If both the device and simulator frameworks now exist, create the Universal framework\n# An arm64 simulator slice cannot share a fat binary with the arm64 device slice, so the universal\n# framework is only made when the two builds have no architecture in common.\nOVERLAP=\nif [ -f $VIRO_DEVICE_FRAMEWORK/ViroKit.framework/ViroKit ] && [ -f $VIRO_SIMULATOR_FRAMEWORK/ViroKit.framework/ViroKit ]; then\nfor ARCH in $(lipo -archs $VIRO_SIMULATOR_FRAMEWORK/ViroKit.framework/ViroKit); do\ncase \" $(lipo -archs $VIRO_DEVICE_FRAMEWORK/ViroKit.framework/ViroKit) \" in *\" $ARCH \"*) OVERLAP=1;; esac\ndone\nfi\nif [ -f $VIRO_DEVICE_FRAMEWORK/ViroKit.framework/ViroKit ] && [ -f $VIRO_SIMULATOR_FRAMEWORK/ViroKit.framework/ViroKit ] && [ -z \"$OVERLAP\" ]; then\ncp -r $TARGET_BUILD_DIR/ViroKit.framework $VIRO_FRAMEWORK_PATH\nlipo $VIRO_SIMULATOR_FRAMEWORK/ViroKit.framework/ViroKit $VIRO_DEVICE_FRAMEWORK/ViroKit.framework/ViroKit -create -output $VIRO_FRAMEWORK_PATH/ViroKit.framework/ViroKit\nfi\n\n# Copy over the podspec\ncp -r $PROJECT_DIR/ViroKit.podspec $VIRO_FRAMEWORK_PATH\n";
 			showEnvVarsInLog = 0;
 		};
 		F889831C70414DF33A563C8A /* [CP] Copy Pods Resources */ = {
@@ -5928,10 +5929,7 @@
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks";
-				LIBRARY_SEARCH_PATHS = (
-					"$(inherited)",
-					"$(PROJECT_DIR)/Libraries/reactvisioncca/arm64",
-				);
+				LIBRARY_SEARCH_PATHS = "$(inherited)";
 				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = (
 					"$(inherited)",
 					"$(PROJECT_DIR)/Libraries/freetype/armv7_arm64",
@@ -5941,6 +5939,7 @@
 					"$(PROJECT_DIR)/Libraries/reactvisioncca/arm64",
 				);
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = (
+					"$(PROJECT_DIR)/Libraries/GVRAudioSDK/simulator",
 					"$(inherited)",
 					"$(PROJECT_DIR)/Libraries/freetype/x86_64",
 					"$(PROJECT_DIR)/Libraries/protobuf/x86_64",
@@ -6036,7 +6035,6 @@
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(PROJECT_DIR)/Libraries/harfbuzz/armv7_arm64",
-					"$(PROJECT_DIR)/Libraries/reactvisioncca/arm64",
 				);
 				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = (
 					"$(inherited)",
@@ -6047,6 +6045,7 @@
 					"$(PROJECT_DIR)/Libraries/reactvisioncca/arm64",
 				);
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = (
+					"$(PROJECT_DIR)/Libraries/GVRAudioSDK/simulator",
 					"$(inherited)",
 					"$(PROJECT_DIR)/Libraries/freetype/x86_64",
 					"$(PROJECT_DIR)/Libraries/protobuf/x86_64",
