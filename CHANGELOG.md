@@ -1,19 +1,5 @@
 # CHANGELOG
 
-## Unreleased
-
-### Added
-
-- **`VROARSession::stopRecording` takes a completion receiving a `VROARRecordingResult`** (`success`, `error`, `durationSec`, `frames`, `depthFrames`, `gpsFixes`, `bytes`), called once the files are complete. The no-argument form remains. On Android, `ARScene.stopRecording()` returns an `ARScene.RecordingResult` with the same fields.
-- **`VROARSession::isRecordingDepthSupported()` and `ARScene.isRecordingSupported(boolean depth)`.** iOS checks for LiDAR scene depth and ARCore for the Depth API. On Android `ARScene.isRecordingSupported` answers false, with or without depth, until the ARCore session exists.
-
-### Fixed
-
-- **Android reports a recording whose encoder did not finish as failed.** It logged a warning and the recording counted as complete, while iOS reports the same case as an error.
-- **Android: a failure while a recording is being stopped no longer leaves `getRecordingStatus()` at IOError (`ARSessionRecorder`).** `encoder.stop()` and `muxer.stop()` failures reported it to the scene after the stop had already set the status back to None, so the status read IOError with nothing recording. Such a failure is now reported in the stop's result only. `ARScene.stopRecording()` may be called off the UI thread.
-- **Android hit tests always deliver their results (`VRORendererARCore_JNI`, `VRORenderer_JNI`).** The AR point, ray and position hit tests, the Quest OpenXR hit tests and the scene hit test kept the caller's one-shot listener only as a weak global reference, so the garbage collector could take it before the renderer thread answered, and the results never arrived. It is now a global reference, deleted once the callback has run.
-- **iOS downloads from a signed URL are saved (`VROPlatformDownloadURLToFile`, `VROPlatformDownloadURLToFileAsync`).** The temporary file was named after the URL's last path component with its query, and a signed URL's token pushed the name past the 255-byte file name limit, so the write failed and the download still reported success with a file that did not exist. `VROPlatformLastPathComponent` drops the query and fragment, and a failed write now fails the download.
-
 ## v3.1.0 — 27 October 2026
 
 ### Added
@@ -30,6 +16,8 @@
 
   It is off by default and costs nothing while off. `ViroViewOpenXR.setHandOcclusionEnabled`, `setHandOcclusionMode("mesh" | "capsules")` and `setHandOcclusionInflateMm` change it at runtime, applying on the next frame, and are cached and re-applied when set before the renderer exists, like the passthrough props. It only draws while passthrough and hand tracking are both on; otherwise it is a no-op and logs once. The pass runs from a new depth-prepass slot on `VRORenderContext` that the base render pass calls right after clearing its target, because on Quest the scene is drawn into the HDR target, not the swapchain image. A per-node opt-out (`drawOverHands`, for wrist menus and held virtual tools) is not part of this change. ViroReact sets them through `handOcclusion`, `handOcclusionMode` and `handOcclusionInflateMm` on the VR/XR scene navigators.
 - **ViroKit builds for the iOS Simulator (arm64 and x86_64).** `ios/build_ios_simulator_libs.sh` adds the arm64 simulator slices it was missing: LinearMath (Bullet 2.87) and protobuf-lite 3.2.0 built from source, and GVR Audio relabelled by `retag_for_simulator.py`, since it is closed source and its arm64 code is the same on device and simulator.
+- **`VROARSession::stopRecording` takes a completion receiving a `VROARRecordingResult`** (`success`, `error`, `durationSec`, `frames`, `depthFrames`, `gpsFixes`, `bytes`), called once the files are complete. The no-argument form remains. On Android, `ARScene.stopRecording()` returns an `ARScene.RecordingResult` with the same fields.
+- **`VROARSession::isRecordingDepthSupported()` and `ARScene.isRecordingSupported(boolean depth)`.** iOS checks for LiDAR scene depth and ARCore for the Depth API. On Android `ARScene.isRecordingSupported` answers false, with or without depth, until the ARCore session exists.
 
 ### Changed
 
@@ -106,6 +94,10 @@
 - **visionOS: spot light cones match GL (`Shaders.metal`, `VROMaterialSubstrateMetal`).** Metal got the full angles where GL gets the cosines of the half angles, so the cone came out twice as wide with another falloff. (#432)
 - **visionOS: morph targets blend on the CPU (`VROMorpher`).** GPU and hybrid morphing need a GLSL shader modifier and vertex attributes the Metal backend does not have. (#433)
 - **GitHub releases attach the AARs, and Dependabot targets `develop`.** (#431)
+- **Android reports a recording whose encoder did not finish as failed.** It logged a warning and the recording counted as complete, while iOS reports the same case as an error.
+- **Android: a failure while a recording is being stopped no longer leaves `getRecordingStatus()` at IOError (`ARSessionRecorder`).** `encoder.stop()` and `muxer.stop()` failures reported it to the scene after the stop had already set the status back to None, so the status read IOError with nothing recording. Such a failure is now reported in the stop's result only. `ARScene.stopRecording()` may be called off the UI thread.
+- **Android hit tests always deliver their results (`VRORendererARCore_JNI`, `VRORenderer_JNI`).** The AR point, ray and position hit tests, the Quest OpenXR hit tests and the scene hit test kept the caller's one-shot listener only as a weak global reference, so the garbage collector could take it before the renderer thread answered, and the results never arrived. It is now a global reference, deleted once the callback has run.
+- **iOS downloads from a signed URL are saved (`VROPlatformDownloadURLToFile`, `VROPlatformDownloadURLToFileAsync`).** The temporary file was named after the URL's last path component with its query, and a signed URL's token pushed the name past the 255-byte file name limit, so the write failed and the download still reported success with a file that did not exist. `VROPlatformLastPathComponent` drops the query and fragment, and a failed write now fails the download.
 
 ### Removed
 
