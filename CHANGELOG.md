@@ -100,6 +100,7 @@
 - **iOS downloads from a signed URL are saved (`VROPlatformDownloadURLToFile`, `VROPlatformDownloadURLToFileAsync`).** The temporary file was named after the URL's last path component with its query, and a signed URL's token pushed the name past the 255-byte file name limit, so the write failed and the download still reported success with a file that did not exist. `VROPlatformLastPathComponent` drops the query and fragment, and a failed write now fails the download.
 - **Android: a camera added before the renderer no longer crashes (`VROPlatformUtil`, #597).** `libviro_renderer.so` now sets the `JavaVM` in `JNI_OnLoad`. It was set only when a renderer or loader started, and under Fabric `ViroARCamera`'s view is built first, so adding its node reached `getJNIEnv` with no VM.
 - **A GLB whose skins share joints animates every skin (`VROGLTFLoader`, #599).** Resampling runs once per skin and rewrote a shared joint's channels in place; the next skin's pass kept only the translation of the merged channel, so those joints lost their rotation and scale. Every property of a channel is now copied.
+- **A long polyline no longer overflows the stack (`VROPolyline`, `VROPolygon`).** `buildElement` built its index list as a variable-length array on the stack. The world mesh's debug drawing (`debugDrawEnabled`) on an accumulated mesh reaches hundreds of thousands of line corners, which overflowed the iOS main thread's stack and crashed the app. The list is on the heap now, as is a polygon's.
 
 ### Removed
 

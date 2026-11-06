@@ -24,6 +24,7 @@
 //  SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #include "VROPolygon.h"
+#include <vector>
 #include "VROData.h"
 #include "VROGeometryUtil.h"
 #include "VROGeometrySource.h"
@@ -189,12 +190,13 @@ void VROPolygon::buildGeometry(std::vector<std::shared_ptr<VROGeometrySource>> &
 }
 
 std::shared_ptr<VROGeometryElement> VROPolygon::buildElement(size_t numCorners) {
-    int indices[numCorners];
-    for (int i = 0; i < numCorners; i++) {
-        indices[i] = i;
+    // On the heap: the corner count has no bound, so a stack array could overflow.
+    std::vector<int> indices(numCorners);
+    for (size_t i = 0; i < numCorners; i++) {
+        indices[i] = (int) i;
     }
 
-    std::shared_ptr<VROData> indexData = std::make_shared<VROData>((void *) indices, sizeof(int) * numCorners);
+    std::shared_ptr<VROData> indexData = std::make_shared<VROData>((void *) indices.data(), sizeof(int) * numCorners);
     std::shared_ptr<VROGeometryElement> element= std::make_shared<VROGeometryElement>(indexData,
                                                                                       VROGeometryPrimitiveType::Triangle,
                                                                                       VROGeometryUtilGetPrimitiveCount((int) numCorners,
