@@ -119,6 +119,16 @@ private:
     std::vector<uint8_t> _lumaData;
     int _lumaW = 0, _lumaH = 0;
 
+    /*
+     Size of the CPU camera image, which is what ARCore's intrinsics are relative to. Acquired
+     lazily and cached: generateDepthMesh has to scale the intrinsics down to the depth image,
+     and acquiring a camera image is far too heavy to repeat. Reuses the luma dimensions when
+     getCameraImageY already populated them. Returns false if the size could not be determined.
+     */
+    bool getCameraImageDimensions(int *outWidth, int *outHeight);
+
+    int _cameraImageW = 0, _cameraImageH = 0;
+
     // Driver for creating textures
     std::weak_ptr<VRODriver> _driver;
 

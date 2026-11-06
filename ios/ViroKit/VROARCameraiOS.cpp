@@ -71,6 +71,10 @@ VROARTrackingStateReason VROARCameraiOS::getLimitedTrackingStateReason() const {
     }
 }
 
+VROMatrix4f VROARCameraiOS::getImageTransform() const {
+    return VROConvert::toMatrix4f(_camera.transform);
+}
+
 VROMatrix4f VROARCameraiOS::getRotation() const {
     VROMatrix4f matrix = VROConvert::toMatrix4f(_camera.transform);
     // Remove the translation; this is returned via getPosition()
@@ -116,6 +120,24 @@ VROMatrix4f VROARCameraiOS::getProjection(VROViewport viewport, float near, floa
 VROVector3f VROARCameraiOS::getImageSize() {
     CGSize size = _camera.imageResolution;
     return { (float) size.width, (float) size.height, 0 };
+}
+
+bool VROARCameraiOS::getImageIntrinsics(float *outFx, float *outFy,
+                                        float *outCx, float *outCy) {
+    if (!_camera) {
+        return false;
+    }
+    // Column-major: columns[0][0] = fx, columns[1][1] = fy,
+    // columns[2][0] = cx, columns[2][1] = cy.
+    matrix_float3x3 k = _camera.intrinsics;
+    if (!(k.columns[0][0] > 0.f) || !(k.columns[1][1] > 0.f)) {
+        return false;
+    }
+    *outFx = k.columns[0][0];
+    *outFy = k.columns[1][1];
+    *outCx = k.columns[2][0];
+    *outCy = k.columns[2][1];
+    return true;
 }
 
 float* VROARCameraiOS::getIntrinsics() const {

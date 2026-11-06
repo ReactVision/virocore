@@ -112,6 +112,10 @@ VROMonocularDepthEstimator::VROMonocularDepthEstimator(std::shared_ptr<VRODriver
         dispatch_get_global_queue(QOS_CLASS_UTILITY, 0));
 
     _depthTextureTransform = VROMatrix4f::identity();
+    _depthCameraToWorld = VROMatrix4f::identity();
+    _nextCameraToWorld = VROMatrix4f::identity();
+    _processingTransform = VROMatrix4f::identity();
+    _processingCameraToWorld = VROMatrix4f::identity();
 }
 
 VROMonocularDepthEstimator::~VROMonocularDepthEstimator() {
@@ -273,7 +277,7 @@ bool VROMonocularDepthEstimator::initWithModel(NSString *modelPath) {
             // Get the transform that was stored before inference
             // Note: We need to pass this through - using instance variable for now
             if (estimator) {
-                estimator->processDepthOutput(observation, estimator->_nextTransform);
+                estimator->processDepthOutput(observation, estimator->_processingTransform);
             }
         }];
 
@@ -388,6 +392,7 @@ void VROMonocularDepthEstimator::update(const VROARFrame *frame) {
         if (!_nextImage) {
             _nextImage = CVBufferRetain(image);
             _nextTransform = frame->getViewportToCameraImageTransform().invert();
+            _nextCameraToWorld = VROConvert::toMatrix4f(frameiOS->getARFrame().camera.transform);
             _nextOrientation = frameiOS->getImageOrientation();
             shouldDispatch = true;
             
@@ -453,6 +458,8 @@ void VROMonocularDepthEstimator::nextImage() {
         _nextImage = nullptr;
         transform = _nextTransform;
         orientation = _nextOrientation;
+        _processingTransform = _nextTransform;
+        _processingCameraToWorld = _nextCameraToWorld;
         if (kDebugMonoDepth) pinfo("VROMonocularDepthEstimator: Got queued image, cleared queue");
     }
 
@@ -639,8 +646,8 @@ void VROMonocularDepthEstimator::processDepthOutput(VNCoreMLFeatureValueObservat
 
     // Resize buffer if needed
     size_t bufferSize = width * height;
-    if (_depthBuffer.size() != bufferSize) {
-        _depthBuffer.resize(bufferSize);
+    if (_workDepth.size() != bufferSize) {
+        _workDepth.resize(bufferSize);
         _previousDepthBuffer.clear(); // Reset temporal filter
     }
     
@@ -720,7 +727,7 @@ void VROMonocularDepthEstimator::processDepthOutput(VNCoreMLFeatureValueObservat
             if (rawVal < 0.0f) rawVal = 0.0f;
             rawVal *= effectiveScale;
 
-            _depthBuffer[packedIndex] = rawVal;
+            _workDepth[packedIndex] = rawVal;
         }
     }
 
@@ -734,21 +741,31 @@ void VROMonocularDepthEstimator::processDepthOutput(VNCoreMLFeatureValueObservat
 
     // Apply temporal filtering if enabled
     if (_temporalFilteringEnabled) {
-        applyTemporalFilter(_depthBuffer.data(), width, height);
+        applyTemporalFilter(_workDepth.data(), width, height);
+    } else {
+        _workConfidence.clear();
     }
-
-    // Store dimensions
-    _depthWidth = width;
-    _depthHeight = height;
 
     // Compute texture transform
     int imageWidth = _processingImage ? (int)CVPixelBufferGetWidth(_processingImage) : 1920;
     int imageHeight = _processingImage ? (int)CVPixelBufferGetHeight(_processingImage) : 1440;
-    _depthTextureTransform = computeDepthTextureTransform(transform, imageWidth, imageHeight,
-                                                          width, height);
+    VROMatrix4f depthTextureTransform = computeDepthTextureTransform(transform, imageWidth, imageHeight,
+                                                                     width, height);
 
-    // Update GPU texture
-    updateDepthTexture(_depthBuffer.data(), width, height);
+    // Publish this inference whole: buffers, size, texture transform and the pose it was taken at.
+    // snapshotDepthBuffers() copies under the same lock, from the world mesh's fusion.
+    {
+        std::lock_guard<std::mutex> lock(_depthMutex);
+        _depthBuffer = _workDepth;
+        _confidenceBuffer = _workConfidence;
+        _depthWidth = width;
+        _depthHeight = height;
+        _depthTextureTransform = depthTextureTransform;
+        _depthCameraToWorld = _processingCameraToWorld;
+    }
+
+    // Update GPU texture (takes _depthMutex itself), from the depth queue's own copy
+    updateDepthTexture(_workDepth.data(), width, height);
 
     // CRITICAL: Release the processing image now that we're done with it
     // This prevents ARFrame retention that freezes the camera
@@ -762,12 +779,12 @@ void VROMonocularDepthEstimator::processDepthOutput(VNCoreMLFeatureValueObservat
 
 void VROMonocularDepthEstimator::applyTemporalFilter(float *depthData, int width, int height) {
     size_t bufferSize = width * height;
-    _confidenceBuffer.resize(bufferSize);
+    _workConfidence.resize(bufferSize);
 
     // First frame or size change: no history yet
     if (_previousDepthBuffer.empty() || _previousDepthBuffer.size() != bufferSize) {
         _previousDepthBuffer.assign(depthData, depthData + bufferSize);
-        std::fill(_confidenceBuffer.begin(), _confidenceBuffer.end(), 0.5f);
+        std::fill(_workConfidence.begin(), _workConfidence.end(), 0.5f);
         return;
     }
 
@@ -781,12 +798,12 @@ void VROMonocularDepthEstimator::applyTemporalFilter(float *depthData, int width
 
         // Synthesize per-pixel confidence from temporal stability
         if (currDepth <= 0.0f) {
-            _confidenceBuffer[i] = 0.0f;           // invalid depth
+            _workConfidence[i] = 0.0f;           // invalid depth
         } else if (prevDepth <= 0.0f) {
-            _confidenceBuffer[i] = 0.3f;           // no prior history for this pixel
+            _workConfidence[i] = 0.3f;           // no prior history for this pixel
         } else {
             // Linear decay: 1.0 at diff=0, 0.0 at diff=edgeThreshold
-            _confidenceBuffer[i] = std::max(0.0f, 1.0f - diff / edgeThreshold);
+            _workConfidence[i] = std::max(0.0f, 1.0f - diff / edgeThreshold);
         }
 
         // Apply EMA only away from discontinuities
@@ -884,13 +901,15 @@ const float* VROMonocularDepthEstimator::getDepthBufferData() const {
 
 bool VROMonocularDepthEstimator::snapshotDepthBuffers(std::vector<float> &outDepth,
                                                       std::vector<float> &outConfidence,
-                                                      int &outWidth, int &outHeight) const {
+                                                      int &outWidth, int &outHeight,
+                                                      VROMatrix4f *outCameraToWorld) const {
     std::lock_guard<std::mutex> lock(_depthMutex);
     if (_depthBuffer.empty() || _depthWidth <= 0 || _depthHeight <= 0) return false;
     outDepth = _depthBuffer;
     outConfidence = _confidenceBuffer;
     outWidth = _depthWidth;
     outHeight = _depthHeight;
+    if (outCameraToWorld) *outCameraToWorld = _depthCameraToWorld;
     return true;
 }
 

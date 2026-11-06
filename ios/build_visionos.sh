@@ -192,7 +192,7 @@ VENDORED_LIBS=(
   "bullet/%s/libLinearMath.a"
   "bullet/%s/libBulletCollision.a"
   "bullet/%s/libBulletDynamics.a"
-  # ReactVisionCCA, built by reactvisioncca/scripts/build_ios.sh with RVCCA_BUILD_VISIONOS=1.
+  # Spatial (libreactvisioncca), built by spatial/scripts/build_ios.sh with RVCCA_BUILD_VISIONOS=1.
   # Not optional here the way it is on iOS: VROColocationSession.o lives in this target and is
   # pulled into every link by -ObjC, so without these slices an app fails to link on a symbol
   # it never asked for.

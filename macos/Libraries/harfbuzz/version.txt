@@ -1,3 +1,0 @@
-Harfbuzz version 1.7.6
-
-Compile through ViroHarfbuzz project

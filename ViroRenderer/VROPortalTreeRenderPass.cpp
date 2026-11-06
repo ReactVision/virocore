@@ -65,6 +65,13 @@ void VROPortalTreeRenderPass::render(std::shared_ptr<VROScene> scene,
     passert (target);
     
     driver->bindRenderTarget(target, VRORenderTargetUnbindOp::Invalidate);
+
+    // Platform depth-only prepass (Quest hand occlusion): runs on the freshly
+    // cleared target so everything drawn below depth-tests against it.
+    const VRORenderContext::DepthPrepass &depthPrepass = context->getDepthPrepass();
+    if (depthPrepass) {
+        depthPrepass(*context, driver);
+    }
     driver->setRenderTargetColorWritingMask(VROColorMaskAll);
 
     // Get the top portal for the outgoing tree if we have an outgoing scene; this

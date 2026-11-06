@@ -54,10 +54,11 @@ jobs:
           generate_release_notes: true
           prerelease: ${{ env.PRE_RELEASE }}
           name: ${{steps.tagger.outputs.tag}}
+          # the build runs in ./android, but these paths are from the repository root; only what
+          # :viroreact:assembleRelease builds (it also assembles :viroar), and a missing one fails the release
+          fail_on_unmatched_files: true
           files: |
-            ./viroreact/build/outputs/aar/viroreact-release.aar
-            ./viroar/build/outputs/aar/viroar-release.aar
-            ./virocore/build/outputs/aar/virocore-release.aar
-            ./sharedCode/build/outputs/aar/sharedCode-release.aar
+            ./android/viroreact/build/outputs/aar/viroreact-release.aar
+            ./android/viroar/build/outputs/aar/viroar-release.aar
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -173,6 +173,37 @@ VRO_METHOD(void, nativeSetHandTrackingEnabled)(VRO_ARGS
     }
 }
 
+VRO_METHOD(void, nativeSetHandOcclusionEnabled)(VRO_ARGS
+                                                jlong rendererRef,
+                                                jboolean enabled) {
+    auto base = Renderer::native(rendererRef);
+    auto xrRenderer = std::dynamic_pointer_cast<VROSceneRendererOpenXR>(base);
+    if (xrRenderer) {
+        xrRenderer->setHandOcclusionEnabled((bool)enabled);
+    }
+}
+
+VRO_METHOD(void, nativeSetHandOcclusionMode)(VRO_ARGS
+                                             jlong rendererRef,
+                                             jboolean useMesh) {
+    auto base = Renderer::native(rendererRef);
+    auto xrRenderer = std::dynamic_pointer_cast<VROSceneRendererOpenXR>(base);
+    if (xrRenderer) {
+        xrRenderer->setHandOcclusionMode(useMesh ? VROHandOcclusionMode::Mesh
+                                                 : VROHandOcclusionMode::Capsules);
+    }
+}
+
+VRO_METHOD(void, nativeSetHandOcclusionInflateMm)(VRO_ARGS
+                                                  jlong rendererRef,
+                                                  jfloat mm) {
+    auto base = Renderer::native(rendererRef);
+    auto xrRenderer = std::dynamic_pointer_cast<VROSceneRendererOpenXR>(base);
+    if (xrRenderer) {
+        xrRenderer->setHandOcclusionInflateMm((float)mm);
+    }
+}
+
 VRO_METHOD(jint, nativeGetEyeWidth)(VRO_ARGS
                                     jlong rendererRef) {
     auto base = Renderer::native(rendererRef);
@@ -189,8 +220,8 @@ VRO_METHOD(jint, nativeGetEyeHeight)(VRO_ARGS
 
 // Defined in VRORendererARCore_JNI.cpp: convert AR hit results to
 // com.viro.core.ARHitTestResult[] and deliver them on the application thread.
-void invokeARResultsCallback(std::vector<std::shared_ptr<VROARHitTestResult>> &results, jweak weakCallback);
-void invokeEmptyARResultsCallback(jweak weakCallback);
+void invokeARResultsCallback(std::vector<std::shared_ptr<VROARHitTestResult>> &results, jobject callbackRef);
+void invokeEmptyARResultsCallback(jobject callbackRef);
 
 // AR hit test on Quest, against the planes the OpenXR AR session tracks. Runs on
 // the renderer thread, where those planes are updated. `origin` null means the
@@ -198,7 +229,7 @@ void invokeEmptyARResultsCallback(jweak weakCallback);
 // performARHitTestWithRay(ray) takes it.
 static void performARHitTestOpenXR(JNIEnv *env, jlong rendererRef, jfloatArray origin,
                                    jfloatArray destination, jobject callback) {
-    jweak weakCallback = env->NewWeakGlobalRef(callback);
+    jobject callbackRef = env->NewGlobalRef(callback);
     auto xrRenderer_w = std::weak_ptr<VROSceneRendererOpenXR>(
             std::dynamic_pointer_cast<VROSceneRendererOpenXR>(Renderer::native(rendererRef)));
 
@@ -213,16 +244,16 @@ static void performARHitTestOpenXR(JNIEnv *env, jlong rendererRef, jfloatArray o
     VROVector3f destVec = VROVector3f(d[0], d[1], d[2]);
     VRO_FLOAT_ARRAY_RELEASE_ELEMENTS(destination, d);
 
-    VROPlatformDispatchAsyncRenderer([xrRenderer_w, weakCallback, fromCamera, originVec, destVec] {
+    VROPlatformDispatchAsyncRenderer([xrRenderer_w, callbackRef, fromCamera, originVec, destVec] {
         std::shared_ptr<VROSceneRendererOpenXR> xrRenderer = xrRenderer_w.lock();
         if (!xrRenderer) {
-            invokeEmptyARResultsCallback(weakCallback);
+            invokeEmptyARResultsCallback(callbackRef);
             return;
         }
         std::vector<std::shared_ptr<VROARHitTestResult>> results = fromCamera
                 ? xrRenderer->performARHitTestWithRay(destVec)
                 : xrRenderer->performARHitTest(originVec, destVec);
-        invokeARResultsCallback(results, weakCallback);
+        invokeARResultsCallback(results, callbackRef);
     });
 }
 
@@ -707,62 +738,71 @@ VRO_METHOD(void, nativeSetBloomEnabled)(VRO_ARGS
 }
 
 
-void invokeHitTestResultsCallback(std::vector<VROHitTestResult> &results, jweak weakCallback) {
+void invokeEmptyHitTestResultsCallback(jobject callbackRef);
+
+// callbackRef is a global ref, deleted once the callback runs; see invokeARResultsCallback.
+void invokeHitTestResultsCallback(std::vector<VROHitTestResult> &results, jobject callbackRef) {
     JNIEnv *env = VROPlatformGetJNIEnv();
-    jclass hitTestResultClass = env->FindClass("com/viro/core/HitTestResult");
+    // Runs on the renderer thread; see VROPlatformFindHostClass.
+    jclass hitTestResultClass = VROPlatformFindHostClass(env, "com/viro/core/HitTestResult");
+    if (hitTestResultClass == nullptr) {
+        invokeEmptyHitTestResultsCallback(callbackRef);
+        return;
+    }
 
     jobjectArray resultsArray = env->NewObjectArray(results.size(), hitTestResultClass, NULL);
     for (int i = 0; i < results.size(); i++) {
         jobject result = ARUtilsCreateHitTestResult(results[i]);
         env->SetObjectArrayElement(resultsArray, i, result);
+        env->DeleteLocalRef(result);
     }
 
     jobject globalArrayRef = env->NewGlobalRef(resultsArray);
-    VROPlatformDispatchAsyncApplication([weakCallback, globalArrayRef] {
+    env->DeleteLocalRef(resultsArray);
+    env->DeleteLocalRef(hitTestResultClass);
+    VROPlatformDispatchAsyncApplication([callbackRef, globalArrayRef] {
         JNIEnv *env = VROPlatformGetJNIEnv();
-        jobject callback = env->NewLocalRef(weakCallback);
-        VROPlatformCallHostFunction(callback, "onHitTestFinished",
+        VROPlatformCallHostFunction(callbackRef, "onHitTestFinished",
                                     "([Lcom/viro/core/HitTestResult;)V",
                                     globalArrayRef);
         env->DeleteGlobalRef(globalArrayRef);
-        env->DeleteWeakGlobalRef(weakCallback);
+        env->DeleteGlobalRef(callbackRef);
     });
 }
 
 
-void invokeEmptyHitTestResultsCallback(jweak weakCallback) {
-    VROPlatformDispatchAsyncApplication([weakCallback] {
+void invokeEmptyHitTestResultsCallback(jobject callbackRef) {
+    VROPlatformDispatchAsyncApplication([callbackRef] {
         JNIEnv *env = VROPlatformGetJNIEnv();
-        jobject callback = env->NewLocalRef(weakCallback);
         jclass arHitTestResultClass = env->FindClass("com/viro/core/HitTestResult");
         jobjectArray emptyArray = env->NewObjectArray(0, arHitTestResultClass, NULL);
-        VROPlatformCallHostFunction(callback, "onHitTestFinished",
+        VROPlatformCallHostFunction(callbackRef, "onHitTestFinished",
                                     "([Lcom/viro/core/HitTestResult;)V", emptyArray);
-        env->DeleteWeakGlobalRef(weakCallback);
+        env->DeleteGlobalRef(callbackRef);
     });
 }
 
 void performHitTestRay(VROVector3f origin, VROVector3f ray, bool boundsOnly, std::weak_ptr<VROSceneRenderer> renderer_w,
-                       jweak weakCallback) {
+                       jobject callbackRef) {
     std::shared_ptr<VROSceneRenderer> renderer = renderer_w.lock();
     if (!renderer) {
-        invokeEmptyHitTestResultsCallback(weakCallback);
+        invokeEmptyHitTestResultsCallback(callbackRef);
     }
     else {
         std::vector<VROHitTestResult> results = renderer->performHitTest(origin, ray, boundsOnly);
-        invokeHitTestResultsCallback(results, weakCallback);
+        invokeHitTestResultsCallback(results, callbackRef);
     }
 }
 
 void performHitTestPoint(float x, float y, bool boundsOnly,  std::weak_ptr<VROSceneRenderer> renderer_w,
-                         jweak weakCallback) {
+                         jobject callbackRef) {
     std::shared_ptr<VROSceneRenderer> renderer = renderer_w.lock();
     if (!renderer) {
-        invokeEmptyHitTestResultsCallback(weakCallback);
+        invokeEmptyHitTestResultsCallback(callbackRef);
     }
     else {
         std::vector<VROHitTestResult> results = renderer->performHitTest(x, y, boundsOnly);
-        invokeHitTestResultsCallback(results, weakCallback);
+        invokeHitTestResultsCallback(results, callbackRef);
     }
 }
 
@@ -776,10 +816,10 @@ VRO_METHOD(void, nativePerformHitTestWithPoint) (VRO_ARGS
         pinfo("TEST_nativePerformHitTestWithPoint IS NULL!!");
     }
 
-    jweak weakCallback = env->NewWeakGlobalRef(callback);
-    VROPlatformDispatchAsyncRenderer([env, renderer_w, boundsOnly, weakCallback, x, y] {
+    jobject callbackRef = env->NewGlobalRef(callback);
+    VROPlatformDispatchAsyncRenderer([env, renderer_w, boundsOnly, callbackRef, x, y] {
         std::shared_ptr<VROSceneRenderer> sceneRenderer = renderer_w.lock();
-        performHitTestPoint(x, y, boundsOnly, sceneRenderer, weakCallback);
+        performHitTestPoint(x, y, boundsOnly, sceneRenderer, callbackRef);
     });
 }
 
@@ -801,10 +841,10 @@ VRO_METHOD(void, nativePerformHitTestWithRay) (VRO_ARGS
 
     // Create weak pointers for dispatching
     std::weak_ptr<VROSceneRenderer> renderer_w = Renderer::native(native_renderer);
-    jweak weakCallback = env->NewWeakGlobalRef(callback);
+    jobject callbackRef = env->NewGlobalRef(callback);
 
-    VROPlatformDispatchAsyncRenderer([renderer_w, boundsOnly, weakCallback, originVec, rayVec] {
-        performHitTestRay(originVec, rayVec, boundsOnly, renderer_w, weakCallback);
+    VROPlatformDispatchAsyncRenderer([renderer_w, boundsOnly, callbackRef, originVec, rayVec] {
+        performHitTestRay(originVec, rayVec, boundsOnly, renderer_w, callbackRef);
     });
 }
 

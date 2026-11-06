@@ -19,8 +19,8 @@
 // Detect ReactVisionCCA availability at compile time.
 // The build_ios.sh script deploys libreactvisioncca.a to
 //   virocore/ios/Libraries/reactvisioncca/{arch}/
-// and the headers live in reactvisioncca/include/ (sibling repo).
-// HEADER_SEARCH_PATHS includes $(SRCROOT)/../../reactvisioncca/include so
+// and the headers live in spatial/include/ (sibling repo; reactvisioncca/ is its old name).
+// HEADER_SEARCH_PATHS includes $(SRCROOT)/../../spatial/include (and the old name) so
 // __has_include returns true only when the SDK is actually present.
 #if __has_include("ReactVisionCCA/RVCCACloudAnchorProvider.h")
 #  define RVCCA_AVAILABLE 1
@@ -396,6 +396,21 @@ private:
     }
 }
 
+- (void)setKeyframeLocationHasGps:(BOOL)hasGps
+                         latitude:(double)lat
+                        longitude:(double)lng
+                       hasHeading:(BOOL)hasHeading
+                          heading:(double)headingDegrees {
+    if (!_provider) return;
+    ReactVisionCCA::RVCCACloudAnchorProvider::KeyframeGeoReading geo;
+    geo.hasGps         = hasGps;
+    geo.latitude       = lat;
+    geo.longitude      = lng;
+    geo.hasHeading     = hasHeading;
+    geo.headingDegrees = headingDegrees;
+    _provider->setKeyframeLocation(geo);
+}
+
 - (void)cancelAllOperations {
     if (_provider) _provider->cancelAllOperations();
 }
@@ -445,6 +460,12 @@ private:
 - (void)updateWithFrame:(ARFrame *)frame {}
 
 - (void)setLastKnownLocationLat:(double)lat longitude:(double)lng altitude:(double)alt {}
+
+- (void)setKeyframeLocationHasGps:(BOOL)hasGps
+                         latitude:(double)lat
+                        longitude:(double)lng
+                       hasHeading:(BOOL)hasHeading
+                          heading:(double)headingDegrees {}
 
 - (void)cancelAllOperations {}
 

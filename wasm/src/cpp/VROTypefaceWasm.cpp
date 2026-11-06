@@ -57,6 +57,10 @@ float VROTypefaceWasm::getLineHeight() const {
     return _face->size->metrics.height >> 6;
 }
 
+float VROTypefaceWasm::getDescender() const {
+    return -(_face->size->metrics.descender >> 6);
+}
+
 std::shared_ptr<VROGlyph> VROTypefaceWasm::loadGlyph(uint32_t charCode, uint32_t variantSelector,
                                                      uint32_t outlineWidth, VROGlyphRenderMode renderMode) {
     std::shared_ptr<VROGlyph> glyph = std::make_shared<VROGlyphOpenGL>();

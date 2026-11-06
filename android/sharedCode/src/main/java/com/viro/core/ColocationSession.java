@@ -104,9 +104,10 @@ public class ColocationSession {
 
     /**
      * Join the room named by {@code roomId} — the cloud anchor id, Meta group
-     * id or visionOS session id that already names the shared frame. The
-     * {@code ReactVisionAuth} session wins over {@code apiKey} when both exist;
-     * an empty {@code apiKey} joins on the session alone.
+     * id or visionOS session id that already names the shared frame. A
+     * {@link #setAccessToken} token wins over the {@code ReactVisionAuth}
+     * session, which wins over {@code apiKey}; an empty {@code apiKey} joins on
+     * either alone.
      */
     public void join(String roomId, String apiKey, String projectId,
                      String endpoint, JoinCallback callback) {
@@ -115,8 +116,20 @@ public class ColocationSession {
         nativeJoin(key, roomId, apiKey, projectId, endpoint == null ? "" : endpoint);
     }
 
+    /** Leaves the room and clears the {@link #setAccessToken} token. */
     public void leave() {
         nativeLeave();
+    }
+
+    /**
+     * An app user token (rv_ut_...) the channel sends as
+     * {@code Authorization: Bearer}, with no x-api-key, in place of the session
+     * and {@code apiKey}. Set it before {@link #join}; it is read at every
+     * connect, so one set while joined reaches the next reconnect. Null or empty
+     * clears it. Cloud anchors do not read it.
+     */
+    public void setAccessToken(String accessToken) {
+        nativeSetAccessToken(accessToken == null ? "" : accessToken);
     }
 
     /**
@@ -135,6 +148,11 @@ public class ColocationSession {
 
     public String getLocalPeerId() {
         return nativeGetLocalPeerId();
+    }
+
+    /** Sent as x-rv-device on the co-location socket; the same for the whole process. */
+    public String getDeviceId() {
+        return nativeGetDeviceId();
     }
 
     /**
@@ -177,8 +195,10 @@ public class ColocationSession {
     private native void    nativeJoin(String key, String roomId, String apiKey,
                                       String projectId, String endpoint);
     private native void    nativeLeave();
+    private native void    nativeSetAccessToken(String accessToken);
     private native void    nativeSetLocalPose(String csv);
     private native int     nativeGetState();
     private native String  nativeGetLocalPeerId();
+    private native String  nativeGetDeviceId();
     private native String  nativeGetPeers();
 }

@@ -21,7 +21,6 @@ include_directories(${VIRO_RENDERER_SRC}
                     ${VIRO_ANDROID_INCLUDES}/freetype/include
                     ${VIRO_ANDROID_INCLUDES}/protobuf/include
                     ${VIRO_ANDROID_INCLUDES}/bullet/include
-                    ${VIRO_ANDROID_INCLUDES}/opencv/include
                     ${VIRO_ANDROID_INCLUDES}/arcore/include)
 
 # ── OpenXR loader (via Prefab from openxr_loader_for_android AAR) ─────────────
@@ -59,6 +58,7 @@ add_library( # Sets the name of the library.
              # superseded by the OpenXR (Quest) path. Excluding it drops the libvrapi.so
              # dependency, which was not 16 KB-page compliant (see viro#491).
              ${VIRO_ANDROID_SRC}/VROSceneRendererOpenXR.cpp
+             ${VIRO_ANDROID_SRC}/VROHandOcclusionOpenXR.cpp
              ${VIRO_ANDROID_SRC}/VROARSessionOpenXR.cpp
              ${VIRO_ANDROID_SRC}/VROARSessionOpenXRSharedFrame.cpp
              ${VIRO_ANDROID_SRC}/Colocation_JNI.cpp
@@ -256,6 +256,7 @@ add_library( # Sets the name of the library.
              ${VIRO_ANDROID_SRC}/arcore/ARNode_JNI.cpp
              ${VIRO_ANDROID_SRC}/arcore/ARDeclarativeNode_JNI.cpp
              ${VIRO_ANDROID_SRC}/arcore/ARDeclarativePlane_JNI.cpp
+             ${VIRO_ANDROID_SRC}/arcore/VPSAnchorNode_JNI.cpp
              ${VIRO_ANDROID_SRC}/arcore/ARSceneController_JNI.cpp
              ${VIRO_ANDROID_SRC}/arcore/ARImageTarget_JNI.cpp
              ${VIRO_ANDROID_SRC}/arcore/ARDeclarativeImageNode_JNI.cpp
@@ -343,6 +344,7 @@ add_library( # Sets the name of the library.
              ${VIRO_RENDERER_SRC}/VROPhysicsShape.cpp
              ${VIRO_RENDERER_SRC}/VROARDepthMesh.cpp
              ${VIRO_RENDERER_SRC}/VROARWorldMesh.cpp
+             ${VIRO_RENDERER_SRC}/VROTSDFVolume.cpp
 
              # Android JNI
              ${VIRO_ANDROID_SRC}/jni/VRORenderer_JNI.cpp
@@ -459,10 +461,15 @@ set_target_properties( lib-LinearMath
 # before building ViroCore.  It is OPTIONAL: open-source builds without the .so
 # compile stub implementations that report the feature as unavailable.
 #
-# To enable: run reactvisioncca/scripts/build_android.sh and copy the .so files
+# To enable: run spatial/scripts/build_android.sh and copy the .so files
 # to android/sharedCode/src/main/jniLibs/{abi}/ before building ViroCore.
+# The sibling checkout is spatial/ (the repo's name); reactvisioncca/ is the
+# folder's old name, still found so a checkout that kept it keeps building.
 
-set(RVCCA_DIR "${CMAKE_SOURCE_DIR}/../../../reactvisioncca")
+set(RVCCA_DIR "${CMAKE_SOURCE_DIR}/../../../spatial")
+if(NOT EXISTS "${RVCCA_DIR}/include" AND EXISTS "${CMAKE_SOURCE_DIR}/../../../reactvisioncca/include")
+    set(RVCCA_DIR "${CMAKE_SOURCE_DIR}/../../../reactvisioncca")
+endif()
 set(RVCCA_SO  "${VIRO_ANDROID_LIBS}/${ANDROID_ABI}/libreactvisioncca.so")
 set(RVCCA_HDR "${RVCCA_DIR}/include/ReactVisionCCA/RVCCACloudAnchorProvider.h")
 

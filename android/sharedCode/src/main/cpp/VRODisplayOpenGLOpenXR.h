@@ -25,37 +25,44 @@
 class VRODriverOpenGL;
 
 /*
- * Wraps one OpenXR swapchain image as a Viro render target. The renderer
- * creates one instance per eye. Before rendering, call setSwapchainImage()
- * with the GL texture ID returned by XrSwapchainImageOpenGLESKHR, then bind().
+ * Wraps the OpenXR swapchain images as a Viro render target. One instance
+ * serves both eyes: before rendering each, call setSwapchainImage() with the
+ * GL texture ID returned by XrSwapchainImageOpenGLESKHR, then bind().
  */
 class VRODisplayOpenGLOpenXR : public VRODisplayOpenGL {
 public:
 
     VRODisplayOpenGLOpenXR(std::shared_ptr<VRODriverOpenGL> driver)
         : VRODisplayOpenGL(0, driver),
-          _fbo(0),
-          _depthRbo(0),
-          _colorTex(0) {
+          _fbo(0) {
     }
 
     virtual ~VRODisplayOpenGLOpenXR() {
-        destroyFramebuffer();
+        for (const SwapchainFramebuffer &framebuffer : _framebuffers) {
+            glDeleteFramebuffers(1, &framebuffer.fbo);
+        }
+        for (const DepthBuffer &depth : _depthBuffers) {
+            glDeleteRenderbuffers(1, &depth.rbo);
+        }
     }
 
     /*
-     * Called once per frame, after xrAcquireSwapchainImage. Sets the GL
-     * texture (from XrSwapchainImageOpenGLESKHR.image) and recreates the
-     * FBO if the texture has changed.
+     * Called once per eye per frame, after xrAcquireSwapchainImage, with the
+     * GL texture from XrSwapchainImageOpenGLESKHR.image. Each swapchain image
+     * gets its FBO the first time it is seen, and keeps it: the swapchains
+     * live as long as this display. FBOs of one size share a depth buffer,
+     * which bind() clears for every eye.
      */
     void setSwapchainImage(GLuint colorTex, GLsizei width, GLsizei height) {
-        if (_colorTex == colorTex && _fbo != 0) {
-            return;  // same image, FBO still valid
+        for (const SwapchainFramebuffer &framebuffer : _framebuffers) {
+            if (framebuffer.colorTex == colorTex) {
+                _fbo = framebuffer.fbo;
+                return;
+            }
         }
-        destroyFramebuffer();
-        _colorTex = colorTex;
 
         glGenFramebuffers(1, &_fbo);
+        _framebuffers.push_back({ colorTex, _fbo });
         glBindFramebuffer(GL_FRAMEBUFFER, _fbo);
 
         // Try GL_TEXTURE_2D first; Quest may use GL_TEXTURE_2D_ARRAY even for arraySize=1
@@ -71,11 +78,8 @@ public:
             glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, colorTex, 0, 0);
         }
 
-        glGenRenderbuffers(1, &_depthRbo);
-        glBindRenderbuffer(GL_RENDERBUFFER, _depthRbo);
-        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, width, height);
         glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT,
-                                  GL_RENDERBUFFER, _depthRbo);
+                                  GL_RENDERBUFFER, getDepthBuffer(width, height));
 
         status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
         if (status != GL_FRAMEBUFFER_COMPLETE) {
@@ -102,26 +106,57 @@ public:
         // can leave the alpha channel masked off, which would skip the alpha clear.
         glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
         glClearColor(0.0f, 0.0f, 0.0f, _clearAlpha);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+        glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+        // Through the driver, which turns depth writes back on first. glClear
+        // skips a buffer whose writes are masked, and the left eye's last
+        // material (the aim laser, say) can leave them off, so the right eye
+        // drew against stale depth.
+        clearDepth();
+    }
+
+    /*
+     * Called once an eye is drawn. Nothing reads its depth and stencil after
+     * that (no depth layer goes to the compositor, and the next eye clears
+     * them), so the GPU need not write them from tile memory back to main
+     * memory. Not invalidate(): the driver also calls that when it switches
+     * render targets partway through an eye.
+     */
+    void discardDepth() {
+        glBindFramebuffer(GL_FRAMEBUFFER, _fbo);
+        const GLenum attachments[] = { GL_DEPTH_ATTACHMENT, GL_STENCIL_ATTACHMENT };
+        glInvalidateFramebuffer(GL_FRAMEBUFFER, 2, attachments);
     }
 
 private:
 
-    GLuint _fbo;
-    GLuint _depthRbo;
-    GLuint _colorTex;
+    struct SwapchainFramebuffer {
+        GLuint colorTex;
+        GLuint fbo;
+    };
+
+    struct DepthBuffer {
+        GLsizei width;
+        GLsizei height;
+        GLuint  rbo;
+    };
+
+    GLuint _fbo;  // the current eye's, one of _framebuffers
+    std::vector<SwapchainFramebuffer> _framebuffers;
+    std::vector<DepthBuffer> _depthBuffers;
     float  _clearAlpha = 1.0f;  // 0 for MR/passthrough, 1 for opaque VR
 
-    void destroyFramebuffer() {
-        if (_fbo) {
-            glDeleteFramebuffers(1, &_fbo);
-            _fbo = 0;
+    GLuint getDepthBuffer(GLsizei width, GLsizei height) {
+        for (const DepthBuffer &depth : _depthBuffers) {
+            if (depth.width == width && depth.height == height) {
+                return depth.rbo;
+            }
         }
-        if (_depthRbo) {
-            glDeleteRenderbuffers(1, &_depthRbo);
-            _depthRbo = 0;
-        }
-        _colorTex = 0;
+        GLuint rbo = 0;
+        glGenRenderbuffers(1, &rbo);
+        glBindRenderbuffer(GL_RENDERBUFFER, rbo);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, width, height);
+        _depthBuffers.push_back({ width, height, rbo });
+        return rbo;
     }
 };
 

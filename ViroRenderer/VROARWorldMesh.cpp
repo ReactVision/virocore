@@ -26,6 +26,7 @@
 #include "VROARWorldMesh.h"
 #include "VROARDepthMesh.h"
 #include "VROARFrame.h"
+#include "VROARCamera.h"
 #include "VROPhysicsWorld.h"
 #include "VROPhysicsShape.h"
 #include "VROPencil.h"
@@ -42,7 +43,9 @@
 #include "VROData.h"
 #include <btBulletDynamicsCommon.h>
 #include <unordered_map>
+#include <unordered_set>
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <cstdint>
 
@@ -55,9 +58,21 @@ void BulletRigidBodyDeleter::operator()(btRigidBody *body) const {
 
 static VROWorldMeshSource sourceFromMeshTag(const std::string& tag) {
     if (tag == "lidar")     return VROWorldMeshSource::LiDAR;
+    if (tag == "depth")     return VROWorldMeshSource::Depth;
     if (tag == "monocular") return VROWorldMeshSource::Monocular;
     if (tag == "plane")     return VROWorldMeshSource::Plane;
     return VROWorldMeshSource::Unknown;
+}
+
+const char *VROWorldMeshSourceToString(VROWorldMeshSource source) {
+    switch (source) {
+        case VROWorldMeshSource::LiDAR:     return "lidar";
+        case VROWorldMeshSource::Depth:     return "depth";
+        case VROWorldMeshSource::Monocular: return "monocular";
+        case VROWorldMeshSource::Plane:     return "plane";
+        case VROWorldMeshSource::Unknown:   break;
+    }
+    return "unknown";
 }
 
 VROARWorldMesh::VROARWorldMesh(std::shared_ptr<VROPhysicsWorld> physicsWorld)
@@ -69,7 +84,25 @@ VROARWorldMesh::~VROARWorldMesh() {
 }
 
 void VROARWorldMesh::setConfig(const VROWorldMeshConfig& config) {
+    // The volume is built with the voxel size and block budget in force at its first frame. A room
+    // fused at one resolution cannot be carried into another, so a change to either starts a new
+    // one, on the next fused frame, at the new values. Silently keeping the old volume made both
+    // settings dead after the first frame.
+    const bool volumeChanged = config.voxelSize != _config.voxelSize
+                            || config.maxMemoryMB != _config.maxMemoryMB;
     _config = config;
+    if (volumeChanged) {
+        bool hadVolume;
+        {
+            std::lock_guard<std::mutex> lock(_volumeMutex);
+            hadVolume = (bool)_volume;
+        }
+        if (hadVolume) {
+            resetAccumulation();
+            std::lock_guard<std::mutex> lock(_volumeMutex);
+            _volume.reset();
+        }
+    }
 
     // Update physics properties on existing rigid body
     if (_rigidBody) {
@@ -120,11 +153,47 @@ void VROARWorldMesh::updateFromFrame(const std::unique_ptr<VROARFrame>& frame) {
     }
 
     if (!mesh || !mesh->isValid()) {
+        // Depth is not continuous on every device. ARCore's motion-stereo estimate drops out for a
+        // frame at a time — measured on a Xiaomi 24117RN76L, several times a second — and on those
+        // frames the plane fallback is the only source left. Replacing a room that is already fused
+        // with a handful of plane polygons made the published mesh flicker between the two: 90,532
+        // vertices one frame and 41 the next, with the physics body and getWorldMeshStats()
+        // following it down, and a VPS Lite snapshot taken in one of those gaps uploading the
+        // polygons instead of the room. The volume still holds the room, so keep publishing it and
+        // wait for depth to come back. resetWorldMesh() is how an app starts over.
+        if (_lastMeshWasAccumulated) {
+            _lastUpdateTimeMs = getCurrentTimeMs();
+            return;
+        }
+
         mesh = frame->generatePlaneMesh();
+        // Falling back to plane anchors is a different product: flat polygons where the app asked
+        // for a surface. It used to happen silently, so an app could not tell the two apart.
+        if (mesh && mesh->isValid() && _lastReportedSource != VROWorldMeshSource::Plane) {
+            pinfo("VROARWorldMesh: no mesh anchors and no depth image; falling back to AR plane "
+                  "anchors. getWorldMeshStats().source reports \"plane\".");
+        }
     }
 
     if (mesh && mesh->isValid()) {
+        VROWorldMeshSource source = sourceFromMeshTag(mesh->getSource());
+        if (source != _lastReportedSource) {
+            pinfo("VROARWorldMesh: mesh source is now \"%s\"", VROWorldMeshSourceToString(source));
+            _lastReportedSource = source;
+        }
         _lastDepthTimeMs = getCurrentTimeMs();
+
+        if (shouldFuse(source) && fuseFrame(mesh, frame)) {
+            // The fused surface replaces this frame's on the next pass, from the background task.
+            _lastUpdateTimeMs = getCurrentTimeMs();
+            return;
+        }
+
+        // Mesh anchors are accumulated too — ARKit does it, which is exactly why shouldFuse()
+        // leaves them alone. The app is asking whether the mesh covers more than the current view,
+        // not which code fused it, so reporting false here told an iPhone with LiDAR that its
+        // working, persistent mesh was single-frame.
+        _lastMeshWasAccumulated = (source == VROWorldMeshSource::LiDAR);
         applyMeshToPhysics(mesh);
         notifySubscribers(mesh);
     } else if (isMeshStale()) {
@@ -159,10 +228,17 @@ void VROARWorldMesh::forceUpdate(const std::unique_ptr<VROARFrame>& frame) {
     }
 }
 
+void VROARWorldMesh::setCurrentMesh(std::shared_ptr<VROARDepthMesh> mesh) {
+    std::lock_guard<std::mutex> lock(_currentMeshMutex);
+    _currentMesh = std::move(mesh);
+}
+
 void VROARWorldMesh::applyMeshToPhysics(std::shared_ptr<VROARDepthMesh> mesh) {
-    // Remove old body immediately on the render thread (fast — just unlinking).
+    // Remove old body immediately on the render thread (fast — just unlinking). This also bumps
+    // _physicsGeneration, so any build still in flight for an older mesh drops itself.
     removeFromPhysicsWorld();
-    _currentMesh = mesh;
+    setCurrentMesh(mesh);
+    const uint64_t physicsGeneration = _physicsGeneration;
 
     // Simplify for physics. Vertex clustering (gap-free) takes priority over stride decimation.
     std::shared_ptr<VROARDepthMesh> physicsMesh = mesh;
@@ -197,7 +273,7 @@ void VROARWorldMesh::applyMeshToPhysics(std::shared_ptr<VROARDepthMesh> mesh) {
     float restitution = _config.restitution;
     std::weak_ptr<VROPhysicsWorld> weakPhysicsWorld = _physicsWorld;
 
-    VROPlatformDispatchAsyncBackground([weakSelf, vertices, indices,
+    VROPlatformDispatchAsyncBackground([weakSelf, vertices, indices, physicsGeneration,
                                         friction, restitution, weakPhysicsWorld]() {
         // Build the expensive BVH on the background thread.
         auto shape = std::make_shared<VROPhysicsShape>(vertices, indices);
@@ -208,11 +284,13 @@ void VROARWorldMesh::applyMeshToPhysics(std::shared_ptr<VROARDepthMesh> mesh) {
 
         // Marshal rigid-body creation + physics-world insertion back to render thread.
         VROPlatformDispatchAsyncRenderer([weakSelf, shape, friction, restitution,
-                                          weakPhysicsWorld]() {
+                                          weakPhysicsWorld, physicsGeneration]() {
             auto self = weakSelf.lock();
             if (!self) return;
-            // Abort if the world mesh was disabled or a newer update arrived first.
-            if (!self->_enabled) return;
+            // Abort if the world mesh was disabled, or if a newer mesh, a reset or a disable tore
+            // the body down since this build started: installing it now would bring back a room
+            // the app cleared, or replace a newer body that is already in the world.
+            if (!self->_enabled || self->_physicsGeneration != physicsGeneration) return;
 
             self->_physicsShape = shape;
 
@@ -264,11 +342,144 @@ void VROARWorldMesh::addToPhysicsWorld() {
 }
 
 void VROARWorldMesh::removeFromPhysicsWorld() {
+    ++_physicsGeneration;
     _isAddedToPhysicsWorld = false;
     // BulletRigidBodyDeleter removes the body from the world before deleting it.
     _rigidBody.reset();
     _motionState.reset();
     _physicsShape = nullptr;
+}
+
+bool VROARWorldMesh::shouldFuse(VROWorldMeshSource source) const {
+    // Mesh anchors already persist: ARKit fuses them, and re-fusing its output would only blur it.
+    // Plane polygons are not samples of a surface, so there is nothing to average.
+    return _config.accumulate
+        && (source == VROWorldMeshSource::Depth || source == VROWorldMeshSource::Monocular);
+}
+
+bool VROARWorldMesh::fuseFrame(std::shared_ptr<VROARDepthMesh> frameMesh,
+                               const std::unique_ptr<VROARFrame> &frame) {
+    if (!frameMesh || !frame) return false;
+
+    std::shared_ptr<VROARCamera> camera = frame->getCamera();
+    if (!camera) return false;
+
+    // Integrating across a relocalisation drags the old room onto the new origin. ARCore reports
+    // Limited while it recovers, so wait for Normal rather than smearing the volume.
+    //
+    // Reported as handled, not as a fall-through: returning false would send the caller down the
+    // single-frame path, which replaces the whole accumulated room with this one view — the very
+    // thing the gate exists to prevent. The room already fused stays on screen until tracking
+    // recovers, which is also what the wearer expects to see.
+    if (camera->getTrackingState() != VROARTrackingState::Normal) {
+        return _lastMeshWasAccumulated;
+    }
+
+    // One fusion at a time. The work outlasts the update interval on a large room, and queueing a
+    // second pass behind it would only build a backlog of stale frames.
+    bool expected = false;
+    if (!_fusionInFlight.compare_exchange_strong(expected, true)) {
+        return true;   // handled: this frame is dropped on purpose, not fallen through
+    }
+
+    const VROVector3f cameraPosition = camera->getPosition();
+    std::vector<VROVector3f> points = frameMesh->getVertices();
+    std::vector<float> confidences = frameMesh->getConfidences();
+    // Read here, on the render thread that writes them: the background task must not read
+    // _config while setConfig() may be assigning it.
+    const float voxelSize = _config.voxelSize;
+    const int maxMemoryMB = _config.maxMemoryMB;
+    // The fused surface keeps the tag of what it was fused from, so getWorldMeshStats().source
+    // says "monocular" for estimated depth instead of claiming a depth sensor.
+    const std::string sourceTag = frameMesh->getSource();
+    // A reset between here and the integration below must also drop this frame: it belongs to the
+    // room being cleared, not to the next scan.
+    const uint64_t capturedGeneration = _fusionGeneration.load();
+
+    std::weak_ptr<VROARWorldMesh> weakSelf = shared_from_this();
+    VROPlatformDispatchAsyncBackground([weakSelf, points, confidences, cameraPosition, voxelSize,
+                                        maxMemoryMB, sourceTag, capturedGeneration]() {
+        std::shared_ptr<VROARWorldMesh> self = weakSelf.lock();
+        if (!self) return;
+
+        std::vector<VROVector3f> vertices;
+        std::vector<float> outConfidences;
+        std::vector<int> indices;
+        // Read inside the same lock as the extraction, so it describes the volume these vertices
+        // actually came from. A reset that lands afterwards changes it, and the render-thread
+        // continuation below drops this surface instead of restoring the cleared room.
+        uint64_t generation;
+        {
+            std::lock_guard<std::mutex> lock(self->_volumeMutex);
+            if (self->_fusionGeneration.load() != capturedGeneration) {
+                self->_fusionInFlight = false;
+                return;
+            }
+            if (!self->_volume) {
+                const size_t blockBytes = VROTSDFVolume::getBytesPerBlock();
+                const size_t maxBlocks =
+                    std::max<size_t>(1, ((size_t)std::max(1, maxMemoryMB) << 20) / blockBytes);
+                self->_volume.reset(new VROTSDFVolume(voxelSize, voxelSize * 3.0f, maxBlocks));
+            }
+            self->_volume->integrate(points, confidences, cameraPosition);
+            if (self->_volume->consumeDirty()) {
+                self->_volume->extractSurface(&vertices, &outConfidences, &indices);
+            }
+            generation = self->_fusionGeneration.load();
+        }
+
+        if (vertices.empty() || indices.empty()) {
+            self->_fusionInFlight = false;
+            return;
+        }
+
+        VROPlatformDispatchAsyncRenderer([weakSelf, vertices, outConfidences, indices, generation,
+                                          sourceTag]() {
+            std::shared_ptr<VROARWorldMesh> self = weakSelf.lock();
+            if (!self) return;
+            if (self->_fusionGeneration.load() != generation) {
+                // Reset while this was in flight. These vertices describe the room the app just
+                // cleared, so they go nowhere.
+                self->_fusionInFlight = false;
+                return;
+            }
+            auto fused = std::make_shared<VROARDepthMesh>(
+                std::vector<VROVector3f>(vertices),
+                std::vector<int>(indices),
+                std::vector<float>(outConfidences),
+                sourceTag);
+            if (fused->isValid()) {
+                self->_lastMeshWasAccumulated = true;
+                self->applyMeshToPhysics(fused);
+                self->notifySubscribers(fused);
+            }
+            self->_fusionInFlight = false;
+        });
+    });
+
+    return true;
+}
+
+void VROARWorldMesh::resetAccumulation() {
+    {
+        std::lock_guard<std::mutex> lock(_volumeMutex);
+        if (_volume) _volume->reset();
+        ++_fusionGeneration;
+    }
+
+    // Emptying the volume is only half of a reset. _currentMesh still holds the room fused out of
+    // it, and that is what getStats() reports, what the physics body collides with, and — the one
+    // that matters — what serializeCurrentMesh() uploads. Leaving it behind meant a snapshot taken
+    // after a reset attached the *previous* room to the cloud anchor.
+    removeFromPhysicsWorld();
+    setCurrentMesh(nullptr);
+    _lastMeshWasAccumulated = false;
+
+    // Say so now rather than letting the app read the old counts until the next frame lands. The
+    // subscriber callbacks take a mesh and there is none, so only the stats callback fires.
+    if (_updateCallback) {
+        _updateCallback(getStats());
+    }
 }
 
 VROWorldMeshStats VROARWorldMesh::getStats() const {
@@ -278,6 +489,8 @@ VROWorldMeshStats VROARWorldMesh::getStats() const {
         stats.vertexCount = _currentMesh->getVertexCount();
         stats.triangleCount = _currentMesh->getTriangleCount();
         stats.averageConfidence = _currentMesh->getAverageConfidence();
+        stats.source = sourceFromMeshTag(_currentMesh->getSource());
+        stats.accumulated = _lastMeshWasAccumulated;
     }
 
     stats.lastUpdateTimeMs = _lastUpdateTimeMs;
@@ -452,42 +665,103 @@ void VROARWorldMesh::notifySubscribers(std::shared_ptr<VROARDepthMesh> mesh) {
     }
 }
 
+namespace {
+    /*
+     Collects each edge of a triangle mesh once. Interior edges are shared by two triangles, so
+     drawing per-triangle paints half of them twice; de-duplicating is what makes an edge budget
+     mean what it says. Returns the count even when it overflows `budget`, so the caller can tell
+     how far over it is.
+     */
+    size_t collectUniqueEdges(const std::vector<VROVector3f>& vertices,
+                              const std::vector<int>& indices,
+                              size_t budget,
+                              std::vector<std::pair<VROVector3f, VROVector3f>> *out) {
+        std::unordered_set<uint64_t> seen;
+        seen.reserve(indices.size());
+        size_t count = 0;
+
+        for (size_t i = 0; i + 2 < indices.size(); i += 3) {
+            const int tri[3] = { indices[i], indices[i + 1], indices[i + 2] };
+            if (tri[0] < 0 || tri[0] >= (int)vertices.size() ||
+                tri[1] < 0 || tri[1] >= (int)vertices.size() ||
+                tri[2] < 0 || tri[2] >= (int)vertices.size()) {
+                continue;
+            }
+            for (int e = 0; e < 3; ++e) {
+                int a = tri[e];
+                int b = tri[(e + 1) % 3];
+                if (a == b) continue;                       // degenerate
+                uint64_t key = (a < b)
+                    ? ((uint64_t)a << 32) | (uint32_t)b
+                    : ((uint64_t)b << 32) | (uint32_t)a;
+                if (!seen.insert(key).second) continue;     // already drawn from the other triangle
+                ++count;
+                if (out && out->size() < budget) {
+                    out->emplace_back(vertices[a], vertices[b]);
+                }
+            }
+        }
+        return count;
+    }
+}
+
+void VROARWorldMesh::rebuildDebugWireframe() {
+    _debugEdges.clear();
+    _debugEdgeSource = _currentMesh;
+    if (!_currentMesh || !_currentMesh->isValid()) {
+        return;
+    }
+
+    const size_t budget = (size_t)std::max(1, _config.debugDrawMaxEdges);
+
+    // Simplify by clustering rather than by dropping triangles. Stride decimation used to keep
+    // every Nth triangle and discard its neighbours, so a LiDAR room came out as loose triangles
+    // scattered in the air instead of a surface. Clustering keeps the surface connected.
+    std::shared_ptr<VROARDepthMesh> mesh = _currentMesh;
+    if (_config.debugDrawCellSize > 0.0f) {
+        auto clustered = clusterMesh(mesh, _config.debugDrawCellSize);
+        if (clustered && clustered->getTriangleCount() > 0) {
+            mesh = clustered;
+        }
+
+        // Still over budget: grow the cells. Edge count falls roughly with the square of the cell
+        // size (edges scale with surface area / cell²), so one scaled retry usually lands it.
+        size_t edges = collectUniqueEdges(mesh->getVertices(), mesh->getIndices(), 0, nullptr);
+        if (edges > budget) {
+            float scale = std::sqrt((float)edges / (float)budget);
+            auto coarser = clusterMesh(_currentMesh, _config.debugDrawCellSize * scale);
+            if (coarser && coarser->getTriangleCount() > 0) {
+                mesh = coarser;
+            }
+        }
+    }
+
+    _debugEdges.reserve(budget);
+    size_t total = collectUniqueEdges(mesh->getVertices(), mesh->getIndices(), budget, &_debugEdges);
+    if (total > _debugEdges.size()) {
+        // Whatever is left is drawn in mesh order, which is contiguous, so the part that does show
+        // reads as a surface rather than as specks.
+        pinfo("VROARWorldMesh: wireframe capped at %d of %d edges (raise debugDrawMaxEdges or "
+              "debugDrawCellSize)", (int)_debugEdges.size(), (int)total);
+    }
+}
+
 void VROARWorldMesh::debugDraw(std::shared_ptr<VROPencil> pencil) {
     if (!pencil || !_config.debugDrawEnabled || !_currentMesh || !_currentMesh->isValid()) {
         return;
     }
 
+    // Rebuilding costs a clustering pass and a hash of every edge, so it happens when the mesh
+    // changes — at updateIntervalMs — not on every render frame.
+    if (_debugEdgeSource != _currentMesh) {
+        rebuildDebugWireframe();
+    }
+
     pencil->setDepthTestEnabled(_config.debugDrawDepthTest);
     pencil->setBrushThickness(_config.debugDrawLineThickness);
 
-    const std::vector<VROVector3f>& vertices = _currentMesh->getVertices();
-    const std::vector<int>& indices = _currentMesh->getIndices();
-
-    const size_t maxTriangles = (size_t)_config.debugDrawMaxTriangles;
-    size_t totalTriangles = indices.size() / 3;
-    size_t triangleStride = (totalTriangles > maxTriangles) ? (totalTriangles / maxTriangles) : 1;
-
-    // Draw complete wireframe triangles (all 3 edges) for proper mesh visualization
-    size_t trianglesDrawn = 0;
-    for (size_t i = 0; i + 2 < indices.size() && trianglesDrawn < maxTriangles; i += 3 * triangleStride) {
-        int i0 = indices[i];
-        int i1 = indices[i + 1];
-        int i2 = indices[i + 2];
-
-        if (i0 >= 0 && i0 < (int)vertices.size() &&
-            i1 >= 0 && i1 < (int)vertices.size() &&
-            i2 >= 0 && i2 < (int)vertices.size()) {
-
-            const VROVector3f& v0 = vertices[i0];
-            const VROVector3f& v1 = vertices[i1];
-            const VROVector3f& v2 = vertices[i2];
-
-            // Draw all 3 edges of each triangle for complete wireframe
-            pencil->draw(v0, v1);
-            pencil->draw(v1, v2);
-            pencil->draw(v2, v0);
-            trianglesDrawn++;
-        }
+    for (const auto& edge : _debugEdges) {
+        pencil->draw(edge.first, edge.second);
     }
 }
 
@@ -539,13 +813,17 @@ namespace {
 }
 
 std::vector<uint8_t> VROARWorldMesh::serializeCurrentMesh(const VROMatrix4f& locationTransform) const {
-    if (!_currentMesh || !_currentMesh->isValid()) {
+    // Called from the UI thread on Android. Hold our own reference for the whole serialisation:
+    // the render thread may replace _currentMesh at any moment, and the vectors read below belong
+    // to the mesh, not to us.
+    const std::shared_ptr<VROARDepthMesh> mesh = getCurrentMesh();
+    if (!mesh || !mesh->isValid()) {
         return {};
     }
 
-    const std::vector<VROVector3f>& vertices    = _currentMesh->getVertices();
-    const std::vector<float>&       confidences  = _currentMesh->getConfidences();
-    const std::vector<int>&         indices      = _currentMesh->getIndices();
+    const std::vector<VROVector3f>& vertices    = mesh->getVertices();
+    const std::vector<float>&       confidences  = mesh->getConfidences();
+    const std::vector<int>&         indices      = mesh->getIndices();
 
     const uint32_t vertexCount   = (uint32_t)vertices.size();
     const uint32_t triangleCount = (uint32_t)(indices.size() / 3);
