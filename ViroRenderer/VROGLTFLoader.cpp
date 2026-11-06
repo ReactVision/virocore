@@ -1516,19 +1516,25 @@ void VROGLTFLoader::resampleSkeletalChannelsToCommonGrid(std::map<int, std::pair
                     const VROKeyframeAnimationFrame *fB = frames[kB].get();
 
                     // STEP samplers hold the left key; LINEAR (and pre-baked CUBICSPLINE) interpolate.
+                    // Every property the channel has is copied, not only the first: a raw glTF
+                    // channel carries one, but a joint shared by several skins comes back here
+                    // already merged by an earlier skin's pass, with all of them.
                     if (chan->_hasTranslation) {
                         hasTrans = true;
                         mergedFrames[gi]->translation = step ? fA->translation
                                                              : fA->translation.interpolate(fB->translation, alpha);
-                    } else if (chan->_hasScale) {
+                    }
+                    if (chan->_hasScale) {
                         hasScale = true;
                         mergedFrames[gi]->scale = step ? fA->scale
                                                        : fA->scale.interpolate(fB->scale, alpha);
-                    } else if (chan->_hasRotation) {
+                    }
+                    if (chan->_hasRotation) {
                         hasRotation = true;
                         mergedFrames[gi]->rotation = step ? fA->rotation
                                                           : VROQuaternion::slerp(fA->rotation, fB->rotation, alpha);
-                    } else if (chan->_hasMorphWeights) {
+                    }
+                    if (chan->_hasMorphWeights) {
                         hasMorph = true;
                         std::map<std::string, float> weights;
                         for (const auto &kv : fA->morphWeights) {
