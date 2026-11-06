@@ -24,6 +24,7 @@
 //  TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 //  SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+#include <vector>
 #include "VROPolyline.h"
 #include "VROLog.h"
 #include "VROByteBuffer.h"
@@ -211,12 +212,14 @@ void VROPolyline::buildGeometry(std::vector<std::vector<VROVector3f>> &paths,
 }
 
 std::shared_ptr<VROGeometryElement> VROPolyline::buildElement(size_t numCorners) {
-    int indices[numCorners];
-    for (int i = 0; i < numCorners; i++) {
-        indices[i] = i;
+    // On the heap: a world mesh's debug lines reach hundreds of thousands of corners,
+    // which overflowed the render thread's stack as a variable-length array.
+    std::vector<int> indices(numCorners);
+    for (size_t i = 0; i < numCorners; i++) {
+        indices[i] = (int) i;
     }
     
-    std::shared_ptr<VROData> indexData = std::make_shared<VROData>((void *) indices, sizeof(int) * numCorners);
+    std::shared_ptr<VROData> indexData = std::make_shared<VROData>((void *) indices.data(), sizeof(int) * numCorners);
     std::shared_ptr<VROGeometryElement> element = std::make_shared<VROGeometryElement>(indexData,
                                                                                        VROGeometryPrimitiveType::TriangleStrip,
                                                                                        VROGeometryUtilGetPrimitiveCount((int) numCorners, VROGeometryPrimitiveType::TriangleStrip),
