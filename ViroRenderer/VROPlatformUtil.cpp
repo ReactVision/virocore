@@ -553,6 +553,15 @@ static jobject sJavaAssetMgr = nullptr;
 static jobject sPlatformUtil = nullptr;
 static AAssetManager *sAssetMgr = nullptr;
 
+// The JavaVM is known from the moment System.loadLibrary("viro_renderer") loads this library, so
+// a JNI call that reaches getJNIEnv() before any renderer or loader has called VROPlatformSetEnv
+// still finds it. Under Fabric a view such as VRTCamera is built before the scene's renderer, and
+// adding its node already calls back into Java.
+extern "C" JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void *reserved) {
+    sVM = vm;
+    return JNI_VERSION_1_6;
+}
+
 // Map (and mutex) holding native tasks waiting to be dispatched. On Android the threading
 // functionality is handled on the Java layer, so we need some mechanism for mapping IDs
 // to corresponding tasks. Both the ID generator and the map itself are protected by the
