@@ -35,7 +35,8 @@ VROMaterialVisual::VROMaterialVisual(VROMaterial &material, const VROMaterialVis
  _contentsColor(visual._contentsColor),
  _contentsTexture(visual._contentsTexture),
  _intensity(visual._intensity),
- _contentsTransform(visual._contentsTransform)
+ _contentsTransform(visual._contentsTransform),
+ _hasContentsTransform(visual._hasContentsTransform)
 {}
 
 void VROMaterialVisual::deleteGL() {
@@ -50,6 +51,15 @@ void VROMaterialVisual::copyFrom(const VROMaterialVisual &visual) {
     _contentsTexture = visual._contentsTexture;
     _intensity = visual._intensity;
     _contentsTransform = visual._contentsTransform;
+    _hasContentsTransform = visual._hasContentsTransform;
+}
+
+void VROMaterialVisual::setContentsTransform(VROMatrix4f transform) {
+    _contentsTransform = transform;
+    if (!_hasContentsTransform) {
+        _hasContentsTransform = true;
+        _material.updateSubstrate();
+    }
 }
 
 void VROMaterialVisual::clear() {

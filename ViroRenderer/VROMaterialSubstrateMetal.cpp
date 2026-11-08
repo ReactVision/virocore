@@ -484,6 +484,10 @@ VROConcurrentBuffer &VROMaterialSubstrateMetal::bindMaterialUniforms(float opaci
     uniforms->ao = _material.getAmbientOcclusion().getColor().x;
     uniforms->tone_mapping_mask = _material.needsToneMapping() ? 1.0f : 0.0f;
     uniforms->bloom_threshold = _material.getBloomThreshold();
+    uniforms->texture_transform = toMatrixFloat4x4(_material.getDiffuse().getContentsTransform());
+    VROVector4f emission = _material.getEmission().getColor();
+    uniforms->emissive_color = toVectorFloat3(VROVector3f(emission.x, emission.y, emission.z));
+    uniforms->ignores_diffuse_alpha = _material.getIgnoresDiffuseAlpha() ? 1 : 0;
 
     // Fill custom uniforms buffer based on the layout created during inflation
     if (!_material.getShaderModifiers().empty()) {

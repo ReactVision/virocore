@@ -384,6 +384,9 @@ struct Parameter {
   std::string string_value;
   std::vector<double> number_array;
   std::map<std::string, double> json_double_value;
+  // ReactVision: the "extensions" of a JSON-object parameter, such as a texture
+  // info's KHR_texture_transform. json_double_value keeps only its numbers.
+  std::map<std::string, Value> extensions;
 
   // context sensitive methods. depending the type of the Parameter you are
   // accessing, these are either valid or not
@@ -431,9 +434,11 @@ typedef std::map<std::string, Value> ExtensionMap;
 
 struct AnimationChannel {
   int sampler;              // required
-  int target_node;          // required (index of the node to target)
+  int target_node;          // optional (-1 when absent, as for KHR_animation_pointer)
   std::string target_path;  // required in ["translation", "rotation", "scale",
-                            // "weights"]
+                            // "weights", "pointer"]
+  // ReactVision: the target's "extensions" (KHR_animation_pointer's pointer).
+  ExtensionMap target_extensions;
   Value extras;
 
   AnimationChannel() : sampler(-1), target_node(-1) {}
@@ -1990,6 +1995,8 @@ static bool ParseJSONProperty(std::map<std::string, double> *ret,
   return true;
 }
 
+static bool ParseExtensionsProperty(ExtensionMap *ret, std::string* err, const json &o);
+
 static bool ParseParameterProperty(Parameter *param, std::string *err,
                                    const json &o,
                                    const std::string &prop, bool required) {
@@ -2012,6 +2019,7 @@ static bool ParseParameterProperty(Parameter *param, std::string *err,
     return true;
   } else if (ParseJSONProperty(&param->json_double_value, err, o, prop,
                                false)) {
+    ParseExtensionsProperty(&param->extensions, err, o.find(prop).value());
     return true;
   } else if (ParseBooleanProperty(&param->bool_value, err, o, prop, false)) {
     return true;
@@ -2732,12 +2740,9 @@ static bool ParseAnimationChannel(AnimationChannel *channel, std::string *err,
   if ((targetIt != o.end()) && targetIt.value().is_object()) {
     const json &target_object = targetIt.value();
 
-    if (!ParseNumberProperty(&targetIndex, err, target_object, "node", true)) {
-      if (err) {
-        (*err) += "`node` field is missing in animation.channels.target\n";
-      }
-      return false;
-    }
+    // `node` is optional in glTF 2.0: a KHR_animation_pointer target has none.
+    ParseNumberProperty(&targetIndex, err, target_object, "node", false);
+    ParseExtensionsProperty(&channel->target_extensions, err, target_object);
 
     if (!ParseStringProperty(&channel->target_path, err, target_object, "path",
                              true)) {
@@ -2792,12 +2797,10 @@ static bool ParseAnimation(Animation *animation, std::string *err,
           }
           return false;
         }
+        // `interpolation` is optional in glTF 2.0 and defaults to LINEAR.
         if (!ParseStringProperty(&sampler.interpolation, err, s,
-                                 "interpolation", true)) {
-          if (err) {
-            (*err) += "`interpolation` field is missing in animation.sampler\n";
-          }
-          return false;
+                                 "interpolation", false)) {
+          sampler.interpolation = "LINEAR";
         }
         if (!ParseNumberProperty(&outputIndex, err, s, "output", true)) {
           if (err) {

@@ -37,6 +37,7 @@
 - **A click goes to the node drawn on top,** and a click in open space reaches the controller's own delegates again.
 - **Text sits where its vertical alignment puts it,** and a back-culled draw after a front-culled one culls back faces again.
 - **GLB characters with one skin per mesh animate every part,** not only the first skin's.
+- **glTF:** `KHR_texture_transform`, `KHR_node_visibility` and `KHR_animation_pointer` (node visibility, base colour and emissive factors, texture offset, rotation and scale), textures on `TEXCOORD_1` and later sets, and emissive textures. Opaque and masked materials ignore their textures' alpha, blended ones stop writing depth, skins animated through nodes between their joints move and are no longer culled by their bind-pose bounds, samplers without `interpolation` load, files with animation pointers no longer fail to load, emission shows on physically based materials, 8-bit index buffers draw, and skinned models draw on the web.
 - **Android: a `ViroARCamera` no longer crashes the scene as it mounts.**
 - **Video:** a paused iOS video stays paused and its late callbacks no longer reach a freed texture; Android play and pause keep their order.
 - **iOS:** ViroKit targets iOS 15.1, and builds for the iOS Simulator (arm64 and x86_64) as well as the device. The copy into viro now makes `ViroKit.xcframework`, replacing only the slice just built. `ios/build_ios_simulator_libs.sh` adds the simulator builds of LinearMath, protobuf-lite and GVR Audio that ViroKit links.

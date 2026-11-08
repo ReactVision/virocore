@@ -43,6 +43,9 @@ VROMaterialShaderCapabilities VROShaderCapabilities::deriveMaterialCapabilitiesK
     cap.roughnessMap = false;
     cap.metalnessMap = false;
     cap.aoMap = false;
+    cap.textureTransform = false;
+    cap.emissiveTexture = false;
+    cap.ignoresDiffuseAlpha = material.getIgnoresDiffuseAlpha();
     cap.diffuseTextureStereoMode = VROStereoMode::None;
     cap.bloom = false;
     cap.postProcessMask = false;
@@ -86,6 +89,14 @@ VROMaterialShaderCapabilities VROShaderCapabilities::deriveMaterialCapabilitiesK
         cap.diffuseTextureStereoMode = VROStereoMode::None;
         cap.diffuseEGLModifier = false;
     }
+
+    // Texture coordinate transform (glTF KHR_texture_transform), applied before any
+    // texture is sampled
+    cap.textureTransform = diffuse.hasContentsTransform();
+
+    // Emissive Map (glTF emissiveTexture), scaled by the emissive color
+    cap.emissiveTexture = material.getEmission().getTextureType() == VROTextureType::Texture2D &&
+                          lightingModel != VROLightingModel::Constant;
 
     // Specular Map
     if (specular.getTextureType() == VROTextureType::Texture2D &&

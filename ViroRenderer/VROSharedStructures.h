@@ -81,6 +81,13 @@ typedef struct {
     // 0 otherwise; bloom_threshold is negative when the material contributes no bloom.
     float            tone_mapping_mask;
     float            bloom_threshold;
+
+    // glTF KHR_texture_transform, applied to the texture coordinates in the vertex
+    // stage (identity when the material has none), and the emissive colour the PBR
+    // path adds to its output.
+    matrix_float4x4  texture_transform;
+    vector_float3    emissive_color;
+    int              ignores_diffuse_alpha;
 } VROMaterialUniforms;
 
 typedef struct {

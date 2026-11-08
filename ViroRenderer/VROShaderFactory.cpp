@@ -40,8 +40,11 @@
 #include "VRODriverOpenGL.h"
 #include <tuple>
 
+static thread_local std::shared_ptr<VROShaderModifier> sTextureTransformModifier;
 static thread_local std::shared_ptr<VROShaderModifier> sDiffuseTextureModifier;
 static thread_local std::shared_ptr<VROShaderModifier> sSpecularTextureModifier;
+static thread_local std::shared_ptr<VROShaderModifier> sEmissiveTextureModifier;
+static thread_local std::shared_ptr<VROShaderModifier> sOpaqueAlphaModifier;
 static thread_local std::shared_ptr<VROShaderModifier> sNormalMapTextureModifier;
 static thread_local std::shared_ptr<VROShaderModifier> sReflectiveTextureModifier;
 static thread_local std::shared_ptr<VROShaderModifier> sRoughnessTextureModifier;
@@ -156,6 +159,12 @@ std::shared_ptr<VROShaderProgram> VROShaderFactory::buildShader(VROShaderCapabil
     std::vector<std::string> samplers;
     std::vector<std::shared_ptr<VROShaderModifier>> modifiers;
     
+    // The texture coordinate transform goes first: every texture modifier below
+    // samples _surface.diffuse_texcoord
+    if (materialCapabilities.textureTransform) {
+        modifiers.push_back(createTextureTransformModifier());
+    }
+
     // Stereo mode must be placed prior to diffuse texture (because it modifies
     // the texture coordinates used when sampling the diffuse texture)
     if (materialCapabilities.diffuseTextureStereoMode != VROStereoMode::None) {
@@ -194,6 +203,12 @@ std::shared_ptr<VROShaderProgram> VROShaderFactory::buildShader(VROShaderCapabil
                                                     materialCapabilities.chromaKeyBlue));
     }
     
+    // Emissive Map. Only the standard fragment shader has an emissive term to scale.
+    if (materialCapabilities.emissiveTexture && lightingModel != VROLightingModel::Constant) {
+        samplers.push_back("emissive_texture");
+        modifiers.push_back(createEmissiveTextureModifier());
+    }
+
     // Normal Map (note this must be placed before the PBR surface modifier, which uses the normal)
     if (materialCapabilities.normalTexture) {
         samplers.push_back("normal_texture");
@@ -269,6 +284,12 @@ std::shared_ptr<VROShaderProgram> VROShaderFactory::buildShader(VROShaderCapabil
             modifiers.push_back(createShadowMapFragmentModifier());
         }
         samplers.push_back("shadow_map");
+    }
+
+    // Opaque alpha (glTF alphaMode OPAQUE): after every lighting modifier, so none
+    // can bring the diffuse alpha back, and before bloom and tone mapping, which read it
+    if (materialCapabilities.ignoresDiffuseAlpha) {
+        modifiers.push_back(createOpaqueAlphaModifier());
     }
 
     // Bloom. Gate on the pipeline-level bloom flag (not the per-material one):
@@ -376,6 +397,25 @@ std::shared_ptr<VROShaderProgram> VROShaderFactory::buildShader(VROShaderCapabil
 
 #pragma mark - Texture Modifiers
 
+std::shared_ptr<VROShaderModifier> VROShaderFactory::createTextureTransformModifier() {
+    /*
+     Modifier that transforms the texture coordinates every texture of the material
+     samples (glTF KHR_texture_transform: offset, rotation and scale). The matrix is
+     the diffuse visual's contents transform, bound with the material.
+     */
+    if (!sTextureTransformModifier) {
+        std::vector<std::string> modifierCode =  {
+            "uniform highp mat4 material_texture_transform;",
+            "_surface.diffuse_texcoord = (material_texture_transform * vec4(_surface.diffuse_texcoord, 0.0, 1.0)).xy;",
+            "_surface.specular_texcoord = _surface.diffuse_texcoord;"
+        };
+        sTextureTransformModifier = std::make_shared<VROShaderModifier>(VROShaderEntryPoint::Surface,
+                                                                        modifierCode);
+        sTextureTransformModifier->setName("texture_transform");
+    }
+    return sTextureTransformModifier;
+}
+
 std::shared_ptr<VROShaderModifier> VROShaderFactory::createDiffuseTextureModifier() {
     /*
      Modifier that multiplies the material's surface color by a diffuse texture.
@@ -390,6 +430,40 @@ std::shared_ptr<VROShaderModifier> VROShaderFactory::createDiffuseTextureModifie
         sDiffuseTextureModifier->setName("diffuse");
     }
     return sDiffuseTextureModifier;
+}
+
+std::shared_ptr<VROShaderModifier> VROShaderFactory::createEmissiveTextureModifier() {
+    /*
+     Modifier that scales the material's emissive color by its emissive texture, sampled
+     through the emission's own texture transform (identity unless glTF gives one).
+     */
+    if (!sEmissiveTextureModifier) {
+        std::vector<std::string> modifierCode =  {
+            "uniform sampler2D emissive_texture;",
+            "uniform highp mat4 material_emissive_texture_transform;",
+            "_emissive *= texture(emissive_texture, (material_emissive_texture_transform * vec4(v_texcoord, 0.0, 1.0)).xy).rgb;"
+        };
+        sEmissiveTextureModifier = std::make_shared<VROShaderModifier>(VROShaderEntryPoint::Surface,
+                                                                       modifierCode);
+        sEmissiveTextureModifier->setName("emissive");
+    }
+    return sEmissiveTextureModifier;
+}
+
+std::shared_ptr<VROShaderModifier> VROShaderFactory::createOpaqueAlphaModifier() {
+    /*
+     Modifier that drops the diffuse color's, texture's and vertex colors' alpha from
+     the output: only the material's transparency and the node's opacity remain.
+     */
+    if (!sOpaqueAlphaModifier) {
+        std::vector<std::string> modifierCode =  {
+            "_output_color.a = _surface.alpha;"
+        };
+        sOpaqueAlphaModifier = std::make_shared<VROShaderModifier>(VROShaderEntryPoint::Fragment,
+                                                                   modifierCode);
+        sOpaqueAlphaModifier->setName("opaque_alpha");
+    }
+    return sOpaqueAlphaModifier;
 }
 
 std::shared_ptr<VROShaderModifier> VROShaderFactory::createSpecularTextureModifier() {
@@ -757,7 +831,7 @@ std::shared_ptr<VROShaderModifier> VROShaderFactory::createPBRConstantAmbientFra
             // diminish a shadow (in VROARShadow), we have to set this term to the final
             // ambient contribution.
             "_ambient = _ambient * albedo * _surface.ao;",
-            "_output_color = vec4(_ambient + _diffuse, _output_color.a);",
+            "_output_color = vec4(_ambient + _diffuse + _emissive, _output_color.a);",
         };
         sPBRConstantAmbientFragmentModifier = std::make_shared<VROShaderModifier>(VROShaderEntryPoint::Fragment,
                                                                                   modifierCode);
@@ -785,7 +859,7 @@ std::shared_ptr<VROShaderModifier> VROShaderFactory::createPBRDiffuseIrradianceF
                 // diminish a shadow (in VROARShadow), we have to set this term to the final
                 // ambient contribution.
                 "_ambient = (_ambient * albedo + ambient_kD * irradiance * albedo) * _surface.ao;",
-                "_output_color = vec4(_ambient + _diffuse, _output_color.a);",
+                "_output_color = vec4(_ambient + _diffuse + _emissive, _output_color.a);",
         };
         sPBRDiffuseIrradianceFragmentModifier = std::make_shared<VROShaderModifier>(VROShaderEntryPoint::Fragment,
                                                                                     modifierCode);
@@ -825,7 +899,7 @@ std::shared_ptr<VROShaderModifier> VROShaderFactory::createPBRDiffuseAndSpecular
                 // Because the _ambient term is used by AR shadows to compute how much to diminish a shadow
                 // (in VROARShadow), we have to set this term to the final ambient contribution.
                 "_ambient = (_ambient * albedo + ambient_kD * irradiance * albedo + ambient_specular) * _surface.ao;",
-                "_output_color = vec4(_ambient + _diffuse, _output_color.a);",
+                "_output_color = vec4(_ambient + _diffuse + _emissive, _output_color.a);",
         };
         sPBRDiffuseAndSpecularIrradianceFragmentModifier = std::make_shared<VROShaderModifier>(VROShaderEntryPoint::Fragment,
                                                                                     modifierCode);

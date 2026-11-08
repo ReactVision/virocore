@@ -46,6 +46,7 @@ VROMaterial::VROMaterial() : VROThreadRestricted(VROThreadName::Renderer),
     _transparency(1.0),
     _transparencyMode(VROTransparencyMode::AOne),
     _alphaCutoff(0.5f),  // glTF 2.0 default value
+    _ignoresDiffuseAlpha(false),
     _lightingModel(VROLightingModel::Constant),
     _litPerPixel(true),
     _cullMode(VROCullMode::Back),
@@ -99,6 +100,7 @@ VROMaterial::VROMaterial(std::shared_ptr<VROMaterial> material) : VROThreadRestr
  _transparency(material->_transparency),
  _transparencyMode(material->_transparencyMode),
  _alphaCutoff(material->_alphaCutoff),
+ _ignoresDiffuseAlpha(material->_ignoresDiffuseAlpha),
  _lightingModel(material->_lightingModel),
  _litPerPixel(material->_litPerPixel),
  _cullMode(material->_cullMode),
@@ -171,6 +173,7 @@ void VROMaterial::copyFrom(std::shared_ptr<VROMaterial> material) {
     _transparency = material->_transparency;
     _transparencyMode = material->_transparencyMode;
     _alphaCutoff = material->_alphaCutoff;
+    _ignoresDiffuseAlpha = material->_ignoresDiffuseAlpha;
     _lightingModel = material->_lightingModel;
     _litPerPixel = material->_litPerPixel;
     _cullMode = material->_cullMode;
@@ -359,6 +362,11 @@ bool VROMaterial::bindShader(int lightsHash,
 }
 
 bool VROMaterial::hasDiffuseAlpha() const {
+    // An opaque glTF material draws its diffuse alpha as 1: it sorts with the opaque
+    // objects, ahead of anything blended.
+    if (_ignoresDiffuseAlpha) {
+        return false;
+    }
     if (_diffuse->getTextureType() == VROTextureType::None) {
         return _diffuse->getColor().w < (1.0 - kEpsilon);
     }

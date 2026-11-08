@@ -106,7 +106,7 @@ VROShaderProgram::VROShaderProgram(std::string vertexShader, std::string fragmen
         vertexAssignments += "_geometry.tangent = tangent;\n";
     }
     if ((_attributes & (int)VROShaderMask::BoneIndex) != 0) {
-        vertexAssignments += "_geometry.bone_indices = bone_indices;\n";
+        vertexAssignments += "_geometry.bone_indices = ivec4(bone_indices);\n";
     }
     if ((_attributes & (int)VROShaderMask::BoneWeight) != 0) {
         vertexAssignments += "_geometry.bone_weights = bone_weights;\n";

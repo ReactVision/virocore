@@ -702,6 +702,13 @@ void VRONode::updateVisibility(const VRORenderContext &context) {
         result = frustum.intersectAllOpt(_worldUmbrellaBoundingBox, &_umbrellaBoxMetadata);
     }
     
+    // A skinned mesh is drawn where its bones put it, which its bind-pose bounds do not
+    // tell: never cull a subtree holding one (a model posed away from its bind pose lost
+    // its eyes when the camera came close).
+    if (result == VROFrustumResult::Outside && hasSkinnedGeometryInSubtree()) {
+        result = VROFrustumResult::Intersects;
+    }
+
     // Process the results of the frustum test, iterating down the tree if there
     // was an intersection, or else wholesale including or excluding all child nodes
     // in the other two cases.
@@ -717,6 +724,18 @@ void VRONode::updateVisibility(const VRORenderContext &context) {
     else {
         setVisibilityRecursive(false);
     }
+}
+
+bool VRONode::hasSkinnedGeometryInSubtree() const {
+    if (_geometry && _geometry->getSkinner()) {
+        return true;
+    }
+    for (const std::shared_ptr<VRONode> &childNode : _subnodes) {
+        if (childNode->hasSkinnedGeometryInSubtree()) {
+            return true;
+        }
+    }
+    return false;
 }
 
 void VRONode::setVisibilityRecursive(bool visible) {
