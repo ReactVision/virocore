@@ -114,6 +114,8 @@ private:
     VROUniform *_aoUniform;
     VROUniform *_alphaCutoffUniform;
     VROUniform *_emissiveColorUniform;
+    VROUniform *_textureTransformUniform;
+    VROUniform *_emissiveTextureTransformUniform;
 
     VROUniform *_normalMatrixUniform;
     VROUniform *_modelMatrixUniform;

@@ -114,7 +114,10 @@ private:
                                                   const std::vector<std::shared_ptr<VROShaderModifier>> &modifiers,
                                                   std::shared_ptr<VRODriverOpenGL> &driver);
     
+    std::shared_ptr<VROShaderModifier> createTextureTransformModifier();
     std::shared_ptr<VROShaderModifier> createDiffuseTextureModifier();
+    std::shared_ptr<VROShaderModifier> createEmissiveTextureModifier();
+    std::shared_ptr<VROShaderModifier> createOpaqueAlphaModifier();
     std::shared_ptr<VROShaderModifier> createSpecularTextureModifier();
     std::shared_ptr<VROShaderModifier> createNormalMapTextureModifier();
     std::shared_ptr<VROShaderModifier> createReflectiveTextureModifier();

@@ -179,6 +179,12 @@ VROVertexDescriptorOpenGL VROGeometrySubstrateOpenGL::configureVertexDescriptor(
 
         int attrIdx = VROGeometryUtilParseAttributeIndex(source->getSemantic());
         std::pair<GLuint, int> format = parseVertexFormat(source);
+        // Bone indices are never negative, and the shaders take them as uvec4: bind
+        // every integer size unsigned, so the input and the attribute types agree
+        // (WebGL refuses a mismatch; desktop and mobile GL let it pass).
+        if (source->getSemantic() == VROGeometrySourceSemantic::BoneIndices && format.first == GL_INT) {
+            format.first = GL_UNSIGNED_INT;
+        }
         
         vd.attributes[vd.numAttributes].index = attrIdx;
         vd.attributes[vd.numAttributes].size = format.second;
@@ -217,7 +223,8 @@ void VROGeometrySubstrateOpenGL::createVAO() {
     
             for (int i = 0; i < vd.numAttributes; i++) {
                 if (!vd.attributes[i].normalized &&
-                    (vd.attributes[i].type == GL_INT || vd.attributes[i].type == GL_SHORT ||
+                    (vd.attributes[i].type == GL_INT || vd.attributes[i].type == GL_UNSIGNED_INT ||
+                     vd.attributes[i].type == GL_SHORT ||
                      vd.attributes[i].type == GL_UNSIGNED_BYTE || vd.attributes[i].type == GL_UNSIGNED_SHORT)) {
                     GL( glVertexAttribIPointer(vd.attributes[i].index, vd.attributes[i].size, vd.attributes[i].type, vd.stride,
                                                (GLvoid *) vd.attributes[i].offset) );

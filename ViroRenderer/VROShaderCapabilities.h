@@ -62,6 +62,9 @@ struct VROMaterialShaderCapabilities {
     bool normalTexture;
     bool reflectiveTexture;
     bool roughnessMap, metalnessMap, aoMap;
+    bool textureTransform;
+    bool emissiveTexture;
+    bool ignoresDiffuseAlpha;
     bool bloom;
     bool postProcessMask;
     bool receivesShadows;
@@ -72,13 +75,13 @@ struct VROMaterialShaderCapabilities {
     bool operator< (const VROMaterialShaderCapabilities& r) const {
         return std::tie(lightingModel, diffuseTexture, diffuseTextureStereoMode,
                         diffuseEGLModifier, specularTexture, normalTexture, reflectiveTexture,
-                        roughnessMap, metalnessMap, aoMap, bloom, postProcessMask,
+                        roughnessMap, metalnessMap, aoMap, textureTransform, emissiveTexture, ignoresDiffuseAlpha, bloom, postProcessMask,
                         receivesShadows,
                         chromaKeyFiltering, chromaKeyRed, chromaKeyGreen, chromaKeyBlue,
                         additionalModifierKeys) <
                 std::tie(r.lightingModel, r.diffuseTexture, r.diffuseTextureStereoMode,
                          r.diffuseEGLModifier, r.specularTexture, r.normalTexture, r.reflectiveTexture,
-                         r.roughnessMap, r.metalnessMap, r.aoMap, r.bloom, r.postProcessMask,
+                         r.roughnessMap, r.metalnessMap, r.aoMap, r.textureTransform, r.emissiveTexture, r.ignoresDiffuseAlpha, r.bloom, r.postProcessMask,
                          r.receivesShadows,
                          r.chromaKeyFiltering, r.chromaKeyRed, r.chromaKeyGreen, r.chromaKeyBlue,
                          r.additionalModifierKeys);
