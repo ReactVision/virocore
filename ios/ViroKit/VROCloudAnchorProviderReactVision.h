@@ -100,6 +100,17 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)setLastKnownLocationLat:(double)lat longitude:(double)lng altitude:(double)alt;
 
 /**
+ * The reading the keyframe collector tags its keyframes with, for
+ * geo-registration: the latest GPS position and the camera's forward bearing
+ * (degrees clockwise from true north). Pass NO for what is not available.
+ */
+- (void)setKeyframeLocationHasGps:(BOOL)hasGps
+                         latitude:(double)lat
+                        longitude:(double)lng
+                       hasHeading:(BOOL)hasHeading
+                          heading:(double)headingDegrees;
+
+/**
  * Returns the underlying RVCCACloudAnchorProvider C++ object.
  * Used by VROARSessioniOS to call management API methods directly.
  * Only available in C++ / ObjC++ translation units.

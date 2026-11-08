@@ -147,6 +147,14 @@ VROVector3f VROARCameraARCore::getImagePosition() const {
     return _imagePosition;
 }
 
+VROMatrix4f VROARCameraARCore::getImageTransform() const {
+    VROMatrix4f t = _imageRotation;
+    t[12] = _imagePosition.x;
+    t[13] = _imagePosition.y;
+    t[14] = _imagePosition.z;
+    return t;
+}
+
 VROVector3f VROARCameraARCore::getPosition() const {
     return _position;
 }

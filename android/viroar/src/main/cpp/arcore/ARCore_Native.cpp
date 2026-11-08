@@ -587,6 +587,12 @@ namespace arcore {
         ArImage_getPlaneData(_session, _arImage, planeIdx, outData, outDataLength);
     }
 
+    int64_t ImageNative::getTimestampNs() {
+        int64_t timestampNs = 0;
+        ArImage_getTimestamp(_session, _arImage, &timestampNs);
+        return timestampNs;
+    }
+
 #pragma mark - Frame
 
     FrameNative::~FrameNative() {
@@ -629,6 +635,20 @@ namespace arcore {
         ArCameraIntrinsics_getPrincipalPoint(_session, outIntrinsics, outCx, outCy);
         ArCamera_release(camera);
         ArCameraIntrinsics_destroy(outIntrinsics);
+    }
+
+    void FrameNative::getImageDimensions(int *outWidth, int *outHeight) {
+        ArCamera *camera;
+        ArFrame_acquireCamera(_session, _frame, &camera);
+        ArCameraIntrinsics *intrinsics;
+        ArCameraIntrinsics_create(_session, &intrinsics);
+        ArCamera_getImageIntrinsics(_session, camera, intrinsics);
+        int32_t width = 0, height = 0;
+        ArCameraIntrinsics_getImageDimensions(_session, intrinsics, &width, &height);
+        *outWidth = width;
+        *outHeight = height;
+        ArCamera_release(camera);
+        ArCameraIntrinsics_destroy(intrinsics);
     }
 
     TrackingState FrameNative::getTrackingState() {

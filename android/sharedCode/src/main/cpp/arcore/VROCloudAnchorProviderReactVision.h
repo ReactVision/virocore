@@ -32,8 +32,11 @@
 #include <functional>
 #include "VROFrameListener.h"
 
+class VROARFrame;
+
 class VROARAnchor;
 class VROARSessionARCore;
+class VROMatrix4f;
 namespace ReactVisionCCA { class RVCCACloudAnchorProvider; }
 
 /**
@@ -100,9 +103,56 @@ public:
      */
     std::shared_ptr<ReactVisionCCA::RVCCACloudAnchorProvider> getProvider() const;
 
+    // ── Continuous VPS map localisation ─────────────────────────────────────
+    // Driven automatically by onFrameDidRender() once a map is loaded; see
+    // RVCCACloudAnchorProvider::loadVPSMap()/updateVPSMapFrame() and
+    // VROVPSLocalizer (the smoothing fuser these feed into).
+
+    /**
+     * Parse rvmapBytes (a downloaded .rvmap's raw bytes) and load it for
+     * matching. Returns false if the bytes don't parse as a supported map —
+     * truncated, empty, or an unsupported format/version.
+     */
+    bool loadVPSMap(const std::string &rvmapBytes);
+
+    /** Drop whatever loadVPSMap() loaded; onFrameDidRender()'s matching becomes a no-op. */
+    void unloadVPSMap();
+
+    bool isVPSMapLoaded() const;
+
+    /** True once the smoothed estimate has accepted at least one pair of agreeing hits. */
+    bool vpsIsConverged() const;
+
+    /**
+     * The smoothed T_map_world applied to the camera pose passed into the
+     * most recent onFrameDidRender()'s localisation attempt. Returns false
+     * (leaving outPose untouched) before vpsIsConverged().
+     */
+    bool vpsGetRenderPose(VROMatrix4f &outPose) const;
+
+    /** The inverse of the smoothed T_map_world. Returns false before vpsIsConverged(). */
+    bool vpsGetWorldFromMap(VROMatrix4f &outTransform) const;
+
+    /** The last raw hit's inlier count/reprojection RMS. Returns false before any hit. */
+    bool vpsGetLastHit(int &outInliers, float &outReprojRms) const;
+
+    /**
+     * VPS server mode (VROARSession::rvStartVPSServerSession()): no map, the fuser fed
+     * by the backend's fixes. Starting unloads any map; loading a map or unloading ends it.
+     */
+    bool startVPSServerSession();
+    void stopVPSServerSession();
+    bool isVPSServerSession() const;
+    /** A backend fix, as VROARSession::rvReportVPSServerFix(). False outside server mode. */
+    bool reportVPSServerFix(const VROMatrix4f &T_world_cam, const VROMatrix4f &T_map_cam, int inliers);
+
 private:
     class Impl;
     std::unique_ptr<Impl> _impl;
+
+    // Drives one VPS map localisation attempt from a frame snapshot. A member
+    // so it can reach the private Impl.
+    static void driveVPSMapFrame(Impl &impl, const std::shared_ptr<VROARFrame> &frame);
 };
 
 #endif // ANDROID_VROCLOUDANCHORPROVIDERREACTVISION_H

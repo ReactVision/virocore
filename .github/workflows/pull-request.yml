@@ -71,6 +71,9 @@ jobs:
       - uses: maxim-lobanov/setup-xcode@v1.6.0
         with:
           xcode-version: ${{ matrix.xcode }}
+      - name: World mesh fusion test
+        run: ./scripts/run-world-mesh-test.sh
+        shell: bash
       - name: Install pod dependencies
         run: |
           cd ios
@@ -83,8 +86,15 @@ jobs:
             -workspace ViroRenderer.xcworkspace \
             -scheme ViroKit \
             -sdk iphoneos \
-            -configuration Release \
-            IPHONEOS_DEPLOYMENT_TARGET=13.0 | xcpretty
+            -configuration Release | tee xcodebuild.log | xcpretty
+
+      # xcpretty hides what the compiler said when a step dies without a diagnostic it recognises
+      - name: Upload the raw xcodebuild log
+        if: failure()
+        uses: actions/upload-artifact@v4.6.0
+        with:
+          name: ios_xcodebuild.log
+          path: ./ios/xcodebuild.log
 
       - name: Upload iOS Renderer artifact
         uses: actions/upload-artifact@v4.6.0

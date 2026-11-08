@@ -27,6 +27,7 @@
 #ifndef VROARSession_h
 #define VROARSession_h
 
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <set>
@@ -94,6 +95,7 @@ enum class VROVideoQuality {
 enum class VROImageTrackingImpl {
     ARCore,
     ARKit,
+    None,   // no image tracking (visionOS, web)
 };
 
 enum class VROCloudAnchorProvider {
@@ -138,6 +140,27 @@ enum class VROARRecordingStatus {
  */
 struct VROARRecordingConfig {
     std::string outputDir;
+
+    /*
+     Also record the device's depth under depth/ (see session.jsonl's `depth`
+     records). Only honoured when the session already has depth capture on, see
+     VROARSession::setDepthCaptureEnabled().
+     */
+    bool depth = false;
+};
+
+/*
+ What a finished recording wrote, passed to stopRecording()'s callback once
+ video.mp4, session.jsonl and any depth files are complete.
+ */
+struct VROARRecordingResult {
+    bool success = false;
+    std::string error;        // Empty on success
+    double durationSec = 0;   // First to last recorded frame
+    int frames = 0;           // Camera frames, one `pose` line each
+    int depthFrames = 0;      // `depth` lines (PNG pairs) written
+    int gpsFixes = 0;         // `pose` lines carrying a `gps` object
+    int64_t bytes = -1;       // Size of every file written; < 0 when unknown
 };
 
 /*
@@ -153,6 +176,8 @@ public:
         _imageTrackingImpl = VROImageTrackingImpl::ARKit;
 #elif VRO_PLATFORM_ANDROID
         _imageTrackingImpl = VROImageTrackingImpl::ARCore;
+#else
+        _imageTrackingImpl = VROImageTrackingImpl::None;
 #endif
     }
     virtual ~VROARSession() {}
@@ -412,6 +437,20 @@ public:
      world mesh needs it (e.g. ARCore must set DepthMode::Automatic).
      */
     virtual void onWorldMeshEnabled(bool enabled) {}
+
+    /*
+     Ask the session to measure depth for recording, on devices that can. This
+     reconfigures the underlying AR session, so it should be set before a
+     recording starts rather than by it. Combined with what occlusion and the
+     world mesh need: it never turns their depth off.
+     */
+    virtual void setDepthCaptureEnabled(bool enabled) {
+        _depthCaptureEnabled = enabled;
+    }
+
+    bool isDepthCaptureEnabled() const {
+        return _depthCaptureEnabled;
+    }
 
     /*
      Get the current occlusion mode.
@@ -697,6 +736,99 @@ public:
         if (callback) callback(false, "", "", "Not supported");
     }
 
+    // ------------------------------------------------------------------
+    // Continuous VPS map localisation against a downloaded .rvmap
+    // (RVCCACloudAnchorProvider::loadVPSMap()/updateVPSMapFrame()). Separate
+    // from the cloud-anchor host/resolve API above: this matches the live
+    // camera against a whole map repeatedly, for as long as a map stays
+    // loaded, instead of resolving one anchor once.
+    // ------------------------------------------------------------------
+
+    /*
+     Parse rvmapBytes (a downloaded .rvmap's raw bytes) and load it for
+     matching. Returns false if the bytes don't parse as a supported map —
+     truncated, empty, or an unsupported format/version.
+     */
+    virtual bool rvLoadVPSMap(const std::string& rvmapBytes) {
+        return false;
+    }
+
+    /* Drop whatever rvLoadVPSMap() loaded; per-frame matching becomes a no-op. */
+    virtual void rvUnloadVPSMap() {
+        // Default implementation does nothing
+    }
+
+    virtual bool rvIsVPSMapLoaded() {
+        return false;
+    }
+
+    /**
+     * The latest continuous-localisation result, as JSON — a pollable
+     * stand-in for an event callback, same reasoning as rvGetScanStatusJson().
+     *
+     * Keys: available (false when no ReactVision provider is configured),
+     * loaded (a map is currently loaded), converged (the smoothed estimate
+     * has accepted at least one pair of agreeing hits — see
+     * VROVPSLocalizer::isConverged()), renderPose (16 comma-separated
+     * floats, column-major VROMatrix4f::getArray() order — the smoothed
+     * T_map_world applied to the session's own current camera pose; only
+     * present once converged is true).
+     */
+    virtual std::string rvGetVPSLocalizationJson() {
+        return "{\"available\":false}";
+    }
+
+    /*
+     The map-to-world transform the VPS fuser has converged on (the inverse of
+     its smoothed T_map_world), for placing things authored in the map's frame,
+     such as the location's mesh (VROARScene::setVPSMapMesh()). False until it
+     has converged, or without a loaded map. Render thread.
+     */
+    virtual bool rvGetVPSWorldFromMap(VROMatrix4f &T_world_map) const {
+        return false;
+    }
+
+    /*
+     VPS server mode: the backend localises frames the device sends
+     (POST /vps/locations/{id}/localise) instead of the device matching a
+     downloaded map. The fuser then runs without a map, fed only by
+     rvReportVPSServerFix(), and everything that reads it (anchors, the map
+     mesh, rvGetVPSLocalizationJson()'s renderPose) works as with a map.
+     Starting unloads any map and resets the fuser; rvGetVPSLocalizationJson()
+     reports loaded true and mode "server" until rvStopVPSServerSession() or
+     rvLoadVPSMap().
+     */
+    virtual bool rvStartVPSServerSession() {
+        return false;
+    }
+    virtual void rvStopVPSServerSession() {
+        // Default implementation does nothing
+    }
+
+    /*
+     One fix from the backend: T_map_cam, the camera in the map (OpenCV camera
+     axes), solved from a frame captured with sensor pose T_world_cam
+     (VROARScene::VPSQueryFrameCallback's). Reported to the fuser as
+     vpsServerFixToWorldMap(). False when server mode is off.
+     */
+    virtual bool rvReportVPSServerFix(const VROMatrix4f &T_world_cam, const VROMatrix4f &T_map_cam,
+                                      int inliers) {
+        return false;
+    }
+
+    /*
+     The fuser's input for a server fix: the map-to-world transform, composed
+     the way IFeatureMatcher::localize() composes its own hits
+     (cam2world · diag(1,-1,-1,1) · T_cam_map): the flip takes OpenCV camera
+     axes (y down, z forward) to GL's (y up, z back).
+     */
+    static VROMatrix4f vpsServerFixToWorldMap(const VROMatrix4f &T_world_cam, const VROMatrix4f &T_map_cam) {
+        VROMatrix4f flip;
+        flip[5] = -1;
+        flip[10] = -1;
+        return T_world_cam.multiply(flip).multiply(T_map_cam.invert());
+    }
+
     // ========================================================================
     // Shared coordinate frame — platform-native co-location (CL-H / CL-I)
     //
@@ -865,6 +997,14 @@ public:
     }
 
     /*
+     Returns true if this session can also record depth (see
+     VROARRecordingConfig::depth): LiDAR on iOS, the Depth API on ARCore.
+     */
+    virtual bool isRecordingDepthSupported() const {
+        return false;
+    }
+
+    /*
      Start recording video + IMU + ground-truth pose/anchors to config.outputDir.
      onSuccess is invoked once recording has actually started (files created,
      writers running); onFailure with a message otherwise — including
@@ -879,10 +1019,22 @@ public:
     }
 
     /*
-     Stop recording and finalize video.mp4 + session.jsonl. No-op if not
-     currently recording.
+     Stop recording and finalize video.mp4 + session.jsonl. onStopped is invoked
+     once the files are complete, with success false (error "Not recording")
+     if no recording was running. May block the calling thread while the
+     writers finish.
      */
-    virtual void stopRecording() {}
+    virtual void stopRecording(std::function<void(const VROARRecordingResult &result)> onStopped) {
+        if (onStopped) {
+            VROARRecordingResult result;
+            result.error = "Recording not supported";
+            onStopped(result);
+        }
+    }
+
+    void stopRecording() {
+        stopRecording(nullptr);
+    }
 
     /*
      The current recording state. See VROARRecordingStatus.
@@ -901,6 +1053,7 @@ private:
     VROWorldAlignment _worldAlignment;
     VROImageTrackingImpl _imageTrackingImpl;
     VROOcclusionMode _occlusionMode = VROOcclusionMode::Disabled;
+    bool _depthCaptureEnabled = false;
     VROGeospatialAnchorProvider _geospatialAnchorProvider = VROGeospatialAnchorProvider::None;
     std::shared_ptr<VROScene> _scene;
     std::weak_ptr<VROARSessionDelegate> _delegate;

@@ -7,12 +7,12 @@ version: 2
 updates:
   - package-ecosystem: "gradle"
     directory: android
-    target-branch: "main"
+    target-branch: "develop"
     schedule:
       interval: "daily"
 
   - package-ecosystem: "github-actions"
     directory: "/" # Location of package manifests
-    target-branch: "main"
+    target-branch: "develop"
     schedule:
       interval: "weekly"

@@ -92,6 +92,10 @@ bool parseMatrixCsv(NSString *csv, VROMatrix4f *out) {
     VROColocationSession::get().leave();
 }
 
+- (void)setAccessToken:(NSString *)accessToken {
+    VROColocationSession::get().setAccessToken(std::string(accessToken.UTF8String ?: ""));
+}
+
 - (void)setLocalPoseCsv:(NSString *)csv {
     VROMatrix4f m;
     if (!parseMatrixCsv(csv, &m)) return;
@@ -105,6 +109,11 @@ bool parseMatrixCsv(NSString *csv, VROMatrix4f *out) {
 - (NSString *)localPeerId {
     return [NSString stringWithUTF8String:
             VROColocationSession::get().localPeerId().c_str()] ?: @"";
+}
+
+- (NSString *)deviceId {
+    return [NSString stringWithUTF8String:
+            VROColocationSession::deviceId().c_str()] ?: @"";
 }
 
 - (NSArray<VROColocationPeerInfo *> *)peers {

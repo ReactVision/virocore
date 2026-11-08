@@ -319,10 +319,16 @@ VRO_OBJECT ARUtilsCreateARHitTestResult(std::shared_ptr<VROARHitTestResult> resu
     jstring depthSource = VRO_NEW_STRING(result->getDepthSource().c_str());
 
     VRO_REF(VROARHitTestResult) ref = VRO_REF_NEW(VROARHitTestResult, result);
-    return VROPlatformConstructHostObject("com/viro/core/ARHitTestResult",
-                                          "(JLjava/lang/String;[F[F[FZFFLjava/lang/String;)V",
-                                          ref, jtype, jposition, jscale, jrotation,
-                                          hasDepthData, depthValue, depthConfidence, depthSource);
+    VRO_OBJECT jresult = VROPlatformConstructHostObject("com/viro/core/ARHitTestResult",
+                                                        "(JLjava/lang/String;[F[F[FZFFLjava/lang/String;)V",
+                                                        ref, jtype, jposition, jscale, jrotation,
+                                                        hasDepthData, depthValue, depthConfidence, depthSource);
+    VRO_DELETE_LOCAL_REF(jtype);
+    VRO_DELETE_LOCAL_REF(jposition);
+    VRO_DELETE_LOCAL_REF(jscale);
+    VRO_DELETE_LOCAL_REF(jrotation);
+    VRO_DELETE_LOCAL_REF(depthSource);
+    return jresult;
 }
 
 VRO_OBJECT ARUtilsCreateARPointCloud(std::shared_ptr<VROARPointCloud> pointCloud) {

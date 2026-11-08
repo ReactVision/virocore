@@ -9,10 +9,14 @@
 #include "VROCloudAnchorProviderReactVision.h"
 #include "VROARSessionARCore.h"
 #include "VROARFrame.h"
+#include "VROARCamera.h"
 #include "VROARAnchor.h"
 #include "VROARFrameSnapshot.h"
+#include "VROMatrix4f.h"
+#include "VROVector3f.h"
 #include "VROLog.h"
 #include "VROReactVisionAuth.h"
+#include <chrono>
 
 // ReactVisionCCA is an optional proprietary library.
 // CMakeLists.txt defines RVCCA_AVAILABLE=1 automatically when the prebuilt
@@ -24,6 +28,7 @@
 
 #if RVCCA_AVAILABLE
 #  include "ReactVisionCCA/RVCCACloudAnchorProvider.h"
+#  include "ReactVisionCCA/VROVPSLocalizer.h"
 #endif
 
 #include <stdexcept>
@@ -38,6 +43,16 @@ class VROCloudAnchorProviderReactVision::Impl {
 public:
     std::weak_ptr<VROARSessionARCore>                         session;
     std::shared_ptr<ReactVisionCCA::RVCCACloudAnchorProvider> provider;
+
+    // Continuous VPS map localisation state — see loadVPSMap()/unloadVPSMap()
+    // and driveVPSMapFrame() below.
+    std::shared_ptr<ReactVisionCCA::VROVPSLocalizer> vpsLocalizer;
+    VROMatrix4f vpsLastCamToWorld;
+    bool        vpsLastCamToWorldSet = false;
+    bool        vpsLastHitSet        = false;
+    bool        vpsServerMode        = false;   // startVPSServerSession(): fixes come from the backend
+    int         vpsLastInliers       = 0;
+    float       vpsLastReprojRms     = 0.f;
 
     Impl(std::shared_ptr<VROARSessionARCore> sess,
          const std::string &apiKey,
@@ -97,6 +112,68 @@ static std::string encodeError(
         default:                       state = "ErrorInternal";                              break;
     }
     return msg + "|" + state;
+}
+
+// Pulls the luma plane, intrinsics and camera pose out of a frame snapshot and
+// drives one updateVPSMapFrame() attempt, feeding any hit into the fuser. A
+// no-op when no map is loaded or when intrinsics aren't available this frame.
+//
+// `impl` outlives this call: it's the Impl of the VROCloudAnchorProviderReactVision
+// instance whose onFrameDidRender() is calling us, synchronously, on the render
+// thread. onHit below (if it fires at all) fires synchronously inside this same
+// call — never from updateVPSMapFrame()'s own background matching thread — so
+// capturing `impl` by reference is safe.
+void VROCloudAnchorProviderReactVision::driveVPSMapFrame(Impl &impl,
+                                                         const std::shared_ptr<VROARFrame> &frame) {
+    if (impl.vpsServerMode) {
+        // No map to match, but the fuser's render pose needs the current
+        // camera: the snapshot's pose is already the sensor (image) pose.
+        if (const std::shared_ptr<VROARCamera> &cam = frame->getCamera()) {
+            impl.vpsLastCamToWorld    = cam->getImageTransform();
+            impl.vpsLastCamToWorldSet = true;
+        }
+        return;
+    }
+    if (!impl.provider->isVPSMapLoaded()) return;
+
+    const std::shared_ptr<VROARCamera> &cam = frame->getCamera();
+    const uint8_t *luma = nullptr;
+    int lumaW = 0, lumaH = 0;
+    float ifx = 0.f, ify = 0.f, icx = 0.f, icy = 0.f;
+    // Intrinsics first: cheap, and without them the luma copy is wasted.
+    if (!cam || !cam->getImageIntrinsics(&ifx, &ify, &icx, &icy) ||
+        ifx <= 1.f || ify <= 1.f ||
+        !frame->getCameraImageY(&luma, &lumaW, &lumaH) ||
+        luma == nullptr || lumaW <= 0 || lumaH <= 0) {
+        return;
+    }
+
+    VROVector3f camPos = cam->getPosition();
+    VROMatrix4f camToWorld = cam->getRotation();
+    camToWorld[12] = camPos.x;
+    camToWorld[13] = camPos.y;
+    camToWorld[14] = camPos.z;
+    impl.vpsLastCamToWorld    = camToWorld;
+    impl.vpsLastCamToWorldSet = true;
+
+    double nowSec = std::chrono::duration<double>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+
+    impl.provider->updateVPSMapFrame(
+        luma, lumaW, lumaH,
+        (double)ifx, (double)ify, (double)icx, (double)icy,
+        camToWorld,
+        [&impl, nowSec]
+        (const VROMatrix4f &T_world_map, int inlierCount, float reprojRms) {
+            // The map-to-world transform solved against that attempt's own
+            // camera pose; it needs no pairing with this frame's pose.
+            impl.vpsLastHitSet    = true;
+            impl.vpsLastInliers   = inlierCount;
+            impl.vpsLastReprojRms = reprojRms;
+            if (impl.vpsLocalizer) {
+                impl.vpsLocalizer->reportLocalizationHit(T_world_map, nowSec);
+            }
+        });
 }
 
 #else // !RVCCA_AVAILABLE
@@ -245,7 +322,15 @@ void VROCloudAnchorProviderReactVision::onFrameDidRender(const VRORenderContext&
 
     auto snap = VROARFrameSnapshot::fromFrame(*frameUniq);
     if (snap) {
+        // The keyframe collector tags the keyframes it captures with the
+        // reading in effect, for geo-registration. The heading is the camera's
+        // forward bearing, as in AR recordings.
+        ReactVisionCCA::RVCCACloudAnchorProvider::KeyframeGeoReading geo;
+        sess->getKeyframeGeo(geo.hasGps, geo.latitude, geo.longitude,
+                             geo.hasHeading, geo.headingDegrees);
+        _impl->provider->setKeyframeLocation(geo);
         _impl->provider->updateWithFrame(snap);
+        driveVPSMapFrame(*_impl, snap);
         // Invalidate the lazy live-frame pointer now that the render-thread
         // synchronous work is done.  Any background thread that later calls
         // getCameraImageY() will get the cached copy (if it was acquired) or
@@ -261,4 +346,135 @@ VROCloudAnchorProviderReactVision::getProvider() const {
     if (_impl) return _impl->provider;
 #endif
     return nullptr;
+}
+
+bool VROCloudAnchorProviderReactVision::loadVPSMap(const std::string &rvmapBytes) {
+#if RVCCA_AVAILABLE
+    if (!_impl || !_impl->provider) return false;
+    bool ok = _impl->provider->loadVPSMap(rvmapBytes);
+    if (ok) {
+        if (_impl->vpsLocalizer) {
+            _impl->vpsLocalizer->reset();
+        } else {
+            _impl->vpsLocalizer = std::make_shared<ReactVisionCCA::VROVPSLocalizer>();
+        }
+        _impl->vpsServerMode        = false;
+        _impl->vpsLastCamToWorldSet = false;
+        _impl->vpsLastHitSet        = false;
+    }
+    return ok;
+#else
+    return false;
+#endif
+}
+
+void VROCloudAnchorProviderReactVision::unloadVPSMap() {
+#if RVCCA_AVAILABLE
+    if (_impl && _impl->provider) _impl->provider->unloadVPSMap();
+    if (_impl && _impl->vpsLocalizer) _impl->vpsLocalizer->reset();
+    if (_impl) {
+        _impl->vpsServerMode        = false;   // unloading ends a server-mode session too
+        _impl->vpsLastCamToWorldSet = false;
+        _impl->vpsLastHitSet        = false;
+    }
+#endif
+}
+
+bool VROCloudAnchorProviderReactVision::startVPSServerSession() {
+#if RVCCA_AVAILABLE
+    if (!_impl) return false;
+    if (_impl->provider) _impl->provider->unloadVPSMap();
+    if (_impl->vpsLocalizer) {
+        _impl->vpsLocalizer->reset();
+    } else {
+        _impl->vpsLocalizer = std::make_shared<ReactVisionCCA::VROVPSLocalizer>();
+    }
+    _impl->vpsServerMode        = true;
+    _impl->vpsLastCamToWorldSet = false;
+    _impl->vpsLastHitSet        = false;
+    return true;
+#else
+    return false;
+#endif
+}
+
+void VROCloudAnchorProviderReactVision::stopVPSServerSession() {
+#if RVCCA_AVAILABLE
+    if (!_impl) return;
+    if (_impl->vpsLocalizer) _impl->vpsLocalizer->reset();
+    _impl->vpsServerMode        = false;
+    _impl->vpsLastCamToWorldSet = false;
+    _impl->vpsLastHitSet        = false;
+#endif
+}
+
+bool VROCloudAnchorProviderReactVision::isVPSServerSession() const {
+#if RVCCA_AVAILABLE
+    return _impl && _impl->vpsServerMode;
+#else
+    return false;
+#endif
+}
+
+bool VROCloudAnchorProviderReactVision::reportVPSServerFix(const VROMatrix4f &T_world_cam,
+                                                           const VROMatrix4f &T_map_cam, int inliers) {
+#if RVCCA_AVAILABLE
+    if (!_impl || !_impl->vpsServerMode || !_impl->vpsLocalizer) return false;
+    _impl->vpsLastHitSet    = true;
+    _impl->vpsLastInliers   = inliers;
+    _impl->vpsLastReprojRms = 0.f;   // the backend reports inliers, not a reprojection error
+    double nowSec = std::chrono::duration<double>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    _impl->vpsLocalizer->reportLocalizationHit(VROARSession::vpsServerFixToWorldMap(T_world_cam, T_map_cam),
+                                               nowSec);
+    return true;
+#else
+    return false;
+#endif
+}
+
+bool VROCloudAnchorProviderReactVision::isVPSMapLoaded() const {
+#if RVCCA_AVAILABLE
+    if (_impl && _impl->provider) return _impl->provider->isVPSMapLoaded();
+#endif
+    return false;
+}
+
+bool VROCloudAnchorProviderReactVision::vpsIsConverged() const {
+#if RVCCA_AVAILABLE
+    if (_impl && _impl->vpsLocalizer) return _impl->vpsLocalizer->isConverged();
+#endif
+    return false;
+}
+
+bool VROCloudAnchorProviderReactVision::vpsGetWorldFromMap(VROMatrix4f &outTransform) const {
+#if RVCCA_AVAILABLE
+    if (_impl && _impl->vpsLocalizer && _impl->vpsLocalizer->isConverged()) {
+        outTransform = _impl->vpsLocalizer->getSmoothedTMapWorld().invert();
+        return true;
+    }
+#endif
+    return false;
+}
+
+bool VROCloudAnchorProviderReactVision::vpsGetRenderPose(VROMatrix4f &outPose) const {
+#if RVCCA_AVAILABLE
+    if (_impl && _impl->vpsLocalizer && _impl->vpsLocalizer->isConverged() &&
+        _impl->vpsLastCamToWorldSet) {
+        outPose = _impl->vpsLocalizer->getRenderPose(_impl->vpsLastCamToWorld);
+        return true;
+    }
+#endif
+    return false;
+}
+
+bool VROCloudAnchorProviderReactVision::vpsGetLastHit(int &outInliers, float &outReprojRms) const {
+#if RVCCA_AVAILABLE
+    if (_impl && _impl->vpsLastHitSet) {
+        outInliers    = _impl->vpsLastInliers;
+        outReprojRms  = _impl->vpsLastReprojRms;
+        return true;
+    }
+#endif
+    return false;
 }
