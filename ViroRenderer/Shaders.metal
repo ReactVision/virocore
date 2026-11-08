@@ -144,6 +144,11 @@ struct VROLightingFragmentOut {
 static VROLightingFragmentOut VROMakeLightingOut(float4 color,
                                                 constant VROMaterialUniforms &material) {
     VROLightingFragmentOut out;
+    // glTF alphaMode OPAQUE: only the material's transparency and the node's
+    // opacity remain, not the diffuse color's, texture's or vertex colors' alpha.
+    if (material.ignores_diffuse_alpha != 0) {
+        color.a = material.alpha;
+    }
     out.color = color;
     if (kVROHasToneMappingMask) {
         out.tone_mask = float4(material.tone_mapping_mask);
@@ -271,7 +276,7 @@ vertex VROConstantLightingVertexOut constant_lighting_vertex(VRORendererAttribut
 
     out.position = _vertex.position;
     out.instance_id = v_instance_id;
-    out.texcoord = _geometry.texcoord;
+    out.texcoord = (material.texture_transform * float4(_geometry.texcoord, 0.0, 1.0)).xy;
     out.ambient_color = lighting.ambient_light_color;
     out.material_color = material.diffuse_surface_color;
     out.diffuse_intensity = material.diffuse_intensity;
@@ -440,7 +445,7 @@ vertex VROLambertLightingVertexOut lambert_lighting_vertex(VRORendererAttributes
     
     out.position = _vertex.position;
     out.instance_id = v_instance_id;
-    out.texcoord = _geometry.texcoord;
+    out.texcoord = (material.texture_transform * float4(_geometry.texcoord, 0.0, 1.0)).xy;
     out.color = _geometry.color;
     
     out.surface_position = v_position;
@@ -721,7 +726,7 @@ vertex VROPhongLightingVertexOut phong_lighting_vertex(VRORendererAttributes att
     
     out.position = _vertex.position;
     out.instance_id = v_instance_id;
-    out.texcoord = _geometry.texcoord;
+    out.texcoord = (material.texture_transform * float4(_geometry.texcoord, 0.0, 1.0)).xy;
     out.color = _geometry.color;
     
     out.surface_position = v_position;
@@ -1049,7 +1054,7 @@ vertex VROBlinnLightingVertexOut blinn_lighting_vertex(VRORendererAttributes att
     
     out.position = _vertex.position;
     out.instance_id = v_instance_id;
-    out.texcoord = _geometry.texcoord;
+    out.texcoord = (material.texture_transform * float4(_geometry.texcoord, 0.0, 1.0)).xy;
     out.color = _geometry.color;
     
     out.surface_position = v_position;
@@ -1480,7 +1485,7 @@ vertex VROPBRLightingVertexOut pbr_lighting_vertex(VRORendererAttributes attribu
 
     out.position = _vertex.position;
     out.instance_id = v_instance_id;
-    out.texcoord = _geometry.texcoord;
+    out.texcoord = (material.texture_transform * float4(_geometry.texcoord, 0.0, 1.0)).xy;
     out.color = _geometry.color;
     out.surface_position = v_position;
     out.camera_position = view.camera_position;
@@ -1577,7 +1582,7 @@ static float4 vro_pbr_shade(VROPBRLightingVertexOut in,
         ambient = in.ambient_color * base_color * _surface.ao;
     }
 
-    return float4(ambient + radiance_out, _surface.alpha * _surface.diffuse_color.a);
+    return float4(ambient + radiance_out + material.emissive_color, _surface.alpha * _surface.diffuse_color.a);
 }
 
 fragment VROLightingFragmentOut pbr_lighting_fragment_c(VROPBRLightingVertexOut in [[ stage_in ]],
