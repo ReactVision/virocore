@@ -57,7 +57,11 @@
 #include "VROMorpher.h"
 #include "VRONodeCamera.h"
 #include "VROLight.h"
+#include "VROTransaction.h"
+#include "VROAnimationFloat.h"
 #include <algorithm>
+#include <cmath>
+#include <functional>
 
 static std::string kVROGLTFInputSamplerKey = "timeInput";
 std::map<std::string, std::shared_ptr<VROVertexBuffer>> VROGLTFLoader::_dataCache;
@@ -91,6 +95,595 @@ std::map<int, std::shared_ptr<VRONode>> VROGLTFLoader::_nodeGLTFMap;
 std::map<int, VROVector3f>   VROGLTFLoader::_nodeBindPos;
 std::map<int, VROVector3f>   VROGLTFLoader::_nodeBindScale;
 std::map<int, VROQuaternion> VROGLTFLoader::_nodeBindRot;
+
+#pragma mark - glTF extensions (KHR_texture_transform, KHR_node_visibility, KHR_animation_pointer)
+
+namespace {
+
+double gltfNumber(const tinygltf::Value &v, double fallback) {
+    if (v.IsNumber()) {
+        return v.Get<double>();
+    }
+    if (v.IsInt()) {
+        return (double) v.Get<int>();
+    }
+    return fallback;
+}
+
+/*
+ A texture info's KHR_texture_transform, plus the UV set it samples (texCoord, which
+ the extension may override).
+ */
+struct GLTFTextureTransform {
+    float offset[2] = { 0, 0 };
+    float rotation = 0;
+    float scale[2] = { 1, 1 };
+    int texCoord = 0;
+    bool present = false;
+};
+
+GLTFTextureTransform readTextureTransform(const tinygltf::Parameter &textureInfo) {
+    GLTFTextureTransform t;
+    auto tc = textureInfo.json_double_value.find("texCoord");
+    if (tc != textureInfo.json_double_value.end()) {
+        t.texCoord = (int) tc->second;
+    }
+    auto ext = textureInfo.extensions.find("KHR_texture_transform");
+    if (ext == textureInfo.extensions.end() || !ext->second.IsObject()) {
+        return t;
+    }
+    const tinygltf::Value &v = ext->second;
+    t.present = true;
+    if (v.Has("offset") && v.Get("offset").ArrayLen() >= 2) {
+        t.offset[0] = (float) gltfNumber(v.Get("offset").Get(0), 0);
+        t.offset[1] = (float) gltfNumber(v.Get("offset").Get(1), 0);
+    }
+    if (v.Has("scale") && v.Get("scale").ArrayLen() >= 2) {
+        t.scale[0] = (float) gltfNumber(v.Get("scale").Get(0), 1);
+        t.scale[1] = (float) gltfNumber(v.Get("scale").Get(1), 1);
+    }
+    if (v.Has("rotation")) {
+        t.rotation = (float) gltfNumber(v.Get("rotation"), 0);
+    }
+    if (v.Has("texCoord")) {
+        t.texCoord = (int) gltfNumber(v.Get("texCoord"), t.texCoord);
+    }
+    return t;
+}
+
+/*
+ The KHR_texture_transform matrix, T * R * S, as a column-major 4x4 acting on (u, v, 0, 1):
+   u' =  cos(r) * sx * u + sin(r) * sy * v + ox
+   v' = -sin(r) * sx * u + cos(r) * sy * v + oy
+ */
+VROMatrix4f textureTransformMatrix(const GLTFTextureTransform &t) {
+    float c = cosf(t.rotation);
+    float s = sinf(t.rotation);
+    float m[16] = { 0 };
+    m[0]  =  c * t.scale[0];
+    m[1]  = -s * t.scale[0];
+    m[4]  =  s * t.scale[1];
+    m[5]  =  c * t.scale[1];
+    m[10] = 1;
+    m[12] = t.offset[0];
+    m[13] = t.offset[1];
+    m[15] = 1;
+    return VROMatrix4f(m);
+}
+
+/*
+ The texture info whose transform and UV set the material uses. Viro samples every
+ texture of a material with one set of texture coordinates, so the base color
+ texture decides, else the first other texture the material has.
+ */
+const tinygltf::Parameter *primaryTextureInfo(const tinygltf::Material &gMat) {
+    auto base = gMat.pbrValues.find("baseColorTexture");
+    if (base != gMat.pbrValues.end() && base->second.TextureIndex() >= 0) {
+        return &base->second;
+    }
+    for (const char *name : { "emissiveTexture", "normalTexture", "occlusionTexture" }) {
+        auto it = gMat.additionalValues.find(name);
+        if (it != gMat.additionalValues.end() && it->second.TextureIndex() >= 0) {
+            return &it->second;
+        }
+    }
+    auto mr = gMat.pbrValues.find("metallicRoughnessTexture");
+    if (mr != gMat.pbrValues.end() && mr->second.TextureIndex() >= 0) {
+        return &mr->second;
+    }
+    return nullptr;
+}
+
+GLTFTextureTransform materialTextureTransform(const tinygltf::Model &gModel, int materialIndex) {
+    if (materialIndex < 0 || materialIndex >= (int) gModel.materials.size()) {
+        return GLTFTextureTransform();
+    }
+    const tinygltf::Parameter *info = primaryTextureInfo(gModel.materials[materialIndex]);
+    return info ? readTextureTransform(*info) : GLTFTextureTransform();
+}
+
+/*
+ What a KHR_animation_pointer channel drives. Pointers at a node's translation,
+ rotation, scale or weights are rewritten into ordinary channels when the file is
+ parsed (normalizeAnimationPointers), so they never reach this list.
+ */
+enum class GLTFPointerTarget {
+    NodeVisibility,
+    BaseColorFactor,
+    EmissiveFactor,
+    TextureOffset,
+    TextureRotation,
+    TextureScale,
+    Unsupported
+};
+
+struct GLTFPointer {
+    GLTFPointerTarget target = GLTFPointerTarget::Unsupported;
+    int index = -1;  // node or material
+};
+
+std::vector<std::string> splitPointer(const std::string &pointer) {
+    std::vector<std::string> parts;
+    std::string part;
+    for (size_t i = 1; i <= pointer.size(); i++) {
+        if (i == pointer.size() || pointer[i] == '/') {
+            parts.push_back(part);
+            part.clear();
+        } else {
+            part.push_back(pointer[i]);
+        }
+    }
+    return parts;
+}
+
+bool parseIndex(const std::string &s, int *out) {
+    if (s.empty() || s.size() > 9) {
+        return false;
+    }
+    for (char c : s) {
+        if (c < '0' || c > '9') {
+            return false;
+        }
+    }
+    *out = atoi(s.c_str());
+    return true;
+}
+
+std::string channelPointer(const tinygltf::AnimationChannel &channel) {
+    auto ext = channel.target_extensions.find("KHR_animation_pointer");
+    if (ext == channel.target_extensions.end() || !ext->second.IsObject() ||
+        !ext->second.Has("pointer") || !ext->second.Get("pointer").IsString()) {
+        return "";
+    }
+    return ext->second.Get("pointer").Get<std::string>();
+}
+
+GLTFPointer parsePointer(const std::string &pointer) {
+    GLTFPointer p;
+    std::vector<std::string> parts = splitPointer(pointer);
+    if (parts.size() < 3 || !parseIndex(parts[1], &p.index)) {
+        return p;
+    }
+    if (parts[0] == "nodes" && parts.size() == 5 && parts[2] == "extensions" &&
+        parts[3] == "KHR_node_visibility" && parts[4] == "visible") {
+        p.target = GLTFPointerTarget::NodeVisibility;
+    }
+    else if (parts[0] == "materials") {
+        if (parts.size() == 3 && parts[2] == "emissiveFactor") {
+            p.target = GLTFPointerTarget::EmissiveFactor;
+        }
+        else if (parts.size() == 4 && parts[2] == "pbrMetallicRoughness" && parts[3] == "baseColorFactor") {
+            p.target = GLTFPointerTarget::BaseColorFactor;
+        }
+        else if (parts.size() == 7 && parts[2] == "pbrMetallicRoughness" && parts[3] == "baseColorTexture" &&
+                 parts[4] == "extensions" && parts[5] == "KHR_texture_transform") {
+            if (parts[6] == "offset") {
+                p.target = GLTFPointerTarget::TextureOffset;
+            } else if (parts[6] == "rotation") {
+                p.target = GLTFPointerTarget::TextureRotation;
+            } else if (parts[6] == "scale") {
+                p.target = GLTFPointerTarget::TextureScale;
+            }
+        }
+    }
+    return p;
+}
+
+int pointerTargetWidth(GLTFPointerTarget target) {
+    switch (target) {
+        case GLTFPointerTarget::NodeVisibility:  return 1;
+        case GLTFPointerTarget::BaseColorFactor: return 4;
+        case GLTFPointerTarget::EmissiveFactor:  return 3;
+        case GLTFPointerTarget::TextureOffset:   return 2;
+        case GLTFPointerTarget::TextureRotation: return 1;
+        case GLTFPointerTarget::TextureScale:    return 2;
+        default: return 0;
+    }
+}
+
+/*
+ Read an accessor as floats: float components as they are, normalized integers mapped
+ to [0, 1] (or [-1, 1]), other integers as their value (a visibility track is 0 or 1).
+ */
+bool readAccessorFloats(const tinygltf::Model &gModel, int accessorIndex, int width, std::vector<float> &out) {
+    if (accessorIndex < 0 || accessorIndex >= (int) gModel.accessors.size()) {
+        return false;
+    }
+    const tinygltf::Accessor &a = gModel.accessors[accessorIndex];
+    int components = 1;
+    switch (a.type) {
+        case TINYGLTF_TYPE_SCALAR: components = 1; break;
+        case TINYGLTF_TYPE_VEC2:   components = 2; break;
+        case TINYGLTF_TYPE_VEC3:   components = 3; break;
+        case TINYGLTF_TYPE_VEC4:   components = 4; break;
+        default: return false;
+    }
+    if (width > 0 && components != width) {
+        return false;
+    }
+    int componentSize = 0;
+    switch (a.componentType) {
+        case TINYGLTF_COMPONENT_TYPE_BYTE:
+        case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE:  componentSize = 1; break;
+        case TINYGLTF_COMPONENT_TYPE_SHORT:
+        case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT: componentSize = 2; break;
+        case TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT:
+        case TINYGLTF_COMPONENT_TYPE_FLOAT:          componentSize = 4; break;
+        default: return false;
+    }
+    if (a.bufferView < 0 || a.bufferView >= (int) gModel.bufferViews.size() || a.sparse.isSparse) {
+        // Pointer tracks are written dense; a sparse or view-less one is skipped.
+        return false;
+    }
+    const tinygltf::BufferView &view = gModel.bufferViews[a.bufferView];
+    if (view.buffer < 0 || view.buffer >= (int) gModel.buffers.size()) {
+        return false;
+    }
+    const tinygltf::Buffer &buffer = gModel.buffers[view.buffer];
+    size_t stride = view.byteStride ? view.byteStride : (size_t) (componentSize * components);
+    size_t start = view.byteOffset + a.byteOffset;
+    if (a.count == 0 || start + stride * (a.count - 1) + componentSize * components > buffer.data.size()) {
+        return false;
+    }
+    out.resize(a.count * components);
+    for (size_t i = 0; i < a.count; i++) {
+        const unsigned char *element = buffer.data.data() + start + stride * i;
+        for (int c = 0; c < components; c++) {
+            const unsigned char *src = element + c * componentSize;
+            float v = 0;
+            switch (a.componentType) {
+                case TINYGLTF_COMPONENT_TYPE_FLOAT: { float f; memcpy(&f, src, 4); v = f; break; }
+                case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE: { v = *src; if (a.normalized) v /= 255.0f; break; }
+                case TINYGLTF_COMPONENT_TYPE_BYTE: { v = (float) (int8_t) *src; if (a.normalized) v = std::max(v / 127.0f, -1.0f); break; }
+                case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT: { uint16_t u; memcpy(&u, src, 2); v = u; if (a.normalized) v /= 65535.0f; break; }
+                case TINYGLTF_COMPONENT_TYPE_SHORT: { int16_t u; memcpy(&u, src, 2); v = u; if (a.normalized) v = std::max(v / 32767.0f, -1.0f); break; }
+                case TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT: { uint32_t u; memcpy(&u, src, 4); v = (float) u; break; }
+            }
+            out[i * components + c] = v;
+        }
+    }
+    return true;
+}
+
+/*
+ One KHR_animation_pointer channel, read: its key times (seconds) and values, `width`
+ floats per key (three times that for CUBICSPLINE: in-tangent, value, out-tangent).
+ */
+struct GLTFPointerTrack {
+    GLTFPointer pointer;
+    int width = 0;
+    bool step = false;
+    bool cubic = false;
+    std::vector<float> times;
+    std::vector<float> values;
+
+    void sample(float t, float *out) const {
+        size_t n = times.size();
+        size_t keyStride = cubic ? width * 3 : width;
+        size_t valueOffset = cubic ? width : 0;
+        if (t <= times.front() || n == 1) {
+            memcpy(out, &values[valueOffset], width * sizeof(float));
+            return;
+        }
+        if (t >= times.back()) {
+            memcpy(out, &values[(n - 1) * keyStride + valueOffset], width * sizeof(float));
+            return;
+        }
+        size_t i = std::upper_bound(times.begin(), times.end(), t) - times.begin() - 1;
+        const float *a = &values[i * keyStride + valueOffset];
+        const float *b = &values[(i + 1) * keyStride + valueOffset];
+        if (step) {
+            memcpy(out, a, width * sizeof(float));
+            return;
+        }
+        float span = times[i + 1] - times[i];
+        float alpha = span > 1e-8f ? (t - times[i]) / span : 0;
+        for (int c = 0; c < width; c++) {
+            out[c] = a[c] + (b[c] - a[c]) * alpha;
+        }
+    }
+};
+
+/*
+ The state the KHR_animation_pointer tracks of one glTF animation drive, shared by
+ every copy of that animation: the nodes and materials they reach, and each animated
+ material's texture transform (its parts are animated one by one).
+ */
+struct GLTFPointerTargets {
+    std::map<int, std::weak_ptr<VRONode>> nodes;
+    std::map<int, std::vector<std::weak_ptr<VROMaterial>>> materials;
+    std::map<int, GLTFTextureTransform> transforms;
+};
+
+/*
+ Plays the KHR_animation_pointer channels of one glTF animation: node visibility, a
+ material's base color and emissive factors, and its base color texture's transform.
+ One float animation runs over the clip, and each frame every track is sampled at
+ that time and written to its target.
+ */
+class VROGLTFPointerAnimation : public VROExecutableAnimation,
+                                public std::enable_shared_from_this<VROGLTFPointerAnimation> {
+public:
+    VROGLTFPointerAnimation(std::shared_ptr<const std::vector<GLTFPointerTrack>> tracks,
+                            std::shared_ptr<GLTFPointerTargets> targets, float duration) :
+        _tracks(tracks), _targets(targets), _duration(duration) {}
+    virtual ~VROGLTFPointerAnimation() {}
+
+    void setName(std::string name) { _name = name; }
+    std::string getName() const { return _name; }
+
+    std::shared_ptr<VROExecutableAnimation> copy() {
+        std::shared_ptr<VROGLTFPointerAnimation> animation =
+            std::make_shared<VROGLTFPointerAnimation>(_tracks, _targets, _duration);
+        animation->setName(_name);
+        animation->setSpeed(_speed);
+        animation->setTimeOffset(_timeOffset);
+        return animation;
+    }
+
+    void execute(std::shared_ptr<VRONode> node, std::function<void()> onFinished) {
+        std::weak_ptr<VROGLTFPointerAnimation> weakSelf = shared_from_this();
+        apply(0);
+
+        VROTransaction::begin();
+        VROTransaction::setAnimationDuration(_duration);
+        VROTransaction::setAnimationTimeOffset(_timeOffset);
+        VROTransaction::setAnimationSpeed(_speed);
+        VROTransaction::setTimingFunction(VROTimingFunctionType::Linear);
+        node->animate(std::make_shared<VROAnimationFloat>([weakSelf](VROAnimatable *const animatable, float t) {
+            std::shared_ptr<VROGLTFPointerAnimation> self = weakSelf.lock();
+            if (self) {
+                self->apply(t);
+            }
+        }, 0.0f, _duration));
+        VROTransaction::setFinishCallback([weakSelf, onFinished](bool terminate) {
+            std::shared_ptr<VROGLTFPointerAnimation> self = weakSelf.lock();
+            if (self) {
+                self->_transaction.reset();
+            }
+            onFinished();
+        });
+        std::shared_ptr<VROTransaction> transaction = VROTransaction::commit();
+        transaction->holdExecutableAnimation(shared_from_this());
+        _transaction = transaction;
+    }
+
+    void pause() {
+        std::shared_ptr<VROTransaction> transaction = _transaction.lock();
+        if (transaction) {
+            VROTransaction::pause(transaction);
+        }
+    }
+    void resume() {
+        std::shared_ptr<VROTransaction> transaction = _transaction.lock();
+        if (transaction) {
+            VROTransaction::resume(transaction);
+        }
+    }
+    void terminate(bool jumpToEnd) {
+        std::shared_ptr<VROTransaction> transaction = _transaction.lock();
+        if (transaction) {
+            VROTransaction::terminate(transaction, jumpToEnd);
+            _transaction.reset();
+        }
+    }
+    void setSpeed(float speed) {
+        _speed = speed;
+        std::shared_ptr<VROTransaction> transaction = _transaction.lock();
+        if (transaction) {
+            VROTransaction::setAnimationSpeed(transaction, _speed);
+        }
+    }
+    void preload() {}
+    void setDuration(float durationSeconds) { _duration = durationSeconds; }
+    float getDuration() const { return _duration; }
+    std::string toString() const { return "[gltf pointer: " + _name + "]"; }
+
+private:
+    std::shared_ptr<const std::vector<GLTFPointerTrack>> _tracks;
+    std::shared_ptr<GLTFPointerTargets> _targets;
+    float _duration;
+    std::string _name;
+    std::weak_ptr<VROTransaction> _transaction;
+
+    void apply(float t) {
+        std::set<int> transformsChanged;
+        float v[4];
+        for (const GLTFPointerTrack &track : *_tracks) {
+            track.sample(t, v);
+            int index = track.pointer.index;
+            switch (track.pointer.target) {
+                case GLTFPointerTarget::NodeVisibility: {
+                    auto it = _targets->nodes.find(index);
+                    std::shared_ptr<VRONode> node = it == _targets->nodes.end() ? nullptr : it->second.lock();
+                    bool hidden = v[0] < 0.5f;
+                    if (node && node->isHidden() != hidden) {
+                        // A transaction of zero duration: the change shows at once, not faded.
+                        VROTransaction::begin();
+                        VROTransaction::setAnimationDuration(0);
+                        node->setHidden(hidden);
+                        VROTransaction::commit();
+                    }
+                    break;
+                }
+                case GLTFPointerTarget::BaseColorFactor:
+                case GLTFPointerTarget::EmissiveFactor: {
+                    bool base = track.pointer.target == GLTFPointerTarget::BaseColorFactor;
+                    VROVector4f color(v[0], v[1], v[2], base ? v[3] : 1.0f);
+                    for (const std::weak_ptr<VROMaterial> &m_w : _targets->materials[index]) {
+                        std::shared_ptr<VROMaterial> m = m_w.lock();
+                        if (m) {
+                            (base ? m->getDiffuse() : m->getEmission()).setColorImmediate(color);
+                        }
+                    }
+                    break;
+                }
+                case GLTFPointerTarget::TextureOffset: {
+                    GLTFTextureTransform &tt = _targets->transforms[index];
+                    tt.offset[0] = v[0]; tt.offset[1] = v[1];
+                    transformsChanged.insert(index);
+                    break;
+                }
+                case GLTFPointerTarget::TextureScale: {
+                    GLTFTextureTransform &tt = _targets->transforms[index];
+                    tt.scale[0] = v[0]; tt.scale[1] = v[1];
+                    transformsChanged.insert(index);
+                    break;
+                }
+                case GLTFPointerTarget::TextureRotation: {
+                    _targets->transforms[index].rotation = v[0];
+                    transformsChanged.insert(index);
+                    break;
+                }
+                default:
+                    break;
+            }
+        }
+        for (int index : transformsChanged) {
+            VROMatrix4f matrix = textureTransformMatrix(_targets->transforms[index]);
+            for (const std::weak_ptr<VROMaterial> &m_w : _targets->materials[index]) {
+                std::shared_ptr<VROMaterial> m = m_w.lock();
+                if (m) {
+                    m->getDiffuse().setContentsTransform(matrix);
+                }
+            }
+        }
+    }
+};
+
+// Per load (cleared by clearCachedData): KHR_animation_pointer channels by
+// animation, the materials whose texture transform they animate, and every node and
+// material instance built, so the channels can reach them.
+std::map<int, std::vector<GLTFPointerTrack>> sPointerTracks;
+std::set<int> sAnimatedTransformMaterials;
+std::map<int, std::shared_ptr<VRONode>> sNodesByIndex;
+std::map<int, std::vector<std::shared_ptr<VROMaterial>>> sMaterialsByIndex;
+
+}  // namespace
+
+void VROGLTFLoader::normalizeAnimationPointers(tinygltf::Model &gModel) {
+    // A KHR_animation_pointer channel at a node's transform or morph weights is an
+    // ordinary channel written another way: rewrite it into one, so it goes through
+    // the keyframe and skeletal paths like the rest.
+    for (tinygltf::Animation &anim : gModel.animations) {
+        for (tinygltf::AnimationChannel &channel : anim.channels) {
+            if (channel.target_path != "pointer") {
+                continue;
+            }
+            std::vector<std::string> parts = splitPointer(channelPointer(channel));
+            int nodeIndex = -1;
+            if (parts.size() == 3 && parts[0] == "nodes" && parseIndex(parts[1], &nodeIndex) &&
+                nodeIndex < (int) gModel.nodes.size() &&
+                (parts[2] == "translation" || parts[2] == "rotation" ||
+                 parts[2] == "scale" || parts[2] == "weights")) {
+                channel.target_node = nodeIndex;
+                channel.target_path = parts[2];
+            }
+        }
+    }
+}
+
+bool VROGLTFLoader::isPointerChannel(const tinygltf::AnimationChannel &channel) {
+    return channel.target_path == "pointer" || channel.target_node < 0;
+}
+
+void VROGLTFLoader::processPointerChannels(const tinygltf::Model &gModel) {
+    std::set<std::string> unsupported;
+    for (int animIndex = 0; animIndex < (int) gModel.animations.size(); animIndex++) {
+        const tinygltf::Animation &anim = gModel.animations[animIndex];
+        for (const tinygltf::AnimationChannel &channel : anim.channels) {
+            if (!isPointerChannel(channel)) {
+                continue;
+            }
+            std::string pointer = channelPointer(channel);
+            GLTFPointerTrack track;
+            track.pointer = parsePointer(pointer);
+            track.width = pointerTargetWidth(track.pointer.target);
+            if (track.width == 0 || channel.sampler < 0 || channel.sampler >= (int) anim.samplers.size()) {
+                unsupported.insert(pointer.empty() ? "(no pointer)" : pointer);
+                continue;
+            }
+            bool isNode = track.pointer.target == GLTFPointerTarget::NodeVisibility;
+            if (track.pointer.index >= (int) (isNode ? gModel.nodes.size() : gModel.materials.size())) {
+                continue;
+            }
+            const tinygltf::AnimationSampler &sampler = anim.samplers[channel.sampler];
+            track.step = VROStringUtil::strcmpinsensitive(sampler.interpolation, "step") ||
+                         isNode;  // visibility is a boolean: it never blends
+            track.cubic = VROStringUtil::strcmpinsensitive(sampler.interpolation, "cubicspline");
+            if (!readAccessorFloats(gModel, sampler.input, 1, track.times) ||
+                !readAccessorFloats(gModel, sampler.output, track.width, track.values) ||
+                track.times.empty() ||
+                track.values.size() != track.times.size() * track.width * (track.cubic ? 3 : 1)) {
+                pwarn("glTF: skipping animation pointer %s, its data does not match", pointer.c_str());
+                continue;
+            }
+            if (track.pointer.target == GLTFPointerTarget::TextureOffset ||
+                track.pointer.target == GLTFPointerTarget::TextureRotation ||
+                track.pointer.target == GLTFPointerTarget::TextureScale) {
+                sAnimatedTransformMaterials.insert(track.pointer.index);
+            }
+            sPointerTracks[animIndex].push_back(std::move(track));
+        }
+    }
+    for (const std::string &pointer : unsupported) {
+        pwarn("glTF: animation pointer %s is not supported, its channels are skipped", pointer.c_str());
+    }
+}
+
+void VROGLTFLoader::attachPointerAnimations(const tinygltf::Model &gModel, std::shared_ptr<VRONode> host) {
+    if (sPointerTracks.empty() || !host) {
+        return;
+    }
+    std::shared_ptr<GLTFPointerTargets> targets = std::make_shared<GLTFPointerTargets>();
+    for (auto &kv : sNodesByIndex) {
+        targets->nodes[kv.first] = kv.second;
+    }
+    for (auto &kv : sMaterialsByIndex) {
+        for (auto &m : kv.second) {
+            targets->materials[kv.first].push_back(m);
+        }
+    }
+    for (int materialIndex : sAnimatedTransformMaterials) {
+        targets->transforms[materialIndex] = materialTextureTransform(gModel, materialIndex);
+    }
+
+    for (auto &kv : sPointerTracks) {
+        int animIndex = kv.first;
+        float duration = 0;
+        for (const GLTFPointerTrack &track : kv.second) {
+            duration = std::max(duration, track.times.back());
+        }
+        std::string name = gModel.animations[animIndex].name;
+        if (name.empty()) {
+            name = "animation_" + VROStringUtil::toString(animIndex);
+        }
+        std::shared_ptr<VROGLTFPointerAnimation> animation = std::make_shared<VROGLTFPointerAnimation>(
+            std::make_shared<const std::vector<GLTFPointerTrack>>(std::move(kv.second)), targets, duration);
+        animation->setName(name);
+        host->addAnimation(name, animation);
+    }
+}
 
 static int getTypeSize(GLTFType type) {
     switch (type) {
@@ -451,11 +1044,16 @@ void VROGLTFLoader::loadGLTFFromResource(std::string gltfManifestFilePath, const
                     std::string err;
 
                     // If we've successfully retrieved the GLTF Manifest, start parsing the file with tinyGLTF.
+                    // glTF 2.0 requires only `asset`: a file with a camera and no mesh has no
+                    // accessors or buffers, and one may hold no scene at all. tinygltf
+                    // requires every section unless told otherwise.
                     bool ret = false;
                     if (isGLTFBinary) {
-                        ret = gLoader.LoadBinaryFromFile(&gModel, &err, cachedFilePath, overwriteResourceMap);
+                        ret = gLoader.LoadBinaryFromFile(&gModel, &err, cachedFilePath, overwriteResourceMap,
+                                                         tinygltf::NO_REQUIRE);
                     } else {
-                        ret = gLoader.LoadASCIIFromFile(&gModel, &err, cachedFilePath, gltfManifestFilePath, overwriteResourceMap);
+                        ret = gLoader.LoadASCIIFromFile(&gModel, &err, cachedFilePath, gltfManifestFilePath, overwriteResourceMap,
+                                                        tinygltf::NO_REQUIRE);
                     }
 
                     // Fail fast if any errors were encountered.
@@ -485,6 +1083,7 @@ void VROGLTFLoader::loadGLTFFromResource(std::string gltfManifestFilePath, const
                     // being const it was copied again into the std::function. On WASM, where
                     // the dispatch is synchronous, those copies sat beside the original and
                     // tripled a large GLB's footprint at exactly the moment it peaked.
+                    normalizeAnimationPointers(gModel);
                     std::shared_ptr<const tinygltf::Model> modelPtr =
                         std::make_shared<tinygltf::Model>(std::move(gModel));
                     VROPlatformDispatchAsyncRenderer([rootNode, modelPtr, driver, onFinish] {
@@ -533,6 +1132,13 @@ void VROGLTFLoader::loadGLTFFromResource(std::string gltfManifestFilePath, const
                             }
                         }
 
+                        // KHR_animation_pointer channels drive nodes and materials across the
+                        // whole model: their animations go on the (first) scene node, where
+                        // a recursive animation lookup from the model's root finds them.
+                        if (success && !gltfRootNode->getChildNodes().empty()) {
+                            attachPointerAnimations(model, gltfRootNode->getChildNodes().front());
+                        }
+
                         for (auto &skeletonPair : _skinIndexToSkeleton) {
                             std::shared_ptr<VROSkinner> skin = _skinMap[skeletonPair.first];
                             skeletonPair.second->setSkinnerRootNode(skin->getSkinnerNode());
@@ -577,6 +1183,10 @@ void VROGLTFLoader::clearCachedData() {
     _nodeBindPos.clear();
     _nodeBindScale.clear();
     _nodeBindRot.clear();
+    sPointerTracks.clear();
+    sAnimatedTransformMaterials.clear();
+    sNodesByIndex.clear();
+    sMaterialsByIndex.clear();
 }
 
 void VROGLTFLoader::injectBindPoseAnimations() {
@@ -697,28 +1307,27 @@ bool VROGLTFLoader::processSkinner(const tinygltf::Model &model) {
             // Grab the node index corresponding to this joint.
             int nodeIndex = _skinIndexToJointNodeIndex[skinIndex][jointIndex];
 
-            // Then look up the node with the nodeIndex and grab it's child nodes.
-            std::vector<int> childrenNodeIndex = model.nodes[nodeIndex].children;
-            for (int childIndex : childrenNodeIndex) {
-                // Skip if we have child indexes that are not a joint.
-                if (skinIndexToNodeJointIndexes[skinIndex].find(childIndex) == skinIndexToNodeJointIndexes[skinIndex].end()) {
-                    continue;
+            // A joint's parent joint is its nearest ancestor that is a joint of this skin.
+            // It need not be the joint's direct parent: glTF allows other nodes between
+            // two joints (a rig may animate an intermediate node per joint).
+            int ancestor = nodeIndex;
+            while (_nodeParentMap.count(ancestor)) {
+                ancestor = _nodeParentMap[ancestor];
+                auto parentJoint = skinIndexToNodeJointIndexes[skinIndex].find(ancestor);
+                if (parentJoint != skinIndexToNodeJointIndexes[skinIndex].end()) {
+                    _skinIndexToJointChildJoints[skinIndex][parentJoint->second].push_back(jointIndex);
+                    skinIndexToJointParentJoint[skinIndex][jointIndex] = parentJoint->second;
+                    break;
                 }
-
-                // For each of the child node index, get it's corresponding joint index.
-                int subJointIndex = skinIndexToNodeJointIndexes[skinIndex][childIndex];
-
-                // Parent the all childed joint with it's parent. Also create a reverse map
-                // in skinIndexToJointParentJoint.
-                _skinIndexToJointChildJoints[skinIndex][jointIndex].push_back(subJointIndex);
-                skinIndexToJointParentJoint[skinIndex][subJointIndex] = jointIndex;
             }
         }
         
-        // Save a reference to the root
+        // Save a reference to the root: the skeleton node when it is a joint, else the
+        // first joint (skin.skeleton may name a common ancestor that is not a joint).
         int nodeIndexOfSkeleton = skin.skeleton;
-        if (nodeIndexOfSkeleton >= 0) {
-            _skinIndexToSkeletonRootJoint[skinIndex] = skinIndexToNodeJointIndexes[skinIndex][nodeIndexOfSkeleton];
+        auto skeletonJoint = skinIndexToNodeJointIndexes[skinIndex].find(nodeIndexOfSkeleton);
+        if (nodeIndexOfSkeleton >= 0 && skeletonJoint != skinIndexToNodeJointIndexes[skinIndex].end()) {
+            _skinIndexToSkeletonRootJoint[skinIndex] = skeletonJoint->second;
         } else {
             // Else grab the first item in the joint list and treat it as the root node.
             _skinIndexToSkeletonRootJoint[skinIndex] = 0;
@@ -741,7 +1350,8 @@ bool VROGLTFLoader::processSkinner(const tinygltf::Model &model) {
         
         // Create a vec hiearachy of bones, starting at the root bone.
         for (int jointIndex = 0; jointIndex < skin.joints.size(); jointIndex++) {
-            int parentJointIndex = skinIndexToJointParentJoint[skinIndex][jointIndex];
+            auto parentIt = skinIndexToJointParentJoint[skinIndex].find(jointIndex);
+            int parentJointIndex = parentIt != skinIndexToJointParentJoint[skinIndex].end() ? parentIt->second : -1;
             if (jointIndex == rootJoint) {
                 parentJointIndex = -1;
             }
@@ -795,14 +1405,21 @@ bool VROGLTFLoader::processAnimations(const tinygltf::Model &model) {
      <nodeIndex, <animationIndex, vec<channelIndexes>> nodeToAnimDataMap
     */
 
+    // KHR_animation_pointer channels (materials, node visibility) are read apart: they
+    // target no node, and become their own animations once the model is built.
+    processPointerChannels(model);
+
     std::map<int, std::map<int, std::vector<int>>> nodeToAnimDataMap;
     std::map<int, std::set<int>> animToNodeIndexMap;
     for (int animIndex = 0; animIndex < model.animations.size(); animIndex++) {
-        tinygltf::Animation anim = model.animations[animIndex];
+        const tinygltf::Animation &anim = model.animations[animIndex];
 
         // For each animation, grab the targeted node and its animation channel data.
         for (int cIndex = 0; cIndex < anim.channels.size(); cIndex++) {
-            tinygltf::AnimationChannel channel = anim.channels[cIndex];
+            const tinygltf::AnimationChannel &channel = anim.channels[cIndex];
+            if (isPointerChannel(channel)) {
+                continue;
+            }
             nodeToAnimDataMap[channel.target_node][animIndex].push_back(cIndex);
 
             // Also save a reverse map of anim to nodeIndexes for skeletal animation processing.
@@ -812,11 +1429,22 @@ bool VROGLTFLoader::processAnimations(const tinygltf::Model &model) {
 
     // Group all the node indexes associated with a given skin to be used for
     // skeletal animation processing.
+    // A skin's pose depends on its joints and on every ancestor of a joint short of the
+    // skinned mesh's own ancestors (the renderer applies those): an animation on any of
+    // them moves the skin. Rigs that animate a node above each joint rely on this.
     std::map<int, std::set<int>> skinToNodeMap;
     for (int skinIndex = 0; skinIndex < model.skins.size(); skinIndex ++) {
-        tinygltf::Skin skin = model.skins[skinIndex];
+        const tinygltf::Skin &skin = model.skins[skinIndex];
         for (int jointIndex = 0; jointIndex < skin.joints.size(); jointIndex++) {
-            skinToNodeMap[skinIndex].insert(skin.joints[jointIndex]);
+            int node = skin.joints[jointIndex];
+            skinToNodeMap[skinIndex].insert(node);
+            while (_nodeParentMap.count(node)) {
+                node = _nodeParentMap[node];
+                if (_skinMeshAncestors.count(skinIndex) && _skinMeshAncestors[skinIndex].count(node)) {
+                    break;
+                }
+                skinToNodeMap[skinIndex].insert(node);
+            }
         }
     }
 
@@ -825,11 +1453,14 @@ bool VROGLTFLoader::processAnimations(const tinygltf::Model &model) {
     // A single glTF animation may drive multiple skins (e.g. a character body + visor),
     // so we accumulate ALL matching skins rather than keeping only the last one.
     std::map<int, std::vector<std::pair<int, std::vector<int>>>> skeletalAnimToSkinToNodeMap;
-    for (int animIndex = 0; animIndex < (int)animToNodeIndexMap.size(); animIndex++) {
+    // By entry, not by index: an animation made only of KHR_animation_pointer channels
+    // has no entry, and indexing 0..size() would then skip the last animations.
+    for (auto &animNodes : animToNodeIndexMap) {
+        int animIndex = animNodes.first;
         for (int skinIndex = 0; skinIndex < (int)skinToNodeMap.size(); skinIndex++) {
             std::vector<int> animatedSkeletalJoint;
             for (auto i : skinToNodeMap[skinIndex]) {
-                for (auto x : animToNodeIndexMap[animIndex]) {
+                for (auto x : animNodes.second) {
                     if (i == x) {
                         animatedSkeletalJoint.push_back(i);
                     }
@@ -1586,28 +2217,6 @@ static void getNodeRestTRS(const tinygltf::Model &gModel, int nodeIndex,
     }
 }
 
-// Helper: build a local TRS matrix for a joint, falling back to the node's rest-pose for
-// any channels not present in the animation.  Mixamo/Blender rigs typically only animate
-// rotation; without the rest-pose translation every non-root bone would collapse to the
-// origin, producing severe mesh corruption.
-static VROMatrix4f buildJointLocalTransform(const tinygltf::Model &gModel, int nodeIndex,
-                                            const VROKeyframeAnimation *anim,
-                                            const VROKeyframeAnimationFrame *frame) {
-    VROVector3f restT; VROVector3f restS; VROQuaternion restR;
-    getNodeRestTRS(gModel, nodeIndex, restT, restS, restR);
-
-    VROVector3f   scale       = anim->_hasScale       ? frame->scale       : restS;
-    VROQuaternion rotation    = anim->_hasRotation    ? frame->rotation    : restR;
-    VROVector3f   translation = anim->_hasTranslation ? frame->translation : restT;
-
-    VROMatrix4f m;
-    m.toIdentity();
-    m.scale(scale.x, scale.y, scale.z);
-    m = rotation.getMatrix() * m;
-    m.translate(translation);
-    return m;
-}
-
 bool VROGLTFLoader::processSkeletalTransformsForFrame(const tinygltf::Model &gModel,
                                                       int skin,
                                                       int animationIndex,
@@ -1615,107 +2224,60 @@ bool VROGLTFLoader::processSkeletalTransformsForFrame(const tinygltf::Model &gMo
                                                       int keyFrameTime,
                                                       int currentJointIndex,
                                                       std::map<int, VROMatrix4f> &transformsOut) {
-    // If we are at the root (transform not yet placed by a parent), compute and store it.
-    // Detect "root" by the absence of a pre-placed transform rather than hardcoding index 0,
-    // so models whose skeleton root joint is not at index 0 are handled correctly.
-    if (transformsOut.find(currentJointIndex) == transformsOut.end()) {
-        int rootNodeIndex = _skinIndexToJointNodeIndex[skin][currentJointIndex];
+    // Each joint's world transform is the product of the local transforms of every node
+    // from the top of its chain down to the joint, as glTF defines it: animated at this
+    // frame where the animation drives the node, at rest otherwise. Nodes between two
+    // joints count, and so do a joint's ancestors outside the skin, but the skinned mesh's
+    // own ancestors do not: the renderer applies them as the mesh's model matrix.
+    // (subAnimPropertyIndex and currentJointIndex are kept for the signature: every node
+    // the animation drives was merged onto one grid, so frame keyFrameTime is the same
+    // instant for all of them.)
+    (void) subAnimPropertyIndex;
+    (void) currentJointIndex;
 
-        // Walk up the GLTF scene graph collecting non-skin ancestor nodes.
-        // For multi-skin models the root joint of a secondary skin (e.g. visor's Neck joint)
-        // may have parent nodes that belong to the primary skin (Hips, Spine…). Those ancestors
-        // are NOT in this skin's joint list but their animated world transforms must be included
-        // so the IBM (which encodes the full world-space bind pose) is correctly cancelled out.
-        std::vector<int> nonSkinAncestors;
-        {
-            int cur = rootNodeIndex;
-            while (_nodeParentMap.count(cur)) {
-                int par = _nodeParentMap[cur];
-                // Check whether the parent node is a joint in THIS skin
-                bool inThisSkin = false;
-                for (auto &kv : _skinIndexToJointNodeIndex[skin]) {
-                    if (kv.second == par) { inThisSkin = true; break; }
-                }
-                if (inThisSkin) break;  // ancestor is already handled by the skin cascade
-                // Stop if this ancestor is already applied by Viro's renderer as the mesh
-                // node's modelMatrix (i.e. it's an ancestor of the skin's mesh node).
-                // Including it here would double-apply it (e.g. Character scale=0.01 twice).
-                if (_skinMeshAncestors.count(skin) && _skinMeshAncestors[skin].count(par)) break;
-                nonSkinAncestors.push_back(par);
-                cur = par;
-            }
+    std::map<int, VROMatrix4f> worldOfNode;
+    std::function<VROMatrix4f(int)> world = [&](int node) -> VROMatrix4f {
+        auto cached = worldOfNode.find(node);
+        if (cached != worldOfNode.end()) {
+            return cached->second;
         }
 
-        // Build the accumulated world transform from outermost to innermost ancestor.
-        // For each ancestor, collect its TRS from all animation channels (unflattened T/R/S)
-        // falling back to the rest-pose for any channel not present in the animation.
-        VROMatrix4f ancestorWorld;
-        ancestorWorld.toIdentity();
-        for (int i = (int)nonSkinAncestors.size() - 1; i >= 0; i--) {
-            int ancNode = nonSkinAncestors[i];
-            VROVector3f ancT; VROVector3f ancS; VROQuaternion ancR;
-            getNodeRestTRS(gModel, ancNode, ancT, ancS, ancR);
-            const auto &ancAnimMap = _nodeKeyFrameAnims[ancNode];
-            auto ancAnimIt = ancAnimMap.find(animationIndex);
-            if (ancAnimIt != ancAnimMap.end()) {
-                for (const auto &ancAnim : ancAnimIt->second) {
-                    if (keyFrameTime >= (int)ancAnim->getFrames().size()) continue;
-                    const auto &ancFrame = *ancAnim->getFrames()[keyFrameTime];
-                    if (ancAnim->_hasTranslation) ancT = ancFrame.translation;
-                    if (ancAnim->_hasRotation)    ancR = ancFrame.rotation;
-                    if (ancAnim->_hasScale)       ancS = ancFrame.scale;
+        VROVector3f t; VROVector3f sc; VROQuaternion r;
+        getNodeRestTRS(gModel, node, t, sc, r);
+        auto nodeAnims = _nodeKeyFrameAnims.find(node);
+        if (nodeAnims != _nodeKeyFrameAnims.end()) {
+            auto anims = nodeAnims->second.find(animationIndex);
+            if (anims != nodeAnims->second.end()) {
+                for (const std::shared_ptr<VROKeyframeAnimation> &anim : anims->second) {
+                    if (keyFrameTime >= (int) anim->getFrames().size()) {
+                        continue;
+                    }
+                    const VROKeyframeAnimationFrame &frame = *anim->getFrames()[keyFrameTime];
+                    if (anim->_hasTranslation) t = frame.translation;
+                    if (anim->_hasRotation)    r = frame.rotation;
+                    if (anim->_hasScale)       sc = frame.scale;
                 }
             }
-            VROMatrix4f ancLocal;
-            ancLocal.toIdentity();
-            ancLocal.scale(ancS.x, ancS.y, ancS.z);
-            ancLocal = ancR.getMatrix() * ancLocal;
-            ancLocal.translate(ancT);
-            ancestorWorld = ancestorWorld.multiply(ancLocal);
         }
+        VROMatrix4f local;
+        local.toIdentity();
+        local.scale(sc.x, sc.y, sc.z);
+        local = r.getMatrix() * local;
+        local.translate(t);
 
-        // Compute root joint's local transform, then pre-multiply by ancestor world.
-        const auto &anims = _nodeKeyFrameAnims[rootNodeIndex][animationIndex];
-        VROMatrix4f rootLocal;
-        if (anims.empty()) {
-            rootLocal = getTransformOfNode(gModel, rootNodeIndex);
-        } else {
-            const auto &anim = anims.at(subAnimPropertyIndex);
-            const auto &frame = *anim->getFrames()[keyFrameTime];
-            rootLocal = buildJointLocalTransform(gModel, rootNodeIndex, anim.get(), &frame);
+        VROMatrix4f result = local;
+        auto parent = _nodeParentMap.find(node);
+        if (parent != _nodeParentMap.end() &&
+            !(_skinMeshAncestors.count(skin) && _skinMeshAncestors[skin].count(parent->second))) {
+            result = world(parent->second).multiply(local);
         }
-        transformsOut[currentJointIndex] = ancestorWorld.multiply(rootLocal);
+        worldOfNode[node] = result;
+        return result;
+    };
+
+    for (auto &joint : _skinIndexToJointNodeIndex[skin]) {
+        transformsOut[joint.first] = world(joint.second);
     }
-
-    // Grab the transform of the current joint to be cascaded and multiplied on the child.
-    VROMatrix4f currentMatrix = transformsOut[currentJointIndex];
-
-    // Grab all the child joints for this current joint.
-    std::vector<int> childJoints = _skinIndexToJointChildJoints[skin][currentJointIndex];
-    for (int childJointIndex : childJoints) {
-        int childNodeIndex = _skinIndexToJointNodeIndex[skin][childJointIndex];
-        const auto &anims = _nodeKeyFrameAnims[childNodeIndex][animationIndex];
-
-        VROMatrix4f localTransform;
-        if (anims.empty()) {
-            localTransform = getTransformOfNode(gModel, childNodeIndex);
-        } else {
-            const auto &anim = anims.at(subAnimPropertyIndex);
-            const auto &frame = *anim->getFrames()[keyFrameTime];
-            localTransform = buildJointLocalTransform(gModel, childNodeIndex, anim.get(), &frame);
-        }
-
-        // Cascade: world transform = parent_world * local
-        transformsOut[childJointIndex] = currentMatrix.multiply(localTransform);
-
-        // Continue going down the skeletal tree
-        if (!processSkeletalTransformsForFrame(gModel, skin, animationIndex, subAnimPropertyIndex,
-                                               keyFrameTime, childJointIndex, transformsOut)) {
-            return false;
-        }
-    }
-
-    // We have reached the leaf of the skeletal tree.
     return true;
 }
 
@@ -1808,6 +2370,15 @@ bool VROGLTFLoader::processNode(const tinygltf::Model &gModel, std::shared_ptr<V
     node->setScale(scale);
     node->setRotation(rot);
     node->setName(gNode.name);
+    sNodesByIndex[gNodeIndex] = node;
+
+    // KHR_node_visibility: a node with visible false is hidden with all its descendants.
+    auto visibility = gNode.extensions.find("KHR_node_visibility");
+    if (visibility != gNode.extensions.end() && visibility->second.IsObject() &&
+        visibility->second.Has("visible") && visibility->second.Get("visible").IsBool() &&
+        !visibility->second.Get("visible").Get<bool>()) {
+        node->setHidden(true);
+    }
 
     // Record the VRONode and its bind-pose TRS for nodes that have keyframe animations.
     // injectBindPoseAnimations() uses this after all nodes are processed to add single-frame
@@ -2127,10 +2698,14 @@ bool VROGLTFLoader::processMesh(const tinygltf::Model &gModel, std::shared_ptr<V
     // A single mesh may contain more than one type of primitive type to be drawn. Cycle through them here.
     const std::vector<tinygltf::Primitive> &gPrimitives = gMesh.primitives;
     for (tinygltf::Primitive gPrimitive : gPrimitives) {
+        // The material's texture transform and the UV set its textures sample
+        // (KHR_texture_transform, texCoord).
+        GLTFTextureTransform textureTransform = materialTextureTransform(gModel, gPrimitive.material);
 
         // Grab vertex indexing information needed for creating meshes.
         bool successVertex = processVertexElement(gModel, gPrimitive, elements);
-        bool successAttributes = processVertexAttributes(gModel, gPrimitive.attributes, sources, elements.size() - 1, driver);
+        bool successAttributes = processVertexAttributes(gModel, gPrimitive.attributes, sources, elements.size() - 1, driver,
+                                                         textureTransform.texCoord);
         processTangent(elements, sources, elements.size() - 1);
         
         if (!successVertex || !successAttributes) {
@@ -2144,6 +2719,10 @@ bool VROGLTFLoader::processMesh(const tinygltf::Model &gModel, std::shared_ptr<V
         if (gMatIndex >= 0) {
             const tinygltf::Material &gMat = gModel.materials[gMatIndex];
             material = getMaterial(gModel, gMat);
+            if (textureTransform.present || sAnimatedTransformMaterials.count(gMatIndex)) {
+                material->getDiffuse().setContentsTransform(textureTransformMatrix(textureTransform));
+            }
+            sMaterialsByIndex[gMatIndex].push_back(material);
         }
 
         // Process Morph targets for each primitive.
@@ -2499,6 +3078,22 @@ bool VROGLTFLoader::processVertexElement(const tinygltf::Model &gModel,
     const unsigned char *srcData = gBuffer.data.data() + dataOffset;
     int bytesPerIndex = getComponentTypeSize(gTypeComponent);
 
+    // 8-bit indices (legal glTF) are widened to 16 bits: the GL substrate draws a
+    // 1-byte index buffer as GL_UNSIGNED_INT, reading past its end, and Metal has
+    // no 8-bit index type at all.
+    std::vector<uint16_t> widenedIndices;
+    if (gTypeComponent == GLTFTypeComponent::UnsignedByte) {
+        widenedIndices.resize(elementCount);
+        for (size_t i = 0; i < elementCount; i++) {
+            widenedIndices[i] = srcData[i * bufferViewStride];
+        }
+        srcData = (const unsigned char *) widenedIndices.data();
+        gTypeComponent = GLTFTypeComponent::UnsignedShort;
+        bytesPerIndex = 2;
+        bufferViewStride = 2;
+        dataLength = elementCount * 2;
+    }
+
     // Handle LINE_LOOP: Convert to Line by appending the first index at the end
     if (gPrimitive.mode == TINYGLTF_MODE_LINE_LOOP) {
         size_t newElementCount = elementCount + 1;
@@ -2593,9 +3188,9 @@ bool VROGLTFLoader::processVertexElement(const tinygltf::Model &gModel,
 
     // Standard case: directly use the buffer data
     int primitiveCount = VROGeometryUtilGetPrimitiveCount((int) gIndicesAccessor.count, primitiveType);
-    std::shared_ptr<VROData> data = std::make_shared<VROData>((void *)gBuffer.data.data(),
-                                                              dataLength,
-                                                              dataOffset);
+    std::shared_ptr<VROData> data = widenedIndices.empty()
+        ? std::make_shared<VROData>((void *)gBuffer.data.data(), dataLength, dataOffset)
+        : std::make_shared<VROData>((void *)widenedIndices.data(), dataLength, VRODataOwnership::Copy);
     std::shared_ptr<VROGeometryElement> element
             = std::make_shared<VROGeometryElement>(data,
                                                    primitiveType,
@@ -2611,10 +3206,16 @@ bool VROGLTFLoader::processVertexAttributes(const tinygltf::Model &gModel,
                                             std::map<std::string, int> &gAttributes,
                                             std::vector<std::shared_ptr<VROGeometrySource>> &sources,
                                             size_t geoElementIndex,
-                                            std::shared_ptr<VRODriver> driver) {
+                                            std::shared_ptr<VRODriver> driver,
+                                            int texcoordSet) {
     if (gAttributes.size() <= 0) {
         return false;
     }
+
+    // The UV set the material's textures sample. When it is not TEXCOORD_0 and the
+    // primitive has it, that set is the texture coordinates, in place of TEXCOORD_0.
+    std::string texcoordName = "TEXCOORD_" + VROStringUtil::toString(texcoordSet);
+    bool otherTexcoordSet = texcoordSet > 0 && gAttributes.find(texcoordName) != gAttributes.end();
 
     // Iterate through each Vertex Attribute (Position / Normals / etc) to parse its data
     for (auto const& gAttribute : gAttributes) {
@@ -2623,6 +3224,14 @@ bool VROGLTFLoader::processVertexAttributes(const tinygltf::Model &gModel,
 
         // Ensure we only parse valid attributes, gracefully skip over the ones we do not yet support
         VROGeometrySourceSemantic attributeType = getGeometryAttribute(attributeName);
+        if (otherTexcoordSet) {
+            if (attributeName == "TEXCOORD_0") {
+                continue;
+            }
+            if (attributeName == texcoordName) {
+                attributeType = VROGeometrySourceSemantic::Texcoord;
+            }
+        }
         if (attributeType == VROGeometrySourceSemantic::Invalid) {
             continue;
         }
@@ -2961,6 +3570,9 @@ std::shared_ptr<VROMaterial> VROGLTFLoader::getMaterial(const tinygltf::Model &g
 
     if (VROStringUtil::strcmpinsensitive(mode, "OPAQUE")) {
         vroMat->setTransparencyMode(VROTransparencyMode::RGBZero);
+        // OPAQUE ignores alpha: the base color's, the texture's and the vertex
+        // colors' (a texture's alpha often holds something else).
+        vroMat->setIgnoresDiffuseAlpha(true);
     } else if (VROStringUtil::strcmpinsensitive(mode, "MASK")) {
         vroMat->setTransparencyMode(VROTransparencyMode::Mask);
         // Parse alphaCutoff, default is 0.5 per glTF spec
@@ -2969,8 +3581,14 @@ std::shared_ptr<VROMaterial> VROGLTFLoader::getMaterial(const tinygltf::Model &g
             alphaCutoff = (float)gAdditionalMap["alphaCutoff"].Factor();
         }
         vroMat->setAlphaCutoff(alphaCutoff);
+        // What passes the cutoff is opaque: the alpha decides only what is discarded.
+        vroMat->setIgnoresDiffuseAlpha(true);
     } else if (VROStringUtil::strcmpinsensitive(mode, "BLEND")) {
         vroMat->setTransparencyMode(VROTransparencyMode::AOne);
+        // A blended surface does not write depth (as three.js, Babylon and Filament do
+        // for glTF BLEND): it would hide whatever is drawn behind it later, such as a
+        // decal that is nearly transparent hiding the mesh under it.
+        vroMat->setWritesToDepthBuffer(false);
     }
 
     // Process emissive material properties
@@ -2988,6 +3606,12 @@ std::shared_ptr<VROMaterial> VROGLTFLoader::getMaterial(const tinygltf::Model &g
     std::shared_ptr<VROTexture> emissiveTexture = getTexture(gModel, gAdditionalMap, "emissiveTexture", true);
     if (emissiveTexture != nullptr) {
         vroMat->getEmission().setTexture(emissiveTexture);
+        // The emissive texture samples through its own KHR_texture_transform: a glow
+        // map is often a small region of an atlas, placed apart from the base color.
+        GLTFTextureTransform emissiveTransform = readTextureTransform(gAdditionalMap["emissiveTexture"]);
+        if (emissiveTransform.present) {
+            vroMat->getEmission().setContentsTransform(textureTransformMatrix(emissiveTransform));
+        }
     }
 
     // Check for KHR_materials_unlit extension
