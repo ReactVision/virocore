@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## v3.1.1
+## v3.1.1 — 9 November 2026
 
 ### Added
 
