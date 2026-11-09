@@ -104,6 +104,13 @@ public:
     const std::vector<std::shared_ptr<VROTexture>> &getTextures() const {
         return _textures;
     }
+    /*
+     Textures bound at a fixed fragment index rather than in order (the PBR maps, at 8-11,
+     past the shadow and IBL textures at 4-7).
+     */
+    const std::vector<std::pair<int, std::shared_ptr<VROTexture>>> &getIndexedTextures() const {
+        return _indexedTextures;
+    }
     
     VROConcurrentBuffer *getCustomUniformsBuffer() const {
         return _customUniformsBuffer;
@@ -133,6 +140,8 @@ private:
     void loadPhongLighting(const VROMaterial &material,
                            id <MTLLibrary> library, id <MTLDevice> device,
                            VRODriverMetal &driver);
+    // VRO_PBR_MAP_* bits for the maps a material has.
+    static int pbrMaps(const VROMaterial &material);
     void loadPBRLighting(const VROMaterial &material,
                          id <MTLLibrary> library, id <MTLDevice> device,
                          VRODriverMetal &driver);
@@ -157,6 +166,7 @@ private:
     VROConcurrentBuffer *_customUniformsBuffer;
     
     std::vector<std::shared_ptr<VROTexture>> _textures;
+    std::vector<std::pair<int, std::shared_ptr<VROTexture>>> _indexedTextures;
     
     void bindConstantLighting(const std::shared_ptr<VROLight> &light);
     void bindBlinnLighting(const std::shared_ptr<VROLight> &light);

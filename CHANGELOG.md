@@ -1,5 +1,18 @@
 # CHANGELOG
 
+## v3.1.1 — 9 November 2026
+
+### Added
+
+- **visionOS: PBR maps (`Shaders.metal`, `VROMaterialSubstrateMetal`, `VROGeometrySubstrateMetal`).** The Metal PBR path sampled only the base color, so a glTF model on visionOS lost its normal map, metallic-roughness, occlusion and emissive textures and drew flat (DamagedHelmet came out as a white silhouette). `pbr_lighting_fragment_maps` reads all five, by the same factors as the GL path, and the emissive map through its own texture transform. The normal map's tangent frame comes from screen-space derivatives, so geometry needs no tangent attribute. Maps bind at fragment texture indices 8-11 (`VROMaterialSubstrateMetal::getIndexedTextures`), past the shadow and IBL textures.
+- **An occlusion map on its own UV set (`VROGLTFLoader`, `VROShaderFactory`, `VROMaterialVisual::setTexcoordSet`).** A glTF occlusionTexture on `TEXCOORD_1` (a lightmap) was sampled with the base color's coordinates. The second set is loaded as the new `VROGeometrySourceSemantic::Texcoord1` and read only by the occlusion map; GL binds it at attribute 6, the EdgeCrease slot no shader reads, since all 16 guaranteed slots were taken. Not on visionOS, whose Metal path reads one set: there such a map is left out.
+
+### Fixed
+
+- **Metals under flat ambient light (`VROShaderFactory`, `Shaders.metal`).** Without an environment map the PBR ambient term was `ambient × albedo × occlusion`, ignoring metalness, so metal surfaces lit like matte paint (a metal visor looked light grey). It is now scaled by `1 - metalness`, as three.js and Filament do: a metal has no diffuse response and nothing to reflect.
+- **`normalTexture.scale` and `occlusionTexture.strength` apply (`VROShaderFactory`, `Shaders.metal`).** The loader read both into the visuals' intensity, which no shader used. The normal map's X and Y are scaled before normalizing, and occlusion is blended toward 1 by its strength.
+- **Mirrored glTF nodes draw their faces (`VROGLTFLoader`).** A node whose world transform has a negative determinant (a negative scale) flips its triangles' winding, so back-face culling removed the faces that should show. The loader reverses the indices of a mirrored, unskinned mesh.
+
 ## v3.1.0 — 8 November 2026
 
 ### Added

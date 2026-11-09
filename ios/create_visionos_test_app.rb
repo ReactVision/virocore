@@ -50,25 +50,34 @@ fw_group       = project.main_group.new_group('Frameworks')
 # ── App sources ───────────────────────────────────────────────────────────────
 
 APP_SOURCES = %w[ViroKitVisionOSTestApp.swift ContentView.swift]
-APP_HEADERS = %w[BridgingHeader.h]
-APP_RESOURCES = %w[Info.plist]
+APP_HEADERS = %w[BridgingHeader.h ViroReactStub/module.modulemap]
+APP_FILES = %w[Info.plist]
+# Bundled for the bridge's test scene (VRORendererBridge loads each GLB it finds in the
+# main bundle) and for the runtime Metal library (ViroShadersSource.txt).
+APP_RESOURCES = %w[shiba.glb Soldier.glb DamagedHelmet.glb 360_space.jpg ViroShadersSource.txt]
 
 APP_SOURCES.each do |name|
   ref = app_group.new_reference(File.join(APP_DIR, name))
   target.add_file_references([ref])
 end
-APP_HEADERS.each   { |n| app_group.new_reference(File.join(APP_DIR, n)) }
-APP_RESOURCES.each { |n| app_group.new_reference(File.join(APP_DIR, n)) }
+APP_HEADERS.each { |n| app_group.new_reference(File.join(APP_DIR, n)) }
+APP_FILES.each   { |n| app_group.new_reference(File.join(APP_DIR, n)) }
+APP_RESOURCES.each do |name|
+  ref = app_group.new_reference(File.join(APP_DIR, name))
+  target.resources_build_phase.add_file_reference(ref)
+end
 
 # ── VisionOS sources (from viro repo) ─────────────────────────────────────────
 
 VISIONOS_COMPILE = %w[
   VRORendererBridge.mm
+  VROSharedSpaceBridge.mm
   ViroImmersiveRenderer.swift
   ViroImmersiveSpace.swift
   ViroImmersiveCoordinator.swift
+  ViroSharedSpace.swift
 ]
-VISIONOS_HEADERS = %w[VRORendererBridge.h]
+VISIONOS_HEADERS = %w[VRORendererBridge.h VROSharedSpaceBridge.h]
 
 VISIONOS_COMPILE.each do |name|
   ref = visionos_group.new_reference(File.join(VISIONOS_SRC, name))
@@ -109,6 +118,12 @@ COMMON_SETTINGS = {
   # Swift
   'SWIFT_VERSION'                => '5.9',
   'SWIFT_OBJC_BRIDGING_HEADER'   => 'App/BridgingHeader.h',
+  # ViroSharedSpace.swift does `import ViroReact`, the pod's module. Outside the pod a
+  # stub module of that name exposes the one header it needs (VROSharedSpaceBridge.h).
+  'SWIFT_INCLUDE_PATHS'          => ['$(inherited)', '$(SRCROOT)/App/ViroReactStub'],
+  'HEADER_SEARCH_PATHS'          => ['$(inherited)', '#{VISIONOS_SRC}'],
+  # ViroKit loads textures through MetalKit and converts images with Accelerate (vImage).
+  'OTHER_LDFLAGS'                => ['$(inherited)', '-framework', 'MetalKit', '-framework', 'Accelerate'],
   # C++
   'CLANG_CXX_LANGUAGE_STANDARD'  => 'gnu++17',
   'CLANG_CXX_LIBRARY'            => 'libc++',
@@ -165,5 +180,5 @@ puts "Next steps:"
 puts "  1. open '#{PROJ_PATH}'"
 puts "  2. Choose destination: Vision Pro Simulator"
 puts "  3. Product → Run (⌘R)"
-puts "  4. Tap 'Launch Immersive' — verify red box renders"
+puts "  4. The immersive space opens by itself: the red box, shiba, Soldier and DamagedHelmet render"
 puts

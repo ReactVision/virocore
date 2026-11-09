@@ -9,6 +9,9 @@ struct ViroKitVisionOSTestApp: App {
             ContentView()
                 .viroImmersiveSpaceController()
         }
+        // A small window, so it does not hide the test scene behind it.
+        .defaultSize(width: 520, height: 260)
+        .windowResizability(.contentSize)
 
         ImmersiveSpace(id: ViroImmersiveSpace.id) {
             ViroImmersiveSpaceView()

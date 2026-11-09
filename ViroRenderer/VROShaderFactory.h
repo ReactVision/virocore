@@ -123,7 +123,8 @@ private:
     std::shared_ptr<VROShaderModifier> createReflectiveTextureModifier();
     std::shared_ptr<VROShaderModifier> createRoughnessTextureModifier();
     std::shared_ptr<VROShaderModifier> createMetalnessTextureModifier();
-    std::shared_ptr<VROShaderModifier> createAOTextureModifier();
+    std::shared_ptr<VROShaderModifier> createAOTextureModifier(bool secondTexcoordSet);
+    std::shared_ptr<VROShaderModifier> createTexcoord1GeometryModifier();
     
     std::shared_ptr<VROShaderModifier> createLambertLightingModifier();
     std::shared_ptr<VROShaderModifier> createPhongLightingModifier();

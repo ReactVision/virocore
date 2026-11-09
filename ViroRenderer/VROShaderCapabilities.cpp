@@ -46,6 +46,7 @@ VROMaterialShaderCapabilities VROShaderCapabilities::deriveMaterialCapabilitiesK
     cap.textureTransform = false;
     cap.emissiveTexture = false;
     cap.ignoresDiffuseAlpha = material.getIgnoresDiffuseAlpha();
+    cap.aoTexcoord1 = false;
     cap.diffuseTextureStereoMode = VROStereoMode::None;
     cap.bloom = false;
     cap.postProcessMask = false;
@@ -123,6 +124,7 @@ VROMaterialShaderCapabilities VROShaderCapabilities::deriveMaterialCapabilitiesK
     }
     if (ao.getTextureType() == VROTextureType::Texture2D) {
         cap.aoMap = true;
+        cap.aoTexcoord1 = ao.getTexcoordSet() == 1;
     }
     
     // Lighting Model. If we don't have a specular texture then we fall back to Lambert
