@@ -179,6 +179,10 @@ int VROGeometryUtilParseAttributeIndex(VROGeometrySourceSemantic semantic) {
             return 14;
         case VROGeometrySourceSemantic::Morph_6:
             return 15;
+        case VROGeometrySourceSemantic::Texcoord1:
+            // GL ES 3 guarantees 16 attributes and 0-15 are taken; EdgeCrease (6) comes
+            // only from VRX subdivision data and no shader reads it.
+            return 6;
         default:
             return 0;
     }

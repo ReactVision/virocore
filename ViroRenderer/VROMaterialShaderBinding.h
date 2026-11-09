@@ -116,6 +116,8 @@ private:
     VROUniform *_emissiveColorUniform;
     VROUniform *_textureTransformUniform;
     VROUniform *_emissiveTextureTransformUniform;
+    VROUniform *_normalScaleUniform;
+    VROUniform *_aoStrengthUniform;
 
     VROUniform *_normalMatrixUniform;
     VROUniform *_modelMatrixUniform;
