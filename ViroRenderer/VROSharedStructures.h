@@ -88,7 +88,23 @@ typedef struct {
     matrix_float4x4  texture_transform;
     vector_float3    emissive_color;
     int              ignores_diffuse_alpha;
+
+    // PBR maps (pbr_lighting_fragment_maps): which are bound (VROPBRMap bits), and the
+    // factors glTF scales them by. The emissive map has its own texture transform.
+    int              pbr_maps;
+    float            metalness_intensity;
+    float            roughness_intensity;
+    float            normal_scale;
+    float            ao_strength;
+    matrix_float4x4  emissive_texture_transform;
 } VROMaterialUniforms;
+
+// Bits of VROMaterialUniforms.pbr_maps.
+#define VRO_PBR_MAP_BASE       1
+#define VRO_PBR_MAP_NORMAL     2
+#define VRO_PBR_MAP_METAL_ROUGH 4
+#define VRO_PBR_MAP_AO         8
+#define VRO_PBR_MAP_EMISSIVE   16
 
 typedef struct {
     simd_float3 position;
