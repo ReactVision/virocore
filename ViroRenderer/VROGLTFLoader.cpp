@@ -194,6 +194,23 @@ const tinygltf::Parameter *primaryTextureInfo(const tinygltf::Material &gMat) {
     return nullptr;
 }
 
+/*
+ The UV set a material's occlusion map samples, when it is not the set its other
+ textures sample (a lightmap on TEXCOORD_1); -1 otherwise.
+ */
+int occlusionOwnTexcoordSet(const tinygltf::Model &gModel, int materialIndex, int primarySet) {
+    if (materialIndex < 0 || materialIndex >= (int) gModel.materials.size()) {
+        return -1;
+    }
+    const tinygltf::Material &gMat = gModel.materials[materialIndex];
+    auto occlusion = gMat.additionalValues.find("occlusionTexture");
+    if (occlusion == gMat.additionalValues.end() || occlusion->second.TextureIndex() < 0) {
+        return -1;
+    }
+    int set = readTextureTransform(occlusion->second).texCoord;
+    return set == primarySet ? -1 : set;
+}
+
 GLTFTextureTransform materialTextureTransform(const tinygltf::Model &gModel, int materialIndex) {
     if (materialIndex < 0 || materialIndex >= (int) gModel.materials.size()) {
         return GLTFTextureTransform();
@@ -578,6 +595,51 @@ std::map<int, std::vector<GLTFPointerTrack>> sPointerTracks;
 std::set<int> sAnimatedTransformMaterials;
 std::map<int, std::shared_ptr<VRONode>> sNodesByIndex;
 std::map<int, std::vector<std::shared_ptr<VROMaterial>>> sMaterialsByIndex;
+// glTF nodes whose world transform mirrors (negative determinant): their triangles wind
+// the other way, so their indices are reversed when built.
+std::set<int> sMirroredNodes;
+bool sBuildingMirroredMesh = false;
+
+// Collect the mirrored nodes of a scene: the sign of a world transform's determinant is
+// the product of the signs of its nodes' local determinants.
+void collectMirroredNodes(const tinygltf::Model &gModel, int nodeIndex, bool parentMirrored) {
+    if (nodeIndex < 0 || nodeIndex >= (int) gModel.nodes.size()) {
+        return;
+    }
+    const tinygltf::Node &n = gModel.nodes[nodeIndex];
+    bool mirrored = parentMirrored;
+    if (n.matrix.size() == 16) {
+        const std::vector<double> &m = n.matrix;
+        double det = m[0] * (m[5] * m[10] - m[9] * m[6]) - m[4] * (m[1] * m[10] - m[9] * m[2]) + m[8] * (m[1] * m[6] - m[5] * m[2]);
+        mirrored = mirrored != (det < 0);
+    } else if (n.scale.size() >= 3) {
+        mirrored = mirrored != (n.scale[0] * n.scale[1] * n.scale[2] < 0);
+    }
+    if (mirrored) {
+        sMirroredNodes.insert(nodeIndex);
+    }
+    for (int child : n.children) {
+        collectMirroredNodes(gModel, child, mirrored);
+    }
+}
+
+// Reverse the winding of a triangle element (swap the 2nd and 3rd index of each).
+void reverseTriangleWinding(std::shared_ptr<VROGeometryElement> &element) {
+    if (element->getPrimitiveType() != VROGeometryPrimitiveType::Triangle || !element->getData()) {
+        return;
+    }
+    int bytes = element->getBytesPerIndex();
+    int count = element->getPrimitiveCount() * 3;
+    std::shared_ptr<VROData> data = element->getData();
+    if (count <= 0 || (bytes != 2 && bytes != 4) || data->getDataLength() < count * bytes) {
+        return;
+    }
+    std::vector<unsigned char> copy((unsigned char *) data->getData(), (unsigned char *) data->getData() + count * bytes);
+    for (int t = 0; t < count; t += 3) {
+        std::swap_ranges(copy.begin() + (t + 1) * bytes, copy.begin() + (t + 2) * bytes, copy.begin() + (t + 2) * bytes);
+    }
+    element->setData(std::make_shared<VROData>((void *) copy.data(), (int) copy.size(), VRODataOwnership::Copy));
+}
 
 }  // namespace
 
@@ -1187,6 +1249,8 @@ void VROGLTFLoader::clearCachedData() {
     sAnimatedTransformMaterials.clear();
     sNodesByIndex.clear();
     sMaterialsByIndex.clear();
+    sMirroredNodes.clear();
+    sBuildingMirroredMesh = false;
 }
 
 void VROGLTFLoader::injectBindPoseAnimations() {
@@ -2329,6 +2393,9 @@ bool VROGLTFLoader::processScene(const tinygltf::Model &gModel, std::shared_ptr<
 
     std::vector<int> gNodeIndexes = gScene.nodes;
     for (int gNodeIndex : gNodeIndexes) {
+        collectMirroredNodes(gModel, gNodeIndex, false);
+    }
+    for (int gNodeIndex : gNodeIndexes) {
         // Fail fast if we have failed to process a node in the scene.
         if (!processNode(gModel, sceneNode, gNodeIndex, driver)) {
             return false;
@@ -2394,7 +2461,10 @@ bool VROGLTFLoader::processNode(const tinygltf::Model &gModel, std::shared_ptr<V
     // Process the Geometry for this node, if any.
     // Fail fast if we have failed to process the node's mesh.
     int meshIndex = gNode.mesh;
-    if (meshIndex >= 0 && !processMesh(gModel, node, gModel.meshes[meshIndex], meshIndex, driver)) {
+    sBuildingMirroredMesh = gNode.skin < 0 && sMirroredNodes.count(gNodeIndex) > 0;
+    bool meshBuilt = meshIndex < 0 || processMesh(gModel, node, gModel.meshes[meshIndex], meshIndex, driver);
+    sBuildingMirroredMesh = false;
+    if (!meshBuilt) {
         return false;
     }
 
@@ -2704,8 +2774,17 @@ bool VROGLTFLoader::processMesh(const tinygltf::Model &gModel, std::shared_ptr<V
 
         // Grab vertex indexing information needed for creating meshes.
         bool successVertex = processVertexElement(gModel, gPrimitive, elements);
+        // A glTF occlusion map on its own UV set (a lightmap) samples that set as Texcoord1.
+        int occlusionSet = occlusionOwnTexcoordSet(gModel, gPrimitive.material, textureTransform.texCoord);
+        if (occlusionSet >= 0 &&
+            gPrimitive.attributes.find("TEXCOORD_" + VROStringUtil::toString(occlusionSet)) == gPrimitive.attributes.end()) {
+            occlusionSet = -1;
+        }
         bool successAttributes = processVertexAttributes(gModel, gPrimitive.attributes, sources, elements.size() - 1, driver,
-                                                         textureTransform.texCoord);
+                                                         textureTransform.texCoord, occlusionSet);
+        if (successVertex && sBuildingMirroredMesh) {
+            reverseTriangleWinding(elements.back());
+        }
         processTangent(elements, sources, elements.size() - 1);
         
         if (!successVertex || !successAttributes) {
@@ -2721,6 +2800,9 @@ bool VROGLTFLoader::processMesh(const tinygltf::Model &gModel, std::shared_ptr<V
             material = getMaterial(gModel, gMat);
             if (textureTransform.present || sAnimatedTransformMaterials.count(gMatIndex)) {
                 material->getDiffuse().setContentsTransform(textureTransformMatrix(textureTransform));
+            }
+            if (occlusionSet >= 0) {
+                material->getAmbientOcclusion().setTexcoordSet(1);
             }
             sMaterialsByIndex[gMatIndex].push_back(material);
         }
@@ -3207,7 +3289,8 @@ bool VROGLTFLoader::processVertexAttributes(const tinygltf::Model &gModel,
                                             std::vector<std::shared_ptr<VROGeometrySource>> &sources,
                                             size_t geoElementIndex,
                                             std::shared_ptr<VRODriver> driver,
-                                            int texcoordSet) {
+                                            int texcoordSet,
+                                            int texcoord1Set) {
     if (gAttributes.size() <= 0) {
         return false;
     }
@@ -3216,6 +3299,8 @@ bool VROGLTFLoader::processVertexAttributes(const tinygltf::Model &gModel,
     // primitive has it, that set is the texture coordinates, in place of TEXCOORD_0.
     std::string texcoordName = "TEXCOORD_" + VROStringUtil::toString(texcoordSet);
     bool otherTexcoordSet = texcoordSet > 0 && gAttributes.find(texcoordName) != gAttributes.end();
+    // A second set, sampled by a texture with its own UV set (the occlusion map).
+    std::string texcoord1Name = texcoord1Set >= 0 ? "TEXCOORD_" + VROStringUtil::toString(texcoord1Set) : "";
 
     // Iterate through each Vertex Attribute (Position / Normals / etc) to parse its data
     for (auto const& gAttribute : gAttributes) {
@@ -3224,12 +3309,17 @@ bool VROGLTFLoader::processVertexAttributes(const tinygltf::Model &gModel,
 
         // Ensure we only parse valid attributes, gracefully skip over the ones we do not yet support
         VROGeometrySourceSemantic attributeType = getGeometryAttribute(attributeName);
-        if (otherTexcoordSet) {
-            if (attributeName == "TEXCOORD_0") {
-                continue;
-            }
-            if (attributeName == texcoordName) {
-                attributeType = VROGeometrySourceSemantic::Texcoord;
+        if (otherTexcoordSet && attributeName == "TEXCOORD_0") {
+            attributeType = VROGeometrySourceSemantic::Invalid;
+        }
+        if (otherTexcoordSet && attributeName == texcoordName) {
+            attributeType = VROGeometrySourceSemantic::Texcoord;
+        }
+        if (!texcoord1Name.empty() && attributeName == texcoord1Name) {
+            if (attributeName == texcoordName && attributeType == VROGeometrySourceSemantic::Texcoord) {
+                // Both sets are this one: it is read once, as the texcoord source.
+            } else {
+                attributeType = VROGeometrySourceSemantic::Texcoord1;
             }
         }
         if (attributeType == VROGeometrySourceSemantic::Invalid) {
