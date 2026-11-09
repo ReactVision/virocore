@@ -57,6 +57,8 @@ VROMaterialShaderBinding::VROMaterialShaderBinding(std::shared_ptr<VROShaderProg
     _emissiveColorUniform(nullptr),
     _textureTransformUniform(nullptr),
     _emissiveTextureTransformUniform(nullptr),
+    _normalScaleUniform(nullptr),
+    _aoStrengthUniform(nullptr),
     _normalMatrixUniform(nullptr),
     _modelMatrixUniform(nullptr),
     _viewMatrixUniform(nullptr),
@@ -88,6 +90,8 @@ void VROMaterialShaderBinding::loadUniforms() {
     _emissiveColorUniform = program->getUniform("material_emissive_color");
     _textureTransformUniform = program->getUniform("material_texture_transform");
     _emissiveTextureTransformUniform = program->getUniform("material_emissive_texture_transform");
+    _normalScaleUniform = program->getUniform("material_normal_scale");
+    _aoStrengthUniform = program->getUniform("material_ao_strength");
 
     _normalMatrixUniform = program->getUniform("normal_matrix");
     _modelMatrixUniform = program->getUniform("model_matrix");
@@ -316,6 +320,12 @@ void VROMaterialShaderBinding::bindMaterialUniforms(const VROMaterial &material,
     }
     if (_textureTransformUniform != nullptr) {
         _textureTransformUniform->setMat4(material.getDiffuse().getContentsTransform());
+    }
+    if (_normalScaleUniform != nullptr) {
+        _normalScaleUniform->setFloat(material.getNormal().getIntensity());
+    }
+    if (_aoStrengthUniform != nullptr) {
+        _aoStrengthUniform->setFloat(material.getAmbientOcclusion().getIntensity());
     }
     if (_emissiveTextureTransformUniform != nullptr) {
         _emissiveTextureTransformUniform->setMat4(material.getEmission().getContentsTransform());

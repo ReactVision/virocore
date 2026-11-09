@@ -575,6 +575,9 @@ void VROShaderProgram::bindAttributes() {
     if ((_attributes & (int)VROShaderMask::Tex) != 0) {
         GL( glBindAttribLocation(_program, VROGeometryUtilParseAttributeIndex(VROGeometrySourceSemantic::Texcoord), "texcoord") );
     }
+    if ((_attributes & (int)VROShaderMask::Tex1) != 0) {
+        GL( glBindAttribLocation(_program, VROGeometryUtilParseAttributeIndex(VROGeometrySourceSemantic::Texcoord1), "texcoord1") );
+    }
     if ((_attributes & (int)VROShaderMask::Color) != 0) {
         GL( glBindAttribLocation(_program, VROGeometryUtilParseAttributeIndex(VROGeometrySourceSemantic::Color), "color") );
     }
