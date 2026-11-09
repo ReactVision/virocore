@@ -1,0 +1,6 @@
+// A stand-in for the ViroReact pod's module, so ViroSharedSpace.swift (which imports it)
+// builds in this test app. It exposes only the header that file uses.
+module ViroReact {
+    header "../../../../../viro/ios/ViroReact/VisionOS/VROSharedSpaceBridge.h"
+    export *
+}

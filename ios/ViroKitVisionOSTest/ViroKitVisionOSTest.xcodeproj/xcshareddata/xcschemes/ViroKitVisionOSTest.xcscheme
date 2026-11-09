@@ -14,7 +14,7 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "54A09520D0AB7E6F6425B267"
+               BlueprintIdentifier = "81A0C00D4066EFD70D335673"
                BuildableName = "ViroKitVisionOSTest.app"
                BlueprintName = "ViroKitVisionOSTest"
                ReferencedContainer = "container:ViroKitVisionOSTest.xcodeproj">
@@ -44,7 +44,7 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "54A09520D0AB7E6F6425B267"
+            BlueprintIdentifier = "81A0C00D4066EFD70D335673"
             BuildableName = "ViroKitVisionOSTest.app"
             BlueprintName = "ViroKitVisionOSTest"
             ReferencedContainer = "container:ViroKitVisionOSTest.xcodeproj">
