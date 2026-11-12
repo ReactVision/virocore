@@ -223,13 +223,34 @@ void VROAudioPlayeriOS::pause() {
 
 void VROAudioPlayeriOS::dataIsReady() {
     if (!_player) {
-        _player = [[AVAudioPlayer alloc] initWithContentsOfURL:[NSURL URLWithString:[NSString stringWithUTF8String:_data->getLocalFilePath().c_str()]]
-                                                         error:NULL];
+        // A downloaded sound comes back as a bare path in the temp directory, which
+        // URLWithString turns into a URL with no scheme that AVAudioPlayer cannot open.
+        // A local source keeps its file:// URI.
+        std::string localPath = _data->getLocalFilePath();
+        NSString *pathString = [NSString stringWithUTF8String:localPath.c_str()];
+        NSURL *fileURL = VROStringUtil::startsWith(localPath, "/") ? [NSURL fileURLWithPath:pathString]
+                                                                   : [NSURL URLWithString:pathString];
+        NSError *error = nil;
+        _player = [[AVAudioPlayer alloc] initWithContentsOfURL:fileURL error:&error];
+        if (!_player) {
+            if (_delegate) {
+                _delegate->soundDidFail(error ? std::string([[error localizedDescription] UTF8String])
+                                              : "Failed to open sound file");
+            }
+            return;
+        }
+        // As on the URL path: the AVAudioPlayer delegate reports the end of the
+        // sound (onFinish), and soundIsReady lets the bridge apply its props.
+        _audioDelegate = [[VROAudioPlayerDelegate alloc] initWithSoundDelegate:_delegate];
+        _player.delegate = _audioDelegate;
         [_player prepareToPlay];
         updatePlayerProperties();
-        
+
         if (!_paused) {
             [_player play];
+        }
+        if (_delegate) {
+            _delegate->soundIsReady();
         }
     }
 }
