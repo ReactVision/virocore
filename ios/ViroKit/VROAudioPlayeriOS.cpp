@@ -45,8 +45,9 @@ VROAudioPlayeriOS::VROAudioPlayeriOS(std::shared_ptr<VROData> data) :
     _playVolume(1.0),
     _muted(false),
     _paused(false),
-    _numberOfLoops(0),
-    _loop(false) {
+    _loop(false),
+    _isLocal(true),
+    _numberOfLoops(0) {
     
     _player = [[AVAudioPlayer alloc] initWithData:[NSData dataWithBytes:data->getData() length:data->getDataLength()]
                                             error:NULL];
@@ -57,8 +58,9 @@ VROAudioPlayeriOS::VROAudioPlayeriOS(std::shared_ptr<VROSoundData> data) :
     _playVolume(1.0),
     _muted(false),
     _paused(false),
-    _numberOfLoops(0),
-    _loop(false) {
+    _loop(false),
+    _isLocal(false),
+    _numberOfLoops(0) {
     _data = data;
 }
 
