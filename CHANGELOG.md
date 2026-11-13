@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## Unreleased
+
+### Fixed
+
+- **iOS: sounds built from preloaded sound data play (`VROAudioPlayeriOS`).** A player made from a `VROSoundData` opened the downloaded file with `URLWithString`, which turns a bare temp-directory path into a URL with no scheme that `AVAudioPlayer` cannot open, so a preloaded sound never played. A bare path is now opened as a file URL, a failure to open it reaches `soundDidFail`, and the player gets the same `AVAudioPlayer` delegate (for `onFinish`) and `soundIsReady` as one built from a URL. `_isLocal` is now set by every constructor; it was left uninitialised for the data constructors, and `setup()` reads it.
+- **Controllers receive `onPinch` and `onRotate` (`VROInputControllerBase`, `VROInputPresenter`).** Pinch and rotate went only to the node under the gesture, never to the controller's own delegates, and the presenter had no forward for them, so a controller enabling them heard nothing. They now reach the controller's delegates as drag does, gated on `OnPinch` and `OnRotate` being enabled, and for every gesture, as touch does: the node is null when the gesture started on nothing that takes it.
+
 ## v3.1.1 — 9 November 2026
 
 ### Added
