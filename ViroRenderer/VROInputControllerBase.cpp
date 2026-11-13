@@ -544,48 +544,55 @@ VROVector3f VROInputControllerBase::getDragPositionFixedToPlane(const std::share
 }
 
 void VROInputControllerBase::onPinch(int source, float scaleFactor, VROEventDelegate::PinchState pinchState) {
+    // The controller's own delegates hear every pinch, as they do every touch:
+    // the pinched node is null when the pinch started on nothing that takes it.
     if(pinchState == VROEventDelegate::PinchState::PinchStart) {
-        if(_hitResult == nullptr) {
-            return;
-        }
         _lastPinchScale = scaleFactor;
-        _currentPinchedNode = getNodeToHandleEvent(VROEventDelegate::EventAction::OnPinch, _hitResult->getNode());
+        _currentPinchedNode = _hitResult == nullptr ? nullptr :
+            getNodeToHandleEvent(VROEventDelegate::EventAction::OnPinch, _hitResult->getNode());
     }
     
-    if(_currentPinchedNode && pinchState == VROEventDelegate::PinchState::PinchMove) {
+    if(pinchState == VROEventDelegate::PinchState::PinchMove) {
         if(fabs(scaleFactor - _lastPinchScale) < ON_PINCH_SCALE_THRESHOLD) {
             return;
         }
     }
 
-    if(_currentPinchedNode && _currentPinchedNode->getEventDelegate()) {
-        _currentPinchedNode->getEventDelegate()->onPinch(source, _currentPinchedNode, scaleFactor, pinchState);
-        if(pinchState == VROEventDelegate::PinchState::PinchEnd) {
-            _currentPinchedNode = nullptr;
-        }
+    std::shared_ptr<VRONode> pinchedNode = _currentPinchedNode;
+    if(pinchState == VROEventDelegate::PinchState::PinchEnd) {
+        _currentPinchedNode = nullptr;
+    }
+    if(pinchedNode && pinchedNode->getEventDelegate()) {
+        pinchedNode->getEventDelegate()->onPinch(source, pinchedNode, scaleFactor, pinchState);
+    }
+    for (std::shared_ptr<VROEventDelegate> delegate : _delegates) {
+        delegate->onPinch(source, pinchedNode, scaleFactor, pinchState);
     }
 }
 
 void VROInputControllerBase::onRotate(int source, float rotationRadians, VROEventDelegate::RotateState rotateState) {
+    // As with pinch, the controller's own delegates hear every rotate.
     if(rotateState == VROEventDelegate::RotateState::RotateStart) {
-        if(_hitResult == nullptr) {
-            return;
-        }
         _lastRotation = rotationRadians;
-        _currentRotateNode = getNodeToHandleEvent(VROEventDelegate::EventAction::OnRotate, _hitResult->getNode());
+        _currentRotateNode = _hitResult == nullptr ? nullptr :
+            getNodeToHandleEvent(VROEventDelegate::EventAction::OnRotate, _hitResult->getNode());
     }
     
-    if(_currentRotateNode && rotateState == VROEventDelegate::RotateState::RotateMove) {
+    if(rotateState == VROEventDelegate::RotateState::RotateMove) {
         if(fabs(rotationRadians - _lastRotation) < ON_ROTATE_THRESHOLD) {
             return;
         }
     }
     
-    if(_currentRotateNode && _currentRotateNode->getEventDelegate()) {
-        _currentRotateNode->getEventDelegate()->onRotate(source, _currentRotateNode, rotationRadians, rotateState);
-        if(rotateState == VROEventDelegate::RotateState::RotateEnd) {
-            _currentRotateNode = nullptr;
-        }
+    std::shared_ptr<VRONode> rotatedNode = _currentRotateNode;
+    if(rotateState == VROEventDelegate::RotateState::RotateEnd) {
+        _currentRotateNode = nullptr;
+    }
+    if(rotatedNode && rotatedNode->getEventDelegate()) {
+        rotatedNode->getEventDelegate()->onRotate(source, rotatedNode, rotationRadians, rotateState);
+    }
+    for (std::shared_ptr<VROEventDelegate> delegate : _delegates) {
+        delegate->onRotate(source, rotatedNode, rotationRadians, rotateState);
     }
 }
 
