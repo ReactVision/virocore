@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- **Android: a ReactVision cloud anchor resolve is held by an ARCore anchor (`VROARSessionARCore`).** The resolve came back as a pose in world coordinates and nothing tracked it, so when ARCore later shifted its world (a relocalisation, a map merge, such as after the app returns from the background) the pose stayed put and content placed from it ended up elsewhere in the room. The resolved pose now gets an ARCore anchor added to the session, as the ARCore provider's resolved anchors do: it moves with those corrections, the scene's anchor callbacks report it, and a node can attach to it by id. When ARCore cannot make an anchor (tracking limited) the pose is returned as before. A wrong camera pose right after resume, before ARCore has relocalised, is not affected: everything shows in the wrong place until it does.
 - **Android: calling an `ARScene` after it was disposed no longer crashes (`ARScene`).** `dispose()` sets the native reference to 0 while callers can still hold the scene, such as a React scene torn down by a tab switch or a pushed screen, and every native entry point dereferenced it unchecked, so a call such as `getCameraGeospatialPose` crashed with SIGSEGV. Each public method that reaches native code now answers first: callbacks with the error `AR scene is gone` (scan callbacks with their JSON for nothing available, VPS availability with `UNKNOWN`), and return values with `false`, 0, null, `EarthTrackingState.STOPPED` or `RecordingStatus.UNSUPPORTED`. `stopRecording` still stops the Java recorder.
 
 ## v3.2.0 — 15 November 2026

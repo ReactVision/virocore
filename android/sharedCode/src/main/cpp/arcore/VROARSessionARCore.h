@@ -389,6 +389,12 @@ public:
 private:
 
     /*
+     Moves a ReactVision resolve result onto an ARCore anchor added to this session.
+     Invoke from the rendering thread.
+     */
+    std::shared_ptr<VROARAnchor> trackResolvedAnchor(std::shared_ptr<VROARAnchor> resolved);
+
+    /*
      AR session recording (see the public API above). Global ref to the Java
      ARScene object recordFrameForRecording() calls back into; released in
      stopRecording()/setRecordingJavaCallback(nullptr).
