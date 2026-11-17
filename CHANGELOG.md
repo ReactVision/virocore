@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## Unreleased
+
+### Fixed
+
+- **A tap on a moving node clicks it (`VROInputControllerAR`, `VROInputControllerBase`).** A screen touch is hit-tested again at release, and a click completed only when the release still resolved to the pressed node, so a tap on a node that moved during the press (an animation, physics, or the camera) sent `onClickState` down and up but no `onClick`. On a Pixel 6 Pro, 8 of 11 150 ms presses on a box crossing the screen were lost this way. A touch that ends within about 2% of the viewport's shorter side of where it started, and within 500 ms, now completes the click on the pressed node, with the press's hit position. A longer or moving touch, and every controller click, behave as before. Android touches were affected; iOS delivers a tap's down and up together, so only its long-press path was.
+
 ## v3.2.0 — 15 November 2026
 
 ### Fixed
