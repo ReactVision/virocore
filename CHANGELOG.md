@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## Unreleased
+
+### Fixed
+
+- **Android: calling an `ARScene` after it was disposed no longer crashes (`ARScene`).** `dispose()` sets the native reference to 0 while callers can still hold the scene, such as a React scene torn down by a tab switch or a pushed screen, and every native entry point dereferenced it unchecked, so a call such as `getCameraGeospatialPose` crashed with SIGSEGV. Each public method that reaches native code now answers first: callbacks with the error `AR scene is gone` (scan callbacks with their JSON for nothing available, VPS availability with `UNKNOWN`), and return values with `false`, 0, null, `EarthTrackingState.STOPPED` or `RecordingStatus.UNSUPPORTED`. `stopRecording` still stops the Java recorder.
+
 ## v3.2.0 — 15 November 2026
 
 ### Fixed
