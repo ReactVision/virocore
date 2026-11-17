@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## Unreleased
+
+### Fixed
+
+- **A node faded by its parent's opacity no longer hides translucent content behind it (`VROGeometry`).** A draw was sorted as transparent only by the node's own opacity, so the children of a node with `opacity` below 1 were drawn with the opaque objects, before the translucent ones, and wrote depth. Translucent content behind them, such as text or another faded object, then failed the depth test and disappeared. The sort now uses the opacity the node inherits, so those children are drawn with the other translucent objects, back to front.
+
 ## v3.2.0 — 15 November 2026
 
 ### Fixed
