@@ -5,6 +5,7 @@
 ### Fixed
 
 - **iOS: a detected object reaches its object marker (`VROARSessioniOS`).** The anchor type was picked by an `else if` chain on the iOS version, and the iOS 11.3 branch, which every current device takes, handled only image anchors. The object-anchor case sat in a following iOS 12 branch that was never reached, so an `ARObjectAnchor` was dropped without a log and an object marker never fired. Object anchors are now handled inside the iOS 11.3 branch.
+- **iOS: an object target whose `.arobject` fails to load no longer crashes the app (`VROARSessioniOS`).** The failed load left a nil reference object, which was added to ARKit's detection set and raised `NSInvalidArgumentException`. The target is now skipped with a warning.
 
 ## v3.2.0 — 15 November 2026
 

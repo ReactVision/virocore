@@ -1339,6 +1339,12 @@ void VROARSessioniOS::addARObjectTarget(
 
     if (objectTarget && getTrackingType() == VROTrackingType::DOF6) {
       ARReferenceObject *refObject = objectTarget->getARReferenceObject();
+      // A .arobject that failed to load leaves no reference object, and adding
+      // nil to the detection set throws.
+      if (!refObject) {
+        pwarn("[Viro] Skipping object target: its .arobject did not load");
+        return;
+      }
 
       // add the ARReferenceObject & VROARObjectTarget to a map
       _arKitReferenceObjectMap[refObject] = target;
