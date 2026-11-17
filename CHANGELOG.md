@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## Unreleased
+
+### Added
+
+- **iOS: `VROARSessioniOS::createAnchoredNode(position)` and `removeAnchoredNode(node)`.** Anchors a new `VROARNode` at a world position with an ARKit `ARAnchor`, so ARKit's corrections to its map move the node, as `ARScene.createAnchoredNode` does on ARCore. The anchor is registered for ARKit's updates itself, because a plain `ARAnchor` reported by ARKit has no Viro anchor and its updates were dropped; that is also why a node from `VROARHitTestResultiOS::createAnchoredNodeAtHitLocation` on a new anchor never moved after it was made.
+
 ## v3.2.0 — 15 November 2026
 
 ### Fixed
