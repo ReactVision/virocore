@@ -1912,8 +1912,9 @@ void VROARSessioniOS::addAnchor(ARAnchor *anchor) {
     vAnchor = std::make_shared<VROARPlaneAnchor>();
   }
 #if __IPHONE_OS_VERSION_MAX_ALLOWED >= 110300
-  // ignore the warning. The curious thing is that we don't even need the
-  // @available() check...
+  // Every device from iOS 11.3 takes this branch, so object anchors (iOS 12)
+  // must be handled inside it: a sibling `else if (@available(iOS 12.0, *))`
+  // is never reached.
   else if (@available(iOS 11.3, *)) {
     if ([anchor isKindOfClass:[ARImageAnchor class]]) {
       ARImageAnchor *imageAnchor = (ARImageAnchor *)anchor;
@@ -1925,37 +1926,26 @@ void VROARSessioniOS::addAnchor(ARAnchor *anchor) {
         target->setAnchor(vAnchor);
       }
     }
-  }
-#endif
 #if __IPHONE_OS_VERSION_MAX_ALLOWED >= 120000
-  else if (@available(iOS 12.0, *)) {
-    if ([anchor isKindOfClass:[ARImageAnchor class]]) {
-      ARImageAnchor *imageAnchor = (ARImageAnchor *)anchor;
-      auto it = _arKitReferenceImageMap.find(imageAnchor.referenceImage);
-      if (it != _arKitReferenceImageMap.end()) {
-        std::shared_ptr<VROARImageTarget> target = it->second;
-        vAnchor = std::make_shared<VROARImageAnchor>(
-            target, VROARImageTrackingMethod::Tracking);
-        target->setAnchor(vAnchor);
+    else if (@available(iOS 12.0, *)) {
+      if ([anchor isKindOfClass:[ARObjectAnchor class]]) {
+        ARObjectAnchor *objAnchor = (ARObjectAnchor *)anchor;
+        auto it = _arKitReferenceObjectMap.find(objAnchor.referenceObject);
+        if (it != _arKitReferenceObjectMap.end()) {
+          std::shared_ptr<VROARObjectTarget> target = it->second;
+          vAnchor = std::make_shared<VROARObjectAnchor>(target);
+          target->setAnchor(vAnchor);
+        }
       }
     }
-
-    if ([anchor isKindOfClass:[ARObjectAnchor class]]) {
-      ARObjectAnchor *objAnchor = (ARObjectAnchor *)anchor;
-      auto it = _arKitReferenceObjectMap.find(objAnchor.referenceObject);
-      if (it != _arKitReferenceObjectMap.end()) {
-        std::shared_ptr<VROARObjectTarget> target = it->second;
-        vAnchor = std::make_shared<VROARObjectAnchor>(target);
-        target->setAnchor(vAnchor);
-      }
-    }
+#endif
   }
 #endif
   else {
     vAnchor = std::make_shared<VROARAnchor>();
   }
-  // Guard: on SDK >= 120000 the else above is unreachable (else if(iOS 12) is always taken),
-  // so vAnchor may still be null for unrecognized anchor subtypes. Skip silently.
+  // From iOS 11.3 an anchor of any other class, or an image or object anchor
+  // whose target is no longer registered, leaves vAnchor null and is skipped.
   if (!vAnchor) {
     return;
   }
