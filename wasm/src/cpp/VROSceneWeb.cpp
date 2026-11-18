@@ -1018,7 +1018,14 @@ static void viroSetMaterialLightingModel(int material, int model) {
         default: break;
     }
 }
+// Which of alpha, bloom and chroma key a material was given, so a shader
+// override copies only those onto a model, as the native bridges copy only the
+// authored keys: OBJ and VRX models carry a transparency of their own.
+enum WebAuthoredEffect { kAuthoredAlpha = 1, kAuthoredBloom = 2, kAuthoredChromaKey = 4 };
+static std::unordered_map<const VROMaterial *, int> sAuthoredEffects;
+
 static void viroDestroyMaterial(int material) {
+    if (auto m = getMaterial(material)) sAuthoredEffects.erase(m.get());
     sMaterials.erase(material);
 }
 
@@ -1066,6 +1073,30 @@ static void viroSetMaterialWritesToDepthBuffer(int material, bool writes) {
 }
 static void viroSetMaterialReadsFromDepthBuffer(int material, bool reads) {
     if (auto m = getMaterial(material)) m->setReadsFromDepthBuffer(reads);
+}
+static void viroSetMaterialTransparency(int material, float alpha) {
+    auto m = getMaterial(material);
+    if (!m) return;
+    m->setTransparency(alpha);
+    sAuthoredEffects[m.get()] |= kAuthoredAlpha;
+}
+// Under 0 takes the material out of the bloom pass, as native's default -1 does.
+static void viroSetMaterialBloomThreshold(int material, float threshold) {
+    auto m = getMaterial(material);
+    if (!m) return;
+    m->setBloomThreshold(threshold);
+    sAuthoredEffects[m.get()] |= kAuthoredBloom;
+}
+// mask: VROColorMask bits (Red 1, Green 2, Blue 4, Alpha 8).
+static void viroSetMaterialColorWriteMask(int material, int mask) {
+    if (auto m = getMaterial(material)) m->setColorWriteMask((VROColorMask) (mask & VROColorMaskAll));
+}
+static void viroSetMaterialChromaKey(int material, bool enabled, float r, float g, float b) {
+    auto m = getMaterial(material);
+    if (!m) return;
+    m->setChromaKeyFilteringColor({r, g, b});
+    m->setChromaKeyFilteringEnabled(enabled);
+    sAuthoredEffects[m.get()] |= kAuthoredChromaKey;
 }
 
 // entryPoint: "geometry"|"vertex"|"surface"|"fragment"|"lightingModel"|"image".
@@ -1370,6 +1401,15 @@ static void mergeShaderOverride(const std::shared_ptr<VROMaterial> &source,
     // stop a rigged mesh skinning. Each merge starts from the baseline, so
     // nothing accumulates across applications.
     dest->setThreadRestrictionEnabled(false);
+    // Native copies no colour write mask onto a model, so neither does this.
+    auto authored = sAuthoredEffects.find(source.get());
+    int effects = authored == sAuthoredEffects.end() ? 0 : authored->second;
+    if (effects & kAuthoredAlpha) dest->setTransparency(source->getTransparency());
+    if (effects & kAuthoredBloom) dest->setBloomThreshold(source->getBloomThreshold());
+    if (effects & kAuthoredChromaKey) {
+        dest->setChromaKeyFilteringColor(source->getChromaKeyFilteringColor());
+        dest->setChromaKeyFilteringEnabled(source->isChromaKeyFilteringEnabled());
+    }
     for (const auto &modifier : source->getShaderModifiers()) {
         dest->addShaderModifier(modifier);
     }
@@ -2208,6 +2248,10 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroSetMaterialBlendMode", &viroSetMaterialBlendMode);
     emscripten::function("viroSetMaterialWritesToDepthBuffer", &viroSetMaterialWritesToDepthBuffer);
     emscripten::function("viroSetMaterialReadsFromDepthBuffer", &viroSetMaterialReadsFromDepthBuffer);
+    emscripten::function("viroSetMaterialTransparency", &viroSetMaterialTransparency);
+    emscripten::function("viroSetMaterialBloomThreshold", &viroSetMaterialBloomThreshold);
+    emscripten::function("viroSetMaterialColorWriteMask", &viroSetMaterialColorWriteMask);
+    emscripten::function("viroSetMaterialChromaKey", &viroSetMaterialChromaKey);
     emscripten::function("viroAddMaterialShaderModifier", &viroAddMaterialShaderModifier);
     emscripten::function("viroRemoveAllMaterialShaderModifiers", &viroRemoveAllMaterialShaderModifiers);
     emscripten::function("viroSetMaterialShaderUniformFloat", &viroSetMaterialShaderUniformFloat);
