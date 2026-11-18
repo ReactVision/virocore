@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- **iOS: `VROARSessioniOS::createAnchoredNode(position)` and `removeAnchoredNode(node)`.** Anchors a new `VROARNode` at a world position with an ARKit `ARAnchor`, so ARKit's corrections to its map move the node, as `ARScene.createAnchoredNode` does on ARCore. The anchor is registered for ARKit's updates itself, because a plain `ARAnchor` reported by ARKit has no Viro anchor and its updates were dropped; that is also why a node from `VROARHitTestResultiOS::createAnchoredNodeAtHitLocation` on a new anchor never moved after it was made.
+
 ### Fixed
 
 - **A node faded by its parent's opacity no longer hides translucent content behind it (`VROGeometry`).** A draw was sorted as transparent only by the node's own opacity, so the children of a node with `opacity` below 1 were drawn with the opaque objects, before the translucent ones, and wrote depth. Translucent content behind them, such as text or another faded object, then failed the depth test and disappeared. The sort now uses the opacity the node inherits, so those children are drawn with the other translucent objects, back to front.

@@ -28,6 +28,7 @@
 #if __IPHONE_OS_VERSION_MAX_ALLOWED >= 110000
 #include <memory>
 #include "VROARAnchor.h"
+#include "VROARNode.h"
 #include "VROARCameraiOS.h"
 #include "VROARFrameiOS.h"
 #include "VROARImageAnchor.h"
@@ -793,6 +794,67 @@ void VROARSessioniOS::addAnchor(std::shared_ptr<VROARAnchor> anchor) {
 
   delegate->anchorWasDetected(anchor);
   _anchors.push_back(anchor);
+}
+
+std::shared_ptr<VROARNode> VROARSessioniOS::createAnchoredNode(VROVector3f position) {
+  if (!_session) {
+    return nullptr;
+  }
+  matrix_float4x4 transform = matrix_identity_float4x4;
+  transform.columns[3] = simd_make_float4(position.x, position.y, position.z, 1);
+  ARAnchor *nativeAnchor = [[ARAnchor alloc] initWithTransform:transform];
+
+  std::shared_ptr<VROARNode> node = std::make_shared<VROARNode>();
+  node->setPositionAtomic(position);
+  node->computeTransformsAtomic({}, {});
+
+  std::shared_ptr<VROARAnchor> anchor = std::make_shared<VROARAnchor>();
+  anchor->setId(std::string([nativeAnchor.identifier.UUIDString UTF8String]));
+  anchor->setTransform(VROConvert::toMatrix4f(transform));
+  anchor->setARNode(node);
+  node->setAnchor(anchor);
+
+  // ARKit reports a plain ARAnchor without a Viro anchor (addAnchor(ARAnchor *)
+  // skips it), so register this one for its updates. The renderer queue runs this
+  // before any ARKit callback for the anchor, which is queued after it.
+  std::weak_ptr<VROARSessioniOS> session_w = shared_from_this();
+  VROPlatformDispatchAsyncRenderer([session_w, anchor] {
+    std::shared_ptr<VROARSessioniOS> session = session_w.lock();
+    if (!session) {
+      return;
+    }
+    session->_nativeAnchorMap[anchor->getId()] = anchor;
+    session->addAnchor(anchor);
+  });
+  [_session addAnchor:nativeAnchor];
+  return node;
+}
+
+void VROARSessioniOS::removeAnchoredNode(std::shared_ptr<VROARNode> node) {
+  std::shared_ptr<VROARAnchor> anchor = node ? node->getAnchor() : nullptr;
+  if (!anchor) {
+    return;
+  }
+  node->setAnchor(nullptr);
+
+  NSString *anchorId = @(anchor->getId().c_str());
+  for (ARAnchor *nativeAnchor in _session.currentFrame.anchors) {
+    if ([nativeAnchor.identifier.UUIDString isEqualToString:anchorId]) {
+      [_session removeAnchor:nativeAnchor];
+      break;
+    }
+  }
+
+  // Removed here as well, since an anchor ARKit has not reported yet gets no
+  // removal callback; a later callback finds nothing and does nothing.
+  std::weak_ptr<VROARSessioniOS> session_w = shared_from_this();
+  VROPlatformDispatchAsyncRenderer([session_w, anchor] {
+    anchor->setARNode(nullptr);
+    std::shared_ptr<VROARSessioniOS> session = session_w.lock();
+    if (session) {
+      session->removeAnchor(anchor);
+    }
+  });
 }
 
 void VROARSessioniOS::removeAnchor(std::shared_ptr<VROARAnchor> anchor) {
