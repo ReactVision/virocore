@@ -12,6 +12,8 @@
 
 #include <emscripten/bind.h>
 #include <emscripten/em_js.h>
+#include <algorithm>
+#include <cmath>
 
 #include "VROLog.h"
 #include "VRORenderer.h"
@@ -35,6 +37,7 @@
 #include "VROSurface.h"
 #include "VROText.h"
 #include "VROTypeface.h"
+#include "VROTypefaceWasm.h"
 #include "VROPolyline.h"
 #include "VROPolygon.h"
 #include "VROGeometry.h"
@@ -824,13 +827,16 @@ static std::wstring utf8ToWString(const std::string &s) {
     return out;
 }
 
-// Create a text geometry. Alignment/linebreak/clip are int-coded to match
-// VROText's enums. color is RGBA in [0,1]. Uses the preloaded system font.
+// Alignment/linebreak/clip/stroke are int-coded to match VROText's enums, and
+// colors are RGBA in [0,1].
 // hAlign: 0 Left, 1 Right, 2 Center | vAlign: 0 Top, 1 Bottom, 2 Center
 // lineBreak: 0 WordWrap, 1 CharWrap, 2 Justify, 3 None | clip: 0 ClipToBounds, 1 None
-static int viroCreateText(std::string text, float width, float height, int fontSize,
-                          int hAlign, int vAlign, int lineBreak, int clipMode, int maxLines,
-                          float r, float g, float b, float a) {
+// stroke: 0 None, 1 Outline, 2 DropShadow
+static int buildText(std::string text, std::string typefaces, int fontSize, VROFontStyle style,
+                     VROFontWeight weight, VROVector4f color, float extrusion,
+                     int stroke, int strokeWidth, VROVector4f strokeColor,
+                     float width, float height, int hAlign, int vAlign, int lineBreak,
+                     int clipMode, int maxLines) {
     if (!sScene) return 0;
 
     VROTextHorizontalAlignment h;
@@ -853,18 +859,68 @@ static int viroCreateText(std::string text, float width, float height, int fontS
         default: lb = VROLineBreakMode::WordWrap; break;
     }
     VROTextClipMode clip = (clipMode == 1) ? VROTextClipMode::None : VROTextClipMode::ClipToBounds;
+    VROTextOuterStroke outer = stroke == 1 ? VROTextOuterStroke::Outline
+                             : stroke == 2 ? VROTextOuterStroke::DropShadow
+                             : VROTextOuterStroke::None;
 
-    // kWebSystemFont rather than a name typed here: the face this build carries
-    // is a redistribution decision, and it should be made in one place.
-    std::shared_ptr<VROText> textGeom = VROText::createText(
-        utf8ToWString(text), kWebSystemFont, fontSize,
-        VROFontStyle::Normal, VROFontWeight::Regular,
-        {r, g, b, a}, 0 /*extrusion*/, width, height,
+    std::shared_ptr<VROText> textGeom = std::make_shared<VROText>(
+        utf8ToWString(text), typefaces, fontSize, style, weight, color, extrusion,
+        outer, strokeWidth, strokeColor, width, height,
         h, v, lb, clip, maxLines, sScene->getDriver());
+    textGeom->update();
 
     int handle = sNextHandle++;
     sGeometries[handle] = textGeom;
     return handle;
+}
+
+// Create a text geometry in the regular system face (kWebSystemFont, so the face
+// this build carries is decided in one place).
+static int viroCreateText(std::string text, float width, float height, int fontSize,
+                          int hAlign, int vAlign, int lineBreak, int clipMode, int maxLines,
+                          float r, float g, float b, float a) {
+    return buildText(text, kWebSystemFont, fontSize, VROFontStyle::Normal, VROFontWeight::Regular,
+                     {r, g, b, a}, 0, 0, 2, {1, 1, 1, 1}, width, height,
+                     hAlign, vAlign, lineBreak, clipMode, maxLines);
+}
+
+static float numberOr(const emscripten::val &o, const char *key, float fallback) {
+    emscripten::val v = o[key];
+    return v.isNumber() ? v.as<float>() : fallback;
+}
+
+static VROVector4f colorOr(const emscripten::val &o, const char *key, VROVector4f fallback) {
+    emscripten::val c = o[key];
+    if (c.isUndefined() || c.isNull()) return fallback;
+    return { numberOr(c, "r", 1), numberOr(c, "g", 1), numberOr(c, "b", 1), numberOr(c, "a", 1) };
+}
+
+// viroCreateText with the style a ViroText can set. `o` holds the same fields by
+// name plus typefaces (a comma-separated family list, falling back to the system
+// face), weight (100-900), italic, extrusion, and stroke, strokeWidth (glyph
+// pixels) and strokeColor. A weight or style other than the regular one draws in
+// the face viroTextFaceFile names, which the caller writes into the FS first.
+static int viroCreateStyledText(std::string text, emscripten::val o) {
+    emscripten::val family = o["typefaces"];
+    std::string typefaces = family.isString() ? family.as<std::string>() : "";
+    if (typefaces.empty()) typefaces = kWebSystemFont;
+    int weight = (int) std::lround(numberOr(o, "weight", 400) / 100.0f) * 100;
+    weight = std::max(100, std::min(900, weight));
+    return buildText(text, typefaces, (int) numberOr(o, "fontSize", 18),
+                     o["italic"].isTrue() ? VROFontStyle::Italic : VROFontStyle::Normal,
+                     (VROFontWeight) weight, colorOr(o, "color", {1, 1, 1, 1}),
+                     numberOr(o, "extrusion", 0), (int) numberOr(o, "stroke", 0),
+                     (int) numberOr(o, "strokeWidth", 2), colorOr(o, "strokeColor", {1, 1, 1, 1}),
+                     numberOr(o, "width", 1), numberOr(o, "height", 1),
+                     (int) numberOr(o, "hAlign", 0), (int) numberOr(o, "vAlign", 0),
+                     (int) numberOr(o, "lineBreak", 0), (int) numberOr(o, "clipMode", 0),
+                     (int) numberOr(o, "maxLines", 0));
+}
+
+// The face file (no suffix) a text at this weight and style draws in.
+static std::string viroTextFaceFile(int weight, bool italic) {
+    return VROTypefaceWasm::systemFaceFile((VROFontWeight) weight,
+                                           italic ? VROFontStyle::Italic : VROFontStyle::Normal);
 }
 // Create a polyline from a flat [x,y,z, x,y,z, …] point list, with a thickness.
 static int viroCreatePolyline(emscripten::val points, float thickness) {
@@ -2131,6 +2187,8 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroCreateSurface", &viroCreateSurface);
     emscripten::function("viroCreateSurfaceUV", &viroCreateSurfaceUV);
     emscripten::function("viroCreateText", &viroCreateText);
+    emscripten::function("viroCreateStyledText", &viroCreateStyledText);
+    emscripten::function("viroTextFaceFile", &viroTextFaceFile);
     emscripten::function("viroCreatePolyline", &viroCreatePolyline);
     emscripten::function("viroCreatePolygon", &viroCreatePolygon);
     emscripten::function("viroCreateGeometry", &viroCreateGeometry);
