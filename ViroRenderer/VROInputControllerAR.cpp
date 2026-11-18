@@ -29,6 +29,7 @@
 #include "VROProjector.h"
 #include "VROARFrame.h"
 #include "VROARCamera.h"
+#include <algorithm>
 
 VROInputControllerAR::VROInputControllerAR(float viewportWidth, float viewportHeight,
                                            std::shared_ptr<VRODriver> driver) :
@@ -38,7 +39,8 @@ VROInputControllerAR::VROInputControllerAR(float viewportWidth, float viewportHe
     _isTouchOngoing(false),
     _isPinchOngoing(false),
     _isRotateOngoing(false),
-    _lastProcessDragTimeMillis(0){
+    _lastProcessDragTimeMillis(0),
+    _touchDownMillis(0){
 }
 
 VROVector3f VROInputControllerAR::getDragForwardOffset() {
@@ -88,8 +90,18 @@ void VROInputControllerAR::onPinchEnd() {
     VROInputControllerBase::onPinch(ViroCardBoard::InputSource::Controller, _latestScale, VROEventDelegate::PinchState::PinchEnd);
 }
 
+/*
+ A touch that ends within this distance of where it started, and this soon,
+ is a tap: Android's touch slop (8dp) is about 2% of a phone's shorter side,
+ and its long-press timeout is 400-500 ms.
+ */
+static const float kTapSlopFractionOfViewport = 0.02f;
+static const double kTapMaxMillis = 500.0;
+
 void VROInputControllerAR::onScreenTouchDown(VROVector3f touchPos) {
     _latestTouchPos = touchPos;
+    _touchDownPos = touchPos;
+    _touchDownMillis = VROTimeCurrentMillis();
     _isTouchOngoing = true;
     VROVector3f rayFromCamera = calculateCameraRay(_latestTouchPos);
     VROInputControllerBase::updateHitNode(_latestCamera, _latestCamera.getPosition(), rayFromCamera);
@@ -105,7 +117,14 @@ void VROInputControllerAR::onScreenTouchUp(VROVector3f touchPos) {
     _isTouchOngoing = false;
     VROVector3f rayFromCamera = calculateCameraRay(_latestTouchPos);
     VROInputControllerBase::updateHitNode(_latestCamera, _latestCamera.getPosition(), rayFromCamera);
+
+    // The release is hit-tested again, so a tap on a moving node would miss it
+    // and send onClickState without onClick.
+    float slop = kTapSlopFractionOfViewport * std::min(_viewportWidth, _viewportHeight);
+    _releaseCompletesPress = touchPos.distance(_touchDownPos) <= slop &&
+                             (VROTimeCurrentMillis() - _touchDownMillis) <= kTapMaxMillis;
     VROInputControllerBase::onButtonEvent(ViroCardBoard::ViewerButton, VROEventDelegate::ClickState::ClickUp);
+    _releaseCompletesPress = false;
     
     // on touch up, we should invoke processDragging once more in case
     if (isDragging()) {

@@ -963,7 +963,16 @@ void VROARSessionARCore::resolveCloudAnchor(
       if (onFailure) onFailure(std::string(VROReactVisionAuth::kNoCredentialsError) + "|ErrorNotAuthorized");
       return;
     }
-    _cloudAnchorProviderRV->resolveCloudAnchor(cloudAnchorId, onSuccess, onFailure);
+    std::weak_ptr<VROARSessionARCore> session_w = shared_from_this();
+    _cloudAnchorProviderRV->resolveCloudAnchor(cloudAnchorId,
+        [session_w, onSuccess](std::shared_ptr<VROARAnchor> resolved) {
+          VROPlatformDispatchAsyncRenderer([session_w, onSuccess, resolved] {
+            std::shared_ptr<VROARSessionARCore> session = session_w.lock();
+            std::shared_ptr<VROARAnchor> tracked = session ? session->trackResolvedAnchor(resolved) : nullptr;
+            onSuccess(tracked ? tracked : resolved);
+          });
+        },
+        onFailure);
     return;
   }
 
@@ -973,6 +982,38 @@ void VROARSessionARCore::resolveCloudAnchor(
     return;
   }
   _cloudAnchorProvider->resolveCloudAnchor(cloudAnchorId, onSuccess, onFailure);
+}
+
+// A ReactVision resolve is a pose computed once, in world coordinates. Left as plain
+// coordinates it stays put when ARCore later shifts its world (a relocalisation, a
+// map merge), so content placed from it ends up somewhere else in the room. Held by
+// an ARCore anchor it moves with those corrections, as the arcore provider's own
+// resolved anchors do, and it reaches the scene's anchor callbacks, so a node can
+// attach to it by id. Null when ARCore cannot make an anchor (tracking limited).
+std::shared_ptr<VROARAnchor> VROARSessionARCore::trackResolvedAnchor(std::shared_ptr<VROARAnchor> resolved) {
+  if (!_session || !resolved) {
+    return nullptr;
+  }
+  VROMatrix4f transform = resolved->getTransform();
+  VROVector3f position = transform.extractTranslation();
+  VROQuaternion rotation = transform.extractRotation(transform.extractScale());
+  arcore::Pose *pose = _session->createPose(position.x, position.y, position.z,
+                                            rotation.X, rotation.Y, rotation.Z, rotation.W);
+  std::shared_ptr<arcore::Anchor> anchor_arc = std::shared_ptr<arcore::Anchor>(_session->acquireNewAnchor(pose));
+  delete (pose);
+  if (!anchor_arc) {
+    pinfo("Resolved cloud anchor [%s] left at fixed coordinates: ARCore could not create an anchor",
+          resolved->getCloudAnchorId().c_str());
+    return nullptr;
+  }
+
+  std::string key = VROStringUtil::toString64(anchor_arc->getId());
+  std::shared_ptr<VROARAnchorARCore> anchor =
+      std::make_shared<VROARAnchorARCore>(key, anchor_arc, nullptr, shared_from_this());
+  anchor->sync();
+  anchor->setCloudAnchorId(resolved->getCloudAnchorId());
+  addAnchor(anchor);
+  return anchor;
 }
 
 #pragma mark - AR Frames
@@ -1214,7 +1255,12 @@ void VROARSessionARCore::processUpdatedAnchors(VROARFrameARCore *frameAR) {
         addAnchor(vAnchor);
       }
 
-      // The plane has been subsumed or is no longer tracked: remove it
+      // Paused (ARCore lost tracking for a moment): keep the plane as it was. ARCore
+      // resumes a paused plane, so removing it made every plane vanish and come back on
+      // each brief tracking drop. Only a subsumed or stopped plane is removed.
+    } else if (subsumingPlane == NULL && state == arcore::TrackingState::Paused) {
+
+      // The plane has been subsumed or has stopped tracking: remove it
     } else {
       auto it = _nativeAnchorMap.find(key);
       if (it != _nativeAnchorMap.end()) {

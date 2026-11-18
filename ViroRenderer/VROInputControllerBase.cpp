@@ -146,7 +146,8 @@ void VROInputControllerBase::onButtonEvent(int source, VROEventDelegate::ClickSt
             completed = (focusedNode == lastClicked);
             if (!completed) {
                 focusedNode = lastClicked;
-                pos.clear();
+                completed = _releaseCompletesPress;
+                pos = completed ? _pressPositionsBySource[source] : std::vector<float>();
             }
         } else {
             completed = pressed && focusedNode == nullptr;
@@ -182,6 +183,7 @@ void VROInputControllerBase::onButtonEvent(int source, VROEventDelegate::ClickSt
     } else if (clickState == VROEventDelegate::ClickDown){
         lastClicked = focusedNode;
         _pressedSources.insert(source);
+        _pressPositionsBySource[source] = pos;
 
         // A second button on a ray that is already dragging neither restarts
         // its drag (the frozen hit would re-seed it with a stale offset) nor

@@ -28,6 +28,7 @@
 #if __IPHONE_OS_VERSION_MAX_ALLOWED >= 110000
 #include <memory>
 #include "VROARAnchor.h"
+#include "VROARNode.h"
 #include "VROARCameraiOS.h"
 #include "VROARFrameiOS.h"
 #include "VROARImageAnchor.h"
@@ -795,6 +796,72 @@ void VROARSessioniOS::addAnchor(std::shared_ptr<VROARAnchor> anchor) {
   _anchors.push_back(anchor);
 }
 
+std::shared_ptr<VROARNode> VROARSessioniOS::createAnchoredNode(VROVector3f position) {
+  if (!_session) {
+    return nullptr;
+  }
+  matrix_float4x4 transform = matrix_identity_float4x4;
+  transform.columns[3] = simd_make_float4(position.x, position.y, position.z, 1);
+  ARAnchor *nativeAnchor = [[ARAnchor alloc] initWithTransform:transform];
+
+  std::shared_ptr<VROARNode> node = std::make_shared<VROARNode>();
+  node->setPositionAtomic(position);
+  node->computeTransformsAtomic({}, {});
+
+  std::shared_ptr<VROARAnchor> anchor = std::make_shared<VROARAnchor>();
+  anchor->setId(std::string([nativeAnchor.identifier.UUIDString UTF8String]));
+  anchor->setTransform(VROConvert::toMatrix4f(transform));
+  anchor->setARNode(node);
+  node->setAnchor(anchor);
+
+  // ARKit reports a plain ARAnchor without a Viro anchor (addAnchor(ARAnchor *)
+  // skips it), so register this one for its updates. The renderer queue runs this
+  // before any ARKit callback for the anchor, which is queued after it.
+  std::weak_ptr<VROARSessioniOS> session_w = shared_from_this();
+  VROPlatformDispatchAsyncRenderer([session_w, anchor] {
+    std::shared_ptr<VROARSessioniOS> session = session_w.lock();
+    if (!session) {
+      return;
+    }
+    session->_nativeAnchorMap[anchor->getId()] = anchor;
+    session->addAnchor(anchor);
+  });
+  if (!_anchoredNodeAnchors) {
+    _anchoredNodeAnchors = [NSMutableDictionary dictionary];
+  }
+  _anchoredNodeAnchors[nativeAnchor.identifier.UUIDString] = nativeAnchor;
+  [_session addAnchor:nativeAnchor];
+  return node;
+}
+
+void VROARSessioniOS::removeAnchoredNode(std::shared_ptr<VROARNode> node) {
+  std::shared_ptr<VROARAnchor> anchor = node ? node->getAnchor() : nullptr;
+  if (!anchor) {
+    return;
+  }
+  node->setAnchor(nullptr);
+
+  // The ARAnchor kept at creation: looking it up in the current frame finds nothing
+  // while the session is paused, and the anchor would stay in ARKit.
+  NSString *anchorId = @(anchor->getId().c_str());
+  ARAnchor *nativeAnchor = _anchoredNodeAnchors[anchorId];
+  if (nativeAnchor) {
+    [_session removeAnchor:nativeAnchor];
+    [_anchoredNodeAnchors removeObjectForKey:anchorId];
+  }
+
+  // Removed here as well, since an anchor ARKit has not reported yet gets no
+  // removal callback; a later callback finds nothing and does nothing.
+  std::weak_ptr<VROARSessioniOS> session_w = shared_from_this();
+  VROPlatformDispatchAsyncRenderer([session_w, anchor] {
+    anchor->setARNode(nullptr);
+    std::shared_ptr<VROARSessioniOS> session = session_w.lock();
+    if (session) {
+      session->removeAnchor(anchor);
+    }
+  });
+}
+
 void VROARSessioniOS::removeAnchor(std::shared_ptr<VROARAnchor> anchor) {
   _anchors.erase(
       std::remove_if(_anchors.begin(), _anchors.end(),
@@ -1339,6 +1406,12 @@ void VROARSessioniOS::addARObjectTarget(
 
     if (objectTarget && getTrackingType() == VROTrackingType::DOF6) {
       ARReferenceObject *refObject = objectTarget->getARReferenceObject();
+      // A .arobject that failed to load leaves no reference object, and adding
+      // nil to the detection set throws.
+      if (!refObject) {
+        pwarn("[Viro] Skipping object target: its .arobject did not load");
+        return;
+      }
 
       // add the ARReferenceObject & VROARObjectTarget to a map
       _arKitReferenceObjectMap[refObject] = target;
@@ -1912,8 +1985,9 @@ void VROARSessioniOS::addAnchor(ARAnchor *anchor) {
     vAnchor = std::make_shared<VROARPlaneAnchor>();
   }
 #if __IPHONE_OS_VERSION_MAX_ALLOWED >= 110300
-  // ignore the warning. The curious thing is that we don't even need the
-  // @available() check...
+  // Every device from iOS 11.3 takes this branch, so object anchors (iOS 12)
+  // must be handled inside it: a sibling `else if (@available(iOS 12.0, *))`
+  // is never reached.
   else if (@available(iOS 11.3, *)) {
     if ([anchor isKindOfClass:[ARImageAnchor class]]) {
       ARImageAnchor *imageAnchor = (ARImageAnchor *)anchor;
@@ -1925,37 +1999,26 @@ void VROARSessioniOS::addAnchor(ARAnchor *anchor) {
         target->setAnchor(vAnchor);
       }
     }
-  }
-#endif
 #if __IPHONE_OS_VERSION_MAX_ALLOWED >= 120000
-  else if (@available(iOS 12.0, *)) {
-    if ([anchor isKindOfClass:[ARImageAnchor class]]) {
-      ARImageAnchor *imageAnchor = (ARImageAnchor *)anchor;
-      auto it = _arKitReferenceImageMap.find(imageAnchor.referenceImage);
-      if (it != _arKitReferenceImageMap.end()) {
-        std::shared_ptr<VROARImageTarget> target = it->second;
-        vAnchor = std::make_shared<VROARImageAnchor>(
-            target, VROARImageTrackingMethod::Tracking);
-        target->setAnchor(vAnchor);
+    else if (@available(iOS 12.0, *)) {
+      if ([anchor isKindOfClass:[ARObjectAnchor class]]) {
+        ARObjectAnchor *objAnchor = (ARObjectAnchor *)anchor;
+        auto it = _arKitReferenceObjectMap.find(objAnchor.referenceObject);
+        if (it != _arKitReferenceObjectMap.end()) {
+          std::shared_ptr<VROARObjectTarget> target = it->second;
+          vAnchor = std::make_shared<VROARObjectAnchor>(target);
+          target->setAnchor(vAnchor);
+        }
       }
     }
-
-    if ([anchor isKindOfClass:[ARObjectAnchor class]]) {
-      ARObjectAnchor *objAnchor = (ARObjectAnchor *)anchor;
-      auto it = _arKitReferenceObjectMap.find(objAnchor.referenceObject);
-      if (it != _arKitReferenceObjectMap.end()) {
-        std::shared_ptr<VROARObjectTarget> target = it->second;
-        vAnchor = std::make_shared<VROARObjectAnchor>(target);
-        target->setAnchor(vAnchor);
-      }
-    }
+#endif
   }
 #endif
   else {
     vAnchor = std::make_shared<VROARAnchor>();
   }
-  // Guard: on SDK >= 120000 the else above is unreachable (else if(iOS 12) is always taken),
-  // so vAnchor may still be null for unrecognized anchor subtypes. Skip silently.
+  // From iOS 11.3 an anchor of any other class, or an image or object anchor
+  // whose target is no longer registered, leaves vAnchor null and is skipped.
   if (!vAnchor) {
     return;
   }

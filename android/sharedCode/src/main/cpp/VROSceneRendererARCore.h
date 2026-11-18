@@ -189,6 +189,11 @@ private:
     bool _arcoreInstalled;
     bool _destroyed;
 
+    // Consecutive frames the camera has not been tracking. Unavailable reaches the
+    // ARScene only once this reaches kUnavailableFramesBeforeReport (about 200 ms).
+    int _unavailableFrames = 0;
+    static const int kUnavailableFramesBeforeReport = 6;
+
     // Detection types are only stored here so that they can be pushed to the ARScene when that
     // is injected into the scene renderer (from there they are pushed into the VROARSession).
     std::set<VROAnchorDetection> _detectionTypes;
