@@ -136,6 +136,8 @@ private:
     std::weak_ptr<VROARSession> _weakSession;
     VROCamera _latestCamera;
     VROVector3f _latestTouchPos;
+    VROVector3f _touchDownPos;
+    double _touchDownMillis;
     VROQuaternion _cameraLastQuaternion;
     VROVector3f _cameraLastPosition;
     int _lastPointCloudSize;
