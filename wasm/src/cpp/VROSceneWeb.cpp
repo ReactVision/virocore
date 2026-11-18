@@ -145,6 +145,9 @@ VROSceneWeb::VROSceneWeb(std::string canvasSelector, int width, int height) :
     attribs.depth = 1;
     attribs.stencil = 1;
     attribs.antialias = 1;
+    // Opaque, as a native view is: a see-through canvas showed the page behind
+    // empty space.
+    attribs.alpha = 0;
 
     _context = emscripten_webgl_create_context(_canvasSelector.c_str(), &attribs);
     if (_context <= 0) {
