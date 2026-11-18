@@ -826,6 +826,10 @@ std::shared_ptr<VROARNode> VROARSessioniOS::createAnchoredNode(VROVector3f posit
     session->_nativeAnchorMap[anchor->getId()] = anchor;
     session->addAnchor(anchor);
   });
+  if (!_anchoredNodeAnchors) {
+    _anchoredNodeAnchors = [NSMutableDictionary dictionary];
+  }
+  _anchoredNodeAnchors[nativeAnchor.identifier.UUIDString] = nativeAnchor;
   [_session addAnchor:nativeAnchor];
   return node;
 }
@@ -837,12 +841,13 @@ void VROARSessioniOS::removeAnchoredNode(std::shared_ptr<VROARNode> node) {
   }
   node->setAnchor(nullptr);
 
+  // The ARAnchor kept at creation: looking it up in the current frame finds nothing
+  // while the session is paused, and the anchor would stay in ARKit.
   NSString *anchorId = @(anchor->getId().c_str());
-  for (ARAnchor *nativeAnchor in _session.currentFrame.anchors) {
-    if ([nativeAnchor.identifier.UUIDString isEqualToString:anchorId]) {
-      [_session removeAnchor:nativeAnchor];
-      break;
-    }
+  ARAnchor *nativeAnchor = _anchoredNodeAnchors[anchorId];
+  if (nativeAnchor) {
+    [_session removeAnchor:nativeAnchor];
+    [_anchoredNodeAnchors removeObjectForKey:anchorId];
   }
 
   // Removed here as well, since an anchor ARKit has not reported yet gets no
