@@ -6,6 +6,13 @@
 
 - **iOS: `VROARSessioniOS::createAnchoredNode(position)` and `removeAnchoredNode(node)`.** Anchors a new `VROARNode` at a world position with an ARKit `ARAnchor`, so ARKit's corrections to its map move the node, as `ARScene.createAnchoredNode` does on ARCore. The anchor is registered for ARKit's updates itself, because a plain `ARAnchor` reported by ARKit has no Viro anchor and its updates were dropped; that is also why a node from `VROARHitTestResultiOS::createAnchoredNodeAtHitLocation` on a new anchor never moved after it was made.
 
+### Fixed
+
+- **A node faded by its parent's opacity no longer hides translucent content behind it (`VROGeometry`).** A draw was sorted as transparent only by the node's own opacity, so the children of a node with `opacity` below 1 were drawn with the opaque objects, before the translucent ones, and wrote depth. Translucent content behind them, such as text or another faded object, then failed the depth test and disappeared. The sort now uses the opacity the node inherits, so those children are drawn with the other translucent objects, back to front.
+- **A tap on a moving node clicks it (`VROInputControllerAR`, `VROInputControllerBase`).** A screen touch is hit-tested again at release, and a click completed only when the release still resolved to the pressed node, so a tap on a node that moved during the press (an animation, physics, or the camera) sent `onClickState` down and up but no `onClick`. On a Pixel 6 Pro, 8 of 11 150 ms presses on a box crossing the screen were lost this way. A touch that ends within about 2% of the viewport's shorter side of where it started, and within 500 ms, now completes the click on the pressed node, with the press's hit position. A longer or moving touch, and every controller click, behave as before. Android touches were affected; iOS delivers a tap's down and up together, so only its long-press path was.
+- **iOS: a detected object reaches its object marker (`VROARSessioniOS`).** The anchor type was picked by an `else if` chain on the iOS version, and the iOS 11.3 branch, which every current device takes, handled only image anchors. The object-anchor case sat in a following iOS 12 branch that was never reached, so an `ARObjectAnchor` was dropped without a log and an object marker never fired. Object anchors are now handled inside the iOS 11.3 branch.
+- **iOS: an object target whose `.arobject` fails to load no longer crashes the app (`VROARSessioniOS`).** The failed load left a nil reference object, which was added to ARKit's detection set and raised `NSInvalidArgumentException`. The target is now skipped with a warning.
+
 ## v3.2.0 — 15 November 2026
 
 ### Fixed
