@@ -36,6 +36,12 @@ public:
     // origin is handled internally.
     void onScreenTouch(int action, float x, float y);
 
+    // Two-finger gestures, as VROInputControllerAR takes them from the platform:
+    // state is 1 start, 2 move, 3 end; x/y the fingers' midpoint, which picks the
+    // node at the start. scale is cumulative from 1, radians counterclockwise.
+    void onPinch(int state, float scale, float x, float y);
+    void onRotate(int state, float radians, float x, float y);
+
     // Called once per frame by the view with the same view/projection/viewport
     // used for rendering, so touch rays can be unprojected consistently.
     void setRenderState(VROMatrix4f view, VROMatrix4f projection,

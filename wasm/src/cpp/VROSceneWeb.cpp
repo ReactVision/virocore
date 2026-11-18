@@ -398,6 +398,18 @@ void VROSceneWeb::onTouch(int action, float x, float y) {
     }
 }
 
+void VROSceneWeb::onPinch(int state, float scale, float x, float y) {
+    if (_inputController) {
+        _inputController->onPinch(state, scale, x, y);
+    }
+}
+
+void VROSceneWeb::onRotate(int state, float radians, float x, float y) {
+    if (_inputController) {
+        _inputController->onRotate(state, radians, x, y);
+    }
+}
+
 #pragma mark - JS bindings
 
 // A single global scene instance owned by the module. JS calls initViroScene()
@@ -476,6 +488,16 @@ static void viroOnTouch(int action, float x, float y) {
         sScene->onTouch(action, x, y);
     }
 }
+static void viroOnPinch(int state, float scale, float x, float y) {
+    if (sScene) {
+        sScene->onPinch(state, scale, x, y);
+    }
+}
+static void viroOnRotate(int state, float radians, float x, float y) {
+    if (sScene) {
+        sScene->onRotate(state, radians, x, y);
+    }
+}
 
 static void viroBuildDemoCube() {
     if (sScene) {
@@ -536,6 +558,23 @@ public:
     virtual void onHover(int source, std::shared_ptr<VRONode> node,
                          bool isHovering, std::vector<float> position) {
         emit(EventAction::OnHover, source, isHovering ? 1 : 0, position);
+    }
+    // intArg is the gesture state; x carries the scale, or the radians.
+    virtual void onPinch(int source, std::shared_ptr<VRONode> node,
+                         float scaleFactor, PinchState pinchState) {
+        emit(EventAction::OnPinch, source, (int) pinchState, {scaleFactor});
+    }
+    virtual void onRotate(int source, std::shared_ptr<VRONode> node,
+                          float rotationRadians, RotateState rotateState) {
+        emit(EventAction::OnRotate, source, (int) rotateState, {rotationRadians});
+    }
+    // Only a completed fuse, as the native bridges report it; the countdown
+    // ratios above 0 are for Viro's own reticle.
+    virtual void onFuse(int source, std::shared_ptr<VRONode> node, float timeToFuseRatio) {
+        if (timeToFuseRatio > 0.0f) {
+            return;
+        }
+        emit(EventAction::OnFuse, source, 0, {});
     }
 
 private:
@@ -689,6 +728,34 @@ static emscripten::val viroGetNodeWorldPosition(int nodeHandle) {
     return out;
 }
 
+// What a ref's getTransformAsync reads on native: last frame's world transform,
+// decomposed as VRTNodeModule does. [px,py,pz, rx,ry,rz (degrees), sx,sy,sz].
+static emscripten::val viroGetNodeWorldTransform(int nodeHandle) {
+    emscripten::val out = emscripten::val::array();
+    auto node = getNode(nodeHandle);
+    if (!node) return out;
+    VROMatrix4f transform = node->getLastWorldTransform();
+    VROVector3f position = transform.extractTranslation();
+    VROVector3f scale = transform.extractScale();
+    VROVector3f rotation = transform.extractRotation(scale).toEuler();
+    float values[9] = { position.x, position.y, position.z,
+                        toDegrees(rotation.x), toDegrees(rotation.y), toDegrees(rotation.z),
+                        scale.x, scale.y, scale.z };
+    for (int i = 0; i < 9; i++) out.set(i, values[i]);
+    return out;
+}
+// The node's and its subtree's box, as getBoundingBoxAsync reads it on native.
+// [minX, maxX, minY, maxY, minZ, maxZ].
+static emscripten::val viroGetNodeBoundingBox(int nodeHandle) {
+    emscripten::val out = emscripten::val::array();
+    auto node = getNode(nodeHandle);
+    if (!node) return out;
+    VROBoundingBox box = node->getUmbrellaBoundingBox();
+    float values[6] = { box.getMinX(), box.getMaxX(), box.getMinY(), box.getMaxY(), box.getMinZ(), box.getMaxZ() };
+    for (int i = 0; i < 6; i++) out.set(i, values[i]);
+    return out;
+}
+
 // Morph targets. A glTF or FBX model carries its blend shapes in the geometry
 // virocore already loaded; nothing on web could name one or move it, so a face
 // rig that animates on a phone sat at its rest pose in a browser.
@@ -756,21 +823,25 @@ static void viroSetEventCallback(emscripten::val callback) {
     sEventCallback = callback;
 }
 
+static std::shared_ptr<VROWebEventDelegate> nodeDelegate(int node) {
+    auto n = getNode(node);
+    if (!n) return nullptr;
+    auto it = sNodeDelegates.find(node);
+    if (it != sNodeDelegates.end()) return it->second;
+    auto delegate = std::make_shared<VROWebEventDelegate>(node);
+    sNodeDelegates[node] = delegate;
+    n->setEventDelegate(delegate);
+    return delegate;
+}
+
 // eventAction: VROEventDelegate::EventAction (1=Hover, 2=Click, ...).
 static void viroSetNodeEventEnabled(int node, int eventAction, bool enabled) {
-    auto n = getNode(node);
-    if (!n) return;
-
-    auto it = sNodeDelegates.find(node);
-    std::shared_ptr<VROWebEventDelegate> delegate;
-    if (it == sNodeDelegates.end()) {
-        delegate = std::make_shared<VROWebEventDelegate>(node);
-        sNodeDelegates[node] = delegate;
-        n->setEventDelegate(delegate);
-    } else {
-        delegate = it->second;
+    if (auto delegate = nodeDelegate(node)) {
+        delegate->setEnabledEvent(static_cast<VROEventDelegate::EventAction>(eventAction), enabled);
     }
-    delegate->setEnabledEvent(static_cast<VROEventDelegate::EventAction>(eventAction), enabled);
+}
+static void viroSetNodeTimeToFuse(int node, float millis) {
+    if (auto delegate = nodeDelegate(node)) delegate->setTimeToFuse(millis);
 }
 
 // --- Geometries ---
@@ -2198,6 +2269,8 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroClearPhysicsBody", &viroClearPhysicsBody);
     emscripten::function("viroSetCollisionCallback", &viroSetCollisionCallback);
     emscripten::function("viroOnTouch", &viroOnTouch);
+    emscripten::function("viroOnPinch", &viroOnPinch);
+    emscripten::function("viroOnRotate", &viroOnRotate);
     emscripten::function("viroBuildDemoCube", &viroBuildDemoCube);
 
     // Scene graph C API (handle-based)
@@ -2218,6 +2291,9 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroSetNodeShadowCastingBitMask", &viroSetNodeShadowCastingBitMask);
     emscripten::function("viroSetNodeBillboard", &viroSetNodeBillboard);
     emscripten::function("viroGetNodeWorldPosition", &viroGetNodeWorldPosition);
+    emscripten::function("viroGetNodeWorldTransform", &viroGetNodeWorldTransform);
+    emscripten::function("viroGetNodeBoundingBox", &viroGetNodeBoundingBox);
+    emscripten::function("viroSetNodeTimeToFuse", &viroSetNodeTimeToFuse);
     emscripten::function("viroSetMorphTargetWeight", &viroSetMorphTargetWeight);
     emscripten::function("viroGetMorphTargetKeys", &viroGetMorphTargetKeys);
     emscripten::function("viroSetMorphMode", &viroSetMorphMode);
