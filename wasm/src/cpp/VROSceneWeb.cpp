@@ -10,6 +10,7 @@
 
 #include "VROSceneWeb.h"
 
+#include <algorithm>
 #include <emscripten/bind.h>
 #include <emscripten/em_js.h>
 #include <algorithm>
@@ -585,6 +586,14 @@ static std::unordered_map<int,
     sShaderOverrideBaselines;
 // The material each node was last given as a shader override.
 static std::unordered_map<int, int> sShaderOverrideSources;
+
+// Per override material handle, the per-mesh copies applyShaderOverrideToNode
+// made from it. A copy takes the override's uniform values once, when it is
+// made, so the uniform setters forward later updates to each live copy. Weak,
+// because a re-applied override replaces its copies and a destroyed node drops
+// them.
+static std::unordered_map<int, std::vector<std::weak_ptr<VROMaterial>>>
+    sShaderOverrideCopies;
 
 // Defined with the physics section below; viroDestroyNode needs it before that.
 static void viroClearPhysicsBody(int nodeHandle);
@@ -1321,6 +1330,7 @@ static void viroSetMaterialLightingModel(int material, int model) {
 static void viroDestroyMaterial(int material) {
     if (auto m = getMaterial(material)) sAuthored.erase(m.get());
     sMaterials.erase(material);
+    sShaderOverrideCopies.erase(material);
 }
 
 // Scalar material properties.
@@ -1481,28 +1491,44 @@ static void viroRemoveAllMaterialShaderModifiers(int material) {
 // re-pushes every entry to the GL uniform of the same name every frame, so
 // there's no per-frame work to do here and no thread hop needed (this file is
 // synchronous, unlike the JNI/ObjC bridges these mirror).
+template <typename T>
+static void setShaderUniformWithCopies(int material, const std::string &name, const T &value) {
+    auto m = getMaterial(material);
+    if (!m) return;
+    m->setShaderUniform(name, value);
+
+    auto it = sShaderOverrideCopies.find(material);
+    if (it == sShaderOverrideCopies.end()) return;
+    auto &copies = it->second;
+    copies.erase(std::remove_if(copies.begin(), copies.end(),
+                                [](const std::weak_ptr<VROMaterial> &c) { return c.expired(); }),
+                 copies.end());
+    for (const auto &weak : copies) {
+        if (auto copy = weak.lock()) copy->setShaderUniform(name, value);
+    }
+}
+
 static void viroSetMaterialShaderUniformFloat(int material, std::string name, float value) {
-    if (auto m = getMaterial(material)) m->setShaderUniform(name, value);
+    setShaderUniformWithCopies(material, name, value);
 }
 static void viroSetMaterialShaderUniformVec2(int material, std::string name, float x, float y) {
-    if (auto m = getMaterial(material)) m->setShaderUniform(name, VROVector2f(x, y));
+    setShaderUniformWithCopies(material, name, VROVector2f(x, y));
 }
 static void viroSetMaterialShaderUniformVec3(int material, std::string name, float x, float y, float z) {
-    if (auto m = getMaterial(material)) m->setShaderUniform(name, VROVector3f(x, y, z));
+    setShaderUniformWithCopies(material, name, VROVector3f(x, y, z));
 }
 static void viroSetMaterialShaderUniformVec4(int material, std::string name, float x, float y, float z, float w) {
-    if (auto m = getMaterial(material)) m->setShaderUniform(name, VROVector4f(x, y, z, w));
+    setShaderUniformWithCopies(material, name, VROVector4f(x, y, z, w));
 }
 // matrix: JS array/typed array of 16 floats, matching VROMatrix4f's flat-array constructor.
 static void viroSetMaterialShaderUniformMat4(int material, std::string name, emscripten::val matrix) {
-    auto m = getMaterial(material);
-    if (!m) return;
+    if (!getMaterial(material)) return;
     std::vector<float> elements = emscripten::convertJSArrayToNumberVector<float>(matrix);
     if (elements.size() != 16) {
         pwarn("viroSetMaterialShaderUniformMat4: matrix must have 16 elements, got %zu", elements.size());
         return;
     }
-    m->setShaderUniform(name, VROMatrix4f(elements.data()));
+    setShaderUniformWithCopies(material, name, VROMatrix4f(elements.data()));
 }
 
 // --- Physics ---
@@ -1815,7 +1841,8 @@ static void mergeShaderOverride(const std::shared_ptr<VROMaterial> &source,
 static void applyShaderOverrideToNode(
     const std::shared_ptr<VRONode> &node,
     const std::shared_ptr<VROMaterial> &source,
-    std::unordered_map<VROGeometry *, std::vector<std::shared_ptr<VROMaterial>>> &baselines) {
+    std::unordered_map<VROGeometry *, std::vector<std::shared_ptr<VROMaterial>>> &baselines,
+    std::vector<std::weak_ptr<VROMaterial>> &copies) {
 
     std::shared_ptr<VROGeometry> geometry = node->getGeometry();
     // An empty material list means the loader has not populated this geometry
@@ -1832,12 +1859,13 @@ static void applyShaderOverrideToNode(
             auto copy = std::make_shared<VROMaterial>(original);
             mergeShaderOverride(source, copy);
             merged.push_back(copy);
+            copies.push_back(copy);
         }
         geometry->setMaterials(merged);
     }
 
     for (const auto &child : node->getChildNodes()) {
-        applyShaderOverrideToNode(child, source, baselines);
+        applyShaderOverrideToNode(child, source, baselines, copies);
     }
 }
 
@@ -1848,7 +1876,8 @@ static void viroApplyShaderOverride(int nodeHandle, int materialHandle) {
         return;
     }
     sShaderOverrideSources[nodeHandle] = materialHandle;
-    applyShaderOverrideToNode(node, material, sShaderOverrideBaselines[nodeHandle]);
+    applyShaderOverrideToNode(node, material, sShaderOverrideBaselines[nodeHandle],
+                              sShaderOverrideCopies[materialHandle]);
 }
 
 // --- Textures ---
@@ -2015,9 +2044,7 @@ static void viroDestroyTexture(int texture) {
 }
 // sampler2D shader uniform. texture may be VIRO_INVALID_HANDLE (0) to clear it.
 static void viroSetMaterialShaderUniformTexture(int material, std::string name, int texture) {
-    auto m = getMaterial(material);
-    if (!m) return;
-    m->setShaderUniform(name, getTexture(texture));
+    setShaderUniformWithCopies(material, name, getTexture(texture));
 }
 
 // Create a cube texture from six RGBA8 faces (order: +X,-X,+Y,-Y,+Z,-Z), each
