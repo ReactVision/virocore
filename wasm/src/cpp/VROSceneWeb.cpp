@@ -483,6 +483,12 @@ static void setViroSceneSize(int width, int height) {
     }
 }
 
+// Stops drawing for good: a disposed renderer, or one whose WebGL context was
+// lost, would otherwise keep running beside the renderer that replaces it.
+static void viroStopMainLoop() {
+    emscripten_cancel_main_loop();
+}
+
 static void viroOnTouch(int action, float x, float y) {
     if (sScene) {
         sScene->onTouch(action, x, y);
@@ -2269,6 +2275,7 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroClearPhysicsBody", &viroClearPhysicsBody);
     emscripten::function("viroSetCollisionCallback", &viroSetCollisionCallback);
     emscripten::function("viroOnTouch", &viroOnTouch);
+    emscripten::function("viroStopMainLoop", &viroStopMainLoop);
     emscripten::function("viroOnPinch", &viroOnPinch);
     emscripten::function("viroOnRotate", &viroOnRotate);
     emscripten::function("viroBuildDemoCube", &viroBuildDemoCube);
