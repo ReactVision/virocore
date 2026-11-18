@@ -149,8 +149,19 @@ void VROSceneRendererARCore::renderFrame() {
     if (_sceneController) {
         std::shared_ptr<VROARScene> arScene = std::dynamic_pointer_cast<VROARScene>(_sceneController->getScene());
         passert_msg (arScene != nullptr, "AR View requires an AR Scene!");
-        arScene->setTrackingState(camera->getTrackingState(),
-                                  camera->getLimitedTrackingStateReason(), false);
+        // Normal is reported at once; Unavailable only after it has lasted a few frames,
+        // so a brief tracking drop does not reach the app as a flicker (viro#568).
+        VROARTrackingState trackingState = camera->getTrackingState();
+        if (trackingState == VROARTrackingState::Normal) {
+            _unavailableFrames = 0;
+        } else {
+            ++_unavailableFrames;
+        }
+        if (trackingState == VROARTrackingState::Normal ||
+            _unavailableFrames >= kUnavailableFramesBeforeReport) {
+            arScene->setTrackingState(trackingState,
+                                      camera->getLimitedTrackingStateReason(), false);
+        }
     }
 
     /*

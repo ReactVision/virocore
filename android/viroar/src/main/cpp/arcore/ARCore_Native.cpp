@@ -1003,18 +1003,23 @@ namespace arcore {
         };
     }
 
+// The largest CPU image a camera config may have: 1920×1080. See SessionNative.
+static const int32_t kMaxCameraConfigArea = 1920 * 1080;
+
 #pragma mark - Session
 
     SessionNative::SessionNative(void *applicationContext, JNIEnv *env) {
         ArSession_create(env, applicationContext, &_session);
 
-        // Select the camera config with the highest CPU image resolution.
-        // The default is typically 640×480 which produces too few SIFT features
-        // for reliable cross-platform cloud anchor matching. Most devices support
-        // 1920×1080 or higher CPU image resolution.
+        // Select the camera config with the highest CPU image resolution up to
+        // 1920×1080, at a 30 fps target. The default is typically 640×480, which
+        // produces too few SIFT features for reliable cross-platform cloud anchor
+        // matching; 1080p is enough for them. Above it the CPU image costs more than
+        // some mid-range phones (Galaxy A5x) can sustain, and their tracking paused
+        // and resumed about ten times a second (viro#568), so it is not taken.
         ArCameraConfigFilter *filter = nullptr;
         ArCameraConfigFilter_create(_session, &filter);
-        // Keep defaults: rear camera, 30fps target, any depth sensor usage
+        ArCameraConfigFilter_setTargetFps(_session, filter, AR_CAMERA_CONFIG_TARGET_FPS_30);
 
         ArCameraConfigList *configList = nullptr;
         ArCameraConfigList_create(_session, &configList);
@@ -1033,7 +1038,7 @@ namespace arcore {
             int32_t w = 0, h = 0;
             ArCameraConfig_getImageDimensions(_session, tmpConfig, &w, &h);
             int32_t area = w * h;
-            if (area > bestArea) {
+            if (area <= kMaxCameraConfigArea && area > bestArea) {
                 bestArea = area;
                 bestIdx = i;
             }
@@ -1064,6 +1069,9 @@ namespace arcore {
             ? AR_CAMERA_CONFIG_FACING_DIRECTION_FRONT
             : AR_CAMERA_CONFIG_FACING_DIRECTION_BACK;
         ArCameraConfigFilter_setFacingDirection(_session, filter, dir);
+        if (!frontFacing) {
+            ArCameraConfigFilter_setTargetFps(_session, filter, AR_CAMERA_CONFIG_TARGET_FPS_30);
+        }
 
         ArCameraConfigList *configList = nullptr;
         ArCameraConfigList_create(_session, &configList);
@@ -1076,16 +1084,23 @@ namespace arcore {
         ArCameraConfig_create(_session, &tmpConfig);
 
         // Front camera: pick first (usually only one config at 640x480).
-        // Back camera: pick highest resolution (same logic as initial session setup).
+        // Back camera: highest resolution up to 1920×1080 (same logic as initial session
+        // setup). A config has to be set either way, or a switch back from the front camera
+        // would stay on it, so with none that small the smallest is taken.
         int bestIdx = 0;
         if (!frontFacing) {
             int32_t bestArea = 0;
+            int smallestIdx = 0;
+            int32_t smallestArea = INT32_MAX;
+            bool found = false;
             for (int i = 0; i < numConfigs; ++i) {
                 ArCameraConfigList_getItem(_session, configList, i, tmpConfig);
                 int32_t w = 0, h = 0;
                 ArCameraConfig_getImageDimensions(_session, tmpConfig, &w, &h);
-                if (w * h > bestArea) { bestArea = w * h; bestIdx = i; }
+                if (w * h <= kMaxCameraConfigArea && w * h > bestArea) { bestArea = w * h; bestIdx = i; found = true; }
+                if (w * h < smallestArea) { smallestArea = w * h; smallestIdx = i; }
             }
+            if (!found) { bestIdx = smallestIdx; }
         }
         if (numConfigs > 0) {
             ArCameraConfigList_getItem(_session, configList, bestIdx, tmpConfig);

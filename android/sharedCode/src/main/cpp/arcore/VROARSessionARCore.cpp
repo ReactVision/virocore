@@ -1255,7 +1255,12 @@ void VROARSessionARCore::processUpdatedAnchors(VROARFrameARCore *frameAR) {
         addAnchor(vAnchor);
       }
 
-      // The plane has been subsumed or is no longer tracked: remove it
+      // Paused (ARCore lost tracking for a moment): keep the plane as it was. ARCore
+      // resumes a paused plane, so removing it made every plane vanish and come back on
+      // each brief tracking drop. Only a subsumed or stopped plane is removed.
+    } else if (subsumingPlane == NULL && state == arcore::TrackingState::Paused) {
+
+      // The plane has been subsumed or has stopped tracking: remove it
     } else {
       auto it = _nativeAnchorMap.find(key);
       if (it != _nativeAnchorMap.end()) {
