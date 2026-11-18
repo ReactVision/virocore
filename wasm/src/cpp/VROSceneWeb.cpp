@@ -603,6 +603,10 @@ static void viroSetNodeOpacity(int node, float opacity) {
 static void viroSetNodeVisible(int node, bool visible) {
     if (auto n = getNode(node)) n->setHidden(!visible);
 }
+// A node that is not selectable is skipped by hit tests, along with its whole subtree.
+static void viroSetNodeSelectable(int node, bool selectable) {
+    if (auto n = getNode(node)) n->setSelectable(selectable);
+}
 static void viroSetNodeGeometry(int node, int geometry) {
     auto n = getNode(node);
     auto g = getGeometry(geometry);
@@ -2108,6 +2112,7 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroSetNodeScale", &viroSetNodeScale);
     emscripten::function("viroSetNodeOpacity", &viroSetNodeOpacity);
     emscripten::function("viroSetNodeVisible", &viroSetNodeVisible);
+    emscripten::function("viroSetNodeSelectable", &viroSetNodeSelectable);
     emscripten::function("viroSetNodeGeometry", &viroSetNodeGeometry);
     emscripten::function("viroAddChildNode", &viroAddChildNode);
     emscripten::function("viroRemoveNodeFromParent", &viroRemoveNodeFromParent);
