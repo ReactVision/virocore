@@ -42,6 +42,12 @@ public:
     void onPinch(int state, float scale, float x, float y);
     void onRotate(int state, float radians, float x, float y);
 
+    // A mouse over the canvas with no button held: hover follows it, as a
+    // headset's controller ray does, instead of the screen-centre gaze. Touch
+    // and AR never call this, so they keep the gaze. x/y as onScreenTouch.
+    void setPointerHover(float x, float y);
+    void clearPointerHover();
+
     // Called once per frame by the view with the same view/projection/viewport
     // used for rendering, so touch rays can be unprojected consistently.
     void setRenderState(VROMatrix4f view, VROMatrix4f projection,
@@ -67,6 +73,9 @@ private:
     VROMatrix4f _projection;
     int _viewportWidth = 0;
     int _viewportHeight = 0;
+    bool _pointerHover = false;
+    float _pointerX = 0;
+    float _pointerY = 0;
 
 };
 #endif

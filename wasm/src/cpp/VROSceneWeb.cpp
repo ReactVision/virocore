@@ -401,6 +401,17 @@ void VROSceneWeb::onTouch(int action, float x, float y) {
     }
 }
 
+void VROSceneWeb::onPointerHover(bool active, float x, float y) {
+    if (!_inputController) {
+        return;
+    }
+    if (active) {
+        _inputController->setPointerHover(x, y);
+    } else {
+        _inputController->clearPointerHover();
+    }
+}
+
 void VROSceneWeb::onPinch(int state, float scale, float x, float y) {
     if (_inputController) {
         _inputController->onPinch(state, scale, x, y);
@@ -495,6 +506,12 @@ static void viroStopMainLoop() {
 static void viroOnTouch(int action, float x, float y) {
     if (sScene) {
         sScene->onTouch(action, x, y);
+    }
+}
+// A mouse with no button held, or (active false) leaving the canvas.
+static void viroOnPointerHover(bool active, float x, float y) {
+    if (sScene) {
+        sScene->onPointerHover(active, x, y);
     }
 }
 static void viroOnPinch(int state, float scale, float x, float y) {
@@ -817,7 +834,9 @@ static bool viroSetMorphMode(int nodeHandle, std::string mode) {
     return ok;
 }
 
+static void viroErasePortalDelegate(int node);
 static void viroDestroyNode(int node) {
+    viroErasePortalDelegate(node);
     sNodes.erase(node);
     sNodeDelegates.erase(node);
     sNodeAnimations.erase(node);
@@ -1063,6 +1082,71 @@ static int viroCreateGeometry(emscripten::val vertices, emscripten::val normals,
     return handle;
 }
 
+// One element per submesh, as native ViroGeometry builds them: indices is every
+// submesh's indices end to end, counts the length of each. Each submesh takes
+// the material at its own index (VROGeometry wraps past the last one).
+static int viroCreateGeometrySubmeshes(emscripten::val vertices, emscripten::val normals,
+                                       emscripten::val texcoords, emscripten::val indices,
+                                       emscripten::val counts) {
+    std::vector<float> v = emscripten::convertJSArrayToNumberVector<float>(vertices);
+    std::vector<float> n = emscripten::convertJSArrayToNumberVector<float>(normals);
+    std::vector<float> t = emscripten::convertJSArrayToNumberVector<float>(texcoords);
+    std::vector<uint32_t> idx = emscripten::convertJSArrayToNumberVector<uint32_t>(indices);
+    std::vector<int> sizes = emscripten::convertJSArrayToNumberVector<int>(counts);
+    if (v.empty() || idx.empty()) return 0;
+
+    int vertexCount = (int) v.size() / 3;
+    std::vector<std::shared_ptr<VROGeometrySource>> sources;
+    auto vData = std::make_shared<VROData>((void *) v.data(), (int)(v.size() * sizeof(float)));
+    sources.push_back(std::make_shared<VROGeometrySource>(
+        vData, VROGeometrySourceSemantic::Vertex, vertexCount, true, 3, 4, 0, 12));
+    if (!n.empty()) {
+        auto nData = std::make_shared<VROData>((void *) n.data(), (int)(n.size() * sizeof(float)));
+        sources.push_back(std::make_shared<VROGeometrySource>(
+            nData, VROGeometrySourceSemantic::Normal, (int) n.size() / 3, true, 3, 4, 0, 12));
+    }
+    if (!t.empty()) {
+        auto tData = std::make_shared<VROData>((void *) t.data(), (int)(t.size() * sizeof(float)));
+        sources.push_back(std::make_shared<VROGeometrySource>(
+            tData, VROGeometrySourceSemantic::Texcoord, (int) t.size() / 2, true, 2, 4, 0, 8));
+    }
+
+    // One element per entry, empty or short ones too (native VRTGeometry does the
+    // same), so every later submesh keeps the material at its own index.
+    std::vector<std::shared_ptr<VROGeometryElement>> elements;
+    size_t offset = 0;
+    bool anyTriangles = false;
+    for (int size : sizes) {
+        size_t count = size > 0 ? (size_t) size : 0;
+        if (offset + count > idx.size()) break;
+        int triangles = (int) count / 3;
+        auto iData = std::make_shared<VROData>((void *) (idx.data() + offset),
+                                               (int) (triangles * 3 * sizeof(uint32_t)));
+        elements.push_back(std::make_shared<VROGeometryElement>(
+            iData, VROGeometryPrimitiveType::Triangle, triangles, 4, false));
+        anyTriangles = anyTriangles || triangles > 0;
+        offset += count;
+    }
+    if (!anyTriangles) return 0;
+
+    int handle = sNextHandle++;
+    sGeometries[handle] = std::make_shared<VROGeometry>(sources, elements);
+    return handle;
+}
+
+// Every material at once, as native's materials prop: a box with six takes one
+// per face (VROBox rebuilds its elements when the count moves between 1 and 6).
+static void viroSetGeometryMaterials(int geometry, emscripten::val materials) {
+    auto g = getGeometry(geometry);
+    if (!g) return;
+    std::vector<int> handles = emscripten::convertJSArrayToNumberVector<int>(materials);
+    std::vector<std::shared_ptr<VROMaterial>> list;
+    for (int h : handles) {
+        if (auto m = getMaterial(h)) list.push_back(m);
+    }
+    if (!list.empty()) g->setMaterials(list);
+}
+
 static void viroSetGeometryMaterial(int geometry, int material) {
     auto g = getGeometry(geometry);
     auto m = getMaterial(material);
@@ -1285,6 +1369,8 @@ static void viroSetMaterialShaderUniformMat4(int material, std::string name, ems
 // no-op: it detaches every body it knows about.
 
 static bool sPhysicsEnabled = false;
+// physicsWorld.drawBounds, kept so a world made later still gets it.
+static bool sPhysicsDebugDraw = false;
 
 /** Reports a collision to JS as (viroTag of A, viroTag of B, point, normal). */
 static emscripten::val sCollisionCallback = emscripten::val::undefined();
@@ -1347,6 +1433,7 @@ static void viroSetPhysicsWorld(bool enabled, float gx, float gy, float gz) {
         return;
     }
     world->setGravity({ gx, gy, gz });
+    world->setDebugDrawVisible(sPhysicsDebugDraw);
     for (auto &entry : sPhysicsBodies) {
         // Remove first: this runs again on every scene change and on a hot
         // reload, and the world rejects a body it already holds ("Attempted to
@@ -1439,10 +1526,57 @@ static void viroApplyPhysicsImpulse(int nodeHandle, float x, float y, float z) {
     it->second->applyImpulse({ x, y, z }, { 0, 0, 0 });
 }
 
+// Native's physicsBody force and torque (VRTNode applyForcesOnBody): applied on
+// every step until replaced. forces is [fx, fy, fz, px, py, pz] per force, the
+// position relative to the body's centre. A new body (a changed shape) starts
+// with none, so the caller sends them again after viroSetPhysicsBody.
+static void viroSetPhysicsForces(int nodeHandle, emscripten::val forces,
+                                 float tx, float ty, float tz) {
+    auto it = sPhysicsBodies.find(nodeHandle);
+    if (it == sPhysicsBodies.end()) return;
+    std::shared_ptr<VROPhysicsBody> body = it->second;
+    body->clearForces();
+    std::vector<float> f = emscripten::convertJSArrayToNumberVector<float>(forces);
+    for (size_t i = 0; i + 5 < f.size(); i += 6) {
+        body->applyForce({ f[i], f[i + 1], f[i + 2] }, { f[i + 3], f[i + 4], f[i + 5] });
+    }
+    if (tx != 0 || ty != 0 || tz != 0) {
+        body->applyTorque({ tx, ty, tz });
+    }
+}
+
 static void viroApplyPhysicsTorque(int nodeHandle, float x, float y, float z) {
     auto it = sPhysicsBodies.find(nodeHandle);
     if (it == sPhysicsBodies.end()) return;
     it->second->applyTorqueImpulse({ x, y, z });
+}
+
+// findCollisionsWithRayAsync / findCollisionsWithShapeAsync: true when anything
+// was hit. Each body hit gets an onCollision with rayTag as the other party,
+// through the collision callback, as native reports it. Never creates a world.
+static bool viroFindCollisionsWithRay(float fx, float fy, float fz, float tx, float ty, float tz,
+                                      bool closest, std::string rayTag) {
+    auto world = physicsWorld(false);
+    if (!world || !sPhysicsEnabled) return false;
+    return world->findCollisionsWithRay({ fx, fy, fz }, { tx, ty, tz }, closest, rayTag);
+}
+static bool viroFindCollisionsWithShape(float fx, float fy, float fz, float tx, float ty, float tz,
+                                        int shapeType, emscripten::val shapeParams,
+                                        std::string rayTag) {
+    auto world = physicsWorld(false);
+    if (!world || !sPhysicsEnabled) return false;
+    std::vector<float> params = emscripten::convertJSArrayToNumberVector<float>(shapeParams);
+    // VROPhysicsShape only logs a bad type or short params and then reads them.
+    bool box = shapeType == (int) VROPhysicsShape::VROShapeType::Box && params.size() >= 3;
+    bool sphere = shapeType == (int) VROPhysicsShape::VROShapeType::Sphere && params.size() >= 1;
+    if (!box && !sphere) return false;
+    auto shape = std::make_shared<VROPhysicsShape>((VROPhysicsShape::VROShapeType) shapeType, params);
+    return world->findCollisionsWithShape({ fx, fy, fz }, { tx, ty, tz }, shape, rayTag);
+}
+
+static void viroSetPhysicsDebugDraw(bool visible) {
+    sPhysicsDebugDraw = visible;
+    if (auto world = physicsWorld(false)) world->setDebugDrawVisible(visible);
 }
 
 static void viroClearPhysicsBody(int nodeHandle) {
@@ -1779,6 +1913,38 @@ static void viroSetBackgroundRotation(float x, float y, float z) {
     }
 }
 
+// The portal whose background a node sets: the node itself when it is one,
+// else its nearest portal ancestor, as native's getParentPortal(). The scene
+// root is a portal, so outside any ViroPortalScene this is the scene's own.
+static std::shared_ptr<VROPortal> backgroundPortal(int nodeHandle) {
+    std::shared_ptr<VRONode> node = getNode(nodeHandle);
+    if (!node) return nullptr;
+    if (std::shared_ptr<VROPortal> portal = std::dynamic_pointer_cast<VROPortal>(node)) {
+        return portal;
+    }
+    std::shared_ptr<VROPortal> parent = node->getParentPortal();
+    return parent ? parent : (sScene ? sScene->getRootNode() : nullptr);
+}
+static void viroSetNodeBackgroundSphere(int node, int texture) {
+    auto portal = backgroundPortal(node);
+    auto t = getTexture(texture);
+    if (portal && t) portal->setBackgroundSphere(t);
+}
+static void viroSetNodeBackgroundCube(int node, int texture) {
+    auto portal = backgroundPortal(node);
+    auto t = getTexture(texture);
+    if (portal && t) portal->setBackgroundCube(t);
+}
+static void viroSetNodeBackgroundRotation(int node, float x, float y, float z) {
+    if (auto portal = backgroundPortal(node)) portal->setBackgroundRotation(VROQuaternion(x, y, z));
+}
+// Native removes a 360 image's background when the image goes. removeBackground
+// itself does not check that there is one.
+static void viroRemoveNodeBackground(int node) {
+    auto portal = backgroundPortal(node);
+    if (portal && portal->getBackground()) portal->removeBackground();
+}
+
 // --- Particle emitter ---
 
 // Attach a particle emitter to a node. The sprite is a quad (particleW×particleH)
@@ -1897,6 +2063,97 @@ static void viroSetParticleModifier(int nodeHandle, int which,
 }
 
 // Toggle a node's emitter run/pause state.
+// The emitter settings native sets on every props update (VRTParticleEmitter
+// updateEmitterState, updateSpawnModifier, updatePhysicsModifier). Every key is
+// optional and an absent one leaves the emitter as it is:
+//   delay, duration (ms), loop, fixedToEmitter, blendMode (a material blend
+//   name), bloomThreshold (-1 off), emissionRatePerSecond, emissionRatePerMeter
+//   and particleLifetime [min, max], maxParticles, velocity [min xyz, max xyz],
+//   spawnVolume [shape, onSurface, ...params] (shape as viroCreateParticleEmitter),
+//   bursts [factor (0 time, 1 distance), start, interval, min, max, cycles] per
+//   burst, explosion [x, y, z, impulse, deceleration] (impulse < 0 clears it),
+//   reset (true restarts the emission cycle and drops live particles).
+static void viroConfigureParticleEmitter(int nodeHandle, emscripten::val c) {
+    std::shared_ptr<VRONode> node = getNode(nodeHandle);
+    std::shared_ptr<VROParticleEmitter> e = node ? node->getParticleEmitter() : nullptr;
+    if (!e || c.isUndefined() || c.isNull()) return;
+    auto has = [&](const char *key) {
+        emscripten::val v = c[key];
+        return !v.isUndefined() && !v.isNull();
+    };
+    auto floats = [&](const char *key) {
+        return emscripten::convertJSArrayToNumberVector<float>(c[key]);
+    };
+
+    if (has("delay")) e->setDelay(c["delay"].as<double>());
+    if (has("duration")) e->setDuration(c["duration"].as<double>());
+    if (has("loop")) e->setLoop(c["loop"].as<bool>());
+    if (has("fixedToEmitter")) e->setFixedToEmitter(c["fixedToEmitter"].as<bool>());
+    if (has("blendMode")) {
+        VROBlendMode mode = VROMaterial::getBlendModeFromString(c["blendMode"].as<std::string>());
+        if (mode != VROBlendMode::None) e->setBlendMode(mode);
+    }
+    if (has("bloomThreshold")) e->setBloomThreshold(c["bloomThreshold"].as<float>());
+    if (has("emissionRatePerSecond")) {
+        std::vector<float> r = floats("emissionRatePerSecond");
+        if (r.size() >= 2) e->setEmissionRatePerSecond({ (int) r[0], (int) r[1] });
+    }
+    if (has("particleLifetime")) {
+        std::vector<float> r = floats("particleLifetime");
+        if (r.size() >= 2) e->setParticleLifeTime({ (int) r[0], (int) r[1] });
+    }
+    if (has("maxParticles")) e->setMaxParticles(c["maxParticles"].as<int>());
+    if (has("velocity")) {
+        std::vector<float> v = floats("velocity");
+        if (v.size() >= 6) {
+            e->setVelocityModifier(std::make_shared<VROParticleModifier>(
+                VROVector3f(v[0], v[1], v[2]), VROVector3f(v[3], v[4], v[5])));
+        }
+    }
+    if (has("emissionRatePerMeter")) {
+        std::vector<float> r = floats("emissionRatePerMeter");
+        if (r.size() >= 2) e->setEmissionRatePerDistance({ (int) r[0], (int) r[1] });
+    }
+    if (has("spawnVolume")) {
+        std::vector<float> v = floats("spawnVolume");
+        if (v.size() >= 2) {
+            VROParticleSpawnVolume volume;
+            switch ((int) v[0]) {
+                case 0: volume.shape = VROParticleSpawnVolume::Shape::Box; break;
+                case 1: volume.shape = VROParticleSpawnVolume::Shape::Sphere; break;
+                default: volume.shape = VROParticleSpawnVolume::Shape::Point; break;
+            }
+            volume.spawnOnSurface = v[1] != 0;
+            volume.shapeParams.assign(v.begin() + 2, v.end());
+            e->setParticleSpawnVolume(volume);
+        }
+    }
+    if (has("bursts")) {
+        std::vector<float> b = floats("bursts");
+        std::vector<VROParticleEmitter::VROParticleBurst> bursts;
+        for (size_t i = 0; i + 5 < b.size(); i += 6) {
+            VROParticleEmitter::VROParticleBurst burst;
+            burst.referenceFactor = b[i] == 1 ? VROParticleModifier::VROModifierFactor::Distance
+                                              : VROParticleModifier::VROModifierFactor::Time;
+            burst.referenceValueStart = b[i + 1];
+            burst.referenceValueInterval = b[i + 2];
+            burst.numberOfParticles = { (int) b[i + 3], (int) b[i + 4] };
+            burst.cycles = b[i + 5] > 0 ? (int) b[i + 5] : 1;
+            bursts.push_back(burst);
+        }
+        e->setParticleBursts(bursts);
+    }
+    if (has("explosion")) {
+        std::vector<float> x = floats("explosion");
+        if (x.size() >= 5 && x[3] >= 0) {
+            e->setInitialExplosion({ x[0], x[1], x[2] }, x[3], x[4]);
+        } else {
+            e->setInitialExplosion({ 0, 0, 0 }, -1);
+        }
+    }
+    if (has("reset")) e->resetEmissionCycle(c["reset"].as<bool>());
+}
+
 static void viroSetParticleEmitterRun(int nodeHandle, bool run) {
     std::shared_ptr<VRONode> node = getNode(nodeHandle);
     if (node && node->getParticleEmitter()) {
@@ -1931,6 +2188,47 @@ static void viroSetPortalPassable(int portalScene, bool passable) {
     if (scene) {
         scene->setPassable(passable);
     }
+}
+
+/** Reports a portal crossing to JS as (portal scene handle, entered). */
+static emscripten::val sPortalCallback = emscripten::val::undefined();
+static void viroSetPortalCallback(emscripten::val cb) {
+    sPortalCallback = cb;
+}
+
+class WebPortalDelegate : public VROPortalDelegate {
+public:
+    explicit WebPortalDelegate(int handle) : _handle(handle) {}
+    void onPortalEnter() override { emit(true); }
+    void onPortalExit() override { emit(false); }
+private:
+    void emit(bool entered) {
+        if (sPortalCallback.isUndefined() || sPortalCallback.isNull()) {
+            return;
+        }
+        sPortalCallback(_handle, entered);
+    }
+    int _handle;
+};
+
+// VROPortal holds its delegate weakly, so the strong reference lives here.
+static std::unordered_map<int, std::shared_ptr<WebPortalDelegate>> sPortalDelegates;
+
+static void viroErasePortalDelegate(int node) {
+    sPortalDelegates.erase(node);
+}
+
+static void viroSetPortalEventsEnabled(int portalScene, bool enabled) {
+    std::shared_ptr<VROPortal> scene = std::dynamic_pointer_cast<VROPortal>(getNode(portalScene));
+    if (!scene) return;
+    if (!enabled) {
+        scene->setPortalDelegate(nullptr);
+        sPortalDelegates.erase(portalScene);
+        return;
+    }
+    auto delegate = std::make_shared<WebPortalDelegate>(portalScene);
+    sPortalDelegates[portalScene] = delegate;
+    scene->setPortalDelegate(delegate);
 }
 
 // --- Lights ---
@@ -2332,11 +2630,16 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroSetPhysicsVelocity", &viroSetPhysicsVelocity);
     emscripten::function("viroApplyPhysicsImpulse", &viroApplyPhysicsImpulse);
     emscripten::function("viroApplyPhysicsTorque", &viroApplyPhysicsTorque);
+    emscripten::function("viroSetPhysicsForces", &viroSetPhysicsForces);
+    emscripten::function("viroFindCollisionsWithRay", &viroFindCollisionsWithRay);
+    emscripten::function("viroFindCollisionsWithShape", &viroFindCollisionsWithShape);
+    emscripten::function("viroSetPhysicsDebugDraw", &viroSetPhysicsDebugDraw);
     emscripten::function("viroClearPhysicsBody", &viroClearPhysicsBody);
     emscripten::function("viroSetCollisionCallback", &viroSetCollisionCallback);
     emscripten::function("viroOnTouch", &viroOnTouch);
     emscripten::function("viroStopMainLoop", &viroStopMainLoop);
     emscripten::function("viroOnPinch", &viroOnPinch);
+    emscripten::function("viroOnPointerHover", &viroOnPointerHover);
     emscripten::function("viroOnRotate", &viroOnRotate);
     emscripten::function("viroBuildDemoCube", &viroBuildDemoCube);
 
@@ -2376,6 +2679,8 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroCreatePolygon", &viroCreatePolygon);
     emscripten::function("viroCreateGeometry", &viroCreateGeometry);
     emscripten::function("viroSetGeometryMaterial", &viroSetGeometryMaterial);
+    emscripten::function("viroSetGeometryMaterials", &viroSetGeometryMaterials);
+    emscripten::function("viroCreateGeometrySubmeshes", &viroCreateGeometrySubmeshes);
     emscripten::function("viroDestroyGeometry", &viroDestroyGeometry);
 
     emscripten::function("viroCreateMaterial", &viroCreateMaterial);
@@ -2418,14 +2723,21 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroSetBackgroundSphere", &viroSetBackgroundSphere);
     emscripten::function("viroSetBackgroundCube", &viroSetBackgroundCube);
     emscripten::function("viroSetBackgroundRotation", &viroSetBackgroundRotation);
+    emscripten::function("viroSetNodeBackgroundSphere", &viroSetNodeBackgroundSphere);
+    emscripten::function("viroSetNodeBackgroundCube", &viroSetNodeBackgroundCube);
+    emscripten::function("viroSetNodeBackgroundRotation", &viroSetNodeBackgroundRotation);
+    emscripten::function("viroRemoveNodeBackground", &viroRemoveNodeBackground);
     emscripten::function("viroCreateParticleEmitter", &viroCreateParticleEmitter);
     emscripten::function("viroSetParticleEmitterRun", &viroSetParticleEmitterRun);
+    emscripten::function("viroConfigureParticleEmitter", &viroConfigureParticleEmitter);
     emscripten::function("viroSetParticleAcceleration", &viroSetParticleAcceleration);
     emscripten::function("viroSetParticleModifier", &viroSetParticleModifier);
     emscripten::function("viroCreatePortalScene", &viroCreatePortalScene);
     emscripten::function("viroCreatePortalFrame", &viroCreatePortalFrame);
     emscripten::function("viroSetPortalEntrance", &viroSetPortalEntrance);
     emscripten::function("viroSetPortalPassable", &viroSetPortalPassable);
+    emscripten::function("viroSetPortalCallback", &viroSetPortalCallback);
+    emscripten::function("viroSetPortalEventsEnabled", &viroSetPortalEventsEnabled);
 
     emscripten::function("viroSetEventCallback", &viroSetEventCallback);
     emscripten::function("viroSetNodeEventEnabled", &viroSetNodeEventEnabled);
