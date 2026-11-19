@@ -1386,8 +1386,15 @@ static void viroSetPhysicsBody(int nodeHandle, int type, float mass,
     if (shapeType >= 0) {
         std::vector<float> params =
             emscripten::convertJSArrayToNumberVector<float>(shapeParams);
-        shape = std::make_shared<VROPhysicsShape>(
-            (VROPhysicsShape::VROShapeType) shapeType, params);
+        if (shapeType == (int) VROPhysicsShape::VROShapeType::AutoCompound && params.empty()) {
+            // The compound inferred from the node's children, which the body
+            // regenerates on its next update. Built from the node rather than
+            // from a type and no params, which logs an "unsupported type" error.
+            shape = std::make_shared<VROPhysicsShape>(node, true);
+        } else {
+            shape = std::make_shared<VROPhysicsShape>(
+                (VROPhysicsShape::VROShapeType) shapeType, params);
+        }
     }
 
     // The tag lives on the node: VROPhysicsBody::getTag() reads it from there,
