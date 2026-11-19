@@ -2161,15 +2161,16 @@ static void viroStartAnimation(int nodeHandle, std::string name, bool loop) {
     emitAnim(nodeHandle, 0);
     runAnim(nodeHandle, state);
 }
-// The declarative pass each node last committed (viroCommitAnimation), so the
-// three calls below reach it as well as a model's own animation, as native's
-// VRTManagedAnimation pauses either kind. A looping pass never finishes; it is
-// held until stopped or replaced.
+// The declarative passes each node has committed (viroCommitAnimation) and not
+// yet finished, so the three calls below reach them as well as a model's own
+// animation, as native's VRTManagedAnimation pauses either kind. A node can run
+// several at once (a parallel chain); a looping one never finishes and is held
+// until stopped.
 struct WebNodeTransaction {
     std::shared_ptr<VROTransaction> transaction;
     bool paused;
 };
-static std::unordered_map<int, WebNodeTransaction> sNodeTransactions;
+static std::unordered_map<int, std::vector<WebNodeTransaction>> sNodeTransactions;
 static int sOpenTransactionNode = 0;
 
 static bool transactionFinished(const WebNodeTransaction &entry) {
@@ -2180,18 +2181,24 @@ static void viroPauseAnimation(int nodeHandle) {
     auto it = sNodeAnimations.find(nodeHandle);
     if (it != sNodeAnimations.end()) it->second->anim->pause();
     auto t = sNodeTransactions.find(nodeHandle);
-    if (t != sNodeTransactions.end() && !t->second.paused && !transactionFinished(t->second)) {
-        VROTransaction::pause(t->second.transaction);
-        t->second.paused = true;
+    if (t == sNodeTransactions.end()) return;
+    for (WebNodeTransaction &entry : t->second) {
+        if (!entry.paused && !transactionFinished(entry)) {
+            VROTransaction::pause(entry.transaction);
+            entry.paused = true;
+        }
     }
 }
 static void viroResumeAnimation(int nodeHandle) {
     auto it = sNodeAnimations.find(nodeHandle);
     if (it != sNodeAnimations.end()) it->second->anim->resume();
     auto t = sNodeTransactions.find(nodeHandle);
-    if (t != sNodeTransactions.end() && t->second.paused) {
-        VROTransaction::resume(t->second.transaction);
-        t->second.paused = false;
+    if (t == sNodeTransactions.end()) return;
+    for (WebNodeTransaction &entry : t->second) {
+        if (entry.paused) {
+            VROTransaction::resume(entry.transaction);
+            entry.paused = false;
+        }
     }
 }
 static void viroStopAnimation(int nodeHandle, bool jumpToEnd) {
@@ -2201,10 +2208,11 @@ static void viroStopAnimation(int nodeHandle, bool jumpToEnd) {
         sNodeAnimations.erase(it);
     }
     auto t = sNodeTransactions.find(nodeHandle);
-    if (t != sNodeTransactions.end()) {
-        if (!transactionFinished(t->second)) VROTransaction::terminate(t->second.transaction, jumpToEnd);
-        sNodeTransactions.erase(t);
+    if (t == sNodeTransactions.end()) return;
+    for (WebNodeTransaction &entry : t->second) {
+        if (!transactionFinished(entry)) VROTransaction::terminate(entry.transaction, jumpToEnd);
     }
+    sNodeTransactions.erase(t);
 }
 
 // Its presence is what tells the bridge the three calls above reach declarative passes.
@@ -2245,7 +2253,11 @@ static void viroBeginAnimation(int nodeHandle, float duration, float delay, bool
 }
 static void viroCommitAnimation() {
     std::shared_ptr<VROTransaction> transaction = VROTransaction::commit();
-    if (sOpenTransactionNode) sNodeTransactions[sOpenTransactionNode] = { transaction, false };
+    if (sOpenTransactionNode) {
+        std::vector<WebNodeTransaction> &held = sNodeTransactions[sOpenTransactionNode];
+        held.erase(std::remove_if(held.begin(), held.end(), transactionFinished), held.end());
+        held.push_back({ transaction, false });
+    }
     sOpenTransactionNode = 0;
 }
 
