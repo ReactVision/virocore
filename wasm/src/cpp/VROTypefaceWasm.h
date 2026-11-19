@@ -30,6 +30,13 @@ public:
     std::shared_ptr<VROGlyph> loadGlyph(uint32_t charCode, uint32_t variantSelector,
                                         uint32_t outlineWidth, VROGlyphRenderMode renderMode);
 
+    /*
+     The file name, without suffix, of the system face for a weight and style.
+     Only the regular face is preloaded; the page writes the others into the
+     virtual FS on demand, so JS asks this which one a text needs.
+     */
+    static std::string systemFaceFile(VROFontWeight weight, VROFontStyle style);
+
 protected:
 
     FT_FaceRec_ *loadFTFace();

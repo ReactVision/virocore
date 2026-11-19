@@ -545,6 +545,30 @@ VROVector3f VROInputControllerBase::getDragPositionFixedToPlane(const std::share
     return drag->_originalDraggedNodePosition + draggedOffset;
 }
 
+void VROInputControllerBase::cancelButtonEvent(int source) {
+    int ray = rayForSource(source);
+    bool sourceAware = _hitResultsBySource.count(ray) > 0;
+    std::shared_ptr<VRONode> &lastClicked = sourceAware
+        ? _lastClickedNodesBySource[source]
+        : _lastClickedNode;
+    if (_pressedSources.erase(source) == 0 && lastClicked == nullptr) {
+        return;
+    }
+    std::shared_ptr<VRONode> node = lastClicked;
+    lastClicked = nullptr;
+    std::vector<float> pos;
+    for (std::shared_ptr<VROEventDelegate> delegate : _delegates) {
+        delegate->onClick(source, node, VROEventDelegate::ClickState::ClickUp, pos);
+    }
+    if (node != nullptr && node->getEventDelegate()) {
+        node->getEventDelegate()->onClick(source, node, VROEventDelegate::ClickState::ClickUp, pos);
+    }
+    std::shared_ptr<VRODraggedObject> drag = getDraggedObject(ray);
+    if (drag != nullptr) {
+        endDrag(drag->_source);
+    }
+}
+
 void VROInputControllerBase::onPinch(int source, float scaleFactor, VROEventDelegate::PinchState pinchState) {
     // The controller's own delegates hear every pinch, as they do every touch:
     // the pinched node is null when the pinch started on nothing that takes it.

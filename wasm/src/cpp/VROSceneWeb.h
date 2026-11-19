@@ -46,6 +46,8 @@ public:
     // Forward a DOM pointer/touch event into the input controller.
     // action: 0 = down, 1 = move, 2 = up. x/y in device pixels, top-left origin.
     void onTouch(int action, float x, float y);
+    void onPinch(int state, float scale, float x, float y);
+    void onRotate(int state, float radians, float x, float y);
 
     // Root node of the active scene — the C API attaches bridge-created nodes here.
     std::shared_ptr<VROPortal> getRootNode();

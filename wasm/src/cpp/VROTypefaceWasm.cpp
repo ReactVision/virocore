@@ -10,6 +10,8 @@
 #include "VROLog.h"
 #include "VROGlyphOpenGL.h"
 #include "VRODriverOpenGLWasm.h"
+#include <iterator>
+#include <utility>
 
 // Roboto, and not the platform's own face: this build's fonts are baked into
 // the wasm data blob and therefore redistributed with it, so the font has to be
@@ -17,6 +19,13 @@
 // Android and Quest render with — which makes the web player agree with two of
 // the three instead of being a third typeface.
 static const std::string kSystemFont = "Roboto";
+
+// The weights the system face comes in, as Android ships Roboto. Every one but
+// the regular is a file the renderer package carries beside the wasm and the
+// page writes in on demand, which keeps the preloaded blob to one face.
+static const std::pair<int, const char *> kSystemWeights[] = {
+    { 100, "Thin" }, { 300, "Light" }, { 400, "" }, { 500, "Medium" }, { 700, "Bold" }, { 900, "Black" },
+};
 
 VROTypefaceWasm::VROTypefaceWasm(std::string name, int size, VROFontStyle style, VROFontWeight weight,
                                  std::shared_ptr<VRODriver> driver) :
@@ -42,10 +51,13 @@ FT_FaceRec_ *VROTypefaceWasm::loadFTFace() {
     }
     
     FT_Library ft = std::dynamic_pointer_cast<VRODriverOpenGLWasm>(driver)->getFreetype();
-    // The requested face first, then the system one. Each is tried as .ttf and
-    // .ttc, because the suffix is a property of the file someone preloaded and
-    // not of the name a scene asked for.
-    if (!openFace(ft, getName()) && !openFace(ft, kSystemFont)) {
+    // The requested face first, then the system one at the requested weight and
+    // style, then the regular system face, which is always there. Each is tried
+    // as .ttf and .ttc, because the suffix is a property of the file someone
+    // preloaded and not of the name a scene asked for. A request for the system
+    // face by name goes straight to its weights: its own file is only the regular.
+    bool opened = getName() != kSystemFont && openFace(ft, getName());
+    if (!opened && !openFace(ft, systemFaceFile(getWeight(), getStyle())) && !openFace(ft, kSystemFont)) {
         pabort("Failed to load system font %s", kSystemFont.c_str());
     }
 
@@ -82,6 +94,31 @@ std::shared_ptr<VROGlyph> VROTypefaceWasm::loadGlyph(uint32_t charCode, uint32_t
     }
 
     return glyph;
+}
+
+std::string VROTypefaceWasm::systemFaceFile(VROFontWeight weight, VROFontStyle style) {
+    // CSS's weight matching, which Android's own is close to: below 400 the
+    // nearest lighter face wins, above 500 the nearest heavier one, and 400 and
+    // 500 stand in for each other.
+    int w = (int) weight;
+    int chosen = 400;
+    if (w < 400) {
+        chosen = 100;
+        for (const auto &face : kSystemWeights) if (face.first <= w) chosen = face.first;
+    } else if (w > 500) {
+        chosen = 900;
+        for (auto it = std::rbegin(kSystemWeights); it != std::rend(kSystemWeights); ++it) if (it->first >= w) chosen = it->first;
+    } else {
+        chosen = w;
+    }
+    std::string variant;
+    for (const auto &face : kSystemWeights) if (face.first == chosen) variant = face.second;
+
+    bool italic = style == VROFontStyle::Italic;
+    if (variant.empty() && !italic) {
+        return kSystemFont;
+    }
+    return kSystemFont + "-" + variant + (italic ? "Italic" : "");
 }
 
 std::string VROTypefaceWasm::getFontPath(std::string fontName) {

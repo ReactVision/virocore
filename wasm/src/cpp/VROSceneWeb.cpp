@@ -12,6 +12,8 @@
 
 #include <emscripten/bind.h>
 #include <emscripten/em_js.h>
+#include <algorithm>
+#include <cmath>
 
 #include "VROLog.h"
 #include "VRORenderer.h"
@@ -35,6 +37,7 @@
 #include "VROSurface.h"
 #include "VROText.h"
 #include "VROTypeface.h"
+#include "VROTypefaceWasm.h"
 #include "VROPolyline.h"
 #include "VROPolygon.h"
 #include "VROGeometry.h"
@@ -142,6 +145,9 @@ VROSceneWeb::VROSceneWeb(std::string canvasSelector, int width, int height) :
     attribs.depth = 1;
     attribs.stencil = 1;
     attribs.antialias = 1;
+    // Opaque, as a native view is: a see-through canvas showed the page behind
+    // empty space.
+    attribs.alpha = 0;
 
     _context = emscripten_webgl_create_context(_canvasSelector.c_str(), &attribs);
     if (_context <= 0) {
@@ -395,6 +401,18 @@ void VROSceneWeb::onTouch(int action, float x, float y) {
     }
 }
 
+void VROSceneWeb::onPinch(int state, float scale, float x, float y) {
+    if (_inputController) {
+        _inputController->onPinch(state, scale, x, y);
+    }
+}
+
+void VROSceneWeb::onRotate(int state, float radians, float x, float y) {
+    if (_inputController) {
+        _inputController->onRotate(state, radians, x, y);
+    }
+}
+
 #pragma mark - JS bindings
 
 // A single global scene instance owned by the module. JS calls initViroScene()
@@ -468,9 +486,25 @@ static void setViroSceneSize(int width, int height) {
     }
 }
 
+// Stops drawing for good: a disposed renderer, or one whose WebGL context was
+// lost, would otherwise keep running beside the renderer that replaces it.
+static void viroStopMainLoop() {
+    emscripten_cancel_main_loop();
+}
+
 static void viroOnTouch(int action, float x, float y) {
     if (sScene) {
         sScene->onTouch(action, x, y);
+    }
+}
+static void viroOnPinch(int state, float scale, float x, float y) {
+    if (sScene) {
+        sScene->onPinch(state, scale, x, y);
+    }
+}
+static void viroOnRotate(int state, float radians, float x, float y) {
+    if (sScene) {
+        sScene->onRotate(state, radians, x, y);
     }
 }
 
@@ -533,6 +567,23 @@ public:
     virtual void onHover(int source, std::shared_ptr<VRONode> node,
                          bool isHovering, std::vector<float> position) {
         emit(EventAction::OnHover, source, isHovering ? 1 : 0, position);
+    }
+    // intArg is the gesture state; x carries the scale, or the radians.
+    virtual void onPinch(int source, std::shared_ptr<VRONode> node,
+                         float scaleFactor, PinchState pinchState) {
+        emit(EventAction::OnPinch, source, (int) pinchState, {scaleFactor});
+    }
+    virtual void onRotate(int source, std::shared_ptr<VRONode> node,
+                          float rotationRadians, RotateState rotateState) {
+        emit(EventAction::OnRotate, source, (int) rotateState, {rotationRadians});
+    }
+    // Only a completed fuse, as the native bridges report it; the countdown
+    // ratios above 0 are for Viro's own reticle.
+    virtual void onFuse(int source, std::shared_ptr<VRONode> node, float timeToFuseRatio) {
+        if (timeToFuseRatio > 0.0f) {
+            return;
+        }
+        emit(EventAction::OnFuse, source, 0, {});
     }
 
 private:
@@ -602,6 +653,10 @@ static void viroSetNodeOpacity(int node, float opacity) {
 }
 static void viroSetNodeVisible(int node, bool visible) {
     if (auto n = getNode(node)) n->setHidden(!visible);
+}
+// A node that is not selectable is skipped by hit tests, along with its whole subtree.
+static void viroSetNodeSelectable(int node, bool selectable) {
+    if (auto n = getNode(node)) n->setSelectable(selectable);
 }
 static void viroSetNodeGeometry(int node, int geometry) {
     auto n = getNode(node);
@@ -682,6 +737,34 @@ static emscripten::val viroGetNodeWorldPosition(int nodeHandle) {
     return out;
 }
 
+// What a ref's getTransformAsync reads on native: last frame's world transform,
+// decomposed as VRTNodeModule does. [px,py,pz, rx,ry,rz (degrees), sx,sy,sz].
+static emscripten::val viroGetNodeWorldTransform(int nodeHandle) {
+    emscripten::val out = emscripten::val::array();
+    auto node = getNode(nodeHandle);
+    if (!node) return out;
+    VROMatrix4f transform = node->getLastWorldTransform();
+    VROVector3f position = transform.extractTranslation();
+    VROVector3f scale = transform.extractScale();
+    VROVector3f rotation = transform.extractRotation(scale).toEuler();
+    float values[9] = { position.x, position.y, position.z,
+                        toDegrees(rotation.x), toDegrees(rotation.y), toDegrees(rotation.z),
+                        scale.x, scale.y, scale.z };
+    for (int i = 0; i < 9; i++) out.set(i, values[i]);
+    return out;
+}
+// The node's and its subtree's box, as getBoundingBoxAsync reads it on native.
+// [minX, maxX, minY, maxY, minZ, maxZ].
+static emscripten::val viroGetNodeBoundingBox(int nodeHandle) {
+    emscripten::val out = emscripten::val::array();
+    auto node = getNode(nodeHandle);
+    if (!node) return out;
+    VROBoundingBox box = node->getUmbrellaBoundingBox();
+    float values[6] = { box.getMinX(), box.getMaxX(), box.getMinY(), box.getMaxY(), box.getMinZ(), box.getMaxZ() };
+    for (int i = 0; i < 6; i++) out.set(i, values[i]);
+    return out;
+}
+
 // Morph targets. A glTF or FBX model carries its blend shapes in the geometry
 // virocore already loaded; nothing on web could name one or move it, so a face
 // rig that animates on a phone sat at its rest pose in a browser.
@@ -749,21 +832,25 @@ static void viroSetEventCallback(emscripten::val callback) {
     sEventCallback = callback;
 }
 
+static std::shared_ptr<VROWebEventDelegate> nodeDelegate(int node) {
+    auto n = getNode(node);
+    if (!n) return nullptr;
+    auto it = sNodeDelegates.find(node);
+    if (it != sNodeDelegates.end()) return it->second;
+    auto delegate = std::make_shared<VROWebEventDelegate>(node);
+    sNodeDelegates[node] = delegate;
+    n->setEventDelegate(delegate);
+    return delegate;
+}
+
 // eventAction: VROEventDelegate::EventAction (1=Hover, 2=Click, ...).
 static void viroSetNodeEventEnabled(int node, int eventAction, bool enabled) {
-    auto n = getNode(node);
-    if (!n) return;
-
-    auto it = sNodeDelegates.find(node);
-    std::shared_ptr<VROWebEventDelegate> delegate;
-    if (it == sNodeDelegates.end()) {
-        delegate = std::make_shared<VROWebEventDelegate>(node);
-        sNodeDelegates[node] = delegate;
-        n->setEventDelegate(delegate);
-    } else {
-        delegate = it->second;
+    if (auto delegate = nodeDelegate(node)) {
+        delegate->setEnabledEvent(static_cast<VROEventDelegate::EventAction>(eventAction), enabled);
     }
-    delegate->setEnabledEvent(static_cast<VROEventDelegate::EventAction>(eventAction), enabled);
+}
+static void viroSetNodeTimeToFuse(int node, float millis) {
+    if (auto delegate = nodeDelegate(node)) delegate->setTimeToFuse(millis);
 }
 
 // --- Geometries ---
@@ -820,13 +907,16 @@ static std::wstring utf8ToWString(const std::string &s) {
     return out;
 }
 
-// Create a text geometry. Alignment/linebreak/clip are int-coded to match
-// VROText's enums. color is RGBA in [0,1]. Uses the preloaded system font.
+// Alignment/linebreak/clip/stroke are int-coded to match VROText's enums, and
+// colors are RGBA in [0,1].
 // hAlign: 0 Left, 1 Right, 2 Center | vAlign: 0 Top, 1 Bottom, 2 Center
 // lineBreak: 0 WordWrap, 1 CharWrap, 2 Justify, 3 None | clip: 0 ClipToBounds, 1 None
-static int viroCreateText(std::string text, float width, float height, int fontSize,
-                          int hAlign, int vAlign, int lineBreak, int clipMode, int maxLines,
-                          float r, float g, float b, float a) {
+// stroke: 0 None, 1 Outline, 2 DropShadow
+static int buildText(std::string text, std::string typefaces, int fontSize, VROFontStyle style,
+                     VROFontWeight weight, VROVector4f color, float extrusion,
+                     int stroke, int strokeWidth, VROVector4f strokeColor,
+                     float width, float height, int hAlign, int vAlign, int lineBreak,
+                     int clipMode, int maxLines) {
     if (!sScene) return 0;
 
     VROTextHorizontalAlignment h;
@@ -849,18 +939,68 @@ static int viroCreateText(std::string text, float width, float height, int fontS
         default: lb = VROLineBreakMode::WordWrap; break;
     }
     VROTextClipMode clip = (clipMode == 1) ? VROTextClipMode::None : VROTextClipMode::ClipToBounds;
+    VROTextOuterStroke outer = stroke == 1 ? VROTextOuterStroke::Outline
+                             : stroke == 2 ? VROTextOuterStroke::DropShadow
+                             : VROTextOuterStroke::None;
 
-    // kWebSystemFont rather than a name typed here: the face this build carries
-    // is a redistribution decision, and it should be made in one place.
-    std::shared_ptr<VROText> textGeom = VROText::createText(
-        utf8ToWString(text), kWebSystemFont, fontSize,
-        VROFontStyle::Normal, VROFontWeight::Regular,
-        {r, g, b, a}, 0 /*extrusion*/, width, height,
+    std::shared_ptr<VROText> textGeom = std::make_shared<VROText>(
+        utf8ToWString(text), typefaces, fontSize, style, weight, color, extrusion,
+        outer, strokeWidth, strokeColor, width, height,
         h, v, lb, clip, maxLines, sScene->getDriver());
+    textGeom->update();
 
     int handle = sNextHandle++;
     sGeometries[handle] = textGeom;
     return handle;
+}
+
+// Create a text geometry in the regular system face (kWebSystemFont, so the face
+// this build carries is decided in one place).
+static int viroCreateText(std::string text, float width, float height, int fontSize,
+                          int hAlign, int vAlign, int lineBreak, int clipMode, int maxLines,
+                          float r, float g, float b, float a) {
+    return buildText(text, kWebSystemFont, fontSize, VROFontStyle::Normal, VROFontWeight::Regular,
+                     {r, g, b, a}, 0, 0, 2, {1, 1, 1, 1}, width, height,
+                     hAlign, vAlign, lineBreak, clipMode, maxLines);
+}
+
+static float numberOr(const emscripten::val &o, const char *key, float fallback) {
+    emscripten::val v = o[key];
+    return v.isNumber() ? v.as<float>() : fallback;
+}
+
+static VROVector4f colorOr(const emscripten::val &o, const char *key, VROVector4f fallback) {
+    emscripten::val c = o[key];
+    if (c.isUndefined() || c.isNull()) return fallback;
+    return { numberOr(c, "r", 1), numberOr(c, "g", 1), numberOr(c, "b", 1), numberOr(c, "a", 1) };
+}
+
+// viroCreateText with the style a ViroText can set. `o` holds the same fields by
+// name plus typefaces (a comma-separated family list, falling back to the system
+// face), weight (100-900), italic, extrusion, and stroke, strokeWidth (glyph
+// pixels) and strokeColor. A weight or style other than the regular one draws in
+// the face viroTextFaceFile names, which the caller writes into the FS first.
+static int viroCreateStyledText(std::string text, emscripten::val o) {
+    emscripten::val family = o["typefaces"];
+    std::string typefaces = family.isString() ? family.as<std::string>() : "";
+    if (typefaces.empty()) typefaces = kWebSystemFont;
+    int weight = (int) std::lround(numberOr(o, "weight", 400) / 100.0f) * 100;
+    weight = std::max(100, std::min(900, weight));
+    return buildText(text, typefaces, (int) numberOr(o, "fontSize", 18),
+                     o["italic"].isTrue() ? VROFontStyle::Italic : VROFontStyle::Normal,
+                     (VROFontWeight) weight, colorOr(o, "color", {1, 1, 1, 1}),
+                     numberOr(o, "extrusion", 0), (int) numberOr(o, "stroke", 0),
+                     (int) numberOr(o, "strokeWidth", 2), colorOr(o, "strokeColor", {1, 1, 1, 1}),
+                     numberOr(o, "width", 1), numberOr(o, "height", 1),
+                     (int) numberOr(o, "hAlign", 0), (int) numberOr(o, "vAlign", 0),
+                     (int) numberOr(o, "lineBreak", 0), (int) numberOr(o, "clipMode", 0),
+                     (int) numberOr(o, "maxLines", 0));
+}
+
+// The face file (no suffix) a text at this weight and style draws in.
+static std::string viroTextFaceFile(int weight, bool italic) {
+    return VROTypefaceWasm::systemFaceFile((VROFontWeight) weight,
+                                           italic ? VROFontStyle::Italic : VROFontStyle::Normal);
 }
 // Create a polyline from a flat [x,y,z, x,y,z, …] point list, with a thickness.
 static int viroCreatePolyline(emscripten::val points, float thickness) {
@@ -958,7 +1098,14 @@ static void viroSetMaterialLightingModel(int material, int model) {
         default: break;
     }
 }
+// Which of alpha, bloom and chroma key a material was given, so a shader
+// override copies only those onto a model, as the native bridges copy only the
+// authored keys: OBJ and VRX models carry a transparency of their own.
+enum WebAuthoredEffect { kAuthoredAlpha = 1, kAuthoredBloom = 2, kAuthoredChromaKey = 4 };
+static std::unordered_map<const VROMaterial *, int> sAuthoredEffects;
+
 static void viroDestroyMaterial(int material) {
+    if (auto m = getMaterial(material)) sAuthoredEffects.erase(m.get());
     sMaterials.erase(material);
 }
 
@@ -1006,6 +1153,30 @@ static void viroSetMaterialWritesToDepthBuffer(int material, bool writes) {
 }
 static void viroSetMaterialReadsFromDepthBuffer(int material, bool reads) {
     if (auto m = getMaterial(material)) m->setReadsFromDepthBuffer(reads);
+}
+static void viroSetMaterialTransparency(int material, float alpha) {
+    auto m = getMaterial(material);
+    if (!m) return;
+    m->setTransparency(alpha);
+    sAuthoredEffects[m.get()] |= kAuthoredAlpha;
+}
+// Under 0 takes the material out of the bloom pass, as native's default -1 does.
+static void viroSetMaterialBloomThreshold(int material, float threshold) {
+    auto m = getMaterial(material);
+    if (!m) return;
+    m->setBloomThreshold(threshold);
+    sAuthoredEffects[m.get()] |= kAuthoredBloom;
+}
+// mask: VROColorMask bits (Red 1, Green 2, Blue 4, Alpha 8).
+static void viroSetMaterialColorWriteMask(int material, int mask) {
+    if (auto m = getMaterial(material)) m->setColorWriteMask((VROColorMask) (mask & VROColorMaskAll));
+}
+static void viroSetMaterialChromaKey(int material, bool enabled, float r, float g, float b) {
+    auto m = getMaterial(material);
+    if (!m) return;
+    m->setChromaKeyFilteringColor({r, g, b});
+    m->setChromaKeyFilteringEnabled(enabled);
+    sAuthoredEffects[m.get()] |= kAuthoredChromaKey;
 }
 
 // entryPoint: "geometry"|"vertex"|"surface"|"fragment"|"lightingModel"|"image".
@@ -1310,6 +1481,15 @@ static void mergeShaderOverride(const std::shared_ptr<VROMaterial> &source,
     // stop a rigged mesh skinning. Each merge starts from the baseline, so
     // nothing accumulates across applications.
     dest->setThreadRestrictionEnabled(false);
+    // Native copies no colour write mask onto a model, so neither does this.
+    auto authored = sAuthoredEffects.find(source.get());
+    int effects = authored == sAuthoredEffects.end() ? 0 : authored->second;
+    if (effects & kAuthoredAlpha) dest->setTransparency(source->getTransparency());
+    if (effects & kAuthoredBloom) dest->setBloomThreshold(source->getBloomThreshold());
+    if (effects & kAuthoredChromaKey) {
+        dest->setChromaKeyFilteringColor(source->getChromaKeyFilteringColor());
+        dest->setChromaKeyFilteringEnabled(source->isChromaKeyFilteringEnabled());
+    }
     for (const auto &modifier : source->getShaderModifiers()) {
         dest->addShaderModifier(modifier);
     }
@@ -2098,6 +2278,9 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroClearPhysicsBody", &viroClearPhysicsBody);
     emscripten::function("viroSetCollisionCallback", &viroSetCollisionCallback);
     emscripten::function("viroOnTouch", &viroOnTouch);
+    emscripten::function("viroStopMainLoop", &viroStopMainLoop);
+    emscripten::function("viroOnPinch", &viroOnPinch);
+    emscripten::function("viroOnRotate", &viroOnRotate);
     emscripten::function("viroBuildDemoCube", &viroBuildDemoCube);
 
     // Scene graph C API (handle-based)
@@ -2108,6 +2291,7 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroSetNodeScale", &viroSetNodeScale);
     emscripten::function("viroSetNodeOpacity", &viroSetNodeOpacity);
     emscripten::function("viroSetNodeVisible", &viroSetNodeVisible);
+    emscripten::function("viroSetNodeSelectable", &viroSetNodeSelectable);
     emscripten::function("viroSetNodeGeometry", &viroSetNodeGeometry);
     emscripten::function("viroAddChildNode", &viroAddChildNode);
     emscripten::function("viroRemoveNodeFromParent", &viroRemoveNodeFromParent);
@@ -2117,6 +2301,9 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroSetNodeShadowCastingBitMask", &viroSetNodeShadowCastingBitMask);
     emscripten::function("viroSetNodeBillboard", &viroSetNodeBillboard);
     emscripten::function("viroGetNodeWorldPosition", &viroGetNodeWorldPosition);
+    emscripten::function("viroGetNodeWorldTransform", &viroGetNodeWorldTransform);
+    emscripten::function("viroGetNodeBoundingBox", &viroGetNodeBoundingBox);
+    emscripten::function("viroSetNodeTimeToFuse", &viroSetNodeTimeToFuse);
     emscripten::function("viroSetMorphTargetWeight", &viroSetMorphTargetWeight);
     emscripten::function("viroGetMorphTargetKeys", &viroGetMorphTargetKeys);
     emscripten::function("viroSetMorphMode", &viroSetMorphMode);
@@ -2126,6 +2313,8 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroCreateSurface", &viroCreateSurface);
     emscripten::function("viroCreateSurfaceUV", &viroCreateSurfaceUV);
     emscripten::function("viroCreateText", &viroCreateText);
+    emscripten::function("viroCreateStyledText", &viroCreateStyledText);
+    emscripten::function("viroTextFaceFile", &viroTextFaceFile);
     emscripten::function("viroCreatePolyline", &viroCreatePolyline);
     emscripten::function("viroCreatePolygon", &viroCreatePolygon);
     emscripten::function("viroCreateGeometry", &viroCreateGeometry);
@@ -2145,6 +2334,10 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroSetMaterialBlendMode", &viroSetMaterialBlendMode);
     emscripten::function("viroSetMaterialWritesToDepthBuffer", &viroSetMaterialWritesToDepthBuffer);
     emscripten::function("viroSetMaterialReadsFromDepthBuffer", &viroSetMaterialReadsFromDepthBuffer);
+    emscripten::function("viroSetMaterialTransparency", &viroSetMaterialTransparency);
+    emscripten::function("viroSetMaterialBloomThreshold", &viroSetMaterialBloomThreshold);
+    emscripten::function("viroSetMaterialColorWriteMask", &viroSetMaterialColorWriteMask);
+    emscripten::function("viroSetMaterialChromaKey", &viroSetMaterialChromaKey);
     emscripten::function("viroAddMaterialShaderModifier", &viroAddMaterialShaderModifier);
     emscripten::function("viroRemoveAllMaterialShaderModifiers", &viroRemoveAllMaterialShaderModifiers);
     emscripten::function("viroSetMaterialShaderUniformFloat", &viroSetMaterialShaderUniformFloat);
