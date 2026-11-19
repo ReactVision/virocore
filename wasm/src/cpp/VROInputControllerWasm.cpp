@@ -54,9 +54,35 @@ void VROInputControllerWasm::onScreenTouch(int action, float x, float y) {
     } else if (action == 2) {
         VROInputControllerBase::onButtonEvent(ViroCardBoard::ViewerButton,
                                               VROEventDelegate::ClickState::ClickUp);
+    } else if (action == 3) {
+        VROInputControllerBase::cancelButtonEvent(ViroCardBoard::ViewerButton);
     }
     // action == 1 (move): the hit node is refreshed above; drag/hover
     // propagation via onMove is a follow-up once components consume it.
+}
+
+// The start hit-tests at the midpoint and starts the gesture in one call:
+// updateOrientation replaces the hit with the gaze ray every frame.
+void VROInputControllerWasm::onPinch(int state, float scale, float x, float y) {
+    if (state == VROEventDelegate::PinchState::PinchStart) {
+        if (_viewportWidth == 0 || _viewportHeight == 0) {
+            return;
+        }
+        VROInputControllerBase::updateHitNode(_latestCamera, _latestCamera.getPosition(), calculateCameraRay(x, y));
+    }
+    VROInputControllerBase::onPinch(ViroCardBoard::InputSource::Controller, scale,
+                                    (VROEventDelegate::PinchState) state);
+}
+
+void VROInputControllerWasm::onRotate(int state, float radians, float x, float y) {
+    if (state == VROEventDelegate::RotateState::RotateStart) {
+        if (_viewportWidth == 0 || _viewportHeight == 0) {
+            return;
+        }
+        VROInputControllerBase::updateHitNode(_latestCamera, _latestCamera.getPosition(), calculateCameraRay(x, y));
+    }
+    VROInputControllerBase::onRotate(ViroCardBoard::InputSource::Controller, radians,
+                                     (VROEventDelegate::RotateState) state);
 }
 
 void VROInputControllerWasm::updateScreenTouch(int touchAction) {

@@ -1,5 +1,20 @@
 # CHANGELOG
 
+## v3.2.2 — 18 November 2026
+
+### Added
+
+- **Web: styled text, material effects, two-finger gestures and node reads (`wasm/`).** For viro-web-renderer 1.2.0:
+  - `viroCreateStyledText` builds a `VROText` with a family list, weight, italic, extrusion and an outline or drop shadow. Weight and italic pick one of 11 Roboto faces in `wasm/fonts` (Apache 2.0), loaded on first use; `viroCreateText` is unchanged.
+  - Material alpha, bloom threshold, colour write mask and chroma key; a shader override copies alpha, bloom and chroma key onto a model only when the material set them, as the native bridges do.
+  - Pinch, rotate and fuse: two fingers start a pinch and a rotate on the node under their midpoint, and fuse is reported when it completes.
+  - `viroSetNodeSelectable`, and a node's world transform and bounding box as native's `getTransformAsync` and `getBoundingBoxAsync` read them.
+- **`VROInputControllerBase::cancelButtonEvent(source)`.** Ends a press without a click: the node hears `ClickUp` and never `Clicked`, and a drag it started ends. Used by the web build when a second finger turns a touch into a two-finger gesture; iOS and Android do not call it.
+
+### Fixed
+
+- **Web: the canvas is opaque, as a native view is,** so empty space shows the clear colour instead of the page behind it, and a disposed renderer or one whose WebGL context was lost stops its render loop.
+
 ## v3.2.1 — 17 November 2026
 
 ### Added
