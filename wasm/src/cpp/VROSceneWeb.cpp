@@ -887,6 +887,13 @@ static int viroCreateSphere(float radius) {
     sGeometries[h] = VROSphere::createSphere(radius, 20, 20, true);
     return h;
 }
+// viroCreateSphere keeps its signature for older callers; this takes the segment
+// counts and facing that ViroSphere's props set on native.
+static int viroCreateSphereEx(float radius, int widthSegments, int heightSegments, bool facesOutward) {
+    int h = sNextHandle++;
+    sGeometries[h] = VROSphere::createSphere(radius, widthSegments, heightSegments, facesOutward);
+    return h;
+}
 // B6. A surface with explicit UVs, so a caller can crop the texture into the
 // quad instead of stretching it — what imageClipMode ClipToBounds does on a
 // device. Separate from viroCreateSurface rather than extra parameters on it:
@@ -1045,6 +1052,28 @@ static int viroCreatePolygon(emscripten::val points) {
     }
     int h = sNextHandle++;
     sGeometries[h] = VROPolygon::createPolygon(path);
+    return h;
+}
+
+// viroCreatePolygon with ViroPolygon's holes and uvCoordinates. `holes` is an
+// array of flat [x,y,z, …] lists, one per hole.
+static int viroCreatePolygonEx(emscripten::val points, emscripten::val holes,
+                               float u0, float v0, float u1, float v1) {
+    auto toPath = [](emscripten::val list) {
+        std::vector<float> f = emscripten::convertJSArrayToNumberVector<float>(list);
+        std::vector<VROVector3f> path;
+        for (size_t i = 0; i + 2 < f.size(); i += 3) {
+            path.push_back({ f[i], f[i + 1], f[i + 2] });
+        }
+        return path;
+    };
+    std::vector<std::vector<VROVector3f>> holePaths;
+    int holeCount = holes["length"].as<int>();
+    for (int i = 0; i < holeCount; i++) {
+        holePaths.push_back(toPath(holes[i]));
+    }
+    int h = sNextHandle++;
+    sGeometries[h] = VROPolygon::createPolygon(toPath(points), holePaths, u0, v0, u1, v1);
     return h;
 }
 
@@ -1936,6 +1965,16 @@ static int viroCreateTextureCubeRGBA(emscripten::val px, emscripten::val nx,
 
 // --- Lighting environment (IBL) ---
 
+// mode is VROStereoMode's value (1 None, 2 LeftRight, 3 RightLeft, 4 TopBottom,
+// 5 BottomTop). Call it before the texture goes on a material: the shader that
+// shows one half of the image is picked when the material compiles.
+static void viroSetTextureStereoMode(int texture, int mode) {
+    if (mode < 1 || mode > 5) return;
+    if (std::shared_ptr<VROTexture> t = getTexture(texture)) {
+        t->setStereoMode((VROStereoMode) mode);
+    }
+}
+
 // Load a radiance .hdr file (already written to the virtual FS at `path`) into a
 // texture usable as an image-based lighting environment.
 static int viroLoadRadianceHDRTexture(std::string path) {
@@ -2353,8 +2392,8 @@ static void viroSetLightInfluenceBitMask(int light, int mask) {
 // decide whether the result is usable — a map too small or a bias too low is
 // the difference between a shadow and a field of acne.
 //
-// No shadowOrthographicPosition: the native navigators expose it but VROLight
-// has no setter for it, so there is nothing to forward it to. Six of the seven.
+// shadowOrthographicPosition has no setter here: native sets it as the light's
+// position (viroSetLightPosition), which the shadow pass reads.
 static void viroSetLightShadowOpacity(int light, float opacity) {
     if (auto l = getLight(light)) l->setShadowOpacity(opacity);
 }
@@ -2734,6 +2773,7 @@ EMSCRIPTEN_BINDINGS(viro_web) {
 
     emscripten::function("viroCreateBox", &viroCreateBox);
     emscripten::function("viroCreateSphere", &viroCreateSphere);
+    emscripten::function("viroCreateSphereEx", &viroCreateSphereEx);
     emscripten::function("viroCreateSurface", &viroCreateSurface);
     emscripten::function("viroCreateSurfaceUV", &viroCreateSurfaceUV);
     emscripten::function("viroCreateText", &viroCreateText);
@@ -2741,6 +2781,7 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroTextFaceFile", &viroTextFaceFile);
     emscripten::function("viroCreatePolyline", &viroCreatePolyline);
     emscripten::function("viroCreatePolygon", &viroCreatePolygon);
+    emscripten::function("viroCreatePolygonEx", &viroCreatePolygonEx);
     emscripten::function("viroCreateGeometry", &viroCreateGeometry);
     emscripten::function("viroSetGeometryMaterial", &viroSetGeometryMaterial);
     emscripten::function("viroSetGeometryMaterials", &viroSetGeometryMaterials);
@@ -2774,6 +2815,7 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroApplyShaderOverride", &viroApplyShaderOverride);
 
     emscripten::function("viroCreateTextureRGBA", &viroCreateTextureRGBA);
+    emscripten::function("viroSetTextureStereoMode", &viroSetTextureStereoMode);
     emscripten::function("viroSetTextureWrap", &viroSetTextureWrap);
     emscripten::function("viroSetTextureFilter", &viroSetTextureFilter);
     emscripten::function("viroSetMaterialTexture", &viroSetMaterialTexture);
