@@ -547,6 +547,8 @@ static std::unordered_map<int, std::shared_ptr<VROMaterial>> sMaterials;
 static std::unordered_map<int,
     std::unordered_map<VROGeometry *, std::vector<std::shared_ptr<VROMaterial>>>>
     sShaderOverrideBaselines;
+// The material each node was last given as a shader override.
+static std::unordered_map<int, int> sShaderOverrideSources;
 
 // Defined with the physics section below; viroDestroyNode needs it before that.
 static void viroClearPhysicsBody(int nodeHandle);
@@ -841,6 +843,7 @@ static void viroDestroyNode(int node) {
     sNodeDelegates.erase(node);
     sNodeAnimations.erase(node);
     sShaderOverrideBaselines.erase(node);
+    sShaderOverrideSources.erase(node);
     sBillboards.erase(node);
     viroClearPhysicsBody(node);
 }
@@ -1166,8 +1169,35 @@ static int viroCreateMaterial() {
     sMaterials[h] = std::make_shared<VROMaterial>();
     return h;
 }
+// Which properties a material was given, so a shader override copies only those
+// onto a model, as the native bridges copy only the keys the material was
+// registered with. A VROMaterial cannot tell: one built from nothing but shader
+// modifiers still reports a white diffuse, which would white out a textured
+// model. viro calls each setter only for a key the material names.
+enum WebAuthored {
+    kAuthoredAlpha = 1 << 0,
+    kAuthoredBloom = 1 << 1,
+    kAuthoredChromaKey = 1 << 2,
+    kAuthoredDiffuseColor = 1 << 3,
+    kAuthoredDiffuseIntensity = 1 << 4,
+    kAuthoredShininess = 1 << 5,
+    kAuthoredRoughness = 1 << 6,
+    kAuthoredMetalness = 1 << 7,
+    kAuthoredBlendMode = 1 << 8,
+    kAuthoredCullMode = 1 << 9,
+    kAuthoredWritesDepth = 1 << 10,
+    kAuthoredReadsDepth = 1 << 11,
+    // One bit per viroSetMaterialTexture channel, from here.
+    kAuthoredTexture0 = 1 << 12,
+};
+static std::unordered_map<const VROMaterial *, int> sAuthored;
+static void markAuthored(const std::shared_ptr<VROMaterial> &m, int bits) { sAuthored[m.get()] |= bits; }
+
 static void viroSetMaterialDiffuseColor(int material, float r, float g, float b, float a) {
-    if (auto m = getMaterial(material)) m->getDiffuse().setColor({r, g, b, a});
+    auto m = getMaterial(material);
+    if (!m) return;
+    m->getDiffuse().setColor({r, g, b, a});
+    markAuthored(m, kAuthoredDiffuseColor);
 }
 // model: 0=Constant, 1=Lambert, 2=Blinn, 3=Phong, 4=PhysicallyBased
 static void viroSetMaterialLightingModel(int material, int model) {
@@ -1182,32 +1212,38 @@ static void viroSetMaterialLightingModel(int material, int model) {
         default: break;
     }
 }
-// Which of alpha, bloom and chroma key a material was given, so a shader
-// override copies only those onto a model, as the native bridges copy only the
-// authored keys: OBJ and VRX models carry a transparency of their own.
-enum WebAuthoredEffect { kAuthoredAlpha = 1, kAuthoredBloom = 2, kAuthoredChromaKey = 4 };
-static std::unordered_map<const VROMaterial *, int> sAuthoredEffects;
-
 static void viroDestroyMaterial(int material) {
-    if (auto m = getMaterial(material)) sAuthoredEffects.erase(m.get());
+    if (auto m = getMaterial(material)) sAuthored.erase(m.get());
     sMaterials.erase(material);
 }
 
 // Scalar material properties.
 static void viroSetMaterialShininess(int material, float shininess) {
-    if (auto m = getMaterial(material)) m->setShininess(shininess);
+    auto m = getMaterial(material);
+    if (!m) return;
+    m->setShininess(shininess);
+    markAuthored(m, kAuthoredShininess);
 }
 static void viroSetMaterialFresnelExponent(int material, float fresnel) {
     if (auto m = getMaterial(material)) m->setFresnelExponent(fresnel);
 }
 static void viroSetMaterialRoughness(int material, float roughness) {
-    if (auto m = getMaterial(material)) m->getRoughness().setColor({roughness, roughness, roughness, 1.0});
+    auto m = getMaterial(material);
+    if (!m) return;
+    m->getRoughness().setColor({roughness, roughness, roughness, 1.0});
+    markAuthored(m, kAuthoredRoughness);
 }
 static void viroSetMaterialMetalness(int material, float metalness) {
-    if (auto m = getMaterial(material)) m->getMetalness().setColor({metalness, metalness, metalness, 1.0});
+    auto m = getMaterial(material);
+    if (!m) return;
+    m->getMetalness().setColor({metalness, metalness, metalness, 1.0});
+    markAuthored(m, kAuthoredMetalness);
 }
 static void viroSetMaterialDiffuseIntensity(int material, float intensity) {
-    if (auto m = getMaterial(material)) m->getDiffuse().setIntensity(intensity);
+    auto m = getMaterial(material);
+    if (!m) return;
+    m->getDiffuse().setIntensity(intensity);
+    markAuthored(m, kAuthoredDiffuseIntensity);
 }
 // mode: 0=Back, 1=Front, 2=None (VROCullMode)
 static void viroSetMaterialCullMode(int material, int mode) {
@@ -1218,6 +1254,7 @@ static void viroSetMaterialCullMode(int material, int mode) {
         case 2: m->setCullMode(VROCullMode::None); break;
         default: m->setCullMode(VROCullMode::Back); break;
     }
+    markAuthored(m, kAuthoredCullMode);
 }
 // mode: 0=None,1=Alpha,2=Add,3=Multiply,4=Subtract,5=Screen (VROBlendMode)
 static void viroSetMaterialBlendMode(int material, int mode) {
@@ -1231,25 +1268,32 @@ static void viroSetMaterialBlendMode(int material, int mode) {
         case 5: m->setBlendMode(VROBlendMode::Screen); break;
         default: m->setBlendMode(VROBlendMode::None); break;
     }
+    markAuthored(m, kAuthoredBlendMode);
 }
 static void viroSetMaterialWritesToDepthBuffer(int material, bool writes) {
-    if (auto m = getMaterial(material)) m->setWritesToDepthBuffer(writes);
+    auto m = getMaterial(material);
+    if (!m) return;
+    m->setWritesToDepthBuffer(writes);
+    markAuthored(m, kAuthoredWritesDepth);
 }
 static void viroSetMaterialReadsFromDepthBuffer(int material, bool reads) {
-    if (auto m = getMaterial(material)) m->setReadsFromDepthBuffer(reads);
+    auto m = getMaterial(material);
+    if (!m) return;
+    m->setReadsFromDepthBuffer(reads);
+    markAuthored(m, kAuthoredReadsDepth);
 }
 static void viroSetMaterialTransparency(int material, float alpha) {
     auto m = getMaterial(material);
     if (!m) return;
     m->setTransparency(alpha);
-    sAuthoredEffects[m.get()] |= kAuthoredAlpha;
+    markAuthored(m, kAuthoredAlpha);
 }
 // Under 0 takes the material out of the bloom pass, as native's default -1 does.
 static void viroSetMaterialBloomThreshold(int material, float threshold) {
     auto m = getMaterial(material);
     if (!m) return;
     m->setBloomThreshold(threshold);
-    sAuthoredEffects[m.get()] |= kAuthoredBloom;
+    markAuthored(m, kAuthoredBloom);
 }
 // mask: VROColorMask bits (Red 1, Green 2, Blue 4, Alpha 8).
 static void viroSetMaterialColorWriteMask(int material, int mask) {
@@ -1260,7 +1304,7 @@ static void viroSetMaterialChromaKey(int material, bool enabled, float r, float 
     if (!m) return;
     m->setChromaKeyFilteringColor({r, g, b});
     m->setChromaKeyFilteringEnabled(enabled);
-    sAuthoredEffects[m.get()] |= kAuthoredChromaKey;
+    markAuthored(m, kAuthoredChromaKey);
 }
 
 // entryPoint: "geometry"|"vertex"|"surface"|"fragment"|"lightingModel"|"image".
@@ -1590,13 +1634,12 @@ static void viroClearPhysicsBody(int nodeHandle) {
 
 // --- Shader overrides (a registered material merged onto a loaded model) ---
 //
-// The web counterpart of VRTNode.mm's applyShaderOverridesRecursive, and
-// deliberately the same merge: the model keeps its own colours and textures, and
-// the override contributes the seven rendering properties plus its shader
-// modifiers and uniforms. Copying the colour here would make a model read one way
-// in a browser and another on a phone, which is the difference this exists to
-// close; the shared defect is that neither surface honours an authored colour on
-// a model, and that belongs to the native merge, not here.
+// The web counterpart of VRTNode.mm's shader-override merge and
+// VRTMergeAuthoredMaterialProperties. The model keeps its own materials; the
+// override brings its lighting model, its shader modifiers and uniforms, and each
+// other property only where the author set it (sAuthored). A colour without a
+// texture tints the model and leaves its texture in place; a material carrying
+// only modifiers changes nothing else.
 //
 // A node handed to the bridge usually draws nothing itself — a loaded model hangs
 // its geometry off child nodes — so this walks the subtree rather than reading
@@ -1607,27 +1650,47 @@ static void viroClearPhysicsBody(int nodeHandle) {
 // re-applying a changed override merges onto the model's own materials again
 // rather than compounding onto the previous merge.
 
+static VROMaterialVisual &visualForChannel(VROMaterial &m, int channel) {
+    switch (channel) {
+        case 1: return m.getSpecular();
+        case 2: return m.getNormal();
+        case 3: return m.getRoughness();
+        case 4: return m.getMetalness();
+        case 5: return m.getAmbientOcclusion();
+        default: return m.getDiffuse();
+    }
+}
+static const int kTextureChannels = 6;
+
 static void mergeShaderOverride(const std::shared_ptr<VROMaterial> &source,
                                 const std::shared_ptr<VROMaterial> &dest) {
     dest->setLightingModel(source->getLightingModel());
-    dest->setShininess(source->getShininess());
-    dest->setBlendMode(source->getBlendMode());
-    dest->setTransparencyMode(source->getTransparencyMode());
-    dest->setCullMode(source->getCullMode());
-    dest->setWritesToDepthBuffer(source->getWritesToDepthBuffer());
-    dest->setReadsFromDepthBuffer(source->getReadsFromDepthBuffer());
 
     // Modifiers are added, not replaced: dest is a copy of the model's own
     // material and still carries the loader's modifiers, so clearing them would
     // stop a rigged mesh skinning. Each merge starts from the baseline, so
     // nothing accumulates across applications.
     dest->setThreadRestrictionEnabled(false);
+    auto found = sAuthored.find(source.get());
+    int authored = found == sAuthored.end() ? 0 : found->second;
+    if (authored & kAuthoredShininess) dest->setShininess(source->getShininess());
+    if (authored & kAuthoredBlendMode) dest->setBlendMode(source->getBlendMode());
+    if (authored & kAuthoredCullMode) dest->setCullMode(source->getCullMode());
+    if (authored & kAuthoredWritesDepth) dest->setWritesToDepthBuffer(source->getWritesToDepthBuffer());
+    if (authored & kAuthoredReadsDepth) dest->setReadsFromDepthBuffer(source->getReadsFromDepthBuffer());
+    if (authored & kAuthoredDiffuseColor) dest->getDiffuse().setColor(source->getDiffuse().getColor());
+    if (authored & kAuthoredDiffuseIntensity) dest->getDiffuse().setIntensity(source->getDiffuse().getIntensity());
+    if (authored & kAuthoredRoughness) dest->getRoughness().setColor(source->getRoughness().getColor());
+    if (authored & kAuthoredMetalness) dest->getMetalness().setColor(source->getMetalness().getColor());
+    for (int channel = 0; channel < kTextureChannels; channel++) {
+        if (authored & (kAuthoredTexture0 << channel)) {
+            visualForChannel(*dest, channel).setTexture(visualForChannel(*source, channel).getTexture());
+        }
+    }
     // Native copies no colour write mask onto a model, so neither does this.
-    auto authored = sAuthoredEffects.find(source.get());
-    int effects = authored == sAuthoredEffects.end() ? 0 : authored->second;
-    if (effects & kAuthoredAlpha) dest->setTransparency(source->getTransparency());
-    if (effects & kAuthoredBloom) dest->setBloomThreshold(source->getBloomThreshold());
-    if (effects & kAuthoredChromaKey) {
+    if (authored & kAuthoredAlpha) dest->setTransparency(source->getTransparency());
+    if (authored & kAuthoredBloom) dest->setBloomThreshold(source->getBloomThreshold());
+    if (authored & kAuthoredChromaKey) {
         dest->setChromaKeyFilteringColor(source->getChromaKeyFilteringColor());
         dest->setChromaKeyFilteringEnabled(source->isChromaKeyFilteringEnabled());
     }
@@ -1678,6 +1741,7 @@ static void viroApplyShaderOverride(int nodeHandle, int materialHandle) {
     if (!node || !material) {
         return;
     }
+    sShaderOverrideSources[nodeHandle] = materialHandle;
     applyShaderOverrideToNode(node, material, sShaderOverrideBaselines[nodeHandle]);
 }
 
@@ -1830,13 +1894,13 @@ static void viroSetMaterialTexture(int material, int channel, int texture) {
     auto m = getMaterial(material);
     auto t = getTexture(texture);
     if (!m || !t) return;
-    switch (channel) {
-        case 1: m->getSpecular().setTexture(t); break;
-        case 2: m->getNormal().setTexture(t); break;
-        case 3: m->getRoughness().setTexture(t); break;
-        case 4: m->getMetalness().setTexture(t); break;
-        case 5: m->getAmbientOcclusion().setTexture(t); break;
-        default: m->getDiffuse().setTexture(t); break;
+    if (channel < 0 || channel >= kTextureChannels) channel = 0;
+    visualForChannel(*m, channel).setTexture(t);
+    markAuthored(m, kAuthoredTexture0 << channel);
+    // A registered material's textures load after the model it overrides has
+    // usually been merged, so merge again where this is the current override.
+    for (const auto &entry : sShaderOverrideSources) {
+        if (entry.second == material) viroApplyShaderOverride(entry.first, material);
     }
 }
 static void viroDestroyTexture(int texture) {
