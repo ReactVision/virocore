@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## Unreleased
+## v3.2.2 — 18 November 2026
 
 ### Added
 
