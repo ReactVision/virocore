@@ -69,6 +69,7 @@
 #include "VROQuaternion.h"
 #include "VROMorpher.h"
 #include "VROStringUtil.h"
+#include "VROPostProcessEffectFactory.h"
 #include <set>
 
 #include <unordered_map>
@@ -489,6 +490,24 @@ static void viroSetToneMappingEnabled(bool enabled) {
     std::shared_ptr<VROScene> scene = sScene->getScene();
     if (!scene) return;
     scene->setToneMappingEnabled(enabled);
+}
+
+// ViroScene's postProcessEffects, in order. They run only on the HDR path, as on
+// native. Returns how many names the engine knows (unknown ones are skipped), or
+// -1 with no scene.
+static int viroSetPostProcessEffects(emscripten::val names) {
+    if (!sScene) return -1;
+    std::shared_ptr<VROScene> scene = sScene->getScene();
+    if (!scene) return -1;
+    std::vector<std::string> effects = emscripten::vecFromJSArray<std::string>(names);
+    scene->setPostProcessingEffects(effects);
+    int known = 0;
+    for (const std::string &effect : effects) {
+        if (VROPostProcessEffectFactory::getEffectForString(effect) != VROPostProcessEffect::None) {
+            known++;
+        }
+    }
+    return known;
 }
 
 static void setViroSceneSize(int width, int height) {
@@ -2724,6 +2743,7 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroSetPBREnabled", &viroSetPBREnabled);
     emscripten::function("viroSetShadowsEnabled", &viroSetShadowsEnabled);
     emscripten::function("viroSetToneMappingEnabled", &viroSetToneMappingEnabled);
+    emscripten::function("viroSetPostProcessEffects", &viroSetPostProcessEffects);
     emscripten::function("viroGetBuildId", &viroGetBuildId);
 
     // Physics
