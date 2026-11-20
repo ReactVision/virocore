@@ -14,60 +14,50 @@
 
 #pragma mark - Camera
 
-VROMatrix4f VROARCameraWeb::getProjection(VROViewport viewport, float near, float far,
-                                          VROFieldOfView *outFOV) {
-    // Derive the frustum from the camera's own intrinsics when the host has
-    // supplied them. The alternative below is a fixed 60-degree vertical field
-    // of view, which aligns with the camera image only by coincidence: the
-    // background is a screen-space surface and fills the viewport either way,
-    // so a mismatch is invisible in the feed and shows up as 3-D content
-    // sitting in the wrong place -- slightly wrong near the optical axis and
-    // hundreds of pixels wrong toward the edges.
+VROARCameraWeb::View VROARCameraWeb::getView(VROViewport viewport) const {
     float aspect = (viewport.getHeight() > 0)
                        ? (float) viewport.getWidth() / (float) viewport.getHeight()
                        : 1.0f;
+    View v = {0, 0, 0, 0, 0, 0};
 
-    float l, r, b, t; // half-extents at unit depth, one per frustum side
-    if (hasIntrinsics() && _height > 0 && _width > 0) {
-        // Off-axis, because a real camera's principal point is not the centre
-        // of its image. A symmetric frustum built from the focal lengths alone
-        // gets the scale right and leaves a constant offset behind -- small,
-        // but constant, which is exactly what reads as content sitting a little
-        // to one side of where it was placed.
-        l = _cx / _fx;
-        r = (_width - _cx) / _fx;
-        t = _cy / _fy;
-        b = (_height - _cy) / _fy;
-    } else {
-        // No intrinsics: a 60-degree vertical field of view, centred. This is
-        // an assumption about a camera nobody measured, and it aligns with the
-        // image only by luck -- the background fills the viewport regardless,
-        // so the mismatch never shows in the feed and instead puts the 3-D
-        // content in the wrong place, by a little near the optical axis and by
-        // a lot toward the edges.
-        t = b = tanf(toRadians(30.0f));
-        l = r = t * aspect;
+    // Derive the frustum from the camera's own intrinsics when the host has
+    // supplied them. Off-axis, because a real camera's principal point is not
+    // the centre of its image: a symmetric frustum built from the focal lengths
+    // alone leaves a constant offset behind, which reads as content sitting a
+    // little to one side of where it was placed.
+    if (!(hasIntrinsics() && _height > 0 && _width > 0)) {
+        // No intrinsics: a 60-degree vertical field of view, centred, over the
+        // whole viewport. It aligns with the camera image only by luck.
+        v.t = v.b = tanf(toRadians(30.0f));
+        v.l = v.r = v.t * aspect;
+        return v;
     }
+    v.l = _cx / _fx;
+    v.r = (_width - _cx) / _fx;
+    v.t = _cy / _fy;
+    v.b = (_height - _cy) / _fy;
 
-    // The viewport rarely has the image's aspect ratio. Widen the axis with
-    // room to spare rather than stretching either one: stretching changes the
-    // pixel scale and misaligns everything at once. The principal point keeps
-    // its position, so the widening is off-axis too.
-    const float imageAspect = (r + l) / (t + b);
-    if (aspect > imageAspect) {
-        const float total = (t + b) * aspect;
-        const float lr = l + r;
-        l = total * (l / lr);
-        r = total * (r / lr);
+    const float w = v.l + v.r;
+    const float h = v.t + v.b;
+    if (aspect > w / h) {
+        const float c = (h - w / aspect) / 2;
+        v.t -= c;
+        v.b -= c;
+        v.trimV = c / h;
     } else {
-        const float total = (l + r) / aspect;
-        const float tb = t + b;
-        t = total * (t / tb);
-        b = total * (b / tb);
+        const float c = (w - h * aspect) / 2;
+        v.l -= c;
+        v.r -= c;
+        v.trimU = c / w;
     }
+    return v;
+}
 
-    VROFieldOfView fov(toDegrees(atanf(l)), toDegrees(atanf(r)),
-                       toDegrees(atanf(b)), toDegrees(atanf(t)));
+VROMatrix4f VROARCameraWeb::getProjection(VROViewport viewport, float near, float far,
+                                          VROFieldOfView *outFOV) {
+    View v = getView(viewport);
+    VROFieldOfView fov(toDegrees(atanf(v.l)), toDegrees(atanf(v.r)),
+                       toDegrees(atanf(v.b)), toDegrees(atanf(v.t)));
     if (outFOV != nullptr) {
         *outFOV = fov;
     }

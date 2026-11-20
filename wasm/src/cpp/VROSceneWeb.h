@@ -47,6 +47,7 @@ public:
     // action: 0 = down, 1 = move, 2 = up. x/y in device pixels, top-left origin.
     void onTouch(int action, float x, float y);
     void onPinch(int state, float scale, float x, float y);
+    void onPointerHover(bool active, float x, float y);
     void onRotate(int state, float radians, float x, float y);
 
     // Root node of the active scene — the C API attaches bridge-created nodes here.
@@ -61,6 +62,8 @@ public:
     // Renderer, so the C API can switch the post-processing effects on and off
     // the way the native scene navigators do through their view.
     std::shared_ptr<VRORenderer> getRenderer();
+
+    std::shared_ptr<VROInputControllerWasm> getInputController() { return _inputController; }
 
     // The active scene, which owns the physics world.
     std::shared_ptr<VROScene> getScene();
@@ -105,6 +108,7 @@ private:
     // Screen-space surface that draws the live camera feed behind the scene.
     // Created lazily on the first AR frame; its diffuse is the JS-uploaded texture.
     std::shared_ptr<VROSurface> _cameraBackground;
+    float _cameraBackgroundLayout[6] = {-1, -1, -1, -1, -1, -1};
 
     // Demo-only: the cube node spun each frame by buildCubeScene().
     std::shared_ptr<VRONode> _boxNode;

@@ -1545,8 +1545,13 @@ void VROPlatformWGetStatusCallback(unsigned int x, void *arg, int percentage) {
 }
 
 std::string VROPlatformDownloadURLToFile(std::string url, bool *temp, bool *success) {
-    // Synchronous download not supported on WASM
-    pabort();
+    // The main thread cannot block on a fetch. Callers (tiny_gltf's external
+    // files) treat this as a missing file, so the one model fails and the
+    // renderer keeps running; the JS side inlines those files before loading.
+    pwarn("Synchronous download is not supported on web: %s", url.c_str());
+    *temp = false;
+    *success = false;
+    return "";
 }
 
 void VROPlatformDownloadURLToFileAsync(std::string url,

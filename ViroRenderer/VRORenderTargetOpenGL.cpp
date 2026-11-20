@@ -912,12 +912,26 @@ GLenum toGL(VROStencilFunc func) {
     }
 }
 
+// WebGL drops a draw (INVALID_OPERATION) whose front and back faces hold a
+// different stencil reference, value mask or write mask. A two-sided portal
+// frame sets them for one face, so on the web they go to both faces; the stencil
+// ops stay per face, which is what keeps the inactive face from writing.
+#if VRO_PLATFORM_WASM
+static GLenum toGLStencilRefFace(VROFace face) {
+    return GL_FRONT_AND_BACK;
+}
+#else
+static GLenum toGLStencilRefFace(VROFace face) {
+    return toGL(face);
+}
+#endif
+
 void VRORenderTargetOpenGL::enablePortalStencilWriting(VROFace face) {
     std::shared_ptr<VRODriver> driver = _driver.lock();
     if (driver) {
         driver->setStencilTestEnabled(true);
         GL (glStencilOpSeparate(toGL(face), GL_KEEP, GL_KEEP, GL_INCR) );   // Increment stencil buffer when pass
-        GL (glStencilMaskSeparate(toGL(face), 0x0F) );                      // Allow writing to the lower four bits in stencil buffer
+        GL (glStencilMaskSeparate(toGLStencilRefFace(face), 0x0F) );        // Allow writing to the lower four bits in stencil buffer
     }
 }
 
@@ -926,7 +940,7 @@ void VRORenderTargetOpenGL::enablePortalStencilRemoval(VROFace face) {
     if (driver) {
         driver->setStencilTestEnabled(true);
         GL (glStencilOpSeparate(toGL(face), GL_KEEP, GL_KEEP, GL_DECR) );   // Decrement stencil buffer when pass
-        GL (glStencilMaskSeparate(toGL(face), 0x0F) );                      // Allow writing to the lower four bits in stencil buffer
+        GL (glStencilMaskSeparate(toGLStencilRefFace(face), 0x0F) );        // Allow writing to the lower four bits in stencil buffer
     }
 }
 
@@ -947,6 +961,6 @@ void VRORenderTargetOpenGL::setPortalStencilPassFunction(VROFace face, VROStenci
     std::shared_ptr<VRODriver> driver = _driver.lock();
     if (driver) {
         driver->setStencilTestEnabled(true);
-        GL( glStencilFuncSeparate(toGL(face), toGL(_stencilFunc), _stencilRef, 0x0F) );
+        GL( glStencilFuncSeparate(toGLStencilRefFace(face), toGL(_stencilFunc), _stencilRef, 0x0F) );
     }
 }
