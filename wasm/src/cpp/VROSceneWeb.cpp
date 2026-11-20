@@ -696,6 +696,26 @@ static void viroSetNodeVisible(int node, bool visible) {
 static void viroSetNodeSelectable(int node, bool selectable) {
     if (auto n = getNode(node)) n->setSelectable(selectable);
 }
+// Pivots are node-local offsets, built the way VRTNode.mm does: a translation
+// matrix the transform wraps rotation (or scale) in. (0,0,0) is the identity.
+static void viroSetNodeRotationPivot(int node, float x, float y, float z) {
+    if (auto n = getNode(node)) {
+        VROMatrix4f pivot;
+        pivot.translate(x, y, z);
+        n->setRotationPivot(pivot);
+    }
+}
+static void viroSetNodeScalePivot(int node, float x, float y, float z) {
+    if (auto n = getNode(node)) {
+        VROMatrix4f pivot;
+        pivot.translate(x, y, z);
+        n->setScalePivot(pivot);
+    }
+}
+// Hit tests the node's triangles instead of its bounding box, for the whole subtree.
+static void viroSetNodeHighAccuracyEvents(int node, bool enabled) {
+    if (auto n = getNode(node)) n->setHighAccuracyEvents(enabled);
+}
 static void viroSetNodeGeometry(int node, int geometry) {
     auto n = getNode(node);
     auto g = getGeometry(geometry);
@@ -2775,6 +2795,9 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroSetNodeOpacity", &viroSetNodeOpacity);
     emscripten::function("viroSetNodeVisible", &viroSetNodeVisible);
     emscripten::function("viroSetNodeSelectable", &viroSetNodeSelectable);
+    emscripten::function("viroSetNodeRotationPivot", &viroSetNodeRotationPivot);
+    emscripten::function("viroSetNodeScalePivot", &viroSetNodeScalePivot);
+    emscripten::function("viroSetNodeHighAccuracyEvents", &viroSetNodeHighAccuracyEvents);
     emscripten::function("viroSetNodeGeometry", &viroSetNodeGeometry);
     emscripten::function("viroAddChildNode", &viroAddChildNode);
     emscripten::function("viroRemoveNodeFromParent", &viroRemoveNodeFromParent);
