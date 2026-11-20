@@ -108,6 +108,7 @@ private:
     // Screen-space surface that draws the live camera feed behind the scene.
     // Created lazily on the first AR frame; its diffuse is the JS-uploaded texture.
     std::shared_ptr<VROSurface> _cameraBackground;
+    float _cameraBackgroundLayout[6] = {-1, -1, -1, -1, -1, -1};
 
     // Demo-only: the cube node spun each frame by buildCubeScene().
     std::shared_ptr<VRONode> _boxNode;

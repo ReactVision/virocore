@@ -348,6 +348,23 @@ void VROSceneWeb::drawFrameAR(VROViewport viewport) {
             material->setWritesToDepthBuffer(false);
             material->setNeedsToneMapping(false);
         }
+        // Follow the viewport (the URL bar and rotation both resize it) and crop
+        // the image to fill it, matching the projection; see getView.
+        VROARCameraWeb::View view = _arSession->getWebCamera()->getView(viewport);
+        float bg[6] = {(float) viewport.getX(), (float) viewport.getY(),
+                       (float) viewport.getWidth(), (float) viewport.getHeight(),
+                       view.trimU, view.trimV};
+        if (!std::equal(bg, bg + 6, _cameraBackgroundLayout)) {
+            std::copy(bg, bg + 6, _cameraBackgroundLayout);
+            _cameraBackground->setX(bg[0] + bg[2] / 2.0f);
+            _cameraBackground->setY(bg[1] + bg[3] / 2.0f);
+            _cameraBackground->setWidth(bg[2]);
+            _cameraBackground->setHeight(bg[3]);
+            _cameraBackground->setU0(view.trimU);
+            _cameraBackground->setU1(1 - view.trimU);
+            _cameraBackground->setV0(view.trimV);
+            _cameraBackground->setV1(1 - view.trimV);
+        }
         _cameraBackground->getMaterials()[0]->getDiffuse().setTexture(cameraTexture);
         // A byte-uploaded (viroCreateTextureRGBA) feed is a fresh VROTexture each
         // frame; force its GPU upload now so the background samples real pixels
