@@ -63,6 +63,8 @@ public:
     // the way the native scene navigators do through their view.
     std::shared_ptr<VRORenderer> getRenderer();
 
+    std::shared_ptr<VROInputControllerWasm> getInputController() { return _inputController; }
+
     // The active scene, which owns the physics world.
     std::shared_ptr<VROScene> getScene();
 

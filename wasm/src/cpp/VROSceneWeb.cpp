@@ -586,7 +586,10 @@ static std::unordered_map<int, std::shared_ptr<WebAnimState>> sNodeAnimations;
 #pragma mark - Event marshaling (WASM -> JS)
 
 // Single JS callback the bridge registers to receive node events. Signature:
-//   cb(nodeHandle, eventAction, source, intArg, x, y, z)
+//   cb(nodeHandle, eventAction, source, intArg, x, y, z, posCount)
+// posCount is how many of x, y, z the event carried: a click on the background
+// has no position, which the zeros alone cannot say. nodeHandle 0 is the
+// ViroController delegate (node handles start at 1).
 // eventAction matches VROEventDelegate::EventAction (1=Hover, 2=Click). intArg
 // carries ClickState for clicks (1=down,2=up,3=clicked) or isHovering (0/1).
 static emscripten::val sEventCallback = emscripten::val::undefined();
@@ -632,7 +635,7 @@ private:
         float x = pos.size() > 0 ? pos[0] : 0.0f;
         float y = pos.size() > 1 ? pos[1] : 0.0f;
         float z = pos.size() > 2 ? pos[2] : 0.0f;
-        sEventCallback(_handle, action, source, intArg, x, y, z);
+        sEventCallback(_handle, action, source, intArg, x, y, z, (int) pos.size());
     }
     int _handle;
 };
@@ -912,6 +915,24 @@ static void viroSetNodeEventEnabled(int node, int eventAction, bool enabled) {
 }
 static void viroSetNodeTimeToFuse(int node, float millis) {
     if (auto delegate = nodeDelegate(node)) delegate->setTimeToFuse(millis);
+}
+
+// ViroController: a delegate on the input controller's presenter, which the
+// controller hands every click, pinch, rotate and fuse, background hits included.
+// The presenter holds it weakly, so this keeps it alive; setting it again on each
+// call covers a renderer rebuilt after a lost context.
+static std::shared_ptr<VROWebEventDelegate> sControllerDelegate;
+static void viroSetControllerEventEnabled(int eventAction, bool enabled) {
+    if (!sScene) return;
+    std::shared_ptr<VROInputControllerWasm> input = sScene->getInputController();
+    if (!input) return;
+    std::shared_ptr<VROInputPresenter> presenter = input->getPresenter();
+    if (!presenter) return;
+    if (!sControllerDelegate) {
+        sControllerDelegate = std::make_shared<VROWebEventDelegate>(0);
+    }
+    presenter->setEventDelegate(sControllerDelegate);
+    sControllerDelegate->setEnabledEvent(static_cast<VROEventDelegate::EventAction>(eventAction), enabled);
 }
 
 // --- Geometries ---
@@ -2810,6 +2831,7 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroGetNodeWorldTransform", &viroGetNodeWorldTransform);
     emscripten::function("viroGetNodeBoundingBox", &viroGetNodeBoundingBox);
     emscripten::function("viroSetNodeTimeToFuse", &viroSetNodeTimeToFuse);
+    emscripten::function("viroSetControllerEventEnabled", &viroSetControllerEventEnabled);
     emscripten::function("viroSetMorphTargetWeight", &viroSetMorphTargetWeight);
     emscripten::function("viroGetMorphTargetKeys", &viroGetMorphTargetKeys);
     emscripten::function("viroSetMorphMode", &viroSetMorphMode);
