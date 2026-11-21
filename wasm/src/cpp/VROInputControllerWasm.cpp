@@ -85,6 +85,16 @@ void VROInputControllerWasm::onRotate(int state, float radians, float x, float y
                                      (VROEventDelegate::RotateState) state);
 }
 
+void VROInputControllerWasm::setPointerHover(float x, float y) {
+    _pointerHover = true;
+    _pointerX = x;
+    _pointerY = y;
+}
+
+void VROInputControllerWasm::clearPointerHover() {
+    _pointerHover = false;
+}
+
 void VROInputControllerWasm::updateScreenTouch(int touchAction) {
     // Legacy entry point: treat as a touch at the screen center.
     onScreenTouch(touchAction, _viewportWidth / 2.0f, _viewportHeight / 2.0f);
@@ -95,8 +105,14 @@ void VROInputControllerWasm::updateOrientation(const VROCamera &camera) {
     VROQuaternion rotation = camera.getRotation();
     VROVector3f controllerForward = rotation.getMatrix().multiply(kBaseForward);
 
-    // Perform hit test
-    VROInputControllerBase::updateHitNode(camera, camera.getPosition(), controllerForward);
+    // Perform hit test. Re-cast every frame, not only on mouse moves, so the
+    // hover follows a camera that moves under a still mouse. Fuse reads the
+    // same hit, so on desktop it follows the mouse too.
+    VROVector3f hitRay = controllerForward;
+    if (_pointerHover && _viewportWidth > 0 && _viewportHeight > 0) {
+        hitRay = calculateCameraRay(_pointerX, _pointerY);
+    }
+    VROInputControllerBase::updateHitNode(camera, camera.getPosition(), hitRay);
 
     // Process orientation and update delegates
     VROInputControllerBase::onMove(ViroCardBoard::InputSource::Controller, camera.getPosition(), rotation, controllerForward);

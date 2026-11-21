@@ -1,5 +1,28 @@
 # CHANGELOG
 
+## v3.2.3 — 21 November 2026
+
+Web-only: iOS and Android behave as in 3.2.2. The one shared change is a new setter, `VROTexture::setStereoMode`.
+
+### Added
+
+- **Web: new `wasm/` exports for viro-web-renderer 1.3.0.** Each sits beside the existing ones; no signature changes.
+  - Animation: `viroPauseAnimation`, `viroResumeAnimation` and `viroStopAnimation` reach declarative passes, several at once on one node; `viroCanPauseDeclarativeAnimations` reports it.
+  - Portals: `viroSetNodeBackgroundSphere/Cube/Rotation`, `viroRemoveNodeBackground`, `viroSetPortalCallback` and `viroSetPortalEventsEnabled`.
+  - Materials and geometry: `viroSetGeometryMaterials`, `viroCreateGeometrySubmeshes`, `viroCreateSphereEx` (segments, facing), `viroCreatePolygonEx` (holes, UVs) and `viroSetTextureStereoMode`.
+  - Particles and physics: `viroConfigureParticleEmitter` with every native emitter setting, `viroSetPhysicsForces`, `viroFindCollisionsWithRay`, `viroFindCollisionsWithShape` and `viroSetPhysicsDebugDraw`.
+  - Scene and nodes: `viroSetPostProcessEffects`, `viroSetNodeRotationPivot`, `viroSetNodeScalePivot` and `viroSetNodeHighAccuracyEvents`.
+  - Input: `viroOnPointerHover` (mouse hover), `viroSetControllerEventEnabled` (scene-wide events under node handle 0), and an eighth event-callback argument with the number of position values, so a tap on empty space reports none, as native does.
+
+### Fixed
+
+- **Web: a .gltf with external files no longer aborts the wasm (`VROPlatformUtil`).** `VROPlatformDownloadURLToFile` was a `pabort()` on web; it now reports a missing file, so that model fails and the renderer keeps running.
+- **Web: portals keep drawing after the camera walks through (`VRORenderTargetOpenGL`).** WebGL drops a draw whose two faces hold different stencil reference or masks; on web they now go to both faces. Native keeps per-face values.
+- **Web: a material merged onto a model copies only what it sets,** as native's `VRTMergeAuthoredMaterialProperties` does. Colours and textures were never copied, and blend, cull and depth were forced from defaults; a material whose textures load after the model is merged again.
+- **Web: shader uniform updates reach a model's merged copies of the material.**
+- **Web: an empty AutoCompound physics shape is built from its node.**
+- **Web AR: the camera feed is cropped to fill the screen, never stretched,** as on ARKit and ARCore. `VROARCameraWeb::getView` gives one cropped view that both the projection and the background use, and it follows viewport changes.
+
 ## v3.2.2 — 18 November 2026
 
 ### Added
