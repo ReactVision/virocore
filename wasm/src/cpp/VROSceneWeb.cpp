@@ -2564,6 +2564,15 @@ static void viroSetCameraOrthographicScale(int node, float scale) {
     n->getCamera()->setOrthographicHeight(scale);
 }
 
+// Degrees across the viewport's longer side; 0 returns to the renderer's default.
+static void viroSetCameraFieldOfView(int node, float degrees) {
+    auto n = getNode(node);
+    if (!n || !n->getCamera()) {
+        return;
+    }
+    n->getCamera()->setFieldOfViewY(degrees);
+}
+
 // --- Model loading (GLB / glTF / VRX / OBJ) ---
 
 // cb(nodeHandle, success). Registered by the bridge to know when a load finishes.
@@ -2981,6 +2990,7 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroSetActiveCameraNode", &viroSetActiveCameraNode);
     emscripten::function("viroSetCameraProjection", &viroSetCameraProjection);
     emscripten::function("viroSetCameraOrthographicScale", &viroSetCameraOrthographicScale);
+    emscripten::function("viroSetCameraFieldOfView", &viroSetCameraFieldOfView);
 
     emscripten::function("viroSetModelLoadCallback", &viroSetModelLoadCallback);
     emscripten::function("viroLoadModel", &viroLoadModel);
