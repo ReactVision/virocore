@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## Unreleased
+
+### Added
+
+- **Android: `Material.setImmutableColor` and `setImmutableTexture` (ViroReact only).** They set a named channel, such as `emissionColor`, `emissionTexture` or `reflectiveTexture`, at once on the calling thread, as the immutable constructor does. The setters are queued for the rendering thread, and ViroReact copies its materials onto nodes before that queue runs, so a channel set that way never reached the copies.
+
 ## v3.2.3 — 21 November 2026
 
 Web-only: iOS and Android behave as in 3.2.2. The one shared change is a new setter, `VROTexture::setStereoMode`.

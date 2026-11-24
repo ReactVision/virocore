@@ -1473,6 +1473,23 @@ public class Material {
     }
 
     /**
+     * Set a named colour or texture at once, on the calling thread, like the immutable
+     * constructor. Only for a material no renderer holds yet: the setters above are queued
+     * for the rendering thread, and the bridge copies its materials before that queue runs.
+     * @hide
+     */
+    //#IFDEF 'viro_react'
+    public void setImmutableColor(String materialPropertyName, int color) {
+        nativeSetImmutableColor(mNativeRef, color, materialPropertyName);
+    }
+
+    /** @hide See {@link #setImmutableColor(String, int)}. */
+    public void setImmutableTexture(String materialPropertyName, Texture texture) {
+        nativeSetImmutableTexture(mNativeRef, texture != null ? texture.mNativeRef : 0, materialPropertyName);
+    }
+    //#ENDIF
+
+    /**
      * Remove all shader modifiers from this material.
      * This ensures shader modifiers REPLACE instead of STACK when switching shaders.
      */
@@ -1520,6 +1537,8 @@ public class Material {
     private native void nativeCopyShaderModifiers(long destNativeRef, long sourceNativeRef);
     private native void nativeCopyProperty(long destNativeRef, long sourceNativeRef, String name, boolean asTexture);
     private native void nativeRemoveAllShaderModifiers(long nativeRef);
+    private native void nativeSetImmutableColor(long nativeRef, long color, String materialPropertyName);
+    private native void nativeSetImmutableTexture(long nativeRef, long textureRef, String materialPropertyName);
 
     /**
      * Builder for creating {@link Material} objects.
