@@ -645,7 +645,7 @@ public:
         emit(EventAction::OnRotate, source, (int) rotateState, {rotationRadians});
     }
     // Only a completed fuse, as the native bridges report it; the countdown
-    // ratios above 0 are for Viro's own reticle.
+    // ratios above 0 are for a reticle, which the web does not draw.
     virtual void onFuse(int source, std::shared_ptr<VRONode> node, float timeToFuseRatio) {
         if (timeToFuseRatio > 0.0f) {
             return;
