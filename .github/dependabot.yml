@@ -10,6 +10,11 @@ updates:
     target-branch: "develop"
     schedule:
       interval: "daily"
+    ignore:
+      # Gradle 9 drops APIs the Android Gradle Plugin 8.2 uses: a new major needs AGP
+      # and Kotlin plugin upgrades with it, so it is done by hand, not bumped alone.
+      - dependency-name: "gradle-wrapper"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "github-actions"
     directory: "/" # Location of package manifests
