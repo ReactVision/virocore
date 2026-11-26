@@ -5,6 +5,7 @@
 ### Added
 
 - **Android: `Material.setImmutableColor` and `setImmutableTexture` (ViroReact only).** They set a named channel, such as `emissionColor`, `emissionTexture` or `reflectiveTexture`, at once on the calling thread, as the immutable constructor does. The setters are queued for the rendering thread, and ViroReact copies its materials onto nodes before that queue runs, so a channel set that way never reached the copies.
+- **Web: the AR point cloud (`VROARWeb`, `VROSceneWeb`).** `viroARSetPointCloud` puts the tracker's feature points on every AR frame, so `VROARFrame::getPointCloud()` returns them on the web as on iOS and Android, and `viroARDisplayPointCloud` draws them with a fixed-particle emitter, as `VROARScene::displayPointCloud` does natively. The web build draws its own default point texture (`VROImageUtil`), where it had none.
 
 ## v3.2.3 — 21 November 2026
 

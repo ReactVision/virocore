@@ -98,6 +98,9 @@ void initPointCloudTexture() {
 #elif VRO_PLATFORM_WASM
 
 #include "VROImageWasm.h"
+#include "VROData.h"
+#include <cmath>
+#include <vector>
 
 void initBlankTexture(const VRORenderContext &context) {
     std::shared_ptr<VROImage> wrapper = std::make_shared<VROImageWasm>("blank.png", VROTextureInternalFormat::RGBA8);
@@ -108,7 +111,25 @@ void initBlankTexture(const VRORenderContext &context) {
 }
 
 void initPointCloudTexture() {
-    
+    // No bundled image on the web, so draw the dot: white, with a soft edge that
+    // the additive blend turns into a glow, like the image the native SDKs ship.
+    const int size = 32;
+    std::vector<uint8_t> pixels(size * size * 4);
+    const float c = (size - 1) / 2.0f;
+    for (int y = 0; y < size; y++) {
+        for (int x = 0; x < size; x++) {
+            float d = std::sqrt((x - c) * (x - c) + (y - c) * (y - c)) / c;
+            float a = d >= 1 ? 0 : (d <= 0.5f ? 1 : 1 - (d - 0.5f) / 0.5f);
+            uint8_t v = (uint8_t) std::lround(255 * a);
+            uint8_t *p = &pixels[(y * size + x) * 4];
+            p[0] = v; p[1] = v; p[2] = v; p[3] = v;
+        }
+    }
+    std::vector<std::shared_ptr<VROData>> data = {
+        std::make_shared<VROData>(pixels.data(), (int) pixels.size()) };
+    staticPointCloudTexture = std::make_shared<VROTexture>(
+        VROTextureType::Texture2D, VROTextureFormat::RGBA8, VROTextureInternalFormat::RGBA8,
+        true, VROMipmapMode::Runtime, data, size, size, std::vector<uint32_t>());
 }
 
 #elif VRO_PLATFORM_MACOS
