@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## Unreleased
+
+### Added
+
+- **Web: the AR point cloud (`VROARWeb`, `VROSceneWeb`).** `viroARSetPointCloud` puts the tracker's feature points on every AR frame, so `VROARFrame::getPointCloud()` returns them on the web as on iOS and Android, and `viroARDisplayPointCloud` draws them with a fixed-particle emitter, as `VROARScene::displayPointCloud` does natively. The web build draws its own default point texture (`VROImageUtil`), where it had none.
+
 ## v3.2.3 — 21 November 2026
 
 Web-only: iOS and Android behave as in 3.2.2. The one shared change is a new setter, `VROTexture::setStereoMode`.
