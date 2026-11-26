@@ -687,7 +687,7 @@ public:
         emit(EventAction::OnRotate, source, (int) rotateState, {rotationRadians});
     }
     // Only a completed fuse, as the native bridges report it; the countdown
-    // ratios above 0 are for Viro's own reticle.
+    // ratios above 0 are for a reticle, which the web does not draw.
     virtual void onFuse(int source, std::shared_ptr<VRONode> node, float timeToFuseRatio) {
         if (timeToFuseRatio > 0.0f) {
             return;
@@ -1344,8 +1344,9 @@ enum WebAuthored {
     kAuthoredCullMode = 1 << 9,
     kAuthoredWritesDepth = 1 << 10,
     kAuthoredReadsDepth = 1 << 11,
+    kAuthoredEmissionColor = 1 << 12,
     // One bit per viroSetMaterialTexture channel, from here.
-    kAuthoredTexture0 = 1 << 12,
+    kAuthoredTexture0 = 1 << 13,
 };
 static std::unordered_map<const VROMaterial *, int> sAuthored;
 static void markAuthored(const std::shared_ptr<VROMaterial> &m, int bits) { sAuthored[m.get()] |= bits; }
@@ -1355,6 +1356,13 @@ static void viroSetMaterialDiffuseColor(int material, float r, float g, float b,
     if (!m) return;
     m->getDiffuse().setColor({r, g, b, a});
     markAuthored(m, kAuthoredDiffuseColor);
+}
+// Also scales an emission texture, so one without a colour stays black.
+static void viroSetMaterialEmissionColor(int material, float r, float g, float b) {
+    auto m = getMaterial(material);
+    if (!m) return;
+    m->getEmission().setColor({r, g, b, 1.0});
+    markAuthored(m, kAuthoredEmissionColor);
 }
 // model: 0=Constant, 1=Lambert, 2=Blinn, 3=Phong, 4=PhysicallyBased
 static void viroSetMaterialLightingModel(int material, int model) {
@@ -1831,10 +1839,12 @@ static VROMaterialVisual &visualForChannel(VROMaterial &m, int channel) {
         case 3: return m.getRoughness();
         case 4: return m.getMetalness();
         case 5: return m.getAmbientOcclusion();
+        case 6: return m.getEmission();
+        case 7: return m.getReflective();
         default: return m.getDiffuse();
     }
 }
-static const int kTextureChannels = 6;
+static const int kTextureChannels = 8;
 
 static void mergeShaderOverride(const std::shared_ptr<VROMaterial> &source,
                                 const std::shared_ptr<VROMaterial> &dest) {
@@ -1856,6 +1866,7 @@ static void mergeShaderOverride(const std::shared_ptr<VROMaterial> &source,
     if (authored & kAuthoredDiffuseIntensity) dest->getDiffuse().setIntensity(source->getDiffuse().getIntensity());
     if (authored & kAuthoredRoughness) dest->getRoughness().setColor(source->getRoughness().getColor());
     if (authored & kAuthoredMetalness) dest->getMetalness().setColor(source->getMetalness().getColor());
+    if (authored & kAuthoredEmissionColor) dest->getEmission().setColor(source->getEmission().getColor());
     for (int channel = 0; channel < kTextureChannels; channel++) {
         if (authored & (kAuthoredTexture0 << channel)) {
             visualForChannel(*dest, channel).setTexture(visualForChannel(*source, channel).getTexture());
@@ -2066,12 +2077,15 @@ static void viroSetTextureFilter(int texture, int minFilter, int magFilter, int 
         t->setMipFilter(filterModeValue(mipFilter));
     }
 }
-// channel: 0=diffuse,1=specular,2=normal,3=roughness,4=metalness,5=ambientOcclusion
+// channel: 0=diffuse,1=specular,2=normal,3=roughness,4=metalness,5=ambientOcclusion,
+// 6=emission,7=reflective (a cube texture)
 static void viroSetMaterialTexture(int material, int channel, int texture) {
     auto m = getMaterial(material);
     auto t = getTexture(texture);
     if (!m || !t) return;
     if (channel < 0 || channel >= kTextureChannels) channel = 0;
+    // VROMaterialVisual::setTexture aborts on a texture type its channel does not take.
+    if ((channel == 7) != (t->getType() == VROTextureType::TextureCube)) return;
     visualForChannel(*m, channel).setTexture(t);
     markAuthored(m, kAuthoredTexture0 << channel);
     // A registered material's textures load after the model it overrides has
@@ -2606,6 +2620,15 @@ static void viroSetCameraOrthographicScale(int node, float scale) {
     n->getCamera()->setOrthographicHeight(scale);
 }
 
+// Degrees across the viewport's longer side; 0 returns to the renderer's default.
+static void viroSetCameraFieldOfView(int node, float degrees) {
+    auto n = getNode(node);
+    if (!n || !n->getCamera()) {
+        return;
+    }
+    n->getCamera()->setFieldOfViewY(degrees);
+}
+
 // --- Model loading (GLB / glTF / VRX / OBJ) ---
 
 // cb(nodeHandle, success). Registered by the bridge to know when a load finishes.
@@ -2971,6 +2994,7 @@ EMSCRIPTEN_BINDINGS(viro_web) {
 
     emscripten::function("viroCreateMaterial", &viroCreateMaterial);
     emscripten::function("viroSetMaterialDiffuseColor", &viroSetMaterialDiffuseColor);
+    emscripten::function("viroSetMaterialEmissionColor", &viroSetMaterialEmissionColor);
     emscripten::function("viroSetMaterialLightingModel", &viroSetMaterialLightingModel);
     emscripten::function("viroDestroyMaterial", &viroDestroyMaterial);
     emscripten::function("viroSetMaterialShininess", &viroSetMaterialShininess);
@@ -3053,6 +3077,7 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroSetActiveCameraNode", &viroSetActiveCameraNode);
     emscripten::function("viroSetCameraProjection", &viroSetCameraProjection);
     emscripten::function("viroSetCameraOrthographicScale", &viroSetCameraOrthographicScale);
+    emscripten::function("viroSetCameraFieldOfView", &viroSetCameraFieldOfView);
 
     emscripten::function("viroSetModelLoadCallback", &viroSetModelLoadCallback);
     emscripten::function("viroLoadModel", &viroLoadModel);
