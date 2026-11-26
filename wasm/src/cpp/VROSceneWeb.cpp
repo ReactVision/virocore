@@ -28,6 +28,9 @@
 
 #include "VROSceneController.h"
 #include "VROScene.h"
+#include "VROImageUtil.h"
+#include "VROARPointCloud.h"
+#include "VROFixedParticleEmitter.h"
 #include "VROPortal.h"
 #include "VROPortalFrame.h"
 #include "VRONode.h"
@@ -402,11 +405,50 @@ void VROSceneWeb::drawFrameAR(VROViewport viewport) {
 
     _inputController->setRenderState(_renderer->getLookAtMatrix(), projection, _width, _height);
 
+    updatePointCloud(frame);
+
     _renderer->prepareFrame(_frame, viewport, fov, rotation, projection, _driver);
     glViewport(viewport.getX(), viewport.getY(), viewport.getWidth(), viewport.getHeight());
     _renderer->renderEye(VROEyeType::Monocular, _renderer->getLookAtMatrix(), projection, viewport, _driver);
     _renderer->renderHUD(VROEyeType::Monocular, VROMatrix4f::identity(), projection, _driver);
     _renderer->endFrame(_driver);
+}
+
+void VROSceneWeb::setPointCloudDisplay(bool display, std::shared_ptr<VROTexture> surfaceTexture,
+                                       VROVector3f scale, int maxPoints) {
+    _displayPointCloud = display;
+    if (!display) {
+        if (_pointCloudNode) _pointCloudNode->removeFromParentNode();
+        if (_pointCloudEmitter) _pointCloudEmitter->forceClearParticles();
+        return;
+    }
+    if (!_pointCloudEmitter) {
+        _pointCloudEmitter = std::make_shared<VROFixedParticleEmitter>(_driver);
+        _pointCloudNode = std::make_shared<VRONode>();
+        _pointCloudNode->setName("PointCloud");
+        _pointCloudNode->setParticleEmitter(_pointCloudEmitter);
+    }
+    _pointCloudEmitter->setMaxParticles(maxPoints > 0 ? maxPoints : 500);
+    _pointCloudEmitter->setParticleScale(scale);
+
+    // The same surface VROARScene gives its emitter: a quad, additive, no bloom.
+    std::shared_ptr<VROSurface> surface = VROSurface::createSurface(1, 1);
+    std::shared_ptr<VROMaterial> material = surface->getMaterials()[0];
+    material->getDiffuse().setTexture(surfaceTexture ? surfaceTexture : getPointCloudTexture());
+    material->setBloomThreshold(-1);
+    material->setBlendMode(VROBlendMode::Add);
+    _pointCloudEmitter->setParticleSurface(surface);
+}
+
+void VROSceneWeb::updatePointCloud(const std::unique_ptr<VROARFrame> &frame) {
+    if (!_displayPointCloud || !_pointCloudEmitter || !frame || !_scene) return;
+    // The bridge swaps the root when it navigates; follow it.
+    std::shared_ptr<VROPortal> root = _scene->getRootNode();
+    if (root && _pointCloudNode->getParentNode() != root) {
+        _pointCloudNode->removeFromParentNode();
+        root->addChildNode(_pointCloudNode);
+    }
+    _pointCloudEmitter->setParticleTransforms(frame->getPointCloud()->getPoints());
 }
 
 void VROSceneWeb::setSize(int width, int height) {
@@ -2809,6 +2851,36 @@ static void viroARSetCameraImageSize(float width, float height) {
     if (session) session->setCameraImageSize(width, height);
 }
 
+// The tracker's feature points, world space (Y-up), as a flat x,y,z array, and
+// their ids (same order; may be empty). They ride on every frame until replaced,
+// which is what ViroARScene's onARPointCloudUpdate and displayPointCloud read.
+static void viroARSetPointCloud(emscripten::val xyz, emscripten::val ids) {
+    if (!sScene) return;
+    std::shared_ptr<VROARSessionWeb> session = sScene->getARSession();
+    if (!session) return;
+    std::vector<float> flat = emscripten::convertJSArrayToNumberVector<float>(xyz);
+    std::vector<double> idv = emscripten::convertJSArrayToNumberVector<double>(ids);
+    std::vector<VROVector4f> points;
+    points.reserve(flat.size() / 3);
+    for (size_t i = 0; i + 2 < flat.size(); i += 3) {
+        // The 4th component is ARCore's confidence; the web tracker has none.
+        points.emplace_back(flat[i], flat[i + 1], flat[i + 2], 1.0f);
+    }
+    std::vector<uint64_t> identifiers;
+    identifiers.reserve(idv.size());
+    for (double d : idv) identifiers.push_back(static_cast<uint64_t>(d));
+    session->setPointCloud(std::move(points), std::move(identifiers));
+}
+
+// displayPointCloud: draw the feature points as particles. textureHandle < 0
+// keeps the default dot; sx/sy/sz is each particle's world size.
+static void viroARDisplayPointCloud(bool display, int textureHandle,
+                                    float sx, float sy, float sz, int maxPoints) {
+    if (!sScene) return;
+    sScene->setPointCloudDisplay(display, textureHandle >= 0 ? getTexture(textureHandle) : nullptr,
+                                 VROVector3f(sx, sy, sz), maxPoints);
+}
+
 // The camera's real intrinsics. Prefer this over viroARSetCameraImageSize
 // wherever the host knows them: without them the frustum is a fixed 60-degree
 // vertical field of view, and 3-D content is then projected through a different
@@ -2999,6 +3071,8 @@ EMSCRIPTEN_BINDINGS(viro_web) {
     emscripten::function("viroInitAR", &viroInitAR);
     emscripten::function("viroARSetPose", &viroARSetPose);
     emscripten::function("viroARSetCameraBackground", &viroARSetCameraBackground);
+    emscripten::function("viroARSetPointCloud", &viroARSetPointCloud);
+    emscripten::function("viroARDisplayPointCloud", &viroARDisplayPointCloud);
     emscripten::function("viroARSetCameraImageSize", &viroARSetCameraImageSize);
     emscripten::function("viroARSetCameraIntrinsics", &viroARSetCameraIntrinsics);
 }

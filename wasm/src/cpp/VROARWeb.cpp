@@ -86,6 +86,12 @@ VROARSessionWeb::VROARSessionWeb()
       _running(false),
       _frameCounter(0) {
     _camera = std::make_shared<VROARCameraWeb>();
+    _pointCloud = std::make_shared<VROARPointCloud>();
+}
+
+void VROARSessionWeb::setPointCloud(std::vector<VROVector4f> points,
+                                    std::vector<uint64_t> identifiers) {
+    _pointCloud = std::make_shared<VROARPointCloud>(std::move(points), std::move(identifiers));
 }
 
 VROARSessionWeb::~VROARSessionWeb() {}
@@ -120,8 +126,7 @@ std::unique_ptr<VROARFrame> &VROARSessionWeb::updateFrame() {
     // Rebuild the frame each call with the latest injected pose/anchors. The
     // camera shared_ptr is stable, so its pose updates propagate.
     _currentFrame = std::unique_ptr<VROARFrame>(new VROARFrameWeb(
-        _camera, _frameCounter, _orientation, _anchors,
-        std::make_shared<VROARPointCloud>()));
+        _camera, _frameCounter, _orientation, _anchors, _pointCloud));
     return _currentFrame;
 }
 

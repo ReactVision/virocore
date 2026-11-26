@@ -141,6 +141,12 @@ public:
     /** Real intrinsics for the projection; see VROARCameraWeb::setIntrinsics. */
     void setCameraIntrinsics(float fx, float fy, float cx, float cy,
                              float w, float h);
+    /**
+     The tracker's feature points, world space (Y-up), with their ids. Every frame
+     built after this carries them, as ARKit's rawFeaturePoints and ARCore's point
+     cloud do, until the next call replaces them.
+     */
+    void setPointCloud(std::vector<VROVector4f> points, std::vector<uint64_t> identifiers);
 
     // --- VROARSession ---
     void run() override { _running = true; }
@@ -189,6 +195,7 @@ private:
     std::shared_ptr<VROARCameraWeb> _camera;
     std::shared_ptr<VROTexture> _background;
     std::vector<std::shared_ptr<VROARAnchor>> _anchors;
+    std::shared_ptr<VROARPointCloud> _pointCloud;
     VROViewport _viewport;
     VROCameraOrientation _orientation;
     bool _running;
