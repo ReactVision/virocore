@@ -12,19 +12,16 @@
 #include <string>
 #include <vector>
 #include "VRODefines.h"
-#include "VROReticle.h"
 #include "VROEventDelegate.h"
 
+// No reticle: the web points with a mouse or a finger, so a gaze cursor fixed
+// at the centre of the view only covers the scene.
 class VROInputPresenterWasm : public VROInputPresenter {
 public:
-    VROInputPresenterWasm() {
-        setReticle(std::make_shared<VROReticle>(nullptr));
-        getReticle()->setPointerFixed(true);
-    }
+    VROInputPresenterWasm() {}
     ~VROInputPresenterWasm() {}
 
     void onClick(int source, std::shared_ptr<VRONode> node, ClickState clickState, std::vector<float> position) {
-        getReticle()->trigger();
         VROInputPresenter::onClick(source, node, clickState, position);
     }
 

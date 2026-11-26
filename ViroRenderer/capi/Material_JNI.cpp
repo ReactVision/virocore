@@ -290,6 +290,38 @@ static VROMaterialVisual *visualForMaterialProperty(const std::shared_ptr<VROMat
     return nullptr;
 }
 
+// Sets a facet on the calling thread, for a material no renderer holds yet (see
+// nativeCreateImmutableMaterial).
+VRO_METHOD(void, nativeSetImmutableColor)(VRO_ARGS
+                                          VRO_REF(VROMaterial) material_j,
+                                          VRO_LONG color,
+                                          VRO_STRING materialPropertyName) {
+    VRO_METHOD_PREAMBLE;
+    std::shared_ptr<VROMaterial> material = VRO_REF_GET(VROMaterial, material_j);
+    VROMaterialVisual *visual = visualForMaterialProperty(material, VRO_STRING_STL(materialPropertyName));
+    if (visual == nullptr) {
+        return;
+    }
+    material->setThreadRestrictionEnabled(false);
+    visual->setColor(parseColor(color));
+    material->setThreadRestrictionEnabled(true);
+}
+
+VRO_METHOD(void, nativeSetImmutableTexture)(VRO_ARGS
+                                            VRO_REF(VROMaterial) material_j,
+                                            VRO_REF(VROTexture) texture_j,
+                                            VRO_STRING materialPropertyName) {
+    VRO_METHOD_PREAMBLE;
+    std::shared_ptr<VROMaterial> material = VRO_REF_GET(VROMaterial, material_j);
+    VROMaterialVisual *visual = visualForMaterialProperty(material, VRO_STRING_STL(materialPropertyName));
+    if (visual == nullptr) {
+        return;
+    }
+    material->setThreadRestrictionEnabled(false);
+    visual->setTexture(texture_j != 0 ? VRO_REF_GET(VROTexture, texture_j) : nullptr);
+    material->setThreadRestrictionEnabled(true);
+}
+
 // Moves one facet from one material to another. A texture has no route through Java,
 // because MaterialManager disposes the Java Texture handle as soon as it has built the
 // material, so the handle it could hand back carries a native ref of zero.

@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## v3.3.0 — 26 November 2026
+
+Web and Android. iOS behaves as in 3.2.3.
+
+### Added
+
+- **Web: new `wasm/` exports for viro-web-renderer 1.4.0,** each beside the existing ones, with no signature changes: `viroSetCameraFieldOfView` (a camera node's field of view, across the viewport's longer side), `viroSetMaterialEmissionColor`, and texture channels 6 (emission) and 7 (reflective, a cube texture) on `viroSetMaterialTexture`. Its presence is what tells the renderer the channels exist.
+- **Android: `Material.setImmutableColor` and `setImmutableTexture` (ViroReact only).** They set a named channel, such as `emissionColor`, `emissionTexture` or `reflectiveTexture`, at once on the calling thread, as the immutable constructor does. The setters are queued for the rendering thread, and ViroReact copies its materials onto nodes before that queue runs, so a channel set that way never reached the copies.
+- **Web: the AR point cloud (`VROARWeb`, `VROSceneWeb`).** `viroARSetPointCloud` puts the tracker's feature points on every AR frame, so `VROARFrame::getPointCloud()` returns them on the web as on iOS and Android, and `viroARDisplayPointCloud` draws them with a fixed-particle emitter, as `VROARScene::displayPointCloud` does natively. The web build draws its own default point texture (`VROImageUtil`), where it had none.
+
+### Changed
+
+- **Web: no reticle (`VROInputPresenterWasm`).** The web points with a mouse or a finger, so the gaze cursor fixed at the centre of the view only covered the scene.
+
 ## v3.2.3 — 21 November 2026
 
 Web-only: iOS and Android behave as in 3.2.2. The one shared change is a new setter, `VROTexture::setStereoMode`.
