@@ -9,6 +9,9 @@
 #include <cmath>
 #include "VROLog.h"
 #include "VROInputPresenterOpenXR.h"
+#include "VRONode.h"
+#include "VROPortal.h"
+#include "VROScene.h"
 #include "VROVector3f.h"
 #include "VROCamera.h"
 #include "VROInputType.h"
@@ -617,13 +620,17 @@ void VROInputControllerOpenXR::onProcess(XrSession session, XrSpace baseSpace,
     }
 
     for (const auto &edge : _pendingButtons) {
+        pinput("OpenXR button edge source=%d state=%d (%zu controller delegates)",
+               edge.first, (int) edge.second, _delegates.size());
         if (edge.first == ViroOculus::MenuButton) {
             notifyMenuButton(edge.second);
         } else {
             VROInputControllerBase::onButtonEvent(edge.first, edge.second);
         }
 
-        // A short pulse on press, so a click reads as having landed. The left and
+        // A short pulse on press, so a click reads as having landed. It follows the
+        // press being detected, not its delivery: the pulse says nothing about
+        // whether any handler heard the click. The left and
         // right vibration output actions have been bound since this controller was
         // written but had no caller anywhere, which is why every click, drag and
         // collision in a Quest scene was silent.
@@ -960,11 +967,25 @@ void VROInputControllerOpenXR::updatePress(int source, bool &state, bool other, 
 
 void VROInputControllerOpenXR::notifyMenuButton(VROEventDelegate::ClickState state) {
     const std::vector<float> noPosition;
+    const bool released = state == VROEventDelegate::ClickState::ClickUp;
     for (std::shared_ptr<VROEventDelegate> delegate : _delegates) {
         delegate->onClick(ViroOculus::MenuButton, nullptr, state, noPosition);
-        if (state == VROEventDelegate::ClickState::ClickUp) {
+        if (released) {
             delegate->onClick(ViroOculus::MenuButton, nullptr,
                               VROEventDelegate::ClickState::Clicked, noPosition);
+        }
+    }
+
+    // The scene root hears it too, as it hears a trigger pulled at nothing, so an
+    // application has a second route to the menu button besides ViroController. No
+    // other node does: the button is not aimed at anything.
+    std::shared_ptr<VRONode> root = _scene ? _scene->getRootNode() : nullptr;
+    std::shared_ptr<VROEventDelegate> rootDelegate = root ? root->getEventDelegate() : nullptr;
+    if (rootDelegate && rootDelegate->isEventEnabled(VROEventDelegate::EventAction::OnClick)) {
+        rootDelegate->onClick(ViroOculus::MenuButton, root, state, noPosition);
+        if (released) {
+            rootDelegate->onClick(ViroOculus::MenuButton, root,
+                                  VROEventDelegate::ClickState::Clicked, noPosition);
         }
     }
 }

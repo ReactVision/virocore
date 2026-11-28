@@ -26,6 +26,7 @@
 #ifndef VROInputPresenter_H
 #define VROInputPresenter_H
 
+#include "VROLog.h"
 #include <memory>
 #include "VROAtomic.h"
 #include "VROEventDelegate.h"
@@ -59,8 +60,17 @@ public:
         return _rootNode;
     }
 
+    /*
+     The delegate that hears this controller's events (ViroController's). Held
+     strongly: it was held weakly, so anything that released the caller's reference
+     left the controller with no listener and nothing to say so. The owner replaces
+     it, or passes nullptr, when it is done; a delegate whose application object is
+     gone drops its events itself.
+     */
     void setEventDelegate(std::shared_ptr<VROEventDelegate> delegate){
-        _eventDelegateWeak = delegate;
+        _eventDelegate = delegate;
+        _warnedNoClickDelegate = false;
+        _warnedClickDisabled = false;
     }
 
     virtual void onHover(int source, std::shared_ptr<VRONode> node, bool isHovering, std::vector<float> position) {
@@ -76,9 +86,28 @@ public:
         passert_thread(__func__);
         
         std::shared_ptr<VROEventDelegate> delegate = getDelegate();
-        if (delegate != nullptr && delegate->isEventEnabled(VROEventDelegate::EventAction::OnClick)){
-            delegate->onClick(source, node, clickState, position);
+        if (delegate == nullptr) {
+            pinput("presenter onClick source=%d state=%d dropped: no controller delegate", source, (int) clickState);
+            if (!_warnedNoClickDelegate) {
+                _warnedNoClickDelegate = true;
+                pinfo("A controller click (source %d) arrived with no controller event delegate set: "
+                      "no ViroController hears clicks", source);
+            }
+            return;
         }
+        if (!delegate->isEventEnabled(VROEventDelegate::EventAction::OnClick)) {
+            pinput("presenter onClick source=%d state=%d dropped: OnClick is not enabled on the controller delegate",
+                   source, (int) clickState);
+            if (!_warnedClickDisabled) {
+                _warnedClickDisabled = true;
+                pinfo("A controller click (source %d) arrived but clicks are not enabled on the "
+                      "controller event delegate: no ViroController with onClick or onClickState "
+                      "hears clicks", source);
+            }
+            return;
+        }
+        pinput("presenter onClick source=%d state=%d -> controller delegate", source, (int) clickState);
+        delegate->onClick(source, node, clickState, position);
     }
 
     virtual void onTouch(int source, std::shared_ptr<VRONode> node, TouchState state, float x, float y){
@@ -245,7 +274,10 @@ protected:
 
 private:
 
-    std::weak_ptr<VROEventDelegate> _eventDelegateWeak;
+    std::shared_ptr<VROEventDelegate> _eventDelegate;
+    // Each logged once per delegate set: a scene without a ViroController is normal.
+    bool _warnedNoClickDelegate = false;
+    bool _warnedClickDisabled = false;
 
     std::shared_ptr<VROReticle> _reticle;
     bool _reticleInitialPositionSet;
@@ -255,10 +287,7 @@ private:
      Event delegate for triggering calls back to Controller_JNI.
      */
     std::shared_ptr<VROEventDelegate> getDelegate(){
-        if (_eventDelegateWeak.expired()){
-            return nullptr;
-        }
-        return _eventDelegateWeak.lock();
+        return _eventDelegate;
     }
     
 };

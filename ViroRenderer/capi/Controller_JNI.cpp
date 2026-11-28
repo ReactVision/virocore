@@ -28,6 +28,7 @@
 #include "EventDelegate_JNI.h"
 #include "ViroUtils_JNI.h"
 #include "VROInputControllerBase.h"
+#include "VROLog.h"
 
 #if VRO_PLATFORM_ANDROID
 #define VRO_METHOD(return_type, method_name) \
@@ -55,11 +56,22 @@ VRO_METHOD(void, nativeSetEventDelegate)(VRO_ARGS
         std::shared_ptr<ViroContext> nativeContext = nativeContext_w.lock();
         std::shared_ptr<EventDelegate_JNI> delegate = delegate_w.lock();
 
-        if (nativeContext && delegate) {
-            std::shared_ptr<VROInputPresenter> controllerPresenter
-                    = nativeContext->getInputController()->getPresenter();
-            controllerPresenter->setEventDelegate(delegate);
+        if (!nativeContext || !delegate) {
+            pinput("Controller.setEventDelegate dropped: %s was released before the renderer ran it",
+                   !nativeContext ? "the context" : "the delegate");
+            return;
         }
+        std::shared_ptr<VROInputControllerBase> inputController = nativeContext->getInputController();
+        std::shared_ptr<VROInputPresenter> controllerPresenter
+                = inputController ? inputController->getPresenter() : nullptr;
+        if (!controllerPresenter) {
+            // No presenter until the input controller has a driver.
+            pwarn("Controller.setEventDelegate dropped: the input controller has no presenter yet");
+            return;
+        }
+        controllerPresenter->setEventDelegate(delegate);
+        pinput("Controller.setEventDelegate: delegate %p set on presenter %p",
+               (void *) delegate.get(), (void *) controllerPresenter.get());
     });
 }
 
@@ -114,30 +126,33 @@ VRO_METHOD(VRO_FLOAT_ARRAY, nativeGetControllerForwardVector)(VRO_ARGS
     return ARUtilsCreateFloatArrayFromVector3f(position);
 }
 
+/*
+ The callbacks of the two asynchronous reads below are held through strong global
+ references until they have been called. They were held weakly, and nothing else holds
+ them on the Java side: a garbage collection between the request and the answer cleared
+ the reference, and the answer was dropped without the caller ever hearing. Each path
+ below calls the callback once and then releases it. A context that is gone answers
+ like one with nothing to report (a zero vector, no ray) rather than not at all.
+ */
 VRO_METHOD(void, nativeGetControllerForwardVectorAsync)(VRO_ARGS
                                                         VRO_REF(ViroContext) native_render_context_ref,
                                                         VRO_OBJECT callback) {
     if (native_render_context_ref == 0) {
         return;
     }
-    VRO_WEAK weakCallback = VRO_NEW_WEAK_GLOBAL_REF(callback);
+    VRO_OBJECT callback_g = VRO_NEW_GLOBAL_REF(callback);
     std::weak_ptr<ViroContext> helperContext_w = VRO_REF_GET(ViroContext, native_render_context_ref);
 
-    VROPlatformDispatchAsyncApplication([helperContext_w, weakCallback] {
+    VROPlatformDispatchAsyncApplication([helperContext_w, callback_g] {
         VRO_ENV env = VROPlatformGetJNIEnv();
-        VRO_OBJECT jCallback = VRO_NEW_LOCAL_REF(weakCallback);
-        if (VRO_IS_OBJECT_NULL(jCallback)) {
-            return;
-        }
+        VROVector3f position;
         std::shared_ptr<ViroContext> helperContext = helperContext_w.lock();
-        if (!helperContext) {
-            return;
+        if (helperContext) {
+            position = helperContext->getInputController()->getPresenter()->getLastKnownForward();
         }
-        VROVector3f position = helperContext->getInputController()->getPresenter()->getLastKnownForward();
-        VROPlatformCallHostFunction(jCallback,
+        VROPlatformCallHostFunction(callback_g,
                                     "onGetForwardVector", "(FFF)V", position.x, position.y, position.z);
-        VRO_DELETE_LOCAL_REF(jCallback);
-        VRO_DELETE_WEAK_GLOBAL_REF(weakCallback);
+        VRO_DELETE_GLOBAL_REF(callback_g);
     });
 }
 
@@ -148,28 +163,22 @@ VRO_METHOD(void, nativeGetControllerRayAsync)(VRO_ARGS
     if (native_render_context_ref == 0) {
         return;
     }
-    VRO_WEAK weakCallback = VRO_NEW_WEAK_GLOBAL_REF(callback);
+    VRO_OBJECT callback_g = VRO_NEW_GLOBAL_REF(callback);
     std::weak_ptr<ViroContext> helperContext_w = VRO_REF_GET(ViroContext, native_render_context_ref);
 
     // The poses are written on the render thread, so they are read there too.
-    VROPlatformDispatchAsyncRenderer([helperContext_w, weakCallback, source] {
+    VROPlatformDispatchAsyncRenderer([helperContext_w, callback_g, source] {
         std::shared_ptr<ViroContext> helperContext = helperContext_w.lock();
         VROVector3f origin, forward;
         bool found = helperContext &&
                      helperContext->getInputController()->getSourceRay(source, &origin, &forward);
 
-        VROPlatformDispatchAsyncApplication([weakCallback, found, origin, forward] {
+        VROPlatformDispatchAsyncApplication([callback_g, found, origin, forward] {
             VRO_ENV env = VROPlatformGetJNIEnv();
-            VRO_OBJECT jCallback = VRO_NEW_LOCAL_REF(weakCallback);
-            if (VRO_IS_OBJECT_NULL(jCallback)) {
-                VRO_DELETE_WEAK_GLOBAL_REF(weakCallback);
-                return;
-            }
             VRO_FLOAT_ARRAY jOrigin = found ? ARUtilsCreateFloatArrayFromVector3f(origin) : nullptr;
             VRO_FLOAT_ARRAY jForward = found ? ARUtilsCreateFloatArrayFromVector3f(forward) : nullptr;
-            VROPlatformCallHostFunction(jCallback, "onGetRay", "([F[F)V", jOrigin, jForward);
-            VRO_DELETE_LOCAL_REF(jCallback);
-            VRO_DELETE_WEAK_GLOBAL_REF(weakCallback);
+            VROPlatformCallHostFunction(callback_g, "onGetRay", "([F[F)V", jOrigin, jForward);
+            VRO_DELETE_GLOBAL_REF(callback_g);
         });
     });
 }

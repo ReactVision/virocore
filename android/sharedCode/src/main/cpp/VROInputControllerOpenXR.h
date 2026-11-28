@@ -114,7 +114,7 @@ protected:
 
     /*
      * Buttons ride their hand's aim ray: grip / A / thumbstick → Controller,
-     * grip / X / Y / thumbstick → LeftController. Menu reaches no node (see
+     * grip / X / Y / thumbstick → LeftController. Menu reaches no hit node (see
      * notifyMenuButton) and maps to LeftController only so its haptic pulse
      * goes to the left hand. BackButton (B) stays unmapped and resolves
      * against the legacy hit.
@@ -136,8 +136,8 @@ private:
     void updatePress(int source, bool &state, bool other, bool pressed);
     /*
      * MenuButton opens the app's menu rather than pressing what a ray points
-     * at, so only the controller's delegates (ViroController) hear it: it never
-     * clicks or drags a node.
+     * at, so the controller's delegates (ViroController) and the scene root hear
+     * it, and no other node: it never clicks or drags one.
      */
     void notifyMenuButton(VROEventDelegate::ClickState state);
     std::vector<std::pair<int, VROEventDelegate::ClickState>> _pendingButtons;

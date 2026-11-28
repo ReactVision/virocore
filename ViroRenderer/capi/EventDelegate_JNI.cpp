@@ -23,6 +23,7 @@
 //  TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 //  SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+#include "VROLog.h"
 #include "EventDelegate_JNI.h"
 #include "Node_JNI.h"
 #include "ViroUtils_JNI.h"
@@ -51,7 +52,7 @@ VRO_METHOD(void, nativeDestroyDelegate)(VRO_ARGS
                                         VRO_REF(EventDelegate_JNI) native_node_ref) {
     // TODO: figure out why this is needed
     VROPlatformDispatchAsyncRenderer([native_node_ref]{
-        VRO_REF_DELETE(VRONode, native_node_ref);
+        VRO_REF_DELETE(EventDelegate_JNI, native_node_ref);
     });
 }
 
@@ -68,6 +69,9 @@ VRO_METHOD(void, nativeEnableEvent)(VRO_ARGS
         }
         VROEventDelegate::EventAction eventType = static_cast<VROEventDelegate::EventAction>(eventTypeId);
         delegate->setEnabledEvent(eventType, enabled);
+        if (eventType == VROEventDelegate::EventAction::OnClick) {
+            pinput("EventDelegate %p OnClick %s", (void *) delegate.get(), enabled ? "enabled" : "disabled");
+        }
     });
 }
 
@@ -134,8 +138,12 @@ void EventDelegate_JNI::onClick(int source, std::shared_ptr<VRONode> node, Click
         VRO_ENV env = VROPlatformGetJNIEnv();
         VRO_OBJECT localObj = VRO_NEW_LOCAL_REF(weakObj);
         if (VRO_IS_OBJECT_NULL(localObj)) {
+            pinput("EventDelegate onClick source=%d state=%d dropped: its Java object was collected or disposed",
+                   source, (int) clickState);
+            VRO_DELETE_WEAK_GLOBAL_REF(weakObj);
             return;
         }
+        pinput("EventDelegate onClick source=%d state=%d -> Java", source, (int) clickState);
 
         VRO_FLOAT_ARRAY positionArray;
         if (position.size() == 3) {
