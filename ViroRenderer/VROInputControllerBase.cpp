@@ -88,6 +88,9 @@ void VROInputControllerBase::onButtonEvent(int source, VROEventDelegate::ClickSt
     int ray = rayForSource(source);
     auto hit = getHitResultForSource(ray);
     if (hit == nullptr) {
+        // No hit test has run for this ray yet, so there is nothing to resolve
+        // the click against, and nobody hears it.
+        pinput("onButtonEvent source=%d state=%d dropped: no hit result for ray %d", source, (int) clickState, ray);
         return;
     }
     bool sourceAware = _hitResultsBySource.count(ray) > 0;

@@ -510,6 +510,32 @@ void pstack();
 
 /////////////////////////////////////////////////////////////////////////////////
 //
+//  Common: Input trace
+//
+/////////////////////////////////////////////////////////////////////////////////
+#pragma mark -
+#pragma mark Common: Input trace
+
+/*
+ Verbose trace of controller clicks through the renderer, under the logcat tag
+ ViroInput (the React bridge traces its own hops under the same tag), for finding
+ where a click is lost between the device and the application:
+
+   adb logcat -s ViroInput
+
+ Clicks only: a few lines a press. Android only; elsewhere it compiles to nothing.
+ */
+#if VRO_PLATFORM_ANDROID
+#define pinput(...) \
+    do { \
+        __android_log_print(ANDROID_LOG_VERBOSE, "ViroInput", __VA_ARGS__); \
+    } while (0)
+#else
+#define pinput(...) ((void)0)
+#endif
+
+/////////////////////////////////////////////////////////////////////////////////
+//
 //  Common: Abort
 //
 /////////////////////////////////////////////////////////////////////////////////

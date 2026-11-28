@@ -61,9 +61,13 @@
 #include "VROAnimationFloat.h"
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
+#include <mutex>
 #include <functional>
 
 static std::string kVROGLTFInputSamplerKey = "timeInput";
+// Held while one model is built through the static caches below; see loadGLTFFromResource.
+static std::mutex sLoadMutex;
 std::map<std::string, std::shared_ptr<VROVertexBuffer>> VROGLTFLoader::_dataCache;
 std::map<std::string, std::shared_ptr<VROTexture>> VROGLTFLoader::_textureCache;
 std::map<int, std::shared_ptr<VROSkeleton>> VROGLTFLoader::_skinIndexToSkeleton;
@@ -1150,12 +1154,23 @@ void VROGLTFLoader::loadGLTFFromResource(std::string gltfManifestFilePath, const
                         std::make_shared<tinygltf::Model>(std::move(gModel));
                     VROPlatformDispatchAsyncRenderer([rootNode, modelPtr, driver, onFinish] {
                         const tinygltf::Model &model = *modelPtr;
+
+                        // Everything from here to the second clearCachedData() builds one
+                        // model through the static caches of this class. One rendering
+                        // thread runs these tasks one after another, but a process can
+                        // have two (two views alive at once, as when one activity is
+                        // finishing while the next starts), and two loads sharing the
+                        // caches build each other's buffers and skins. The lock ends
+                        // before injectGLTF, which calls out to the caller.
+                        std::unique_lock<std::mutex> loadLock(sLoadMutex);
                         clearCachedData();
 
                         // Process and cache skinner and skeletal data needed for skeletal animation
                         // and skinner geometry to be set later on our nodes.
                         if (!processSkinner(model)) {
                             perr("Error when processing the skinner of GLTF model!");
+                            clearCachedData();
+                            loadLock.unlock();
                             onFinish(nullptr, false);
                             return;
                         }
@@ -1164,6 +1179,8 @@ void VROGLTFLoader::loadGLTFFromResource(std::string gltfManifestFilePath, const
                         // set later on our nodes (when we iterate through the scene hierarchy).
                         if (!processAnimations(model)) {
                             pwarn("Error when processing animation data of the GLTF model!");
+                            clearCachedData();
+                            loadLock.unlock();
                             onFinish(nullptr, false);
                             return;
                         }
@@ -1212,11 +1229,12 @@ void VROGLTFLoader::loadGLTFFromResource(std::string gltfManifestFilePath, const
                         // animation's final pose, causing visible mesh disassembly.
                         injectBindPoseAnimations();
 
+                        // Clean up our cached resources. The built nodes own what they need.
+                        clearCachedData();
+                        loadLock.unlock();
+
                         // Once we have processed the model, injected it into the scene.
                         injectGLTF(success ? gltfRootNode : nullptr, rootNode, driver, onFinish);
-
-                        // Clean up our cached resources.
-                        clearCachedData();
                     });
                 });
             },
@@ -3551,7 +3569,6 @@ std::shared_ptr<VROGeometrySource> VROGLTFLoader::buildBoneWeightSource(GLTFType
                                                                         const tinygltf::Accessor &gAttributeAccesor,
                                                                         const tinygltf::BufferView &gIndiceBufferView,
                                                                         const tinygltf::Buffer &gbuffer) {
-    bool isFloat = gTypeComponent == GLTFTypeComponent::Float;
     size_t bufferViewOffset = gIndiceBufferView.byteOffset;
     size_t bufferViewTotalSize = gIndiceBufferView.byteLength;
     
@@ -3567,54 +3584,57 @@ std::shared_ptr<VROGeometrySource> VROGLTFLoader::buildBoneWeightSource(GLTFType
     VROByteBuffer buffer((char *) gbuffer.data.data() + bufferViewOffset, bufferViewTotalSize, false);
     
     // Parse the gLTF buffers for the weight of each bone and normalize them.
-    // The normalized data is stored in dataOut.
-    int sizeOfSingleBoneWeight = getTypeSize(gType) * getComponentTypeSize(gTypeComponent);
-    float *dataOut = new float[sizeOfSingleBoneWeight * gAttributeAccesor.count]();
+    // The normalized data is stored in dataOut: four floats a vertex, whatever the
+    // component type in the file. Unused components (a VEC2 or VEC3 accessor) stay 0.
+    const int kWeightsPerVertex = 4;
+    int componentsInFile = std::min(getTypeSize(gType), kWeightsPerVertex);
+    size_t dataOutLength = sizeof(float) * kWeightsPerVertex * gAttributeAccesor.count;
+    // malloc, not new[]: VROData frees what it is moved with free().
+    float *dataOut = (float *) calloc(kWeightsPerVertex * gAttributeAccesor.count, sizeof(float));
     for (int elementIndex = 0; elementIndex < gAttributeAccesor.count; elementIndex++) {
-        
+
         // For the current element, cycle through each of its float or type component
         // and convert them into a float through the math conversions required by gLTF.
         buffer.setPosition(elementIndex * bufferViewStride + gAttributeAccesor.byteOffset);
-        std::vector<float> weight;
-        for (int componentCount = 0; componentCount < getTypeSize(gType); componentCount++) {
+        float weight[kWeightsPerVertex] = {0, 0, 0, 0};
+        for (int componentCount = 0; componentCount < componentsInFile; componentCount++) {
             if (gTypeComponent == GLTFTypeComponent::Float) {
-                float floatData = buffer.readFloat();
-                weight.push_back(floatData);
+                weight[componentCount] = buffer.readFloat();
             } else if (gTypeComponent == GLTFTypeComponent::UnsignedByte) {
-                unsigned uByteData = buffer.readUnsignedByte();
-                float point = uByteData / 255.0;
-                weight.push_back(point);
+                weight[componentCount] = buffer.readUnsignedByte() / 255.0f;
             } else if (gTypeComponent == GLTFTypeComponent::UnsignedShort) {
-                unsigned short uShortData = buffer.readUnsignedShort();
-                float point = uShortData / 65535.0;
-                weight.push_back(point);
+                weight[componentCount] = buffer.readUnsignedShort() / 65535.0f;
             } else {
                 perr("Invalid weighted bone data provided for the 3D glTF skinner.");
+                free(dataOut);
                 return {};
             }
         }
-        
+
+        // A vertex with no weights at all stays at zero: dividing would write NaNs.
         float totalWeight = weight[0] + weight[1] + weight[2] + weight[3];
-        VROVector4f normalizedWeight;
-        VROVector4f(weight[0], weight[1], weight[2], weight[3]).scale(1/totalWeight, &normalizedWeight);
-        dataOut[(elementIndex * 4)]     = normalizedWeight.x;
-        dataOut[(elementIndex * 4) + 1] = normalizedWeight.y;
-        dataOut[(elementIndex * 4) + 2] = normalizedWeight.z;
-        dataOut[(elementIndex * 4) + 3] = normalizedWeight.w;
+        float scale = totalWeight > 0 ? 1.0f / totalWeight : 0.0f;
+        for (int i = 0; i < kWeightsPerVertex; i++) {
+            dataOut[(elementIndex * kWeightsPerVertex) + i] = weight[i] * scale;
+        }
     }
-    
-    // Finally create our geometry sources with the normalized data.
+
+    // Finally create our geometry source with the normalized data. It describes
+    // dataOut, not the accessor: the weights are floats now, four bytes each, sixteen
+    // a vertex. Describing them with the file's component type (one or two bytes,
+    // not float) handed the renderer a quarter or half of the buffer, read as
+    // integers, and a skinned mesh with byte or short weights flew apart.
     std::shared_ptr<VROData> indexData = std::make_shared<VROData>((void *) dataOut,
-                                                                   sizeOfSingleBoneWeight * gAttributeAccesor.count,
+                                                                   (int) dataOutLength,
                                                                    VRODataOwnership::Move);
     return std::make_shared<VROGeometrySource>(indexData,
                                                VROGeometrySourceSemantic::BoneWeights,
                                                gAttributeAccesor.count,
-                                               isFloat,
-                                               getTypeSize(gType),
-                                               getComponentTypeSize(gTypeComponent),
+                                               true,
+                                               kWeightsPerVertex,
+                                               (int) sizeof(float),
                                                0,
-                                               sizeOfSingleBoneWeight);
+                                               (int) (sizeof(float) * kWeightsPerVertex));
 }
 
 std::shared_ptr<VROMaterial> VROGLTFLoader::getMaterial(const tinygltf::Model &gModel, const tinygltf::Material &gMat) {

@@ -1,5 +1,26 @@
 # CHANGELOG
 
+## Unreleased
+
+Meta Quest input fixes and two glTF loader fixes, from bugs the XR Demos apps found on Quest 3. Each entry names the app workaround it is for. None of this has run on a headset, and the native libraries have not been built with these changes: the changed files were only type-checked on a host. The ViroReact side is [viro#638](https://github.com/ReactVision/viro/pull/638).
+
+### Added
+
+- **Android: a `ViroInput` trace of controller clicks through the renderer** (towards `viroreact-quest-controller-click-route`). `adb logcat -s ViroInput` shows each button edge the OpenXR input controller flushes, a click dropped for want of a hit result, the presenter handing it to the controller's event delegate or saying why not (no delegate, clicks not enabled), and `EventDelegate_JNI` handing it to Java or finding its Java object gone. `Controller.setEventDelegate` and the enabling of clicks on a delegate are traced too. A few lines a press; nothing else is traced.
+
+### Changed
+
+- **Quest: the menu button also reaches the scene root (`VROInputControllerOpenXR`, `viroreact-quest-controller-click-route`).** It went to the controller's delegates only, so an app whose `ViroController` heard nothing had no other route to it. The scene root's delegate now gets ClickDown, ClickUp and Clicked for source 13, with no position, when clicks are enabled on it. No other node does. A scene-level `onClick` or `onClickState` therefore now fires for the menu button: check `source` if that matters.
+- **The input presenter holds its event delegate strongly (`VROInputPresenter`).** It held it weakly and dropped events without a word once the reference expired. The first click that arrives with no delegate, or with clicks not enabled on it, is logged once.
+- **Android: `getControllerForwardVectorAsync` answers with a zero vector when its context is gone,** instead of never calling back.
+
+### Fixed
+
+- **Android: `getControllerRayAsync` and `getControllerForwardVectorAsync` always call back (`Controller_JNI`, `viroreact-controller-ray-weak-callback`).** The callback was held through a weak global reference and nothing else held it, so a garbage collection before the answer dropped it. It is held strongly until called, and released on every path.
+- **glTF: skin weights stored as bytes or shorts no longer explode the mesh (`VROGLTFLoader::buildBoneWeightSource`, `viroreact-gltf-byte-weights`).** The weights were converted to four floats a vertex but described with the file's component type: not float, one or two bytes each, over a quarter or half of the buffer. They are described as what they are. A vertex whose weights sum to zero no longer becomes NaN, and the buffer is freed the way it was allocated.
+- **glTF: two loads can no longer share the loader's static caches (`VROGLTFLoader`, towards `viroreact-gltf-static-cache`).** One rendering thread already builds models one after another, each between two `clearCachedData()` calls. A process with two rendering threads had no such order: two Quest VRActivities alive at once is one way to have them. The build is now under a lock, released before the caller's callback. Whether this is what corrupted models mounted in the same frame is not known: no path was found by which loads on a single rendering thread share the caches. Keep the workaround until 12 rigged GLBs mounted in one frame have been checked on a device.
+- **Android: `EventDelegate.dispose` deletes its native reference as the type it is,** not as a `VRONode`, and a click whose Java delegate is gone no longer leaks a weak reference.
+
 ## v3.3.0 — 26 November 2026
 
 Web and Android. iOS behaves as in 3.2.3.
